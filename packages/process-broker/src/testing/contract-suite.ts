@@ -25,7 +25,12 @@ import {
   type TrustedToolDescriptor,
 } from "../tool.js";
 import { createManualTime, systemClock, type Clock } from "../time.js";
-import type { ExecuteInput, ProcessBroker, ProcessResult } from "../broker.js";
+import type {
+  DuplexProcessSession,
+  ExecuteInput,
+  ProcessBroker,
+  ProcessResult,
+} from "../broker.js";
 
 export const CONTRACT_EPOCH = "2026-08-02T00:00:00.000Z";
 const SUBJECT_FINGERPRINT = "a".repeat(64);
@@ -375,6 +380,243 @@ export function runProcessBrokerContractSuite(factory: ProcessBrokerContractFact
         expect(serialized).not.toContain("canary-value");
         expect(serialized.length).toBeLessThan(1_000);
       });
+    });
+  });
+}
+
+/**
+ * Reusable behavioural contract for brokers that expose long-lived duplex
+ * sessions. It deliberately uses the same harness and admission inputs as
+ * execute(), so an implementation cannot quietly create a weaker path.
+ */
+export function runDuplexProcessSessionContractSuite(
+  factory: ProcessBrokerContractFactory,
+): void {
+  describe("duplex process-session contract", () => {
+    async function withHarness<T>(
+      body: (harness: ProcessBrokerContractHarness) => Promise<T>,
+    ): Promise<T> {
+      const harness = await factory();
+      try {
+        return await body(harness);
+      } finally {
+        await harness.close();
+      }
+    }
+
+    async function open(
+      harness: ProcessBrokerContractHarness,
+      request: ProcessRequest,
+      options: {
+        readonly lease?: ExecutionLease;
+        readonly signal?: AbortSignal;
+        readonly limits?: Parameters<ProcessBroker["openDuplexSession"]>[0]["limits"];
+      } = {},
+    ): Promise<DuplexProcessSession> {
+      const lease = options.lease ?? contractLease(contractGrant({}, harness.clock), harness.clock);
+      return await harness.broker.openDuplexSession({
+        ...harness.context(request, lease),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        ...(options.limits === undefined ? {} : { limits: options.limits }),
+      });
+    }
+
+    async function outputText(session: DuplexProcessSession): Promise<{
+      readonly stdout: string;
+      readonly stderr: string;
+    }> {
+      const stdout: Uint8Array[] = [];
+      const stderr: Uint8Array[] = [];
+      for await (const event of session.events) {
+        (event.stream === "stdout" ? stdout : stderr).push(event.chunk);
+      }
+      return {
+        stdout: Buffer.concat(stdout.map((entry) => Buffer.from(entry))).toString("utf8"),
+        stderr: Buffer.concat(stderr.map((entry) => Buffer.from(entry))).toString("utf8"),
+      };
+    }
+
+    it("writes multiple bounded messages after spawn and preserves stream separation", async () => {
+      await withHarness(async (harness) => {
+        const session = await open(
+          harness,
+          contractRequest(harness.echoTool, { args: ["--duplex-lines"] }),
+        );
+        expect(session.state).toBe("running");
+        const output = outputText(session);
+        await Promise.all([
+          session.write(new TextEncoder().encode("alpha\n")),
+          session.write(new TextEncoder().encode("beta\n")),
+        ]);
+        await session.closeStdin();
+        await session.closeStdin();
+        const [result, text] = await Promise.all([session.result, output]);
+        expect(result.state).toBe("succeeded");
+        expect(session.state).toBe("succeeded");
+        expect(text.stdout).toContain("ready");
+        expect(text.stdout).toContain("alpha");
+        expect(text.stderr).toContain("beta");
+      });
+    });
+
+    it("splits exposed events and keeps their sequence strictly monotonic", async () => {
+      await withHarness(async (harness) => {
+        const session = await open(
+          harness,
+          contractRequest(harness.echoTool, { args: ["--duplex-lines"] }),
+          {
+            limits: {
+              maxMessageBytes: 64,
+              maxQueuedWriteBytes: 128,
+              maxTotalWriteBytes: 256,
+              maxEventBytes: 2,
+              maxQueuedEvents: 64,
+              maxQueuedEventBytes: 128,
+            },
+          },
+        );
+        await session.write(new TextEncoder().encode("gamma\n"));
+        await session.closeStdin();
+        const sequences: number[] = [];
+        for await (const event of session.events) sequences.push(event.sequence);
+        await session.result;
+        expect(sequences.length).toBeGreaterThan(2);
+        expect(sequences).toEqual([...sequences].sort((a, b) => a - b));
+        expect(new Set(sequences).size).toBe(sequences.length);
+      });
+    });
+
+    it("rejects oversized, cumulative-overflow, empty, and post-close writes", async () => {
+      await withHarness(async (harness) => {
+        const session = await open(
+          harness,
+          contractRequest(harness.echoTool, { args: ["--duplex-lines"] }),
+          {
+            limits: {
+              maxMessageBytes: 8,
+              maxQueuedWriteBytes: 8,
+              maxTotalWriteBytes: 10,
+              maxEventBytes: 64,
+              maxQueuedEvents: 16,
+              maxQueuedEventBytes: 128,
+            },
+          },
+        );
+        await expect(session.write(new Uint8Array())).rejects.toMatchObject({
+          code: "INVALID_REQUEST",
+        });
+        await expect(session.write(new Uint8Array(9))).rejects.toMatchObject({
+          code: "INPUT_QUOTA_EXCEEDED",
+        });
+        await session.write(new TextEncoder().encode("123456\n"));
+        await expect(session.write(new TextEncoder().encode("abcd"))).rejects.toMatchObject({
+          code: "INPUT_QUOTA_EXCEEDED",
+        });
+        await session.closeStdin();
+        await expect(session.write(new Uint8Array([1]))).rejects.toMatchObject({
+          code: "SESSION_STDIN_CLOSED",
+        });
+        await session.result;
+      });
+    });
+
+    it("fails closed when an unread output-event queue crosses its bound", async () => {
+      await withHarness(async (harness) => {
+        const session = await open(
+          harness,
+          contractRequest(harness.echoTool, {
+            args: ["--flood"],
+            outputLimits: {
+              maxStreamBytes: 1_048_576,
+              maxCombinedBytes: 1_048_576,
+              maxLineBytes: 1_024,
+            },
+          }),
+          {
+            limits: {
+              maxMessageBytes: 64,
+              maxQueuedWriteBytes: 64,
+              maxTotalWriteBytes: 64,
+              maxEventBytes: 64,
+              maxQueuedEvents: 1,
+              maxQueuedEventBytes: 64,
+            },
+          },
+        );
+        const result = await session.result;
+        expect(result.state).toBe("quota-exceeded");
+        expect(result.failure?.code).toBe("EVENT_QUEUE_QUOTA_EXCEEDED");
+      });
+    });
+
+    it("propagates cancellation and makes terminate idempotent", async () => {
+      await withHarness(async (harness) => {
+        const controller = new AbortController();
+        const session = await open(
+          harness,
+          contractRequest(harness.echoTool, { args: ["--sleep-forever"] }),
+          { signal: controller.signal },
+        );
+        controller.abort();
+        const [first, second] = await Promise.all([session.terminate(), session.terminate()]);
+        expect(first.state).toBe("cancelled");
+        expect(second).toBe(first);
+      });
+    });
+
+    it("propagates lease invalidation to an active session", async () => {
+      await withHarness(async (harness) => {
+        const lease = contractLease(contractGrant({}, harness.clock), harness.clock);
+        const session = await open(
+          harness,
+          contractRequest(harness.echoTool, { args: ["--sleep-forever"] }),
+          { lease },
+        );
+        lease.revoke();
+        const result = await session.result;
+        expect(result.state).toBe("lease-expired");
+        expect(result.failure?.code).toBe("LEASE_EXPIRED");
+      });
+    });
+
+    it("enforces the process wall-clock quota on an active session", async () => {
+      await withHarness(async (harness) => {
+        const session = await open(
+          harness,
+          contractRequest(harness.echoTool, {
+            args: ["--sleep-forever"],
+            quotas: createProcessQuotas({ wallClockMs: 750, outputBytes: 65_536 }),
+          }),
+        );
+        const result = await session.result;
+        expect(result.state).toBe("deadline-exceeded");
+        expect(result.failure?.code).toBe("DEADLINE_EXCEEDED");
+      });
+    });
+
+    it("rejects pre-start cancellation without opening a session", async () => {
+      await withHarness(async (harness) => {
+        await expect(
+          open(
+            harness,
+            contractRequest(harness.echoTool, { args: ["--sleep-forever"] }),
+            { signal: AbortSignal.abort() },
+          ),
+        ).rejects.toMatchObject({ code: "CANCELLED" });
+      });
+    });
+
+    it("closes active sessions when the broker closes and rejects later opens", async () => {
+      const harness = await factory();
+      const lease = contractLease(contractGrant({}, harness.clock), harness.clock);
+      const request = contractRequest(harness.echoTool, { args: ["--sleep-forever"] });
+      const session = await harness.broker.openDuplexSession(harness.context(request, lease));
+      await harness.broker.close();
+      expect((await session.result).state).toBe("closed");
+      await expect(
+        harness.broker.openDuplexSession(harness.context(request, lease)),
+      ).rejects.toMatchObject({ code: "BROKER_CLOSED" });
+      await harness.close();
     });
   });
 }

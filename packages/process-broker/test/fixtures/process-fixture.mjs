@@ -8,6 +8,7 @@
 // It is launched as `node <this file> <mode> [...]`, never through a shell.
 
 import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const SELF = fileURLToPath(import.meta.url);
@@ -19,6 +20,12 @@ function sleepForever() {
 }
 
 switch (mode) {
+  case "--armed-marker": {
+    writeFileSync(rest[0], "spawned", { encoding: "utf8", flag: "wx" });
+    process.stdout.write("marker-written");
+    break;
+  }
+
   case "--print-env": {
     process.stdout.write(Object.keys(process.env).sort().join("\n"));
     break;
@@ -42,6 +49,28 @@ switch (mode) {
   case "--split-streams": {
     process.stdout.write("to-stdout");
     process.stderr.write("to-stderr");
+    break;
+  }
+
+  case "--duplex-lines": {
+    process.stdout.write("ready\n");
+    let buffered = "";
+    let index = 0;
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      buffered += chunk;
+      for (;;) {
+        const newline = buffered.indexOf("\n");
+        if (newline === -1) break;
+        const line = buffered.slice(0, newline);
+        buffered = buffered.slice(newline + 1);
+        const target = index++ % 2 === 0 ? process.stdout : process.stderr;
+        target.write(`${line}\n`);
+      }
+    });
+    process.stdin.on("end", () => {
+      if (buffered.length > 0) process.stdout.write(buffered);
+    });
     break;
   }
 
