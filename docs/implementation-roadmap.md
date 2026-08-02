@@ -142,22 +142,27 @@ Deferred within Stage 4 scope (recorded deliberately): reference tracking, reten
 
 ## Stage 5: Provider contracts and deterministic fakes
 
-Status: Planned.
+Status: Complete.
 
 Packages: `@ai-dev-os/providers`, `@ai-dev-os/provider-testkit`
 
-Deliverables:
+Delivered:
 
-- Separate inference-provider and coding-agent-provider interfaces.
-- Versioned manifests, model capabilities, health, normalized stream events, usage, cancellation, and reconciliation.
-- Scriptable fake inference server and fake coding-agent CLI.
-- Shared adapter contract suite for malformed streams, duplication, latency, failure, and cancellation.
+- Separate inference-provider and coding-agent-provider contracts sharing identity, capability, health, trace, usage/cost, disclosure, error, and event-envelope vocabulary while keeping requests, results, and event kinds distinct. No provider SDK, HTTP, process, or filesystem dependency exists in either package.
+- Versioned provider descriptors (locality, retention/training behavior, supported Stage 2 classifications, instance capabilities) combined with Stage 2 ModelCapabilities via documented AND semantics; provider health and model availability.
+- A finite runtime-validated message/content model (text, artifact and image-artifact references instead of inline blobs, JSON values, model-generated tool invocations vs caller-provided tool results) with portable conversation ordering rules; tool declarations with risk, approval requirement, and execution location — tool execution itself is explicitly deferred to a later policy-enforcing layer.
+- One ordered immutable event stream per operation (sequences start at 1 and increment by exactly one, clock-stamped, exactly one terminal event, nothing after it, cumulative usage snapshots) with two enforcement layers: an operation controller that makes adapters correct by construction, and a consumer-side guard so a transport success can never bypass result validation (the Stage 5 gate). Results settle in agreement with terminal events, never require stream draining, and never produce unhandled rejections.
+- Structured provider errors (21 stable codes) carrying retry dispositions (strategy, delays, provider retry-after, request reusability, may-still-be-running, idempotency requirement) and rate-limit information; deterministic cancellation (idempotent, first-terminal-wins), absolute-instant deadlines enforced pre-start and mid-stream, and lifecycle semantics (close cancels active work as provider-closed; start-after-close rejects).
+- Exact usage/cost integration with Stage 2 (estimates on requests, actual token categories and integer-micro Money on results, locally computed cost from pricing metadata) sufficient for later reservation reconciliation.
+- Deterministic in-process fakes for both provider kinds driven by immutable scripts (streaming, structured output, tool calls, usage snapshots, warnings, virtual-time delays, scripted failures, raw-stream and terminal-mismatch injection for contract-negative tests), a manual scheduler (no real sleeps anywhere), secret-safe request capture, and policy assertions proving disallowed classifications never reach a provider.
+- Reusable contract suites (30 behavioral tests across both kinds) exported at `@ai-dev-os/providers/testing`, executed against the fakes via standard scenario harnesses and designed for reuse by the concrete Ollama, Claude Code, and OpenAI adapters.
 
-Tests and gate:
+Tests and gate (passing):
 
-- Every provider behavior can be exercised without network access or paid tokens.
-- Stream parsers are fuzzed and enforce event and output bounds.
-- A provider transport success cannot bypass result validation.
+- 142 Stage 5 tests (repository total 542): both contract suites against the fakes, event-parser unit coverage for every event kind, hostile-input and prototype-pollution rejection, sequence/timestamp/usage-monotonicity fuzz-style negatives with enforced event and payload bounds, deterministic byte-identical script replay, cancellation/deadline/close races on virtual time, and secret-canary leakage checks.
+- Coverage gates met (providers 98.3% statements / 100% functions; provider-testkit 96.6% / 98.4%); `npm ci`, `npm run check`, `npm audit` (0 vulnerabilities), package dry-runs, and a packed-tarball consumer smoke test all pass on Windows with the identical commands in the Linux CI matrix.
+
+Noted deviation: the fakes are deterministic in-process providers rather than a fake HTTP server and fake CLI; process-level transport fakes belong with the concrete adapters (Stages 7, 9, 10), where transport parsing exists to exercise, and the contract suites are already shaped for that reuse.
 
 ## Stage 6: Configuration, secrets, and policy broker
 
@@ -431,4 +436,4 @@ Release gate:
 
 ## Immediate next module after this delivery
 
-Stages 1 through 4 are complete: the task-graph kernel, the domain vocabulary, the persistence contract with in-memory and SQLite adapters, and content-addressed artifact byte storage are stable. Implement Stage 5 (provider contracts and deterministic fakes) next. Do not begin concrete provider adapters or autonomous repository execution before those contracts and fakes exist.
+Stages 1 through 5 are complete: the task-graph kernel, the domain vocabulary, persistence, artifact byte storage, and the provider contracts with deterministic fakes are stable. Implement Stage 6 (configuration, secrets, and policy broker) next, or Stage 7 (Ollama provider) if a concrete adapter is wanted first — its contract suite already exists. Do not begin autonomous repository execution before the policy broker and workspace isolation stages exist.
