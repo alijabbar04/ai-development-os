@@ -2,12 +2,13 @@
 
 AI Development OS is a local-first orchestration engine for software engineering. It coordinates remote reasoning models, Claude Code, and local Ollama models through a durable task graph, policy-controlled routing, isolated repository workspaces, persistent project memory, and an auditable desktop control surface.
 
-This repository is being delivered in tested modules. The first completed module is the provider-neutral task-graph domain kernel.
+This repository is being delivered in tested modules. Stages 0 through 8 are complete: the task-graph kernel, domain vocabulary, persistence, content-addressed artifact storage, provider contracts, configuration/secrets/policy, the local Ollama adapter, and workspace and process isolation.
 
 ## Documents
 
 - [Technical design](docs/technical-design.md)
 - [Implementation roadmap](docs/implementation-roadmap.md)
+- [Stage 8 completion report](docs/stage-8-completion.md)
 
 ## Requirements
 
@@ -30,3 +31,18 @@ docs/                  Architecture, decisions, and delivery roadmap
 ```
 
 The project is pre-1.0. Provider calls and autonomous repository execution are intentionally not enabled until their policy, isolation, and audit modules are in place.
+
+## Autonomous execution is currently refused by design
+
+Stage 8 delivers the isolation contracts, the capability grants, and the
+production gate — but no built-in sandbox backend is classified as genuinely
+enforcing. The Windows, Linux, and macOS backends are honest probe seams that
+report which platform primitive is missing and refuse to start a process, and
+the one backend that does run commands is named
+`unsafe-development-current-user` because it runs them as the invoking user
+with that user's full filesystem, network, and credential access.
+
+Production mode therefore refuses to execute autonomously. That is the
+intended behaviour: running an agent against a hostile repository on a machine
+with no sandbox is the specific outcome this stage exists to prevent. Enabling
+it requires implementing a real enforcing backend for each advertised platform.

@@ -1,0 +1,46 @@
+{
+  "name": "@ai-dev-os/workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Repository discovery, immutable snapshots, managed private worktrees, diff and commit manifests for AI Development OS.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/contract-suite.d.ts",
+      "import": "./dist/testing/contract-suite.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../process-broker run build && npm --prefix ../artifact-store run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../process-broker run build && npm --prefix ../artifact-store run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../process-broker run build && npm --prefix ../artifact-store run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../process-broker run build && npm --prefix ../artifact-store run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/artifact-store": "^0.1.0",
+    "@ai-dev-os/artifacts": "^0.1.0",
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/policy": "^0.1.0",
+    "@ai-dev-os/process-broker": "^0.1.0"
+  },
+  "peerDependencies": {
+    "vitest": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  }
+}

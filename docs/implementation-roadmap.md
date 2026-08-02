@@ -206,7 +206,7 @@ Delivered:
 
 Tests and gate (passing):
 
-- 128 Stage 7 package tests (122 deterministic + 6 opt-in live): the full Stage 5 inference contract suite runs against the adapter through a deterministic loopback-only fake HTTP server (missing model, malformed stream, disconnect, slow load via held responses, cancellation races, deadline races, overload, secret canaries), plus focused suites for loopback enforcement (encoded-host tricks, redirects, user-info, LAN/public/unspecified addresses), NDJSON/wire hostile input (prototype pollution, unsafe integers, negative durations, invalid timestamps, oversized lines/streams/record counts, invalid UTF-8, hostile tool arguments), deterministic discovery/fingerprint/selection replay, capacity admission/queue/release/close semantics, residency ownership guards, and adapter behaviors — all deterministic tests on virtual time with no real sleeps.
+- 136 Stage 7 package tests (130 deterministic + 6 opt-in live): the full Stage 5 inference contract suite runs against the adapter through a deterministic loopback-only fake HTTP server (missing model, malformed stream, disconnect, slow load via held responses, cancellation races, deadline races, overload, secret canaries), plus focused suites for loopback enforcement (encoded-host tricks, redirects, user-info, LAN/public/unspecified addresses), NDJSON/wire hostile input (prototype pollution, unsafe integers, negative durations, invalid timestamps, oversized lines/streams/record counts, invalid UTF-8, hostile tool arguments), deterministic discovery/fingerprint/selection replay, capacity admission/queue/release/close semantics, residency ownership guards, and adapter behaviors — all deterministic tests on virtual time with no real sleeps.
 - Opt-in live tests (single `AI_DEV_OS_OLLAMA_LIVE_URL` loopback opt-in plus a model allowlist; never pulling/deleting models, fixed harmless prompts, low output limits, bounded deadlines, no repository writes, no tool execution) passed against a local Ollama 0.32.5 with deepseek-r1:8b, gemma3:12b, mistral:7b, qwen3:8b, and llama3.2:3b installed.
 - Coverage gates met; `npm ci`, `npm run check`, repository coverage, `npm audit`, package dry-run, and a packed-tarball consumer smoke test pass on Windows; Linux remains covered by the configured CI matrix.
 
@@ -214,22 +214,34 @@ Noted deviations: `tool_choice` `required`/`named` are rejected because the nati
 
 ## Stage 8: Workspace and process isolation
 
-Status: Planned.
+Status: Complete.
 
 Packages: `@ai-dev-os/process-broker`, `@ai-dev-os/workspace`
 
-Deliverables:
+Delivered:
 
-- Repository discovery and immutable clean/dirty snapshot capture without mutating the user tree.
-- Dedicated worktree lifecycle, sanitized Git configuration, hook suppression, restricted protocols, diff and commit manifests.
-- Structured argument-array process execution, quotas, output limits, process-tree cancellation, and lease enforcement.
-- Pluggable Windows, macOS, and Linux sandbox backends with an explicitly labeled unsafe development backend.
+- Versioned, runtime-validated process requests carrying an executable plus an explicit argument array. There is no command-string API and no option that enables one; shell execution is deliberately unrepresentable and deferred as its own future action category. Bounded argument count/size/aggregate bytes, environment binding count and value size, stdin, timeouts, and quotas; deeply frozen and prototype-pollution safe.
+- Executable identity through trusted tool descriptors: absolute paths only (never a `PATH` lookup), link and reparse indirection refused, file-type and containment checks, digest verification immediately before spawn, and Windows `.cmd`/`.bat` shims rejected so a package manager is represented as a verified interpreter plus entry point. The same-user digest check is documented as time-of-check/time-of-use evidence rather than a boundary.
+- Child environments constructed from an empty baseline with a finite platform allowlist, workspace-scoped temporary/profile/config locations, deterministic locale, and an explicit PATH; home, SSH, askpass, credential-helper, cloud, registry, CI, language-startup, Git-redirection, and proxy variables are absent. Secrets resolve late, are scoped to one invocation, are literally redacted from captured output across chunk boundaries, and never reach results, audit records, or errors.
+- Bounded output with separate stdout/stderr caps, a combined cap, digests, truncation classification, and terminal-control stripping on decode; a quota breach terminates the process tree and produces a structured failure rather than a truncated success.
+- Deterministic process lifecycle with first-terminal-wins settlement, idempotent cancel and close, start-after-close rejection, deadline timers released on every path, and process-tree cancellation (POSIX process groups; Windows `taskkill /T /F`), reporting `termination-unconfirmed` when the tree cannot be proven gone.
+- A sandbox backend contract with per-dimension quota honesty (`enforced` / `observed` / `estimated` / `unsupported`), a security classification a backend cannot self-promote, and a production gate that refuses unless the backend is available, explicitly approved by trusted configuration, classified secure-enforcing, and able to enforce every requested dimension. Refusal happens before any child process starts, with no silent downgrade.
+- An explicitly named `unsafe-development-current-user` backend that documents its own lack of filesystem, network, credential, and process containment, plus honest Windows, Linux, and macOS probe seams that report exactly which platform primitive is missing and refuse to spawn.
+- Repository discovery and immutable clean/dirty snapshot capture that leaves the source working tree, index, refs, configuration, and object database byte-identical: private object directory plus read-only alternates, a copied index, working-tree bytes hashed through `--no-filters --stdin`, `update-index --cacheinfo`, and `write-tree`/`commit-tree` plumbing that runs no hook and moves no reference.
+- Dedicated managed private repositories and worktrees: `git worktree add` is never run against the user's repository, so `.git/worktrees` is never created there. Generated paths, exclusive creation, ownership markers, ownership- and containment-checked cleanup, idempotent removal, lease-blocked cleanup, partial-creation reconciliation, and bounded stale discovery.
+- Sanitized Git configuration on every invocation, disabling hooks, credential helpers, askpass, signing, editor, pager, external diff, fsmonitor, submodule recursion, automatic maintenance, and all protocols by default.
+- Changed-file and commit manifests parsed from NUL-delimited raw diff output (never localized status), covering add/modify/delete/rename/copy/type-change/mode-change/gitlink, with commit creation verified by reading back object type, tree, and parent rather than trusting a zero exit code.
+- Read-only target-movement classification (unchanged, advanced, rewound, deleted, replaced, unavailable, unrelated history) and in-memory conflict detection via `merge-tree`, mutating neither the source repository nor the managed worktree.
+- Bounded workspace read/write ports validating lease, grant operation, path scope, containment, and link state before every side effect, with no absolute-path or raw filesystem surface.
 
-Tests and gate:
+Tests and gate (passing):
 
-- Temporary-repository matrix covers dirty trees, untracked files, hooks, filters, submodules, remotes, locks, conflicts, and target movement.
-- Hostile fixtures cover traversal, symlinks, Windows junctions/reparse points, environment theft, process escape, unlimited output, and cancellation.
-- Production mode refuses autonomous repository execution without an approved secure isolation backend.
+- 308 Stage 8 tests (process-broker 201, workspace 107; repository total 1,041 passing with 11 skipped): the temporary-repository matrix covers clean and dirty trees, staged/unstaged/deleted/type changes, untracked and ignored files, detached HEAD, stale index locks, remotes, submodule gitlinks, target movement in all directions, and conflicts. Hostile fixtures cover traversal, symlink escape, Windows junction escape, `.git` administrative paths, environment theft with canaries, child-and-grandchild process escape, signal-ignoring processes, unlimited output, and cancellation races. Production refusal is proven to occur before any process starts.
+- Two real defects were found by adversarial testing and fixed rather than documented around: `git diff-files` re-hashes racily-clean entries and thereby executes a repository's clean filter, which is now neutralized by enumerating the repository's own filter/textconv/merge drivers and overriding each on the command line; and `git merge-tree` emits informational text after the machine-readable conflict section, which was being reported as file names. A positive-control assertion proves the hostile fixtures genuinely fire for ordinary Git, so the "no marker appeared" assertions are not vacuous.
+- Coverage gates met (process-broker 92.5% statements / 87.1% branches / 93.6% lines; workspace 90.3% / 81.3% / 90.9%). Both packages set the function threshold to 90 with a recorded reason: process-tree termination and link handling are platform-split by construction, so no single host can execute both halves; each is covered on its own platform by the CI matrix, following the `@ai-dev-os/provider-ollama` precedent.
+- `npm ci`, `npm run check`, repository coverage, `npm audit` (0 vulnerabilities), package dry-runs, and a packed-tarball consumer smoke test pass on Windows; Linux remains covered by the configured CI matrix.
+
+Noted deviations: no built-in backend is classified secure-enforcing, because none of the required platform primitives (Windows Job Objects with a restricted token, Linux namespaces with cgroup limits, a supported macOS sandbox) can be implemented without native dependencies or privileged installation that are out of scope here. The platform backends are therefore honest probe seams and production mode refuses all of them — the security gate is the deliverable, not a claim that every platform is already contained. Git plumbing is invoked directly rather than through the process broker, because the broker exists to supervise untrusted workload and requires a grant that repository discovery must run in order to issue; the same argument-array, constructed-environment, bounded-output, and deadline rules still apply. Durable lease persistence and the recovery loop remain with the Stage 12 scheduler, which receives records and hooks from this stage.
 
 ## Stage 9: Claude Code coding-agent adapter
 
@@ -445,4 +457,6 @@ Release gate:
 
 ## Immediate next module after this delivery
 
-Stages 1 through 5 are complete: the task-graph kernel, the domain vocabulary, persistence, artifact byte storage, and the provider contracts with deterministic fakes are stable. Implement Stage 6 (configuration, secrets, and policy broker) next, or Stage 7 (Ollama provider) if a concrete adapter is wanted first — its contract suite already exists. Do not begin autonomous repository execution before the policy broker and workspace isolation stages exist.
+Stages 1 through 8 are complete: the task-graph kernel, the domain vocabulary, persistence, artifact byte storage, the provider contracts, configuration/secrets/policy, the Ollama adapter, and now workspace and process isolation. Implement Stage 9 (Claude Code coding-agent adapter) next; it consumes the workspace grant, the managed worktree, and the process broker delivered here.
+
+One constraint carries forward and must not be quietly dropped: no built-in sandbox backend is currently classified secure-enforcing, so production autonomous execution refuses to start. Stage 9 can be developed and tested against the explicitly unsafe development backend, but shipping autonomous repository execution to users requires a real enforcing backend on each advertised platform first.
