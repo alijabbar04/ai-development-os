@@ -93,24 +93,30 @@ Tests and gate (passing):
 
 ## Stage 3: Persistence and event journal
 
-Status: Planned.
+Status: Complete.
 
-Packages: `@ai-dev-os/persistence`, `@ai-dev-os/persistence-sqlite`
+Packages: `@ai-dev-os/persistence`, `@ai-dev-os/persistence-memory`, `@ai-dev-os/persistence-sqlite`
 
-Deliverables:
+Delivered:
 
-- Storage ports for projects, snapshots, runs, graphs, attempts, leases, events, usage, routing, approvals, memories, and cache.
-- Checksummed SQLite migrations, WAL configuration, foreign keys, backup metadata, and transactional outbox.
-- Atomic aggregate version checks and event append.
-- Per-run monotonic event sequences and resumable outbox publication.
-- Test-only in-memory adapter conforming to the same contract.
+- Provider-neutral persistence ports: a generic versioned aggregate store (closed aggregate-type union covering projects, task graphs, task runs, budget accounts, and artifact manifests; later stages extend the union as their aggregates land), an append-only event journal with strictly increasing global sequences and occurred/recorded time separation, a transactional outbox with exclusive leasing (claim, acknowledge, retry, dead-letter, idempotent re-acknowledgement, duplicate-idempotency-key rejection), and immutable artifact descriptor/manifest metadata validated on write and read.
+- Envelopes carry aggregate id/type, payload schema version, optimistic aggregate version, canonical payload, sha-256 checksum over canonical bytes, created/updated timestamps, and trace/causation correlation ids. Reads re-verify checksums and fail structurally on corruption without leaking payload contents.
+- Single `transact` unit-of-work: aggregate update, event append, and outbox insert are atomic; rollbacks leave no partial state and preserve the caller's error; nested transactions, use-after-completion, and use-after-close are structured failures; retries cannot duplicate events or outbox messages.
+- Strict optimistic concurrency: create requires absence (version 1), update requires the exact current version (stores +1); no last-write-wins path exists.
+- Deterministic keyset pagination (opaque validated cursors, id/sequence tie-breakers) for every listing; malformed cursors are structured errors.
+- Pure migration planner (ordered checksummed ids, duplicate/out-of-order/checksum-mismatch/schema-too-new rejection) plus SQLite migrations applied transactionally with clean recovery after a failed migration.
+- In-memory reference adapter that is semantically identical to SQLite (snapshot-rollback transactions, explicit counters, checksum verification, deterministic ordering) with test-only corruption injection.
+- SQLite adapter on better-sqlite3 v12 (decision and alternatives documented in the package README): STRICT tables, WAL + NORMAL for file databases, foreign keys on, busy timeout, prepared statements everywhere, driver errors translated to stable persistence errors, raw connection never exposed, absolute-path validation.
+- Reusable adapter contract suite exported at `@ai-dev-os/persistence/testing`, executed against the memory adapter and SQLite in both :memory: and file-backed modes.
+- Injected clock and caller-supplied ids everywhere; lease expiry tested by advancing a manual clock, no sleeps; structured operation observer hooks for later metrics.
 
-Tests and gate:
+Tests and gate (passing):
 
-- Migration from every supported schema fixture.
-- Concurrent optimistic-write rejection, rollback, lock timeout, and restart recovery.
-- Crash simulation between state, event, outbox, and artifact metadata steps.
-- Contract suite passes for both in-memory and SQLite adapters.
+- 161 Stage 3 tests (repository total 351) including hostile-input, corruption/checksum-substitution, outbox state-machine, lease-expiry/reclaim, concurrent-claim, pagination-under-mutation, migration-tampering, failed-migration recovery, and file-backed write→close→reopen verification.
+- Contract suite passes for the in-memory adapter and both SQLite modes; coverage gates met in all three packages (persistence 98.9% statements, memory 99.6%, sqlite 97.0%).
+- `npm ci` clean install, `npm run check`, coverage, `npm audit` (0 vulnerabilities), package dry-runs, and a consumer smoke test against packed tarballs all pass on Windows; CI runs the identical commands on Linux.
+
+Deferred within Stage 3 scope: leases/usage/routing/approvals/memories/cache ports arrive with their owning stages (the generic aggregate store and event journal are their foundation); backup metadata moves to the artifact-store/hardening stages; restart-crash simulation between persistence steps lands with the Stage 12 scheduler that drives those sequences.
 
 ## Stage 4: Content-addressed artifact store
 
@@ -420,4 +426,4 @@ Release gate:
 
 ## Immediate next module after this delivery
 
-Stages 1 and 2 are complete: the task-graph kernel and the data-policy, budget, artifact, and capability vocabulary are stable. Implement Stage 3 persistence and the event journal next. Do not begin provider adapters or autonomous repository execution before the storage ports and transactional event contracts they depend on exist.
+Stages 1 through 3 are complete: the task-graph kernel, the domain vocabulary, and the persistence contract with in-memory and SQLite adapters are stable. Implement Stage 4 (content-addressed artifact store) next, or Stage 5 (provider contracts and deterministic fakes) if artifact byte storage is not yet needed. Do not begin provider adapters or autonomous repository execution before their contracts and fakes exist.

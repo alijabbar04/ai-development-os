@@ -1,0 +1,43 @@
+{
+  "name": "@ai-dev-os/persistence",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Provider-neutral persistence ports, records, errors, transaction contracts, migration abstractions, and the reusable adapter contract suite for AI Development OS.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/contract-suite.d.ts",
+      "import": "./dist/testing/contract-suite.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../artifacts run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../artifacts run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../artifacts run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../artifacts run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/artifacts": "^0.1.0",
+    "@ai-dev-os/domain": "^0.1.0"
+  },
+  "peerDependencies": {
+    "vitest": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  }
+}

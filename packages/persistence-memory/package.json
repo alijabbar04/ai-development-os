@@ -1,0 +1,32 @@
+{
+  "name": "@ai-dev-os/persistence-memory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deterministic in-memory reference implementation of the AI Development OS persistence contract.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../persistence run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../persistence run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../persistence run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../persistence run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/artifacts": "^0.1.0",
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/persistence": "^0.1.0"
+  }
+}
