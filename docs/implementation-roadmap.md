@@ -243,26 +243,64 @@ Tests and gate (passing):
 
 Noted deviations: no built-in backend is classified secure-enforcing, because none of the required platform primitives (Windows Job Objects with a restricted token, Linux namespaces with cgroup limits, a supported macOS sandbox) can be implemented without native dependencies or privileged installation that are out of scope here. The platform backends are therefore honest probe seams and production mode refuses all of them — the security gate is the deliverable, not a claim that every platform is already contained. Git plumbing is invoked directly rather than through the process broker, because the broker exists to supervise untrusted workload and requires a grant that repository discovery must run in order to issue; the same argument-array, constructed-environment, bounded-output, and deadline rules still apply. Durable lease persistence and the recovery loop remain with the Stage 12 scheduler, which receives records and hooks from this stage.
 
-## Stage 9: Claude Code coding-agent adapter
+## Stage 9: Claude Code coding-agent adapter and usage telemetry
 
-Status: Planned after Stage 8.
+Status: Complete.
 
 Package: `@ai-dev-os/provider-claude-code`
 
+Delivered:
+
+- Versioned, runtime-validated, deeply immutable adapter configuration covering the trusted executable descriptor, CLI compatibility floor and validated ceiling, permitted models and effort levels, turn and integer-micro budget ceilings, process/operation deadlines, output/record/stream/record-count bounds, diagnostic and patch limits, session-persistence policy, capacity staleness, authentication classification, supported classifications, and endpoint classification. Inline credentials, arbitrary argument arrays, shell command strings, permission-bypass switches, Chrome, ambient MCP/hooks/plugins/settings, advisor, fallback model, and "continue" are unrepresentable by field name, so no configuration document can enable them. A Stage 6 extension namespace (`claude-code`) is consumed structurally without depending on `@ai-dev-os/config`; extensions may only tighten limits and may not restate identity or the executable. Canonical SHA-256 fingerprints exclude volatile health and capacity data.
+- Executable discovery with no `PATH` lookup at spawn time, link/reparse refusal, and Windows `.cmd`/`.bat` shim rejection in both the configuration parser and the process broker, with structured installation guidance that contains no filesystem path. Script entry points are reached the Windows-safe way (trusted interpreter image plus a pinned argument prefix). The `--version` probe runs through the same execution seam as a session, starts no session, and cannot consume model usage.
+- A versioned compatibility matrix (`COMPATIBILITY_MATRIX_VERSION = 1`) written and verified against the installed Claude Code 2.1.201 by reading that binary's own `--help` output. A version above the validated ceiling reports `newer-than-validated` and keeps the last validated capability set rather than assuming new capability. The matrix records `maxTurns: false` because the 2.1 CLI exposes no `--max-turns` flag; the adapter enforces the turn ceiling itself from the stream's turn accounting rather than claiming a CLI-enforced cap.
+- A finite adapter-owned argument vector — print mode, `stream-json`, verbose, partial messages, safe mode, `--no-chrome`, `--strict-mcp-config`, empty `--setting-sources`, an explicit built-in `--tools` surface, a full `--disallowed-tools` deny list including `mcp__*`, `--permission-mode dontAsk`, explicit model/effort, budget cap, explicit session identity or exact resume, and `--no-session-persistence` by default. Task instructions travel on bounded stdin, never in argv. Every element is a literal or a pattern-checked token that cannot start with `-`, with a final assertion at vector assembly. `--allowedTools` is deliberately unused, because an allow-list of names is not by itself a tool restriction.
+- Conservative tool and permission translation. `commandPolicy: "allow-listed"` is refused with `UNSUPPORTED_CAPABILITY` rather than approximated by a Bash command-prefix glob, because a textual prefix rule over a shell line cannot enforce an executable allowlist. `commandPolicy: "none"` removes Bash entirely. `networkPolicy: "proxied"` is refused because no shipped backend can enforce egress, and the descriptor reports `networkAccess: false` since Claude's control-plane connection is not agent web access. Approvals resolve structurally before launch; a conditional policy decision terminates with `AUTHORIZATION_FAILED` rather than waiting, and a reported permission denial becomes an `approval-requested` event with a matching decision. Tool arguments are never surfaced — only argument key names.
+- A bounded incremental UTF-8 NDJSON decoder handling arbitrary byte boundaries, split multi-byte characters, LF/CRLF, blank lines, and a final record without a newline, with per-record, total-stream, and record-count bounds enforced while decoding. Invalid UTF-8 fails rather than silently substituting. Records fail closed on unknown top-level types, unrecognized assistant content blocks, duplicate terminals, post-terminal records, session-id mismatch, non-monotonic or negative usage, prototype pollution, unsafe numbers, and self-contradicting results; unknown informational `system` subtypes produce a bounded compatibility warning. An init record listing a loaded MCP server or plugin, or a hook lifecycle event, is a hard failure. A zero exit without the terminal result record is `MALFORMED_RESPONSE`.
+- Workspace reconciliation as the sole source of truth. Every terminal path — success, failure, cancellation, deadline, malformed output, budget exhaustion — re-inspects the managed worktree and computes actual add/modify/delete/rename through `@ai-dev-os/workspace`, checking each path against request prefixes, grant writable prefixes, administrative state, hostile shapes, and link/reparse escape verified against the live filesystem. A violation fails the operation even when the session reported success; violations are reported as counts by category, never as paths. Partial edits after a failed or cancelled run are detected and preserved for the later scheduler. Commits are created only from verified state through the workspace layer's safe commit facility, and `resultRevision` never comes from a hash printed in Claude's output.
+- Artifact extraction through provider-neutral interfaces: canonical patch derived from the reconciled workspace, bounded command log holding only tool names, target paths, and argument key names, redacted diagnostics, a machine-readable test report, and session metadata when policy permits. Raw transcripts are never persisted, and a denied artifact write still yields a valid result with the content written nowhere else. Structured test results require machine-verifiable workspace evidence; a narrative claim that tests passed produces nothing.
+- Session ephemerality by default, `--continue` never used, and resume restricted to the adapter's own opaque token whose provider instance, project, workspace, snapshot lineage, model, effort, and configuration fingerprint are bound into digests the verifier recomputes, so a token cannot be edited to point elsewhere and discloses nothing. Policy is checked before the token is parsed.
+- Honest usage and cost mapping: Claude's `input_tokens` plus `cache_creation_input_tokens` become `inputTokens`, `cache_read_input_tokens` becomes `cachedInputTokens`, and `reasoningTokens` stays zero because this surface reports none. Cumulative snapshots are reconciled rather than summed, so partial-stream and terminal values cannot double count. `total_cost_usd` maps to `providerReported` only under API-key, cloud-provider, or gateway billing; under a personal subscription login the cost is `UNKNOWN_COST` and the figure travels only as a provider-specific observation, because an API-equivalent estimate for work billed another way is not a charge.
+- A capacity observation seam fed only by a host-supplied Claude status document. Nothing is scraped, the user's global Claude settings are never read or edited, no collector is installed, missing quota data stays `unknown` rather than zero, an unobserved reset time stays null, and an observation past its staleness window reports `stale`. Refreshing a quota figure consumes no model usage.
+- Deterministic cancellation and lifecycle: idempotent cancel, first-terminal-wins, pre-start/mid-stream/post-edit/during-reconciliation coverage, results settling immediately on cancellation while adapter-owned cleanup completes under `close()`, and `cancellation: "best-effort"` reported honestly because no shipped backend can prove a process tree is gone.
+- Structured secret-safe observations for probe outcome and tier, operation start and terminal category, requested versus observed model and effort, permission profile category, tool and artifact counts, changed-file count, backend id and security class, usage totals, cost-known versus cost-unknown, capacity status, latency, retry category, reconciliation outcome, and termination confirmation. No console logging exists in package source, and an observer that throws is contained without its thrown value being inspected.
+
+Anthropic authentication boundary: no Claude credential file, OAuth token, session cookie, API key, or credential-helper output is ever read, parsed, copied, exported, logged, serialized, or returned. There is no subscription-token field. Secret-backed environment bindings carry only a reference fingerprint and resolve through the Stage 8 resolver after policy approval, immediately before process creation. A personal installed-CLI login is refused without an explicit development-canary opt-in and is never presented as distributable. The boundary is mechanical rather than advisory: the process broker builds the child environment from an empty baseline and omits `HOME`/`USERPROFILE`, so an installed-CLI OAuth session is unreachable from a brokered process, which is exactly why the live probe canary runs without a credential while the live task canaries require an API key.
+
+Tests and gate (passing):
+
+- 255 Stage 9 tests passing with 7 opt-in live canaries skipped (repository total 1,296 passing with 18 skipped). The fake CLI is a real executable reached through a trusted `node` image plus a pinned script argument — no `.cmd` shim, no shell — driven through the real process broker over the real `unsafe-development-current-user` backend against a real managed private worktree of a real temporary Git repository. Coverage covers version probing and unsupported versions, read-only completion, successful and partial edits, completed-no-changes, arbitrary byte splits (1/3/7/64-byte pieces), split UTF-8, CRLF and missing final newline, stdout/stderr separation, retry events, usage and cache categories, reported cost, session creation and verified resume, model mismatch, unsupported effort, permission requests, denied tools, turn and budget exhaustion, rate limit with retry-after, context limit, malformed JSON, prototype pollution, oversized record and stream, excessive record count, missing/duplicate/post-terminal records, contradictory results, non-monotonic usage, non-zero exit, hang, signal-ignoring processes, nested children, cancellation and close races, forbidden path changes, and secret canaries in stdout, stderr, errors, artifacts, observations, and fingerprints.
+- The reusable Stage 5 coding-agent contract suite passes against the adapter through the fake CLI (11 tests, all ten scenarios).
+- Production refusal is proven with an armed start marker: the marker is never written in production mode, and a development-mode positive control proves the same fixture genuinely writes it, so the negative assertion is not vacuous.
+- Live canaries: the probe canary was executed against the actually installed Claude Code **2.1.201** and passed (compatible tier, `usableForProduction` true, no credential read). The five live task canaries were **skipped**, not passed: no `AI_DEV_OS_CLAUDE_LIVE_API_KEY` opt-in was present, and a brokered process cannot reach an installed-CLI login without crossing the authentication boundary. No live edit canary ran, so no model usage was consumed.
+- Coverage gates met without lowering any threshold: 90.7% statements / 83.81% branches / 94.32% functions / 90.72% lines. The package sets the function threshold to 90 with a recorded reason (platform-split executable discovery cannot execute both halves on one host), following the `@ai-dev-os/workspace` and `@ai-dev-os/provider-ollama` precedent.
+- `npm ci`-clean install, `npm run check` (typecheck, test, build), repository `npm run test:coverage`, `npm audit --audit-level=high` (0 vulnerabilities), `npm pack --dry-run` for the new package and all five affected publishable packages, and a packed-tarball consumer smoke test in a fresh temporary consumer outside the repository all pass on Windows. Nine verification scans pass: no console logging, no direct process creation, no shell execution surface, no forbidden CLI flag emitted, no inline credential signature, dependency-boundary conformance, declared-dependency conformance, no generated artifacts in the package tree, and no orphan module. Linux remains covered by the configured CI matrix but is not claimed for this local commit.
+
+Two real defects were found by the tests and fixed rather than documented around. The control-character guards in three modules were written as the character range space-to-hyphen instead of the intended control range, which silently rejected every ordinary hyphenated model identifier and file path; a regression test now asserts that `claude-fable-5` and `src/my-hyphenated-file.ts` are accepted. Separately, the session policy was evaluated after the CLI version probe, so a denied session still started a Claude process; policy now runs before any process is created, proven by an armed marker.
+
+Noted deviations: `commandPolicy: "allow-listed"` and `networkPolicy: "proxied"` are unsupported and return `UNSUPPORTED_CAPABILITY` rather than a weaker approximation. Turn limiting is adapter-side because the installed CLI has no `--max-turns`. Structured test results require a machine-readable report at a configured workspace path rather than trusting the transcript, and the test events are emitted from that evidence at reconciliation time. Reasoning content is discarded rather than surfaced, because the neutral coding-agent contract has no disclosure-checked channel for it. No upstream provider-contract change was required: the existing Stage 5 event vocabulary covered every mapping.
+
+## Stage 10: Codex coding-agent adapter and Codex usage telemetry
+
+Status: Planned. Next module.
+
+Package: `@ai-dev-os/provider-codex`
+
 Deliverables:
 
-- CLI version/capability probe and compatibility matrix.
-- Non-interactive machine-readable streaming execution in a granted worktree.
-- Permission broker integration, tool restrictions, budget/turn caps, cancellation, session IDs, and reconciliation.
-- Changed-file, commit, validation, usage, and diagnostic artifact extraction.
+- Codex CLI discovery, version/capability probe, and a versioned compatibility matrix, reusing the Stage 9 shape: trusted absolute executable, no `PATH` lookup, no shell shim, probe through the process-broker seam.
+- Non-interactive machine-readable execution inside a Stage 8 managed workspace, with the complete finite argument vector owned by the adapter and instructions passed on stdin.
+- Bounded incremental parsing of Codex's streaming output into the existing Stage 5 coding-agent event vocabulary, failing closed on anything state-changing that is not understood.
+- Tool, permission, command-policy, and network translation with the same refusal-over-approximation rule; workspace reconciliation as the sole source of truth for changed files, commits, and test evidence.
+- Codex usage and cost telemetry mapped only where Codex reports it, with an explicit distinction between billed cost and subscription-equivalent estimate, plus a capacity observation seam.
 
 Tests and gate:
 
-- Fake CLI covers every exit mode, partial edit, malformed line, nested process, timeout, permission request, and restart case.
-- Opt-in installed-CLI canary performs a read-only task and an isolated disposable-repository edit.
-- Production configuration prohibits permission bypass.
+- Process-level fake Codex CLI covering every exit mode, partial edit, malformed record, nested process, timeout, permission request, and cancellation race, with positive controls for every armed fixture.
+- The reusable Stage 5 coding-agent contract suite passes against the adapter.
+- Opt-in live canary performs a probe plus a bounded read-only task and a bounded edit in a disposable repository; production execution still refuses before spawn.
 
-## Stage 10: OpenAI inference adapter
+## Stage 11: OpenAI Responses inference adapter
 
 Status: Gated for live tests by an OpenAI secret reference; implementation and fake tests do not require a key.
 
@@ -280,7 +318,74 @@ Tests and gate:
 - Budget-capped live canary uses a configured secret reference and records no key or prompt secret.
 - No permanent model ID is embedded in domain or routing logic.
 
-## Stage 11: Profiler, estimators, and routing engine
+## Stage 12: Multi-provider gateway and curated free-tier adapters
+
+Status: Planned.
+
+Packages: `@ai-dev-os/provider-gateway`, curated free-tier adapters
+
+Deliverables:
+
+- A gateway abstraction over multiple upstream provider instances sharing one credential and policy boundary.
+- Curated free-tier adapters with explicit, documented terms compliance and per-provider capability declarations.
+- Per-upstream health, quota, and eligibility reporting feeding the later routing engine.
+
+Tests and gate:
+
+- Fake upstreams cover credential isolation, per-upstream failure, quota exhaustion, and terms-restricted capability refusal.
+- No adapter claims a capability its upstream cannot enforce.
+
+## Stage 13: Unified quota, cost, health, and capacity ledger
+
+Status: Planned.
+
+Package: `@ai-dev-os/telemetry-ledger`
+
+Deliverables:
+
+- One durable ledger reconciling estimated versus actual usage, integer-exact cost, provider health, and capacity observations across every provider.
+- Explicit distinction between billed cost, subscription-equivalent estimate, and unknown, carried end to end rather than flattened.
+- Staleness-aware capacity aggregation with no invented values.
+
+Tests and gate:
+
+- Reconciliation property tests prove no double counting across streamed and terminal usage.
+- Missing data stays unknown at every aggregation level.
+
+## Stage 14: Repository index, memory, artifacts, and context packs
+
+Status: Planned.
+
+Packages: `@ai-dev-os/repository-index`, `@ai-dev-os/memory`, `@ai-dev-os/context`
+
+Deliverables:
+
+- Commit/file-digest repository map, manifest and dependency extraction, and an incremental lexical index.
+- Provenance-aware facts, decisions, summaries, explicit preferences, inferred candidates, confirmation, expiry, and supersession.
+- Deterministic context packing with explicit budgets, and retrieved content treated as untrusted prompt material.
+
+Tests and gate:
+
+- Cross-project and cross-user isolation, poisoned memory, stale snapshot, deletion, expiry, and provenance tests.
+- Context packs are byte-deterministic for a fixed repository state and budget.
+
+## Stage 15: Replaceable GPT/Claude Thinker and prompt compiler
+
+Status: Planned.
+
+Packages: `@ai-dev-os/thinker`, `@ai-dev-os/prompt-compiler`
+
+Deliverables:
+
+- A replaceable planning/reasoning component with a provider-neutral contract, so the reasoning model is a configuration choice rather than a hard-coded dependency.
+- A deterministic prompt compiler producing bounded, reproducible prompts from context packs, with explicit disclosure checks.
+
+Tests and gate:
+
+- Golden prompt corpus replays byte-identically for a fixed input.
+- No thinker output can widen a policy decision or authorize an action.
+
+## Stage 16: Deterministic quota-aware routing engine
 
 Status: Planned.
 
@@ -289,18 +394,32 @@ Packages: `@ai-dev-os/profiler`, `@ai-dev-os/router`
 Deliverables:
 
 - Repository-aware task profile with measured context and schema-validated classifier fallback.
-- Provider-specific token estimators and conservative fallback bounds.
-- Cost reservation and actual reconciliation using versioned pricing.
-- Duration quantiles using queue, provider, tool, test, and integration components.
-- Hard feasibility filters, configurable score terms, task-kind outcome priors, confidence, fallbacks, circuit breakers, and explanations.
+- Provider-specific token estimators, conservative fallback bounds, and cost reservation reconciled against actuals.
+- Hard feasibility filters, configurable score terms, quota and capacity awareness from the Stage 13 ledger, confidence, fallbacks, circuit breakers, and explanations.
 
 Tests and gate:
 
-- Golden routing corpus covers task types, repository scales, privacy, health, cost, context, local capacity, preferences, and low confidence.
+- Golden routing corpus covers task types, repository scales, privacy, health, cost, context, local capacity, and preferences.
 - Invariants prove hard constraints cannot be overridden by classifier output or learned scores.
-- Offline replay measures selection accuracy, calibration, cost, latency, and fallback behavior.
 
-## Stage 12: Durable scheduler and run coordinator
+## Stage 17: Production secure-execution backends
+
+Status: Gated on platform primitives. **Blocks production autonomous execution.**
+
+Package: `@ai-dev-os/process-broker` platform backends
+
+Deliverables:
+
+- Windows Job Object plus restricted-token backend, Linux namespace plus cgroup backend, and a supported macOS sandbox backend, each classified `secure-enforcing` only when it genuinely enforces filesystem, process-tree, network, and quota boundaries.
+- An approved egress path permitting the Claude and Codex service endpoints while denying other network access.
+
+Tests and gate:
+
+- Escape-attempt corpus per platform: filesystem, process tree, network, credential, and quota.
+- The production admission gate admits a backend only after its enforcement is demonstrated, not declared.
+- Until this stage lands, production autonomous execution continues to refuse before any agent process starts.
+
+## Stage 18: Durable scheduler and application orchestration
 
 Status: Planned.
 
@@ -308,36 +427,16 @@ Packages: `@ai-dev-os/scheduler`, `@ai-dev-os/application`
 
 Deliverables:
 
-- Request acceptance, planning commands, bounded dynamic graph mutation, and complete run lifecycle.
-- Durable ready queues, attempt creation, leases, heartbeats, fencing, retries, capacity pools, fairness, cancellation, and reconciliation.
+- Request acceptance, planning commands, bounded dynamic graph mutation, and the complete run lifecycle.
+- Durable ready queues, attempt creation, leases, heartbeats, fencing, retries, capacity pools, fairness, cancellation, and reconciliation, consuming the retry dispositions and partial-work evidence the provider adapters already produce.
 - Budget reservation before dispatch and release/reconciliation after terminal attempts.
-- Transactional state and event changes with resumable publication.
 
 Tests and gate:
 
-- Integration tests cover parallel DAGs, dependency failures, duplicate delivery, expired leases, daemon and worker crashes, cancellation races, provider fallback, budget exhaustion, and dynamic graph limits.
+- Integration tests cover parallel DAGs, dependency failures, duplicate delivery, expired leases, daemon and worker crashes, cancellation races, provider fallback, and budget exhaustion.
 - Chaos tests prove restart recovery without duplicate Git integration or external mutation.
 
-## Stage 13: Repository index, memory, preferences, and cache
-
-Status: Planned.
-
-Packages: `@ai-dev-os/repository-index`, `@ai-dev-os/memory`, `@ai-dev-os/cache`
-
-Deliverables:
-
-- Commit/file-digest repository map, manifest/dependency extraction, incremental lexical index, and context packer.
-- Provenance-aware facts, decisions, summaries, explicit preferences, inferred candidates, confirmation, expiry, and supersession.
-- Hybrid lexical retrieval with optional embedding port.
-- Scope-complete reusable cache with validation and retention policies.
-
-Tests and gate:
-
-- Cross-project and cross-user isolation, poisoned memory, stale snapshot, deletion, expiry, and provenance tests.
-- Cache-key property tests cover every provider, policy, repository, schema, tool, and security dimension.
-- Retrieved content remains untrusted prompt material.
-
-## Stage 14: Evaluation, merge, and disagreement resolution
+## Stage 19: Evaluation, disagreement handling, and integration
 
 Status: Planned.
 
@@ -347,15 +446,14 @@ Deliverables:
 
 - Output-schema, changed-path, compilation, test, static-analysis, and acceptance-criteria evaluators.
 - Deterministic structured merge strategies and serialized Git integration.
-- Structural, scope, semantic, and intent conflict detection.
-- Rubric-based independent evaluator and fresh-worktree resolution flow.
+- Structural, scope, semantic, and intent conflict detection, plus a rubric-based independent evaluator and fresh-worktree resolution flow.
 
 Tests and gate:
 
 - Fixture matrix includes clean merges, textual conflicts, non-overlapping semantic breaks, stale target, failing resolver, fabricated tests, and policy violations.
-- No LLM verdict can mark deterministic validation as passed or authorize a merge.
+- No model verdict can mark deterministic validation as passed or authorize a merge.
 
-## Stage 15: Versioned API and event streaming
+## Stage 20: Local daemon API and client
 
 Status: Planned.
 
@@ -372,7 +470,7 @@ Tests and gate:
 - API contract, auth, origin, schema, idempotency, rate, reconnect, cursor replay, and daemon restart tests.
 - Fuzz tests cover JSON limits and event payload versioning.
 
-## Stage 16: Desktop dashboard
+## Stage 21: Dark desktop application and setup wizard
 
 Status: Planned.
 
@@ -381,17 +479,16 @@ App: `apps/desktop`
 Deliverables:
 
 - Electron main/preload/renderer split with no Node integration in the renderer.
-- Runs, task DAG, attempts, timeline, estimates versus actuals, routing explanation, provider health, projects, memory, approvals, conflicts, plugins, and settings.
-- Accessible dense operational UI, reconnect/replay behavior, bounded live logs, sanitized Markdown/diffs, cancellation, and exact approval detail.
-- Signed package and update configuration for supported platforms.
+- Runs, task DAG, attempts, timeline, estimates versus actuals, routing explanation, provider health, quota cards, projects, memory, approvals, conflicts, plugins, and settings.
+- A setup wizard that manages provider installation, credential configuration through approved mechanisms only, and the opt-in capacity collector.
+- Accessible dense dark operational UI, reconnect/replay behavior, bounded live logs, sanitized Markdown/diffs, cancellation, and exact approval detail.
 
 Tests and gate:
 
-- Component and Playwright Electron tests cover desktop/mobile-sized windows, long content, reconnect, daemon restart, active cancellation, approvals, unsafe links, IPC sender validation, CSP, and non-overlap screenshots.
-- Release artifact passes Electron security checklist, signature, install, update, rollback, and uninstall tests.
-- The daemon URL is printed for browser-based development; packaged desktop uses the authenticated local descriptor.
+- Component and Playwright Electron tests cover window sizes, long content, reconnect, daemon restart, active cancellation, approvals, unsafe links, IPC sender validation, CSP, and non-overlap screenshots.
+- The wizard never offers a credential mechanism outside the published provider boundaries.
 
-## Stage 17: Plugin host
+## Stage 22: Provider, tool, MCP, and plugin SDK
 
 Status: Planned.
 
@@ -400,15 +497,15 @@ Package: `@ai-dev-os/plugins`
 Deliverables:
 
 - Signed manifest validation, versioned JSON-RPC stdio, lifecycle, health, timeouts, cancellation, grants, revocation, and secret broker.
-- Provider, routing-strategy, memory, validator, and tool extension points with explicit compatibility versions.
+- Provider, routing-strategy, memory, validator, tool, and MCP extension points with explicit compatibility versions.
 - Admin/user installation and upgrade workflow with capability-diff approval.
 
 Tests and gate:
 
 - Hostile plugin fixtures cover malformed RPC, crashes, hangs, oversized messages, spoofed identity, permission expansion, secret requests, path escape, and network denial.
-- General third-party installation remains disabled until the supported OS sandbox passes its security review.
+- General third-party installation remains disabled until the Stage 17 sandbox passes its security review.
 
-## Stage 18: PostgreSQL and team deployment
+## Stage 23: Optional team and remote-worker deployment
 
 Status: Planned after desktop workflow validation.
 
@@ -418,28 +515,28 @@ Deliverables:
 
 - PostgreSQL implementation of every persistence contract and concurrent lease semantics.
 - S3-compatible encrypted artifact adapter, TLS, OIDC, RBAC, tenant scopes, remote audit export, quotas, backup, restore, and operations runbooks.
-- Horizontal API and worker scaling with measured need; no change to domain behavior.
+- Remote worker deployment with horizontal API and worker scaling driven by measured need; no change to domain behavior.
 
 Tests and gate:
 
 - Cross-adapter contract suite, concurrency/load tests, tenant isolation, rolling migration, backup/restore, failover, and disaster recovery exercises.
 - External penetration test before team general availability.
 
-## Stage 19: Production hardening and release
+## Stage 24: Production hardening, installers, and release
 
 Status: Planned.
 
 Deliverables:
 
 - OpenTelemetry dashboards and alerts, incident runbooks, kill switch, circuit operations, retention/export/delete workflows, and support diagnostics.
-- SBOM, provenance, license report, signed releases, verified updates, rollback, and dependency policy.
+- SBOM, provenance, license report, signed releases, signed installers, verified updates, rollback, and dependency policy.
 - Versioned evaluation suite, live-provider canaries, routing calibration process, and cost anomaly alerts.
 - Threat-model review and external penetration test focused on repository, process, plugin, desktop, and cross-project boundaries.
 
 Release gate:
 
 - All production release gates in the technical design pass.
-- Secure isolation is available on each advertised platform.
+- Secure isolation is available on each advertised platform (Stage 17).
 - Recovery, cancellation, budget, and audit objectives are measured rather than assumed.
 - Documentation covers installation, provider setup, data handling, backups, security limits, and incident recovery.
 
@@ -447,16 +544,20 @@ Release gate:
 
 | Release | Included stages | User-visible outcome |
 | --- | --- | --- |
-| `0.1` orchestration core | 0-7, 10-12 | Durable read-only multi-model planning and routing with local models and fakes |
-| `0.2` isolated coding | 8-9, 14 | Claude Code edits in managed worktrees with deterministic validation and integration |
-| `0.3` memory and API | 13, 15 | Persistent multi-project daemon with repository intelligence and full API |
-| `0.4` desktop | 16 | Operational desktop dashboard and approvals |
-| `0.5` extensions | 17 | Trusted signed plugins with explicit grants |
-| `1.0` hardened desktop | 19 | Signed, recoverable, audited single-user production release |
-| `1.x` team | 18 plus team hardening | Authenticated concurrent service deployment |
+| `0.1` orchestration core | 0-7, 11-13 | Durable read-only multi-model planning with local models, cloud inference, and a unified usage ledger |
+| `0.2` isolated coding | 8-10, 14-16 | Claude Code and Codex edits in managed worktrees with context packs and quota-aware routing |
+| `0.3` contained execution | 17-19 | Genuinely sandboxed autonomous execution with durable scheduling, evaluation, and integration |
+| `0.4` daemon and desktop | 20-21 | Persistent multi-project daemon, full API, and the dark desktop dashboard with a setup wizard |
+| `0.5` extensions | 22 | Trusted signed provider, tool, MCP, and plugin extensions with explicit grants |
+| `1.0` hardened desktop | 24 | Signed, recoverable, audited single-user production release |
+| `1.x` team | 23 plus team hardening | Authenticated concurrent service and remote-worker deployment |
+
+Release `0.2` delivers coding adapters whose production execution still refuses;
+`0.3` is the first release in which autonomous repository execution can actually
+run, because Stage 17 is what makes containment real.
 
 ## Immediate next module after this delivery
 
-Stages 1 through 8 are complete: the task-graph kernel, the domain vocabulary, persistence, artifact byte storage, the provider contracts, configuration/secrets/policy, the Ollama adapter, and now workspace and process isolation. Implement Stage 9 (Claude Code coding-agent adapter) next; it consumes the workspace grant, the managed worktree, and the process broker delivered here.
+Stages 0 through 9 are complete: the task-graph kernel, the domain vocabulary, persistence, artifact byte storage, the provider contracts, configuration/secrets/policy, the Ollama adapter, workspace and process isolation, and now the Claude Code coding-agent adapter. Implement Stage 10 (Codex coding-agent adapter and Codex usage telemetry) next; it reuses the Stage 9 shape — trusted absolute executable, probe through the process-broker seam, adapter-owned finite argument vector, instructions on stdin, bounded stream parsing that fails closed, workspace reconciliation as the sole source of truth, and honest usage and cost mapping — against a second coding CLI.
 
-One constraint carries forward and must not be quietly dropped: no built-in sandbox backend is currently classified secure-enforcing, so production autonomous execution refuses to start. Stage 9 can be developed and tested against the explicitly unsafe development backend, but shipping autonomous repository execution to users requires a real enforcing backend on each advertised platform first.
+One constraint carries forward and must not be quietly dropped: no built-in sandbox backend is classified secure-enforcing, so production autonomous execution still refuses before any agent process starts. Stage 9 was developed and tested against the explicitly unsafe development backend, and Stage 10 will be too. Shipping autonomous repository execution to users requires Stage 17 to deliver a real enforcing backend on each advertised platform first; until then, every result from a coding adapter carries the uncontained-execution warning naming the backend and its security class.

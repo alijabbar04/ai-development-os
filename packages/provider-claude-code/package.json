@@ -1,0 +1,37 @@
+{
+  "name": "@ai-dev-os/provider-claude-code",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude Code coding-agent adapter for AI Development OS: trusted-executable discovery and compatibility probing, non-interactive stream-json execution through the process broker inside a managed workspace, conservative tool and permission translation, workspace reconciliation, and honest usage, cost, and capacity reporting.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../workspace run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../provider-testkit run build && npm --prefix ../workspace run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../provider-testkit run build && npm --prefix ../workspace run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../provider-testkit run build && npm --prefix ../workspace run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/artifacts": "^0.1.0",
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/process-broker": "^0.1.0",
+    "@ai-dev-os/providers": "^0.1.0",
+    "@ai-dev-os/workspace": "^0.1.0"
+  },
+  "devDependencies": {
+    "@ai-dev-os/provider-testkit": "^0.1.0"
+  }
+}
