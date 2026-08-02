@@ -68,23 +68,28 @@ Exit criteria:
 
 ## Stage 2: Core value objects and artifact contracts
 
-Status: Planned.
+Status: Complete.
 
 Packages: `@ai-dev-os/domain`, `@ai-dev-os/artifacts`
 
-Deliverables:
+Delivered:
 
-- Branded project, run, task, attempt, lease, artifact, approval, and event IDs.
-- Integer-micro money, token categories, durations, quotas, and budget reservation arithmetic.
-- Typed artifact descriptors, schemas, provenance, sensitivity, and content digests.
-- Data classification and provider-disclosure policies.
-- Domain error envelope and versioned serialization rules.
+- Branded project, run, task, task-run (attempt), lease, artifact, approval, event, agent, provider, model, workspace, and trace IDs with one canonical format and runtime guards.
+- Integer-micro money with checked exact arithmetic, disjoint token categories, millisecond durations, hard/soft token/monetary/time budgets, and an immutable budget-reservation state machine (reserve, commit, release, cancel, account cancellation) with idempotent replay, optimistic versioning, and structured `BudgetDecision`/`BudgetExceededError` outcomes.
+- Estimated-versus-actual usage records and exact ledger aggregation across task, run, and project scopes.
+- Five-level data classification with floor-enforcing `DataHandlingPolicy`, deterministic provider-neutral disclosure/eligibility evaluation producing structured decisions (reasons, required redactions, required approvals, audit rule codes), and routing question helpers.
+- Provider-neutral `ModelCapabilities`/`ModelRequirements` matching with `UnsupportedCapabilityError` and exact BigInt cost estimation from micro-unit-per-million-token pricing.
+- Typed artifact descriptors with digests, safe display names, explicit storage locations, traversal-safe relative paths (Windows device names, control characters, UNC, and drive letters rejected), provenance, classification, bounded unique parent references, and task-run manifests. No free-form metadata maps.
+- Structured domain error hierarchy (validation, invariant, serialization, budget, policy, capability, concurrency) whose messages and details never echo raw input values.
+- Deterministic canonical JSON serialization, prototype-pollution-safe parsing, and `schemaVersion`-checked hydration for every persisted aggregate.
+- Shared zero-dependency validation toolkit exported as the documented `validation` namespace; the minimal internal validator was chosen over adding a validation library to keep the domain layer dependency-free and consistent with `@ai-dev-os/task-graph` (decision recorded in the package README).
 
-Tests and gate:
+Tests and gate (passing):
 
-- Property tests prove money and quota arithmetic cannot silently overflow or use floating-point currency.
-- Digest, serialization, scope, and classification invariants pass fuzz tests.
-- No I/O dependency enters the package.
+- 143 tests across both packages: hostile-input, boundary-value, state-transition, serialization round-trip, policy decision, path-safety, deterministic-output, and seeded pseudo-random arithmetic sweeps proving money arithmetic cannot silently overflow or use floating-point currency.
+- Coverage gates met (domain 97.8% statements / 92.5% branches; artifacts 100% statements / 98.1% branches) at the repository thresholds.
+- Zero runtime dependencies in `@ai-dev-os/domain`; `@ai-dev-os/artifacts` depends only on `@ai-dev-os/domain`. No provider, UI, or I/O dependency enters either package.
+- `npm run check`, `npm run test:coverage`, `npm audit`, package dry-run inspection, and a consumer-style smoke test against packed tarballs all pass.
 
 ## Stage 3: Persistence and event journal
 
@@ -415,4 +420,4 @@ Release gate:
 
 ## Immediate next module after this delivery
 
-After the Stage 1 task-graph gate passes, implement Stage 2 core value objects and artifact contracts. Do not begin provider adapters or autonomous repository execution before the data-policy, budget, artifact, and capability vocabulary they depend on is stable.
+Stages 1 and 2 are complete: the task-graph kernel and the data-policy, budget, artifact, and capability vocabulary are stable. Implement Stage 3 persistence and the event journal next. Do not begin provider adapters or autonomous repository execution before the storage ports and transactional event contracts they depend on exist.

@@ -1,0 +1,30 @@
+{
+  "name": "@ai-dev-os/artifacts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Immutable, provider-neutral artifact contracts for AI Development OS: descriptors, digests, locations, provenance, and manifests.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../domain run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../domain run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../domain run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../domain run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/domain": "^0.1.0"
+  }
+}

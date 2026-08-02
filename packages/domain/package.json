@@ -1,0 +1,23 @@
+{
+  "name": "@ai-dev-os/domain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Provider-neutral core value objects, budgets, data classifications, and model capability contracts for AI Development OS.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}
