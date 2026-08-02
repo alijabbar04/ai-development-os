@@ -41,9 +41,12 @@ const result = await operation.result;                    // agrees with termina
 - `result` resolves on completion, rejects with a `ProviderError` on
   failure, and rejects with `CANCELLED` on cancellation — always in
   agreement with the terminal event. Draining the stream is not required:
-  events are buffered (bounded at 10 000; exceeding it is a protocol
-  violation), so backpressure from a slow consumer never stalls the
-  provider. The result promise never causes unhandled rejections.
+  unread events are buffered (bounded at 10 000 events and 16 MiB of
+  canonical UTF-8 JSON; exceeding either is a structured, secret-safe
+  protocol failure with a contiguous terminal event), so backpressure from
+  a slow consumer never stalls the provider. Events are released from the
+  buffer as the single consumer reads them. The result promise never causes
+  unhandled rejections.
 - Usage events are **cumulative snapshots**, never deltas; totals must be
   non-decreasing.
 

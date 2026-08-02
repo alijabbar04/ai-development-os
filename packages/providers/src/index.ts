@@ -181,6 +181,7 @@ export {
 
 export {
   MAX_BUFFERED_EVENTS,
+  MAX_BUFFERED_EVENT_CANONICAL_BYTES,
   systemClock,
   createOperationController,
   guardProviderOperation,

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ValidationError } from "@ai-dev-os/domain";
 import {
   FIRST_EVENT_SEQUENCE,
+  MAX_BUFFERED_EVENTS,
+  MAX_BUFFERED_EVENT_CANONICAL_BYTES,
   ProviderError,
   createEventSequenceValidator,
   createOperationController,
@@ -262,6 +264,69 @@ describe("operation controller", () => {
       RESULT,
     );
     await expect(controller.operation.result).resolves.toBe(RESULT);
+  });
+
+  it("fails deterministically with a terminal event when the unread event-count bound is exceeded", async () => {
+    const controller = buildController();
+    for (let index = 0; index < MAX_BUFFERED_EVENTS - 1; index += 1) {
+      controller.emit((base) =>
+        ({ ...base, kind: "text-delta", payload: { text: "x" } }) as InferenceEvent,
+      );
+    }
+
+    expect(() =>
+      controller.emit((base) =>
+        ({ ...base, kind: "text-delta", payload: { text: "overflow" } }) as InferenceEvent,
+      ),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "PROTOCOL_VIOLATION",
+        details: expect.objectContaining({ maximumEventCount: MAX_BUFFERED_EVENTS }),
+      }),
+    );
+    await expect(controller.operation.result).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" });
+
+    let count = 0;
+    let previousSequence = 0;
+    let terminalKind = "";
+    for await (const event of controller.operation.events()) {
+      count += 1;
+      expect(event.sequence).toBe(previousSequence + 1);
+      previousSequence = event.sequence;
+      terminalKind = event.kind;
+    }
+    expect(count).toBe(MAX_BUFFERED_EVENTS);
+    expect(terminalKind).toBe("operation-failed");
+  });
+
+  it("bounds retained canonical UTF-8 bytes and keeps overflow errors secret-safe", async () => {
+    const controller = buildController();
+    const canary = "stage5-buffer-secret-canary";
+    const largeText = `${canary}:${"😀".repeat(32_000)}`;
+    let thrown: unknown;
+    try {
+      for (;;) {
+        controller.emit((base) =>
+          ({ ...base, kind: "text-delta", payload: { text: largeText } }) as InferenceEvent,
+        );
+      }
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "PROTOCOL_VIOLATION",
+      details: expect.objectContaining({ maximumCanonicalBytes: MAX_BUFFERED_EVENT_CANONICAL_BYTES }),
+    });
+    expect(JSON.stringify(thrown)).not.toContain(canary);
+    await expect(controller.operation.result).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" });
+
+    let terminal: InferenceEvent | undefined;
+    for await (const event of controller.operation.events()) {
+      terminal = event;
+    }
+    expect(terminal?.kind).toBe("operation-failed");
+    expect(JSON.stringify(terminal)).not.toContain(canary);
   });
 
   it("rejects double terminals, post-terminal emits, and double consumption", async () => {

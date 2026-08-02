@@ -1,3 +1,4 @@
+import { toCanonicalJson } from "@ai-dev-os/domain";
 import { ProviderError, toProviderError } from "./errors.js";
 import {
   isTerminalEventKind,
@@ -41,6 +42,13 @@ export interface ProviderOperation<TEvent, TResult> {
 }
 
 export const MAX_BUFFERED_EVENTS = 10_000;
+/** Maximum UTF-8 size of canonical JSON retained for unread events. */
+export const MAX_BUFFERED_EVENT_CANONICAL_BYTES = 16 * 1_024 * 1_024;
+
+// Non-terminal writes reserve enough of the aggregate budget for the
+// controller's small, structured terminal-failure event. This keeps an
+// overflow observable through a contiguous, valid terminal stream.
+const TERMINAL_EVENT_CANONICAL_BYTE_RESERVE = 512 * 1_024;
 
 type EventFactory<TEvent> = (base: {
   schemaVersion: typeof PROVIDER_CONTRACT_SCHEMA_VERSION;
@@ -91,7 +99,11 @@ export function createOperationController<
   let sequence = FIRST_EVENT_SEQUENCE;
   let terminalKind: TerminalEventKind | null = null;
   let cancellationReason: CancellationReason | null = null;
-  const buffered: TEvent[] = [];
+  type BufferedEvent = { readonly event: TEvent; readonly canonicalBytes: number };
+  const buffered: Array<BufferedEvent | undefined> = [];
+  let bufferHead = 0;
+  let unreadEventCount = 0;
+  let bufferedCanonicalBytes = 0;
   const waiters: Array<() => void> = [];
   let streamConsumed = false;
   const cancelHandlers: Array<(reason: CancellationReason) => void> = [];
@@ -118,17 +130,113 @@ export function createOperationController<
     return base;
   }
 
-  function push(event: TEvent): void {
-    if (buffered.length >= MAX_BUFFERED_EVENTS) {
-      throw new ProviderError("PROTOCOL_VIOLATION", "The operation exceeded the event buffer bound.", {
-        maximum: MAX_BUFFERED_EVENTS,
-      });
+  function utf8ByteLength(text: string): number {
+    let bytes = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      const codeUnit = text.charCodeAt(index);
+      if (codeUnit <= 0x7f) {
+        bytes += 1;
+      } else if (codeUnit <= 0x7ff) {
+        bytes += 2;
+      } else if (
+        codeUnit >= 0xd800 &&
+        codeUnit <= 0xdbff &&
+        index + 1 < text.length &&
+        text.charCodeAt(index + 1) >= 0xdc00 &&
+        text.charCodeAt(index + 1) <= 0xdfff
+      ) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
     }
-    buffered.push(event);
+    return bytes;
+  }
+
+  function eventCanonicalBytes(event: TEvent): number {
+    return utf8ByteLength(toCanonicalJson(event));
+  }
+
+  function wakeStreamConsumers(): void {
     const pending = waiters.splice(0, waiters.length);
     for (const wake of pending) {
       wake();
     }
+  }
+
+  function enqueue(event: TEvent, canonicalBytes: number): void {
+    buffered.push(Object.freeze({ event, canonicalBytes }));
+    unreadEventCount += 1;
+    bufferedCanonicalBytes += canonicalBytes;
+    wakeStreamConsumers();
+  }
+
+  function overflow(event: TEvent, attemptedCanonicalBytes: number): never {
+    const error = new ProviderError(
+      "PROTOCOL_VIOLATION",
+      "The operation exceeded its bounded event buffer.",
+      {
+        bufferedEventCount: unreadEventCount,
+        bufferedCanonicalBytes,
+        attemptedEventCanonicalBytes: attemptedCanonicalBytes,
+        maximumEventCount: MAX_BUFFERED_EVENTS,
+        maximumCanonicalBytes: MAX_BUFFERED_EVENT_CANONICAL_BYTES,
+      },
+      { operationId, traceId: trace.traceId },
+    );
+    const terminalEvent = {
+      schemaVersion: event.schemaVersion,
+      operationId: event.operationId,
+      sequence: event.sequence,
+      occurredAt: event.occurredAt,
+      trace: event.trace,
+      kind: "operation-failed",
+      payload: {
+        code: error.code,
+        message: error.message,
+        retryStrategy: error.retry.strategy,
+      },
+    } as unknown as TEvent;
+    const terminalBytes = eventCanonicalBytes(terminalEvent);
+    // The fixed reserve is deliberately larger than any validated terminal
+    // failure event. Keep this defensive check so a future schema expansion
+    // cannot silently defeat the aggregate bound.
+    if (
+      terminalBytes > TERMINAL_EVENT_CANONICAL_BYTE_RESERVE ||
+      unreadEventCount + 1 > MAX_BUFFERED_EVENTS ||
+      bufferedCanonicalBytes + terminalBytes > MAX_BUFFERED_EVENT_CANONICAL_BYTES
+    ) {
+      throw new ProviderError(
+        "INTERNAL_FAILURE",
+        "The bounded operation buffer could not retain its terminal event.",
+        {
+          maximumEventCount: MAX_BUFFERED_EVENTS,
+          maximumCanonicalBytes: MAX_BUFFERED_EVENT_CANONICAL_BYTES,
+        },
+        { operationId, traceId: trace.traceId },
+      );
+    }
+    enqueue(terminalEvent, terminalBytes);
+    settleTerminal("operation-failed", error);
+    rejectResult(error);
+    throw error;
+  }
+
+  function push(event: TEvent): void {
+    const canonicalBytes = eventCanonicalBytes(event);
+    const terminal = isTerminalEventKind(event.kind);
+    const countLimit = terminal ? MAX_BUFFERED_EVENTS : MAX_BUFFERED_EVENTS - 1;
+    const byteLimit = terminal
+      ? MAX_BUFFERED_EVENT_CANONICAL_BYTES
+      : MAX_BUFFERED_EVENT_CANONICAL_BYTES - TERMINAL_EVENT_CANONICAL_BYTE_RESERVE;
+    if (
+      unreadEventCount + 1 > countLimit ||
+      bufferedCanonicalBytes + canonicalBytes > byteLimit
+    ) {
+      overflow(event, canonicalBytes);
+    }
+    enqueue(event, canonicalBytes);
   }
 
   function assertNotTerminal(): void {
@@ -153,16 +261,29 @@ export function createOperationController<
         throw new ProviderError("PROTOCOL_VIOLATION", "The event stream is single-use.", {});
       }
       streamConsumed = true;
-      let cursor = 0;
       return {
         [Symbol.asyncIterator]() {
           return {
             async next(): Promise<IteratorResult<TEvent>> {
               for (;;) {
-                if (cursor < buffered.length) {
-                  const event = buffered[cursor] as TEvent;
-                  cursor += 1;
-                  return { done: false, value: event };
+                if (unreadEventCount > 0) {
+                  const entry = buffered[bufferHead];
+                  if (entry === undefined) {
+                    throw new ProviderError(
+                      "INTERNAL_FAILURE",
+                      "The operation event buffer became inconsistent.",
+                      {},
+                    );
+                  }
+                  buffered[bufferHead] = undefined;
+                  bufferHead += 1;
+                  unreadEventCount -= 1;
+                  bufferedCanonicalBytes -= entry.canonicalBytes;
+                  if (bufferHead >= 1_024 && bufferHead * 2 >= buffered.length) {
+                    buffered.splice(0, bufferHead);
+                    bufferHead = 0;
+                  }
+                  return { done: false, value: entry.event };
                 }
                 if (terminalKind !== null) {
                   return { done: true, value: undefined };
