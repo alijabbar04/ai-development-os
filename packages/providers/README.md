@@ -49,6 +49,10 @@ const result = await operation.result;                    // agrees with termina
   unhandled rejections.
 - Usage events are **cumulative snapshots**, never deltas; totals must be
   non-decreasing.
+- Inference streams may carry `reasoning-delta` events (added for the local
+  Ollama adapter's thinking support): model reasoning text, always distinct
+  from `text-delta` answer content and never merged into result messages.
+  Adapters must respect disclosure constraints before emitting them.
 
 Two enforcement layers:
 

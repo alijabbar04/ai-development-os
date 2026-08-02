@@ -51,6 +51,7 @@ export const INFERENCE_EVENT_KINDS = Object.freeze([
   "operation-started",
   "message-started",
   "text-delta",
+  "reasoning-delta",
   "structured-output-delta",
   "structured-output-completed",
   "tool-call-started",
@@ -113,6 +114,7 @@ export type InferenceEvent = ProviderEventBase &
     | { readonly kind: "operation-started"; readonly payload: { readonly modelId: string } }
     | { readonly kind: "message-started"; readonly payload: { readonly messageIndex: number } }
     | { readonly kind: "text-delta"; readonly payload: { readonly text: string } }
+    | { readonly kind: "reasoning-delta"; readonly payload: { readonly text: string } }
     | { readonly kind: "structured-output-delta"; readonly payload: { readonly textDelta: string } }
     | { readonly kind: "structured-output-completed"; readonly payload: { readonly value: JsonValue } }
     | { readonly kind: "tool-call-started"; readonly payload: { readonly toolCallId: string; readonly toolName: string } }
@@ -253,6 +255,7 @@ export function parseInferenceEvent(value: unknown, path = "inferenceEvent"): In
         }),
       });
     case "text-delta":
+    case "reasoning-delta":
       ensureExactKeys(payload, ["text"], payloadPath);
       return Object.freeze({
         ...base,

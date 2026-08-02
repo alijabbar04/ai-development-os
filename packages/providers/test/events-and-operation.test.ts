@@ -45,6 +45,7 @@ describe("event parsing", () => {
       { kind: "operation-started", payload: { modelId: "m-1" } },
       { kind: "message-started", payload: { messageIndex: 0 } },
       { kind: "text-delta", payload: { text: "hi" } },
+      { kind: "reasoning-delta", payload: { text: "let me think" } },
       { kind: "structured-output-delta", payload: { textDelta: '{"a":' } },
       { kind: "structured-output-completed", payload: { value: { a: 1 } } },
       { kind: "tool-call-started", payload: { toolCallId: "c-1", toolName: "read-file" } },
@@ -118,6 +119,12 @@ describe("event parsing", () => {
     ).toThrow(ValidationError);
     expect(() =>
       parseInferenceEvent({ ...envelope(1), kind: "text-delta", payload: { text: 42 } }),
+    ).toThrow(ValidationError);
+    expect(() =>
+      parseInferenceEvent({ ...envelope(1), kind: "reasoning-delta", payload: { text: 42 } }),
+    ).toThrow(ValidationError);
+    expect(() =>
+      parseInferenceEvent({ ...envelope(1), kind: "reasoning-delta", payload: { text: "x", extra: 1 } }),
     ).toThrow(ValidationError);
     expect(() =>
       parseInferenceEvent({ ...envelope(0), kind: "operation-completed", payload: {} }),

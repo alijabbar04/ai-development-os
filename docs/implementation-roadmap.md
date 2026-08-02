@@ -190,22 +190,27 @@ Noted deviations: the requested six-layer contract uses explicit system and envi
 
 ## Stage 7: Ollama provider and local capacity manager
 
-Status: Planned.
+Status: Complete.
 
 Package: `@ai-dev-os/provider-ollama`
 
-Deliverables:
+Delivered:
 
-- Native Ollama discovery, health, streaming chat, structured output, reasoning, usage, cancellation, and keep-alive integration.
-- Configurable role preferences for DeepSeek R1, Gemma, Mistral, Qwen, and Llama families.
-- Local model digest catalog, concurrency semaphore, load/unload policy, and resource telemetry.
-- Capability-aware fallback rather than exact-name assumptions.
+- Native-API adapter (`/api/tags`, `/api/show`, `/api/ps`, `/api/chat`, `/api/generate` for keep-alive, `/api/version`) implementing the Stage 5 InferenceProvider contract: streaming chat over a bounded incremental NDJSON parser (UTF-8 splits, LF/CRLF, per-record/aggregate/record-count bounds), structured output via the documented `format` JSON-Schema mode with defensive final-value parsing and no repair loop, documented `think` boolean/effort-level controls with reasoning emitted as events strictly separate from answer text and fully suppressible per request, tool declarations/invocations with deterministic call IDs and undeclared-call rejection (no tool execution), exact prompt/eval token mapping with unknown-cost semantics and derived nanosecond→millisecond duration telemetry, cancellation (idempotent, first-terminal-wins, response aborted, lease always released), absolute deadlines enforced pre-start, while queued, and mid-stream on an injected scheduler, and per-request keep-alive.
+- Loopback-only enforcement: only literal `127.0.0.0/8` dotted-decimal or `[::1]` HTTP endpoints are accepted (strict grammar cross-checked against the URL parser, so hostnames including `localhost`, `0.0.0.0`/`::`, IPv4-mapped IPv6, octal/hex/integer host tricks, user-info, queries, fragments, and base paths are all rejected); redirects are rejected before any second request; no ambient proxy; all request URLs derive from a finite six-endpoint table with model-management operations (pull/delete/copy/create/push) unrepresentable; error bodies are classification-only and never propagate.
+- Digest-validated model catalog: deterministic name-sorted discovery independent of response order, normalized sha256 digests with configured pins (mismatched/unverifiable pins make models ineligible with stable reason codes), bounded metadata only (no templates/licenses/token tables), capability normalization from reported `/api/show` tokens with per-field provenance (reported/derived/configuration-restricted/unknown; restrictive-only configuration overrides; versioned family knowledge used solely for Stage 2 rating/latency fields), context length from `model_info`, and a sha256 catalog fingerprint that excludes volatile runtime state and replays byte-identically.
+- Role preferences for the DeepSeek R1, Gemma, Mistral, Qwen, and Llama families using the shared config role vocabulary: ranked exact-name then family matching (never name substrings), capability/context/size/quantization/digest-pin requirements, deterministic explainable selection results (evidence, rejected candidates with sorted reason codes, fallback status, catalog fingerprint), and a structured `no-eligible-local-model` result for the later router.
+- Deterministic capacity manager: global and per-model concurrency limits, byte budget with safety reserve, strict-FIFO bounded queue with admission timeout, absolute-deadline expiry, cancellation while queued, idempotent lease release on every terminal path with underflow/overflow guards, immutable snapshots, and close semantics. Keep-alive policies (unload-immediately / bounded retain / keep-loaded) map to documented wire values; residency planning unloads only instance-owned idle models (never active/queued leases, never externally observed models — skipped as `not-owned`), executes through empty-prompt `/api/generate`, and supports explicit preloads.
+- Health as both the contract ProviderHealth and a richer snapshot (healthy/degraded/overloaded/unavailable/incompatible/closed with structural evidence); structured secret-safe observations for discovery, admissions, operations, and residency; stable ProviderError mapping with conservative retry dispositions and no prompt/output/reasoning/tool-argument/raw-body leakage through errors or observability.
+- One provider-neutral upstream addition: the `reasoning-delta` inference event kind in `@ai-dev-os/providers` (the Stage 5 vocabulary had no reasoning event), backward compatible and covered by focused tests.
 
-Tests and gate:
+Tests and gate (passing):
 
-- Fake-server contract tests cover missing model, malformed stream, disconnect, slow load, cancellation, and overload.
-- Opt-in live tests run against every installed configured model with fixed prompts and no repository writes.
-- Ollama is verified loopback-only before autonomous use.
+- 128 Stage 7 package tests (122 deterministic + 6 opt-in live): the full Stage 5 inference contract suite runs against the adapter through a deterministic loopback-only fake HTTP server (missing model, malformed stream, disconnect, slow load via held responses, cancellation races, deadline races, overload, secret canaries), plus focused suites for loopback enforcement (encoded-host tricks, redirects, user-info, LAN/public/unspecified addresses), NDJSON/wire hostile input (prototype pollution, unsafe integers, negative durations, invalid timestamps, oversized lines/streams/record counts, invalid UTF-8, hostile tool arguments), deterministic discovery/fingerprint/selection replay, capacity admission/queue/release/close semantics, residency ownership guards, and adapter behaviors — all deterministic tests on virtual time with no real sleeps.
+- Opt-in live tests (single `AI_DEV_OS_OLLAMA_LIVE_URL` loopback opt-in plus a model allowlist; never pulling/deleting models, fixed harmless prompts, low output limits, bounded deadlines, no repository writes, no tool execution) passed against a local Ollama 0.32.5 with deepseek-r1:8b, gemma3:12b, mistral:7b, qwen3:8b, and llama3.2:3b installed.
+- Coverage gates met; `npm ci`, `npm run check`, repository coverage, `npm audit`, package dry-run, and a packed-tarball consumer smoke test pass on Windows; Linux remains covered by the configured CI matrix.
+
+Noted deviations: `tool_choice` `required`/`named` are rejected because the native API cannot enforce them; image input stays disabled until the Stage 8+ artifact resolver exists; digest identity cannot be re-verified per chat response (not on the wire) and is enforced at selection/start against the latest catalog.
 
 ## Stage 8: Workspace and process isolation
 
