@@ -1,0 +1,25 @@
+{
+  "name": "@ai-dev-os/config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Versioned provider-neutral configuration contracts, layered resolution, provenance, canonical output, and change planning for AI Development OS.",
+  "type": "module",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./testing": { "types": "./dist/testing/contract-suite.d.ts", "import": "./dist/testing/contract-suite.js" }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "prebuild": "npm --prefix ../secrets run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../secrets run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../secrets run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../secrets run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": { "@ai-dev-os/domain": "^0.1.0", "@ai-dev-os/secrets": "^0.1.0" },
+  "peerDependencies": { "vitest": ">=4.0.0" },
+  "peerDependenciesMeta": { "vitest": { "optional": true } }
+}

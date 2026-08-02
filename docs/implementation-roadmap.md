@@ -166,23 +166,27 @@ Noted deviation: the fakes are deterministic in-process providers rather than a 
 
 ## Stage 6: Configuration, secrets, and policy broker
 
-Status: Planned.
+Status: Complete.
 
-Packages: `@ai-dev-os/config`, `@ai-dev-os/policy`, `@ai-dev-os/secrets`
+Packages: `@ai-dev-os/config`, `@ai-dev-os/policy`, `@ai-dev-os/secrets`, `@ai-dev-os/secrets-memory`
 
-Deliverables:
+Delivered:
 
-- Schema-versioned default, user, project, profile, and run configuration layers.
-- Locked settings that lower layers cannot weaken.
-- OS-keychain secret references and sanitized process environments.
-- Deny-by-default action-intent policy, capability grants, one-shot approvals, and audit decisions.
-- Data disclosure, egress, filesystem, process, Git, package, and budget policies.
+- Provider-neutral schema-v1 configuration for application identity, provider instances and SecretRef credentials, loopback local-model endpoints, aliases/preferences, routing, integer-exact Stage 2 budgets, data handling, approvals, workspace limits, artifact/persistence/observability settings, feature flags, and genuine user preferences. Unknown or inline-secret fields are rejected; namespaced extension JSON is canonical and bounded to 16 KiB/depth 8.
+- Deterministic precedence of compiled defaults < system < user < project < environment/launch < explicit runtime. Objects merge only by declared fields; collections require explicit replace or merge-by-ID semantics; locks stop later layers weakening mandatory sections. Resolution returns a deeply immutable configuration, per-leaf provenance that survives partial and collection merges, canonical JSON/fingerprint, stable issues, sensitive-field classification, and safe audit metadata.
+- A frozen configuration change plan with sorted changed fields, redacted summaries, affected providers/subsystems, policy implications, and live/provider/workspace/application/active-operation/invalid-transition classifications. The stage describes required lifecycle actions but does not execute them.
+- Finite immutable SecretRef variants for named, environment, OS-keychain, encrypted-file, and external-vault locators; canonical safe display/fingerprints; text/bytes separation; stable structured errors; callback-scoped non-serializing secret material; policy-before-resolution composition; and attempt/outcome audit hooks with explicit failure semantics.
+- A deterministic in-memory secret broker with defensive copies, snapshot concurrency, replacement/revocation, idempotent close, wait-for-active-callback semantics, practical buffer zeroing, no dump-all surface, and reusable adapter contracts. JavaScript/OS/backend memory-erasure limits are documented without claiming secure erasure.
+- A deny-by-default central policy broker over Stage 2 classification/handling and Stage 5 provider/model capabilities. Organization, project, then user rules are evaluated in stable order while denials and restrictions accumulate conservatively across disclosure, locality, persistence, logging, workspace, command, network, tool, secret, approval, retention, export/deletion, Git, and package actions.
+- Deeply frozen allow/deny/conditional decisions with ordered reasons, matched rules, transformations, structured approvals, locality/logging/retention/capability restrictions, safe audit records, policy version, and canonical SHA-256 fingerprints. One-shot/reusable evidence is checked for action, risk, scope, approver, expiry, revocation, consumption, and normalized-subject digest; models cannot approve their own requirements, and changed action/subject digests invalidate approval IDs.
+- Reusable configuration, policy, and secret-broker contract suites plus deterministic clocks, injected policy IDs/audit hooks, and in-memory configuration sources. Denied or unresolved conditional secret decisions are proven not to invoke the broker.
 
-Tests and gate:
+Tests and gate (passing):
 
-- Precedence, unknown key, locked policy, secret redaction, and rotation tests.
-- Property tests for path/action normalization and approval digest binding.
-- A model response cannot create or approve a capability grant.
+- 59 Stage 6 tests (repository total 603 passing, with 5 additional platform/capability cases skipped): exact layer precedence/replay, merge/provenance/locks, hostile and bounded config, canonical/redacted change plans, all reference forms, serialization/inspection/error leakage, text/byte and empty/missing distinctions, concurrent replace/close/zeroing, audit attempts/outcomes, full finite-action normalization, conservative rule ordering, disclosure/capability/logging/retention restrictions, subject-digest approval binding, structured evidence expiry/revocation/scope/one-shot behavior, and policy-before-broker counters.
+- Coverage gates met: config 95.83% statements / 83.8% branches / 100% functions; policy 95.16% / 90.47% / 100%; secrets 97.72% / 96.29% / 100%; secrets-memory 96.45% / 82.82% / 100%. `npm ci`, the full typecheck/test/build `npm run check`, repository coverage, `npm audit` (0 vulnerabilities), dependency/security/console scans, all four package dry-runs, and a packed-tarball consumer smoke test pass on Windows. Linux remains covered by the configured CI matrix but was not claimed for this unpushed local commit.
+
+Noted deviations: the requested six-layer contract uses explicit system and environment/launch layers in addition to compiled/user/project/runtime rather than separate hidden profile/run merge rules. `@ai-dev-os/secrets-memory` was added as the deterministic reference adapter requested for this stage. OS-keychain/environment/encrypted-file/vault forms are contracts only; concrete platform adapters and sanitized process-specific injection remain with the later provider/workspace/plugin stages so provider-neutral packages never read ambient environment values or construct process environments. The broker decides capability constraints and validates normalized-subject digests but does not mint execution grants, normalize platform paths/commands, or mutate budget ledgers; those enforcing mechanisms remain in the Stage 8 workspace and Stage 12 scheduler where the necessary platform and reservation state exists.
 
 ## Stage 7: Ollama provider and local capacity manager
 
