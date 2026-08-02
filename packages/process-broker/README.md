@@ -113,9 +113,31 @@ const result = await broker.execute({
 A zero exit code means the transport succeeded, nothing more. Task success
 still requires validating what the command actually produced.
 
+### Long-lived duplex sessions
+
+`openDuplexSession()` performs the same executable verification, normalized
+policy evaluation, grant and lease checks, workspace binding, backend
+admission, environment construction, quota enforcement, production refusal,
+and process-tree supervision as `execute()`. It differs only after spawn:
+stdin stays open for bounded `write()` calls, and separate stdout/stderr chunks
+are exposed as a bounded async event stream.
+
+Writes are serialized. Their promises resolve when the backend accepts the
+bytes, providing backpressure. Per-message, queued-write, and cumulative-write
+bounds are enforced before copying; write-after-close is a structured error.
+Output events split at a configured byte limit and are retained only within
+both event-count and queued-byte bounds. Crossing a queue or output bound
+terminates the process and can never produce success.
+
+Call `closeStdin()` when the protocol is finished, `terminate()` to cancel, or
+`close()` to end the session. Each is idempotent and the first terminal outcome
+wins. Closing the parent broker closes every active duplex session before the
+backend is released.
+
 ## Contract suites
 
-`@ai-dev-os/process-broker/testing` exports `runProcessBrokerContractSuite` and
+`@ai-dev-os/process-broker/testing` exports
+`runProcessBrokerContractSuite`, `runDuplexProcessSessionContractSuite`, and
 `runSandboxBackendContractSuite`. Any future secure backend is held to the same
 behaviour as the unsafe development backend it replaces.
 

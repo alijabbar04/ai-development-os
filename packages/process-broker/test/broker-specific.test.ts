@@ -1,9 +1,10 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   BoundedOutputCollector,
+  BoundedDuplexEventQueue,
   DENY_ALL_NETWORK,
   FORBIDDEN_ENVIRONMENT_NAMES,
   MAX_STDIN_BYTES,
@@ -13,6 +14,7 @@ import {
   buildEnvironment,
   commandSubjectDigest,
   createExecutionLease,
+  createDuplexSessionLimits,
   createManualTime,
   createProcessBroker,
   createProcessQuotas,
@@ -28,6 +30,7 @@ import {
   parseBackendDescriptor,
   parseCapabilityGrant,
   parseEnvironmentBindings,
+  parseDuplexSessionLimits,
   parseNetworkPolicy,
   parseProcessQuotas,
   parseProcessRequest,
@@ -337,6 +340,59 @@ describe("bounded output", () => {
   });
 });
 
+describe("bounded duplex queues", () => {
+  it("validates a complete, immutable limit object and rejects malformed variants", () => {
+    const limits = createDuplexSessionLimits({ maxEventBytes: 32, maxQueuedEventBytes: 64 });
+    expect(Object.isFrozen(limits)).toBe(true);
+    expect(limits.maxEventBytes).toBe(32);
+    expect(() => parseDuplexSessionLimits({ ...limits, extra: 1 })).toThrow();
+    expect(() => parseDuplexSessionLimits({ ...limits, maxMessageBytes: 0 })).toThrow();
+    expect(() =>
+      parseDuplexSessionLimits({ ...limits, maxQueuedWriteBytes: limits.maxMessageBytes - 1 }),
+    ).toThrow();
+    expect(() =>
+      parseDuplexSessionLimits({ ...limits, maxTotalWriteBytes: limits.maxMessageBytes - 1 }),
+    ).toThrow();
+    expect(() =>
+      parseDuplexSessionLimits({ ...limits, maxQueuedEventBytes: limits.maxEventBytes - 1 }),
+    ).toThrow();
+    expect(() => parseDuplexSessionLimits(JSON.parse('{"__proto__":{"polluted":true}}'))).toThrow();
+    expect(() =>
+      parseDuplexSessionLimits(
+        Object.assign(Object.create({ polluted: true }), limits) as unknown,
+      ),
+    ).toThrow();
+  });
+
+  it("reports queue occupancy and lets a consumer stop without retaining more output", async () => {
+    const limits = createDuplexSessionLimits({
+      maxEventBytes: 2,
+      maxQueuedEvents: 4,
+      maxQueuedEventBytes: 8,
+    });
+    const queue = new BoundedDuplexEventQueue(limits);
+    expect(queue.push("stdout", new Uint8Array([1, 2, 3, 4]))).toBe(true);
+    expect(queue.queuedEvents).toBe(2);
+    expect(queue.queuedBytes).toBe(4);
+    const iterator = queue[Symbol.asyncIterator]();
+    expect((await iterator.next()).value?.sequence).toBe(1);
+    expect(queue.queuedEvents).toBe(1);
+    await iterator.return?.();
+    expect(queue.queuedBytes).toBe(0);
+    expect(queue.push("stderr", new Uint8Array(8))).toBe(true);
+    queue.finish();
+    queue.finish();
+  });
+
+  it("completes a pending event read when the producer finishes", async () => {
+    const queue = new BoundedDuplexEventQueue(createDuplexSessionLimits());
+    const iterator = queue[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    queue.finish();
+    expect(await pending).toEqual({ done: true, value: undefined });
+  });
+});
+
 describe("grants and leases", () => {
   it("rejects a traversing path prefix", () => {
     expect(() => contractGrant({ readablePrefixes: ["../escape"] })).toThrow();
@@ -610,6 +666,53 @@ describe("production gate", () => {
 });
 
 describe("broker behaviour", () => {
+  it("refuses a duplex session in production before an armed child can spawn", async () => {
+    const root = await scratchRoot();
+    const marker = join(root, "armed-child-marker");
+    const backend = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "sessions") });
+    const production = createProcessBroker({
+      backend,
+      mode: "production",
+      policy: allowAllPolicy,
+      clock: systemClock,
+    });
+    const grant = contractGrant({}, systemClock);
+    const lease = createExecutionLease({ leaseId: "duplex-production", grant, clock: systemClock });
+    const request = contractRequest(tool(), { args: ["--armed-marker", marker] });
+    const input: ExecuteInput = {
+      request,
+      grant,
+      lease,
+      workspaceRoot: root,
+      workingDirectory: root,
+      workspacePaths: {
+        tempDir: join(root, "tmp"),
+        homeDir: join(root, "home"),
+        configDir: null,
+        cacheDir: null,
+      },
+    };
+    await expect(production.openDuplexSession(input)).rejects.toMatchObject({
+      code: "PRODUCTION_ISOLATION_REQUIRED",
+    });
+    await expect(access(marker)).rejects.toBeDefined();
+    await production.close();
+
+    const developmentBackend = createUnsafeDevelopmentBackend({
+      sessionRoot: join(root, "development-sessions"),
+    });
+    const development = createProcessBroker({
+      backend: developmentBackend,
+      mode: "development",
+      policy: allowAllPolicy,
+      clock: systemClock,
+    });
+    const positive = await development.openDuplexSession(input);
+    expect((await positive.result).state).toBe("succeeded");
+    await expect(access(marker)).resolves.toBeUndefined();
+    await development.close();
+  });
+
   it("refuses in production before any process starts", async () => {
     const harness = await brokerHarness({ mode: "production" });
     const before = Date.now();

@@ -19,6 +19,7 @@ import {
 } from "../src/index.js";
 import {
   runProcessBrokerContractSuite,
+  runDuplexProcessSessionContractSuite,
   runSandboxBackendContractSuite,
   type ProcessBrokerContractHarness,
 } from "../src/testing/contract-suite.js";
@@ -66,6 +67,39 @@ export const allowAllPolicy: PolicyGateway = {
 };
 
 runProcessBrokerContractSuite(async (): Promise<ProcessBrokerContractHarness> => {
+  const root = await scratchRoot();
+  const backend = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "sessions") });
+  const broker = createProcessBroker({
+    backend,
+    mode: "development",
+    policy: allowAllPolicy,
+    clock: systemClock,
+    terminationGraceMs: 200,
+  });
+  return {
+    broker,
+    echoTool: fixtureTool(),
+    clock: systemClock,
+    context: (request: ProcessRequest, lease: ExecutionLease): ExecuteInput => ({
+      request,
+      grant: lease.grant,
+      lease,
+      workspaceRoot: root,
+      workingDirectory: root,
+      workspacePaths: {
+        tempDir: join(root, "tmp"),
+        homeDir: join(root, "home"),
+        configDir: null,
+        cacheDir: null,
+      },
+    }),
+    close: async (): Promise<void> => {
+      await broker.close();
+    },
+  };
+});
+
+runDuplexProcessSessionContractSuite(async (): Promise<ProcessBrokerContractHarness> => {
   const root = await scratchRoot();
   const backend = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "sessions") });
   const broker = createProcessBroker({

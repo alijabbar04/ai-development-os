@@ -16,6 +16,13 @@ import type {
 } from "./backend.js";
 import { ProcessBrokerError, errorCategory } from "./errors.js";
 import {
+  BoundedDuplexEventQueue,
+  createDuplexSessionLimits,
+  parseDuplexSessionLimits,
+  type DuplexSessionLimits,
+  type DuplexSessionOutputEvent,
+} from "./duplex.js";
+import {
   buildEnvironment,
   type BuiltEnvironment,
   type WorkspaceEnvironmentPaths,
@@ -142,8 +149,34 @@ export interface ExecuteInput {
   readonly onOutput?: (event: { stream: "stdout" | "stderr"; chunk: Uint8Array }) => void;
 }
 
+export interface OpenDuplexSessionInput extends Omit<ExecuteInput, "onOutput"> {
+  /** Queue and message bounds specific to interactive stdin/stdout traffic. */
+  readonly limits?: DuplexSessionLimits;
+}
+
+export interface DuplexProcessSession {
+  readonly sessionId: string;
+  readonly requestId: string;
+  readonly pid: number | null;
+  readonly events: AsyncIterable<DuplexSessionOutputEvent>;
+  readonly result: Promise<ProcessResult>;
+  readonly state: ProcessState;
+  /**
+   * Resolves only after the backend has accepted the complete byte message.
+   * Concurrent calls are serialized and rejected before memory bounds cross.
+   */
+  write(bytes: Uint8Array): Promise<void>;
+  /** Flushes accepted writes and closes stdin. Idempotent. */
+  closeStdin(): Promise<void>;
+  /** Cancels the process tree. Idempotent; the first terminal outcome wins. */
+  terminate(): Promise<ProcessResult>;
+  /** Closes the process session and its process tree. Idempotent. */
+  close(): Promise<ProcessResult>;
+}
+
 export interface ProcessBroker {
   execute(input: ExecuteInput): Promise<ProcessResult>;
+  openDuplexSession(input: OpenDuplexSessionInput): Promise<DuplexProcessSession>;
   close(): Promise<void>;
   readonly closed: boolean;
 }
@@ -154,6 +187,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
   const graceMs = options.terminationGraceMs ?? 2_000;
   const approved = Object.freeze([...(options.approvedBackendIds ?? [])]);
   const inflight = new Set<Promise<unknown>>();
+  const sessions = new Set<DuplexProcessSession>();
   let closed = false;
 
   async function execute(input: ExecuteInput): Promise<ProcessResult> {
@@ -167,6 +201,489 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     } finally {
       inflight.delete(tracked);
     }
+  }
+
+  async function openDuplexSession(
+    input: OpenDuplexSessionInput,
+  ): Promise<DuplexProcessSession> {
+    if (closed) {
+      throw new ProcessBrokerError("BROKER_CLOSED", "The process broker is closed.");
+    }
+    const tracked = runDuplexSession(input);
+    inflight.add(tracked);
+    try {
+      const session = await tracked;
+      if (closed) {
+        await session.close();
+        throw new ProcessBrokerError("BROKER_CLOSED", "The process broker is closed.");
+      }
+      sessions.add(session);
+      void session.result.finally(() => sessions.delete(session));
+      return session;
+    } finally {
+      inflight.delete(tracked);
+    }
+  }
+
+  async function runDuplexSession(
+    input: OpenDuplexSessionInput,
+  ): Promise<DuplexProcessSession> {
+    const { request, grant, lease } = input;
+    const startedAt = clock.now();
+    const descriptor = options.backend.describe();
+    const limits = parseDuplexSessionLimits(
+      input.limits ?? createDuplexSessionLimits(),
+      "input.limits",
+    );
+
+    if (request.stdin.kind !== "none") {
+      throw new ProcessBrokerError(
+        "INVALID_REQUEST",
+        "A duplex session requires empty initial stdin; use session.write() after admission.",
+      );
+    }
+    if (input.signal?.aborted === true) {
+      throw new ProcessBrokerError("CANCELLED", "The process session was cancelled before start.");
+    }
+    if (!grantAllowsOperation(grant, "command-execution")) {
+      throw new ProcessBrokerError(
+        "INVALID_GRANT",
+        "The capability grant does not permit command execution.",
+        { grantId: grant.grantId },
+      );
+    }
+    lease.assertValid();
+    if (lease.grant.grantId !== grant.grantId) {
+      throw new ProcessBrokerError("LEASE_INVALID", "The lease does not cover this grant.", {
+        leaseId: lease.leaseId,
+      });
+    }
+
+    const resolved = await resolveTrustedTool(request.tool);
+    const argv = applyArgumentPolicy(request.tool, request.args);
+    const subjectDigest = commandSubjectDigest({
+      toolId: resolved.toolId,
+      executableDigest: resolved.digest?.hex ?? null,
+      immutableReference: resolved.immutableReference,
+      arguments: argv,
+      workingDirectory: request.workingSubdirectory,
+      workspaceId: request.workspaceId,
+      snapshotId: grant.snapshotId,
+      networkMode: request.network.mode,
+      egressDomains: request.network.egressDomains,
+      quotas: {
+        wallClockMs: request.quotas.wallClockMs,
+        outputBytes: request.quotas.outputBytes,
+        cpuTimeMs: request.quotas.cpuTimeMs,
+        memoryBytes: request.quotas.memoryBytes,
+        processCount: request.quotas.processCount,
+        diskBytes: request.quotas.diskBytes,
+        fileCount: request.quotas.fileCount,
+      },
+      environmentNames: request.environment.map((binding) => binding.name),
+      stdinDigest: null,
+    });
+
+    const evaluation = await options.policy.evaluateCommand({ request, grant, subjectDigest });
+    const availability = await options.backend.probe();
+    const decision = evaluateAdmission({
+      mode: options.mode,
+      descriptor,
+      availability,
+      approvedBackendIds: approved,
+      grant,
+      request,
+      clock,
+      policyOutcome: evaluation.outcome,
+      policyFingerprint: evaluation.fingerprint,
+      resolvedExecutableDigest: resolved.digest?.hex ?? null,
+      workspaceLeaseValid: lease.isValid(),
+      workspacePathTrusted: input.workspacePathTrusted ?? true,
+    });
+    emit(decision.admitted ? "admission" : "production-refusal", {
+      request,
+      grant,
+      decision,
+      outcome: decision.admitted ? "admitted" : "refused",
+      occurredAt: clock.now().toISOString(),
+      environmentNameCount: request.environment.length,
+    });
+    assertAdmitted(decision);
+
+    const binding: SandboxBinding = Object.freeze({
+      projectId: request.projectId,
+      workspaceId: request.workspaceId,
+      snapshotId: grant.snapshotId,
+      attemptId: request.attemptId,
+      leaseId: lease.leaseId,
+      grant,
+      grantFingerprint: grantFingerprint(grant),
+      policyDecisionFingerprint: evaluation.fingerprint,
+      workspaceRoot: input.workspaceRoot,
+      expiresAt: grant.expiresAt,
+      nonce: grant.nonce,
+    });
+    const sandbox = await options.backend.prepare(binding);
+    emit("sandbox-prepared", {
+      request,
+      grant,
+      decision,
+      outcome: "prepared",
+      occurredAt: clock.now().toISOString(),
+      environmentNameCount: request.environment.length,
+    });
+
+    try {
+      return await startDuplexProcess({
+        input,
+        sandbox,
+        resolvedPath: resolved.executablePath,
+        combinedArgs: argv,
+        decision,
+        limits,
+        startedAt,
+      });
+    } catch (error) {
+      await options.backend.dispose(sandbox).catch(() => undefined);
+      emit("sandbox-disposed", {
+        request,
+        grant,
+        decision,
+        outcome: "disposed",
+        occurredAt: clock.now().toISOString(),
+        environmentNameCount: request.environment.length,
+      });
+      throw error;
+    }
+  }
+
+  async function startDuplexProcess(context: {
+    readonly input: OpenDuplexSessionInput;
+    readonly sandbox: SandboxSession;
+    readonly resolvedPath: string;
+    readonly combinedArgs: readonly string[];
+    readonly decision: AdmissionDecision;
+    readonly limits: DuplexSessionLimits;
+    readonly startedAt: Date;
+  }): Promise<DuplexProcessSession> {
+    const { input, sandbox, decision, limits, startedAt } = context;
+    const { request, grant, lease } = input;
+    const secretValues =
+      options.secrets === undefined ? new Map<string, string>() : await options.secrets.resolve(request);
+    let environment: BuiltEnvironment;
+    try {
+      environment = buildEnvironment({
+        bindings: request.environment,
+        paths: {
+          tempDir: sandbox.tempDir,
+          homeDir: input.workspacePaths.homeDir ?? sandbox.homeDir,
+          configDir: input.workspacePaths.configDir,
+          cacheDir: input.workspacePaths.cacheDir,
+        },
+        secretValues,
+      });
+    } catch (error) {
+      throw error instanceof ProcessBrokerError
+        ? error
+        : new ProcessBrokerError("ENVIRONMENT_REJECTED", "The child environment could not be built.", {
+            cause: errorCategory(error),
+          });
+    }
+
+    const collector = new BoundedOutputCollector(request.outputLimits, [...environment.secretValues]);
+    const eventQueue = new BoundedDuplexEventQueue(limits);
+    let state: ProcessState = "starting";
+    let failure: ProcessBrokerError | null = null;
+    let settled = false;
+    let stdinClosed = false;
+    let queuedWriteBytes = 0;
+    let totalWriteBytes = 0;
+    let writeTail = Promise.resolve();
+    let closeStdinPromise: Promise<void> | null = null;
+    const currentState = (): ProcessState => state;
+
+    const settle = (next: ProcessState, error: ProcessBrokerError | null): boolean => {
+      if (settled) {
+        return false;
+      }
+      settled = true;
+      state = next;
+      failure = error;
+      stdinClosed = true;
+      return true;
+    };
+
+    let child: BackendProcess;
+    try {
+      child = await options.backend.spawn({
+        session: sandbox,
+        request,
+        tool: {
+          toolId: request.tool.toolId,
+          executablePath: context.resolvedPath,
+          digest: request.tool.expectedDigest,
+          immutableReference: request.tool.immutableReference,
+        },
+        argv: [context.resolvedPath, ...context.combinedArgs],
+        environment,
+        workingDirectory: input.workingDirectory,
+      });
+    } catch (error) {
+      const wrapped =
+        error instanceof ProcessBrokerError
+          ? error
+          : new ProcessBrokerError("SPAWN_FAILED", "The process could not be started.", {
+              cause: errorCategory(error),
+            });
+      emitTerminal("failed", wrapped, null, null, startedAt, collector.finish(), context);
+      throw wrapped;
+    }
+
+    state = "running";
+    emit("process-start", {
+      request,
+      grant,
+      decision,
+      outcome: "running",
+      occurredAt: clock.now().toISOString(),
+      environmentNameCount: environment.names.length,
+    });
+
+    const stoppers: Array<() => void> = [];
+    const stopAll = (): void => {
+      for (const stop of stoppers.splice(0)) {
+        try {
+          stop();
+        } catch {
+          // Cleanup never replaces the first terminal outcome.
+        }
+      }
+    };
+    const terminateWith = (next: ProcessState, error: ProcessBrokerError): void => {
+      if (settle(next, error)) {
+        void child.terminateTree(graceMs).catch(() => undefined);
+      }
+    };
+
+    child.onOutput((event) => {
+      const accepted = collector.push(event.stream, event.chunk);
+      if (!accepted) {
+        const overflow = collector.overflow;
+        terminateWith(
+          "quota-exceeded",
+          new ProcessBrokerError("OUTPUT_QUOTA_EXCEEDED", "The process exceeded its output quota.", {
+            stream: overflow?.stream ?? "combined",
+            limitBytes: overflow?.limitBytes ?? request.outputLimits.maxCombinedBytes,
+          }),
+        );
+        return;
+      }
+      if (!eventQueue.push(event.stream, event.chunk)) {
+        terminateWith(
+          "quota-exceeded",
+          new ProcessBrokerError(
+            "EVENT_QUEUE_QUOTA_EXCEEDED",
+            "The duplex-session output event queue exceeded its bound.",
+            {
+              maxQueuedEvents: limits.maxQueuedEvents,
+              maxQueuedEventBytes: limits.maxQueuedEventBytes,
+            },
+          ),
+        );
+      }
+    });
+
+    const deadlineMs = resolveDeadlineMs(request, clock);
+    if (deadlineMs !== null) {
+      const timer = scheduler.schedule(deadlineMs, () => {
+        terminateWith(
+          "deadline-exceeded",
+          new ProcessBrokerError("DEADLINE_EXCEEDED", "The process exceeded its deadline.", {
+            wallClockMs: request.quotas.wallClockMs,
+          }),
+        );
+      });
+      stoppers.push(() => timer.cancel());
+    }
+    const unsubscribe = lease.onInvalidated(() => {
+      terminateWith(
+        "lease-expired",
+        new ProcessBrokerError("LEASE_EXPIRED", "The execution lease ended while the process ran.", {
+          leaseId: lease.leaseId,
+        }),
+      );
+    });
+    stoppers.push(unsubscribe);
+    if (input.signal !== undefined) {
+      const onAbort = (): void => {
+        terminateWith("cancelled", new ProcessBrokerError("CANCELLED", "The process was cancelled."));
+      };
+      input.signal.addEventListener("abort", onAbort, { once: true });
+      stoppers.push(() => input.signal?.removeEventListener("abort", onAbort));
+    }
+
+    let resolveResult!: (result: ProcessResult) => void;
+    const resultPromise = new Promise<ProcessResult>((resolve) => {
+      resolveResult = resolve;
+    });
+
+    const finalize = async (exit: { exitCode: number | null; signal: string | null }): Promise<void> => {
+      stopAll();
+      if (!settled) {
+        if (exit.exitCode === null && exit.signal === null) {
+          settle(
+            "backend-lost",
+            new ProcessBrokerError("BACKEND_LOST", "The backend process connection was lost."),
+          );
+        } else {
+          settle(isSuccessExit(request, exit.exitCode) ? "succeeded" : "failed", null);
+        }
+      }
+      eventQueue.finish();
+      const output = collector.finish();
+      const endedAt = clock.now();
+      const finalState = currentState();
+      const result: ProcessResult = Object.freeze({
+        requestId: request.requestId,
+        state: finalState,
+        succeeded: finalState === "succeeded",
+        exitCode: exit.exitCode,
+        signal: exit.signal,
+        startedAt: startedAt.toISOString(),
+        endedAt: endedAt.toISOString(),
+        durationMs: Math.max(0, endedAt.valueOf() - startedAt.valueOf()),
+        output,
+        backendId: decision.backendId,
+        securityClass: decision.securityClass,
+        failure,
+      });
+      emitTerminal(finalState, failure, exit.exitCode, result.durationMs, startedAt, output, context);
+      await options.backend.dispose(sandbox).catch(() => undefined);
+      emit("sandbox-disposed", {
+        request,
+        grant,
+        decision,
+        outcome: "disposed",
+        occurredAt: clock.now().toISOString(),
+        environmentNameCount: request.environment.length,
+      });
+      resolveResult(result);
+    };
+    void child.wait().then(
+      (exit) => finalize(exit),
+      () => finalize({ exitCode: null, signal: null }),
+    );
+
+    const write = async (bytes: Uint8Array): Promise<void> => {
+      if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+        throw new ProcessBrokerError("INVALID_REQUEST", "A duplex write must contain bytes.");
+      }
+      if (settled) {
+        throw new ProcessBrokerError("SESSION_CLOSED", "The duplex process session is closed.");
+      }
+      if (stdinClosed) {
+        throw new ProcessBrokerError("SESSION_STDIN_CLOSED", "Standard input is already closed.");
+      }
+      if (
+        bytes.byteLength > limits.maxMessageBytes ||
+        totalWriteBytes + bytes.byteLength > limits.maxTotalWriteBytes
+      ) {
+        throw new ProcessBrokerError(
+          "INPUT_QUOTA_EXCEEDED",
+          "The duplex session exceeded its input byte limit.",
+          {
+            messageBytes: bytes.byteLength,
+            maxMessageBytes: limits.maxMessageBytes,
+            maxTotalWriteBytes: limits.maxTotalWriteBytes,
+          },
+        );
+      }
+      if (queuedWriteBytes + bytes.byteLength > limits.maxQueuedWriteBytes) {
+        throw new ProcessBrokerError("WRITE_QUEUE_FULL", "The duplex-session write queue is full.", {
+          queuedWriteBytes,
+          maxQueuedWriteBytes: limits.maxQueuedWriteBytes,
+        });
+      }
+
+      const copy = new Uint8Array(bytes);
+      queuedWriteBytes += copy.byteLength;
+      totalWriteBytes += copy.byteLength;
+      const operation = writeTail.then(async () => {
+        if (settled) {
+          throw new ProcessBrokerError("SESSION_CLOSED", "The duplex process session is closed.");
+        }
+        try {
+          await child.writeStdin(copy);
+        } catch (error) {
+          const wrapped = new ProcessBrokerError(
+            "BACKEND_LOST",
+            "The backend rejected a standard-input write.",
+            { cause: errorCategory(error) },
+          );
+          terminateWith("backend-lost", wrapped);
+          throw wrapped;
+        }
+      });
+      writeTail = operation.then(
+        () => undefined,
+        () => undefined,
+      );
+      try {
+        await operation;
+      } finally {
+        queuedWriteBytes -= copy.byteLength;
+      }
+    };
+
+    const closeStdin = (): Promise<void> => {
+      if (closeStdinPromise !== null) {
+        return closeStdinPromise;
+      }
+      if (settled) {
+        return Promise.resolve();
+      }
+      stdinClosed = true;
+      closeStdinPromise = writeTail.then(async () => {
+        if (settled) {
+          return;
+        }
+        try {
+          await child.closeStdin();
+        } catch (error) {
+          terminateWith(
+            "backend-lost",
+            new ProcessBrokerError("BACKEND_LOST", "The backend rejected stdin closure.", {
+              cause: errorCategory(error),
+            }),
+          );
+        }
+      });
+      return closeStdinPromise;
+    };
+
+    const terminate = async (): Promise<ProcessResult> => {
+      terminateWith("cancelled", new ProcessBrokerError("CANCELLED", "The process was cancelled."));
+      return await resultPromise;
+    };
+    const closeSession = async (): Promise<ProcessResult> => {
+      terminateWith("closed", new ProcessBrokerError("SESSION_CLOSED", "The process session was closed."));
+      return await resultPromise;
+    };
+
+    return Object.freeze({
+      sessionId: sandbox.sessionId,
+      requestId: request.requestId,
+      pid: child.pid,
+      events: eventQueue,
+      result: resultPromise,
+      get state(): ProcessState {
+        return currentState();
+      },
+      write,
+      closeStdin,
+      terminate,
+      close: closeSession,
+    });
   }
 
   async function runExecution(input: ExecuteInput): Promise<ProcessResult> {
@@ -579,6 +1096,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
 
   return Object.freeze({
     execute,
+    openDuplexSession,
     get closed(): boolean {
       return closed;
     },
@@ -587,6 +1105,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         return;
       }
       closed = true;
+      await Promise.allSettled([...sessions].map((session) => session.close()));
       await Promise.allSettled([...inflight]);
       await options.backend.close().catch(() => undefined);
     },

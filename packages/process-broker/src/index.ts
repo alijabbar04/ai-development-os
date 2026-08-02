@@ -5,6 +5,7 @@ export * from "./paths.js";
 export * from "./tool.js";
 export * from "./environment.js";
 export * from "./output.js";
+export * from "./duplex.js";
 export * from "./fingerprint.js";
 export * from "./grant.js";
 export * from "./request.js";
