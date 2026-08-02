@@ -1,0 +1,32 @@
+{
+  "name": "@ai-dev-os/artifact-store-local",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local filesystem content-addressed artifact byte store for AI Development OS.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../artifact-store run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../artifact-store run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../artifact-store run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../artifact-store run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/artifact-store": "^0.1.0",
+    "@ai-dev-os/artifacts": "^0.1.0",
+    "@ai-dev-os/domain": "^0.1.0"
+  }
+}

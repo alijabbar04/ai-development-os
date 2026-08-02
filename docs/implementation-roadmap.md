@@ -120,20 +120,25 @@ Deferred within Stage 3 scope: leases/usage/routing/approvals/memories/cache por
 
 ## Stage 4: Content-addressed artifact store
 
-Status: Planned.
+Status: Complete.
 
-Package: `@ai-dev-os/artifact-store-local`
+Packages: `@ai-dev-os/artifact-store`, `@ai-dev-os/artifact-store-local`
 
-Deliverables:
+Delivered:
 
-- Streaming writes with maximum size, digest verification, atomic rename, encryption hook, and metadata transaction.
-- Safe reads, reference tracking, retention, delayed orphan collection, export, and deletion.
-- Structured redaction pipeline for text artifacts and logs.
+- Provider-neutral byte-store port (`AsyncIterable<Uint8Array>` streams, validated chunks, mandatory bounds on all in-memory buffering) with structured errors, plus a reusable adapter contract suite at `@ai-dev-os/artifact-store/testing`.
+- Local content-addressed storage at `v1/<algorithm>/<prefix>/<digest>` where every path component is a fixed literal or validated lowercase hex — no user-controlled filenames, traversal, UNC/drive injection, or cross-algorithm collisions; layout is versioned for future migration.
+- Streaming write protocol: exclusive-create temp files with injected entropy, incremental digest and byte counting (source metadata never trusted), live maximum-size enforcement, fsync-by-default durability with a documented `fast` mode, expected digest/size validation, realpath containment checks against symlink/junction escape, atomic rename promotion, concurrent-writer-safe deduplication, and guaranteed temp cleanup on failure. Partially written objects are never visible.
+- Verified reads (corruption reported structurally at stream completion, never silently repaired), exact stat, existence checks, full integrity verification, deterministic locations, and digest-keyed idempotent deletion.
+- Bounded stale-temp cleanup restricted to the store's own strict temp format, driven by an injected clock, with per-file failures reported rather than thrown.
+- Transformation boundary producing new content objects (sources immutable) with an explicitly-rule-based literal redaction transform that matches UTF-8 byte sequences across chunk boundaries; no pretend generic secret/PII detection. This boundary is the seam for the later encryption hook.
 
-Tests and gate:
+Tests and gate (passing):
 
-- Partial write, collision, tamper, disk-full, concurrent writer, oversized payload, traversal, symlink/junction, and cleanup tests.
-- Artifact content never becomes trusted because its digest matches.
+- 93 Stage 4 tests (repository total 443): contract suite in default and fast-durability modes plus implementation-specific coverage of partial writes, temp collisions, tamper and digest-substitution detection, concurrent identical/different writers, oversized and endless streams, hostile keys, junction escape (exercised on Windows), non-file object locations, cleanup, close/reopen, and verified-read gates proving a matching digest never marks content trusted.
+- Coverage gates met (artifact-store 100% across all metrics; artifact-store-local 92.4% statements / 100% functions); `npm ci`, `npm run check`, `npm audit` (0 vulnerabilities), package dry-runs, and a packed-tarball consumer smoke test including write → close → reopen → verified read all pass on Windows, with the identical commands in the Linux CI matrix.
+
+Deferred within Stage 4 scope (recorded deliberately): reference tracking, retention, delayed orphan collection, and export belong to the later metadata/retention service — the byte store deletes only by validated digest and documents that byte/descriptor coordination is not a distributed transaction; the encryption hook arrives via the transformation boundary when the secrets/policy stage lands; disk-full behavior surfaces as structured `WRITE_INTERRUPTED`/`STORAGE`-class failures and is exercised end-to-end in the Stage 19 chaos suite.
 
 ## Stage 5: Provider contracts and deterministic fakes
 
@@ -426,4 +431,4 @@ Release gate:
 
 ## Immediate next module after this delivery
 
-Stages 1 through 3 are complete: the task-graph kernel, the domain vocabulary, and the persistence contract with in-memory and SQLite adapters are stable. Implement Stage 4 (content-addressed artifact store) next, or Stage 5 (provider contracts and deterministic fakes) if artifact byte storage is not yet needed. Do not begin provider adapters or autonomous repository execution before their contracts and fakes exist.
+Stages 1 through 4 are complete: the task-graph kernel, the domain vocabulary, the persistence contract with in-memory and SQLite adapters, and content-addressed artifact byte storage are stable. Implement Stage 5 (provider contracts and deterministic fakes) next. Do not begin concrete provider adapters or autonomous repository execution before those contracts and fakes exist.
