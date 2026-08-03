@@ -119,7 +119,7 @@ empty text — every budget decision depends on those.
 
 | Field | Meaning |
 | --- | --- |
-| `sourceKind`, `identity`, `digest` | What it is and how to refer to it |
+| `sourceKind`, `identity`, `digest` | What it is and how to refer to it. `digest` hashes the candidate body **as offered** and is the deduplication key; when `truncated` is true the packed `body` is a prefix of what that digest describes, just as `sourceDigest` describes the full source rather than the excerpt |
 | `classification`, `disclosure`, `scopeLabel` | Its sensitivity, and an opaque digest of its owning scope — never the scope identifiers |
 | `provenance` | Locator, the source digest the producing stage recorded, and the origin fingerprint (index, memory record, or artifact) |
 | `observedAt` | When the source was observed, from an injected clock |

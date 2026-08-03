@@ -34,6 +34,13 @@ export interface ContextPackItem {
   readonly sourceKind: ContextSourceKind;
   readonly category: ContextCategory;
   readonly identity: string;
+  /**
+   * SHA-256 of the candidate body **as offered**, which is also the
+   * deduplication key. When `truncated` is true, `body` is a prefix of the
+   * content this digest describes — exactly as `provenance.sourceDigest`
+   * describes the full source rather than the excerpt. A consumer that needs a
+   * digest of the packed bytes must hash `body` itself.
+   */
   readonly digest: string;
   readonly classification: DataClassification;
   readonly disclosure: DisclosureScope;

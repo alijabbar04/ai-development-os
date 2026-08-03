@@ -30,6 +30,7 @@ import { collectContextCandidates, type ContextSources } from "../src/collect.js
 import type { ContextResult } from "../src/errors.js";
 import { conservativeUnitEstimator } from "../src/estimator.js";
 import {
+  candidateDigest,
   DEFAULT_CONTEXT_BUDGET,
   DEFAULT_CONTEXT_CONFIGURATION,
   withContextOverrides,
@@ -484,9 +485,15 @@ describe("determinism and budgets", () => {
       }),
     );
     expect(planned.usage.bytes).toBe(1_000);
-    expect(planned.items[1]?.truncated).toBe(true);
-    expect(planned.items[1]?.byteContribution).toBe(400);
+    const truncatedItem = planned.items[1];
+    expect(truncatedItem?.truncated).toBe(true);
+    expect(truncatedItem?.byteContribution).toBe(400);
     expect(planned.diagnostics.some((entry) => entry.code === "candidate-truncated")).toBe(true);
+    // The digest still describes the candidate as offered, not the prefix that
+    // was packed. That distinction is documented, so pin it down.
+    expect(truncatedItem?.digest).toBe(candidateDigest(`${body}y`));
+    expect(truncatedItem?.digest).not.toBe(candidateDigest(truncatedItem?.body ?? ""));
+    expect(`${body}y`.startsWith(truncatedItem?.body ?? "")).toBe(true);
   });
 
   it("stops on the unit budget even when bytes remain", async () => {
