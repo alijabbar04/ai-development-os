@@ -367,6 +367,56 @@ describe("free-function facade", () => {
     await store.close();
   });
 
+  it("refuses a sealed replacement that does not name the record it supersedes", async () => {
+    const store = open();
+    const first = unwrap(
+      await store.append({
+        record: explicitPreference({ recordId: "p1", subject: "Indentation", text: "tabs" }),
+        purpose: "context-assembly",
+      }),
+    );
+    // A sealed record cannot be rewritten without invalidating its
+    // fingerprint, so the supersession link has to be in it already. Accepting
+    // it silently would leave `p1` live with nothing pointing at `p2`.
+    const detached = createMemoryRecord(
+      explicitPreference({ recordId: "p2", subject: "Indentation", text: "spaces" }),
+    );
+    expect(
+      code(
+        await store.supersede({
+          scope: USER_SCOPE,
+          supersededRecordId: "p1",
+          expectedVersion: first.version,
+          replacement: detached,
+          purpose: "context-assembly",
+        }),
+      ),
+    ).toBe("INVALID_RECORD");
+    const stillLive = unwrap(
+      await store.read({ scope: USER_SCOPE, recordId: "p1", purpose: "context-assembly" }),
+    );
+    expect(stillLive.supersededBy).toBeNull();
+
+    // A sealed replacement that does name its predecessor is accepted, and the
+    // predecessor is marked.
+    const linked = createMemoryRecord({
+      ...explicitPreference({ recordId: "p3", subject: "Indentation", text: "spaces" }),
+      supersedes: "p1",
+    });
+    unwrap(
+      await store.supersede({
+        scope: USER_SCOPE,
+        supersededRecordId: "p1",
+        expectedVersion: first.version,
+        replacement: linked,
+        purpose: "context-assembly",
+      }),
+    );
+    const superseded = unwrap(await store.snapshot({ scope: USER_SCOPE, purpose: "export" }));
+    expect(superseded.entries.find((entry) => entry.recordId === "p1")?.supersededBy).toBe("p3");
+    await store.close();
+  });
+
   it("refuses an append whose supersedes target does not exist", async () => {
     const store = open();
     const result = await store.append({
