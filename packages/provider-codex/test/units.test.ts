@@ -33,7 +33,7 @@ import {
   systemCodexScheduler,
 } from "../src/index.js";
 import { CodexJsonlDecoder } from "../src/jsonl.js";
-import { parseCodexWireMessage } from "../src/wire.js";
+import { KNOWN_CODEX_NOTIFICATIONS, parseCodexWireMessage } from "../src/wire.js";
 import { CodexRpcError } from "../src/connection.js";
 import {
   codexAuthenticationFailed, codexCancelled, codexContentRejected, codexContextLimit,
@@ -116,11 +116,13 @@ describe("bounded JSONL and wire parsing", () => {
     expect(parseCodexWireMessage('{"id":1,"result":{"ok":true}}')).toMatchObject({ kind: "response", id: 1 });
     expect(parseCodexWireMessage('{"id":"host-1","method":"item/fileChange/requestApproval","params":{}}')).toMatchObject({ kind: "request" });
     expect(parseCodexWireMessage('{"method":"turn/started","params":{}}')).toMatchObject({ kind: "notification" });
+    expect(parseCodexWireMessage('{"method":"remoteControl/status/changed","params":{},"emittedAtMs":1785781729000}')).toMatchObject({ kind: "notification", method: "remoteControl/status/changed" });
+    expect(KNOWN_CODEX_NOTIFICATIONS.has("remoteControl/status/changed")).toBe(true);
     expect(parseCodexWireMessage('{"id":2,"error":{"code":429,"message":"limited","data":{"retryAfterMs":5}}}')).toMatchObject({ error: { code: 429 } });
   });
   it.each([
     '{"jsonrpc":"2.0","id":1,"result":{}}', '{"id":1,"result":{},"extra":true}', '{"id":1,"result":{},"error":{}}', '{"id":1.5,"result":{}}',
-    '{"method":"--bad","params":{}}', '{"__proto__":{"polluted":true}}', '{"id":9007199254740992,"result":{}}', "[]", "not-json",
+    '{"method":"--bad","params":{}}', '{"method":"turn/started","params":{},"emittedAtMs":-1}', '{"method":"turn/started","params":{},"emittedAtMs":1,"extra":true}', '{"__proto__":{"polluted":true}}', '{"id":9007199254740992,"result":{}}', "[]", "not-json",
   ])("rejects hostile wire input", (text) => expect(() => parseCodexWireMessage(text)).toThrow());
 });
 

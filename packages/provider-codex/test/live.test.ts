@@ -31,7 +31,7 @@ it.skipIf(!enabled("AI_DEV_OS_CODEX_LIVE_PROBE"))("live: probes installed Codex 
 }, 120_000);
 
 it.skipIf(!enabled("AI_DEV_OS_CODEX_LIVE_ACCOUNT"))("live: reads account and rate-limit state without mutations", async () => {
-  const harness = await liveHarness(); expect(await harness.provider.accountState()).toBeDefined(); expect(await harness.provider.rateLimits()).toBeDefined(); await harness.close();
+  const harness = await liveHarness(); expect(await harness.provider.accountState()).toBeDefined(); expect(await harness.provider.rateLimits()).toBeDefined(); expect(await harness.provider.accountUsage()).toBeDefined(); await harness.close();
 }, 120_000);
 
 it.skipIf(!modelEnabled("AI_DEV_OS_CODEX_LIVE_READ_ONLY"))("live: runs a bounded read-only turn in a disposable managed repository", async () => {

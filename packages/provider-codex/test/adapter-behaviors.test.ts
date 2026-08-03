@@ -37,6 +37,11 @@ describe("real JSONL process transport", () => {
     expect(account).toEqual({ echoed: "account/read" }); expect(usage).toEqual({ echoed: "account/usage/read" });
     await connection.close(); await harness.close();
   });
+  it("accepts a known timestamped status notification after initialize is accepted", async () => {
+    const harness = await createCodexHarness({ scenario: { afterInitializeNotification: true } });
+    expect(await harness.provider.accountState()).toMatchObject({ kind: "chatgpt" });
+    await harness.close();
+  });
   it.each([
     ["early notification", { beforeInitialize: true }, "PROTOCOL_VIOLATION"],
     ["unknown response id", { unknownId: true }, "PROTOCOL_VIOLATION"],

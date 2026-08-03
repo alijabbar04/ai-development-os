@@ -666,6 +666,35 @@ describe("production gate", () => {
 });
 
 describe("broker behaviour", () => {
+  it("does not lose duplex cancellation while the backend is starting", async () => {
+    const root = await scratchRoot();
+    const controller = new AbortController();
+    const inner = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "cancellation-race") });
+    const backend = {
+      ...inner,
+      spawn: async (input: Parameters<typeof inner.spawn>[0]) => {
+        const child = await inner.spawn(input);
+        controller.abort();
+        return child;
+      },
+    };
+    const broker = createProcessBroker({ backend, mode: "development", policy: allowAllPolicy, clock: systemClock });
+    const grant = contractGrant({}, systemClock);
+    const lease = createExecutionLease({ leaseId: "duplex-cancellation-race", grant, clock: systemClock });
+    const request = contractRequest(tool(), { args: ["--sleep-forever"] });
+    const session = await broker.openDuplexSession({
+      request,
+      grant,
+      lease,
+      workspaceRoot: root,
+      workingDirectory: root,
+      workspacePaths: { tempDir: join(root, "tmp"), homeDir: join(root, "home"), configDir: null, cacheDir: null },
+      signal: controller.signal,
+    });
+    await expect(session.result).resolves.toMatchObject({ state: "cancelled", failure: { code: "CANCELLED" } });
+    await broker.close();
+  });
+
   it("refuses a duplex session in production before an armed child can spawn", async () => {
     const root = await scratchRoot();
     const marker = join(root, "armed-child-marker");

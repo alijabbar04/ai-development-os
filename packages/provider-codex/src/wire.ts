@@ -42,7 +42,16 @@ export function parseCodexWireMessage(text: string): CodexWireMessage {
     return Object.freeze({ kind: "request", id: id(record["id"]), method: method(record["method"]), params: record["params"] });
   }
   if ("method" in record) {
-    exact(record, ["method", "params"]);
+    const expected = "emittedAtMs" in record
+      ? ["method", "params", "emittedAtMs"]
+      : ["method", "params"];
+    exact(record, expected);
+    if (
+      "emittedAtMs" in record &&
+      (!Number.isSafeInteger(record["emittedAtMs"]) || (record["emittedAtMs"] as number) < 0)
+    ) {
+      throw codexProtocolViolation("malformed-json");
+    }
     return Object.freeze({ kind: "notification", method: method(record["method"]), params: record["params"] });
   }
   if ("id" in record && "result" in record && !("error" in record)) {
@@ -74,4 +83,5 @@ export const KNOWN_CODEX_NOTIFICATIONS: ReadonlySet<string> = Object.freeze(new 
   "item/fileChange/outputDelta", "item/fileChange/patchUpdated", "serverRequest/resolved", "account/updated",
   "account/rateLimits/updated", "warning", "guardianWarning", "configWarning", "deprecationNotice",
   "model/rerouted", "model/safetyBuffering/updated", "model/verification", "hook/started", "hook/completed",
+  "remoteControl/status/changed",
 ]));

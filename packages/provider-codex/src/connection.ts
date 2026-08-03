@@ -92,7 +92,10 @@ export async function connectCodexAppServer(input: {
       pending.delete(message.id); entry.timer.cancel(); entry.removeAbort(); completedIds.add(message.id);
       if (completedIds.size > input.configuration.jsonl.maxPendingRequests * 4) completedIds.delete(completedIds.values().next().value!);
       if (message.error !== undefined) entry.reject(new CodexRpcError(message.error));
-      else entry.resolve(message.result);
+      else {
+        if (entry.method === "initialize") initialized = true;
+        entry.resolve(message.result);
+      }
       return;
     }
     if (!initialized) throw codexProtocolViolation("not-initialized");
@@ -161,7 +164,6 @@ export async function connectCodexAppServer(input: {
     ...(input.request.signal === undefined ? {} : { signal: input.request.signal }),
   });
   await send({ method: "initialized" });
-  initialized = true;
 
   return Object.freeze({
     request,

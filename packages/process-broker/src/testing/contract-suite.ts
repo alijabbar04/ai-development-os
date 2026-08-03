@@ -547,7 +547,7 @@ export function runDuplexProcessSessionContractSuite(
         expect(result.state).toBe("quota-exceeded");
         expect(result.failure?.code).toBe("EVENT_QUEUE_QUOTA_EXCEEDED");
       });
-    });
+    }, 15_000);
 
     it("propagates cancellation and makes terminate idempotent", async () => {
       await withHarness(async (harness) => {

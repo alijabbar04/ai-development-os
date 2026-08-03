@@ -518,8 +518,12 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       const onAbort = (): void => {
         terminateWith("cancelled", new ProcessBrokerError("CANCELLED", "The process was cancelled."));
       };
-      input.signal.addEventListener("abort", onAbort, { once: true });
-      stoppers.push(() => input.signal?.removeEventListener("abort", onAbort));
+      if (input.signal.aborted) {
+        onAbort();
+      } else {
+        input.signal.addEventListener("abort", onAbort, { once: true });
+        stoppers.push(() => input.signal?.removeEventListener("abort", onAbort));
+      }
     }
 
     let resolveResult!: (result: ProcessResult) => void;

@@ -96,7 +96,10 @@ async function respond(message) {
   const { id, method, params } = message;
   if (method === "initialize") {
     if (scenario.beforeInitialize === true) await emit({ method: "warning", params: { message: "early" } });
-    await emit({ id, result: { userAgent: "fake-codex/0.146" } });
+    const initializedResponse = { id, result: { userAgent: "fake-codex/0.146" } };
+    const statusNotification = { method: "remoteControl/status/changed", params: { status: "disconnected", serverName: null, installationId: null, environmentId: null }, emittedAtMs: 1_785_781_729_000 };
+    if (scenario.afterInitializeNotification === true) await writeBytes(Buffer.from(`${JSON.stringify(initializedResponse)}\n${JSON.stringify(statusNotification)}\n`, "utf8"));
+    else await emit(initializedResponse);
     return;
   }
   if (method === "initialized") { initialized = true; return; }
