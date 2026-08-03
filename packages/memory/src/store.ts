@@ -758,16 +758,29 @@ export function createMemoryStore(options: CreateMemoryStoreOptions): MemoryStor
           }),
         );
       }
-      const replacement =
-        "fingerprint" in input.replacement && typeof input.replacement.fingerprint === "string"
-          ? input.replacement
-          : { ...(input.replacement as CreateMemoryRecordInput), supersedes: input.supersededRecordId };
-      const appended = await store.append({
+      // An unsealed replacement has its predecessor filled in. A sealed one
+      // cannot be rewritten without invalidating its fingerprint, so it must
+      // already name the predecessor — otherwise the supersession link would be
+      // silently dropped and the target would stay live.
+      const sealed =
+        "fingerprint" in input.replacement && typeof input.replacement.fingerprint === "string";
+      if (sealed && (input.replacement as MemoryRecord).supersedes !== input.supersededRecordId) {
+        return failed(
+          memoryFailure(
+            "INVALID_RECORD",
+            "A sealed replacement must already name the record it supersedes.",
+            { supersededRecordId: input.supersededRecordId },
+          ),
+        );
+      }
+      const replacement = sealed
+        ? input.replacement
+        : { ...(input.replacement as CreateMemoryRecordInput), supersedes: input.supersededRecordId };
+      return store.append({
         record: replacement,
         purpose: input.purpose,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       });
-      return appended;
     },
 
     async tombstone(input): Promise<MemoryResult<MemoryEntry>> {
