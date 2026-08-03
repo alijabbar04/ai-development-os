@@ -12,6 +12,10 @@
     "./testing": {
       "types": "./dist/testing/contract-suite.d.ts",
       "import": "./dist/testing/contract-suite.js"
+    },
+    "./testing/fixtures": {
+      "types": "./dist/testing/fixtures.d.ts",
+      "import": "./dist/testing/fixtures.js"
     }
   },
   "files": [
