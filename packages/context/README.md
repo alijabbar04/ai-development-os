@@ -171,6 +171,23 @@ method. Persisting assembled context is a disclosure decision for the caller
 and an explicitly authorized artifact sink. `summarizeContextPack` produces a
 bounded, body-free audit record: counts, digests, and reasons only.
 
+## Composing with Stage 6 configuration
+
+As with the other two Stage 14 packages, `@ai-dev-os/config` is not imported.
+Configuration arrives through Stage 6's extension mechanism at the call site,
+under the recommended namespace `context`:
+
+```ts
+const extension = findExtension(resolved.configuration, "context");   // Stage 6
+const configuration = extension === undefined
+  ? DEFAULT_CONTEXT_CONFIGURATION
+  : unwrap(parseContextConfiguration(extension.value));
+```
+
+`ConfigExtension.value` is already canonical, frozen JSON that Stage 6 has
+screened for inline secrets, and `parseContextConfiguration` validates it
+against this package's own schema. Neither side gains a dependency on the other.
+
 ## Public API
 
 ```ts

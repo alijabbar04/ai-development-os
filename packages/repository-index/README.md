@@ -209,6 +209,29 @@ Defaults exclude version-control metadata, build output, vendored trees, and
 credential-shaped files (`.env`, `id_rsa`, `*.pem`, `*.key`, `*.p12`, …) so a
 stray key is never read in the first place.
 
+### Composing with Stage 6 configuration
+
+This package deliberately does not import `@ai-dev-os/config`: doing so would
+make a low-level index depend on the whole application configuration graph, and
+Stage 6 would then have no way to depend on anything here. The seam is
+composition at the call site, using Stage 6's own extension mechanism:
+
+```ts
+const resolved = resolveConfiguration(layers, { clock });          // Stage 6
+const extension = resolved.configuration?.providers               // or any
+  .flatMap((instance) => instance.extensions)
+  .find((entry) => entry.namespace === "repository-index");
+
+const configuration = extension === undefined
+  ? DEFAULT_REPOSITORY_INDEX_CONFIGURATION
+  : unwrap(parseRepositoryIndexConfiguration(extension.value));
+```
+
+`ConfigExtension.value` is already canonical, frozen JSON that Stage 6 has
+screened for inline secrets, and `parseRepositoryIndexConfiguration` validates
+it against this package's own schema. Neither side gains a dependency on the
+other, and the recommended extension namespace is `repository-index`.
+
 ## Public API
 
 ```ts
