@@ -256,6 +256,7 @@ export function createOpenAiProvider(
   let closed = false;
   const activeCancels = new Set<(reason: "provider-closed") => Promise<void>>();
   const pumps = new Set<Promise<void>>();
+  const remoteCancellations = new Set<Promise<void>>();
 
   const wireLimits: WireLimits = Object.freeze({
     maxOutputItems: configuration.limits.maxOutputItems,
@@ -357,6 +358,9 @@ export function createOpenAiProvider(
     readonly binding: string;
     readonly body: JsonValue;
     readonly startedAtMs: number;
+    /** Settles exactly once when the provider-neutral operation is cancelled. */
+    readonly cancelled: Promise<void>;
+    readonly terminalMetrics: { totalTokens: number };
   }
 
   /** Mutable accumulation shared by the streaming and polling paths. */
@@ -364,12 +368,15 @@ export function createOpenAiProvider(
     text: string;
     structuredText: string;
     refusalText: string;
+    readonly textByItem: Map<string, string>;
+    readonly refusalByItem: Map<string, string>;
     readonly toolCalls: Map<string, PendingToolCall>;
     readonly invocations: ToolInvocation[];
     readonly warnings: string[];
     usage: OpenAiWireUsage;
     terminalSnapshot: OpenAiResponseSnapshot | null;
     informationalIgnored: number;
+    firstEventOffsetMs: number | null;
     /**
      * Response id observed on a lifecycle event. In background STREAMING
      * mode this is the only place the id appears, and it is required to
@@ -383,14 +390,45 @@ export function createOpenAiProvider(
       text: "",
       structuredText: "",
       refusalText: "",
+      textByItem: new Map<string, string>(),
+      refusalByItem: new Map<string, string>(),
       toolCalls: new Map<string, PendingToolCall>(),
       invocations: [],
       warnings: [],
       usage: ZERO_WIRE_USAGE,
       terminalSnapshot: null,
       informationalIgnored: 0,
+      firstEventOffsetMs: null,
       observedResponseId: null,
     };
+  }
+
+  /**
+   * Binds every snapshot in one operation to the requested model and the
+   * first response id observed. Without this check, a substituted model
+   * could be billed against the wrong catalog entry, or a poll/resume could
+   * silently switch to a different remote response.
+   */
+  function recordSnapshotIdentity(
+    context: OperationContext,
+    accumulator: Accumulator,
+    snapshot: OpenAiResponseSnapshot,
+  ): void {
+    if (snapshot.model !== null && snapshot.model !== context.entry.modelId) {
+      throw protocolViolationError("response-model-mismatch", {
+        requestedModelId: context.entry.modelId,
+        responseModelId: snapshot.model,
+      });
+    }
+    if (accumulator.observedResponseId === null) {
+      accumulator.observedResponseId = snapshot.id;
+      return;
+    }
+    if (accumulator.observedResponseId !== snapshot.id) {
+      // Response ids are resumability handles. Do not copy either value into
+      // an error even when reporting that the protocol switched identities.
+      throw protocolViolationError("response-id-changed");
+    }
   }
 
   function providerUsageOf(usage: OpenAiWireUsage, toolCalls: number): ProviderUsage {
@@ -500,7 +538,7 @@ export function createOpenAiProvider(
     }
 
     const totalMs = Math.max(0, scheduler.now().valueOf() - context.startedAtMs);
-    const firstEventMs = Math.min(firstEventOffset ?? totalMs, totalMs);
+    const firstEventMs = Math.min(accumulator.firstEventOffsetMs ?? totalMs, totalMs);
 
     const result: InferenceResult = Object.freeze({
       schemaVersion: 1 as const,
@@ -519,10 +557,6 @@ export function createOpenAiProvider(
     return { result, cost };
   }
 
-  // `firstEventOffset` is scoped per pump invocation; declared here so
-  // buildResult can read it without threading it through every call.
-  let firstEventOffset: number | null = null;
-
   // -------------------------------------------------------------------------
   // Streaming pump
   // -------------------------------------------------------------------------
@@ -539,6 +573,7 @@ export function createOpenAiProvider(
     guard: ReturnType<typeof createSequenceGuard>,
     emitEvent: (build: Parameters<OperationContext["controller"]["emit"]>[0]) => void,
     requestedAfter: number | null,
+    handleBox: BackgroundHandleBox,
   ): Promise<StreamOutcome> {
     const { request, controller, requestOptions } = context;
     const structuredMode = request.structuredOutput !== null;
@@ -550,11 +585,7 @@ export function createOpenAiProvider(
       maxEvents: configuration.limits.maxStreamEvents,
     });
 
-    let cancelWake!: () => void;
-    const cancelled = new Promise<"cancelled">((resolve) => {
-      cancelWake = () => resolve("cancelled");
-    });
-    controller.onCancel(() => cancelWake());
+    const cancelled = context.cancelled.then(() => "cancelled" as const);
 
     const timers: Array<{ cancel(): void }> = [];
     let deadlinePromise: Promise<"deadline"> | null = null;
@@ -585,7 +616,16 @@ export function createOpenAiProvider(
 
       switch (event.kind) {
         case "lifecycle":
-          accumulator.observedResponseId = event.snapshot.id;
+          recordSnapshotIdentity(context, accumulator, event.snapshot);
+          if (context.requestOptions.background && handleBox.current === null) {
+            handleBox.current = createBackgroundHandle({
+              responseId: event.snapshot.id,
+              binding: context.binding,
+              expiresAt: new Date(
+                scheduler.now().valueOf() + configuration.storage.continuationTtlMs,
+              ).toISOString(),
+            });
+          }
           break;
         case "informational":
           accumulator.informationalIgnored += 1;
@@ -595,13 +635,21 @@ export function createOpenAiProvider(
         case "output-item-added": {
           if (event.item.type === "function_call") {
             const name = event.item.name;
+            const callId = event.item.callId;
             if (!declaredTools.has(name)) {
               throw toolProtocolError("undeclared-tool", { toolName: name });
             }
-            accumulator.toolCalls.set(event.item.id ?? event.item.callId, {
-              callId: event.item.callId,
+            const itemId = event.item.id ?? callId;
+            if (
+              accumulator.toolCalls.has(itemId) ||
+              [...accumulator.toolCalls.values()].some((pending) => pending.callId === callId)
+            ) {
+              throw toolProtocolError("duplicate-tool-call-start", { toolName: name });
+            }
+            accumulator.toolCalls.set(itemId, {
+              callId,
               name,
-              argumentsText: "",
+              argumentsText: event.item.argumentsText,
               completed: false,
             });
             emitEvent((base) => ({
@@ -620,6 +668,10 @@ export function createOpenAiProvider(
           }
           if (structuredMode) {
             accumulator.structuredText += event.delta;
+            accumulator.textByItem.set(
+              event.itemId,
+              (accumulator.textByItem.get(event.itemId) ?? "") + event.delta,
+            );
             for (const piece of chunkText(event.delta, MAX_EVENT_TEXT_CHUNK)) {
               emitEvent((base) => ({
                 ...base,
@@ -629,6 +681,10 @@ export function createOpenAiProvider(
             }
           } else {
             accumulator.text += event.delta;
+            accumulator.textByItem.set(
+              event.itemId,
+              (accumulator.textByItem.get(event.itemId) ?? "") + event.delta,
+            );
             for (const piece of chunkText(event.delta, MAX_EVENT_TEXT_CHUNK)) {
               emitEvent((base) => ({ ...base, kind: "text-delta", payload: { text: piece } }));
             }
@@ -636,7 +692,7 @@ export function createOpenAiProvider(
           break;
         }
         case "text-done": {
-          const streamed = structuredMode ? accumulator.structuredText : accumulator.text;
+          const streamed = accumulator.textByItem.get(event.itemId) ?? "";
           if (streamed !== event.text) {
             throw malformedResponseError("text-delta-final-disagreement");
           }
@@ -644,9 +700,13 @@ export function createOpenAiProvider(
         }
         case "refusal-delta":
           accumulator.refusalText += event.delta;
+          accumulator.refusalByItem.set(
+            event.itemId,
+            (accumulator.refusalByItem.get(event.itemId) ?? "") + event.delta,
+          );
           break;
         case "refusal-done":
-          if (accumulator.refusalText !== event.refusal) {
+          if ((accumulator.refusalByItem.get(event.itemId) ?? "") !== event.refusal) {
             throw malformedResponseError("refusal-delta-final-disagreement");
           }
           break;
@@ -699,7 +759,12 @@ export function createOpenAiProvider(
           break;
         }
         case "terminal":
-          accumulator.observedResponseId = event.snapshot.id;
+          recordSnapshotIdentity(context, accumulator, event.snapshot);
+          if (!isTerminalStatus(event.snapshot.status)) {
+            throw protocolViolationError("terminal-event-with-active-status", {
+              status: event.snapshot.status,
+            });
+          }
           accumulator.terminalSnapshot = event.snapshot;
           break;
       }
@@ -1011,6 +1076,7 @@ export function createOpenAiProvider(
       }
 
       const operationId = ids("operation") as ProviderOperationId;
+      const startedAtMs = scheduler.now().valueOf();
 
       // Disclosure authorization precedes artifact resolution, credential
       // resolution, and every byte of network traffic.
@@ -1185,6 +1251,7 @@ export function createOpenAiProvider(
         policyDecisionFingerprint: authorization.decisionFingerprint,
       });
 
+      const terminalMetrics = { totalTokens: 0 };
       const controller = createOperationController<InferenceEvent, InferenceResult>({
         operationId,
         clock,
@@ -1209,14 +1276,20 @@ export function createOpenAiProvider(
                     : "failed",
               errorCode: outcome.error?.code ?? null,
               retryStrategy: outcome.error?.retry.strategy ?? null,
-              latencyMs: 0,
-              totalTokens: 0,
+              latencyMs: Math.max(0, scheduler.now().valueOf() - startedAtMs),
+              totalTokens: terminalMetrics.totalTokens,
               deadlineExpired: outcome.error?.code === "DEADLINE_EXCEEDED",
               cancelled: outcome.kind === "operation-cancelled",
             }),
           );
         },
       });
+
+      let signalOperationCancellation!: () => void;
+      const cancelled = new Promise<void>((resolve) => {
+        signalOperationCancellation = resolve;
+      });
+      controller.onCancel(() => signalOperationCancellation());
 
       const context: OperationContext = {
         request,
@@ -1228,7 +1301,9 @@ export function createOpenAiProvider(
         retention,
         binding,
         body,
-        startedAtMs: scheduler.now().valueOf(),
+        startedAtMs,
+        cancelled,
+        terminalMetrics,
       };
 
       // The handle is shared by reference: in background STREAMING mode the
@@ -1261,7 +1336,10 @@ export function createOpenAiProvider(
         const remote = handleBox.current;
         if (remote !== null && configuration.background.cancelRemoteOnAbort && !cancelIssued) {
           cancelIssued = true;
-          void cancelRemote(remote, credentialRequest, binding).catch(() => undefined);
+          const cancelling = cancelRemote(remote, credentialRequest, binding)
+            .then(() => undefined, () => undefined)
+            .finally(() => remoteCancellations.delete(cancelling));
+          remoteCancellations.add(cancelling);
         }
       });
 
@@ -1299,7 +1377,7 @@ export function createOpenAiProvider(
         await cancel("provider-closed");
       }
       activeCancels.clear();
-      await Promise.allSettled([...pumps]);
+      await Promise.allSettled([...pumps, ...remoteCancellations]);
       transport.close();
     },
   };
@@ -1341,6 +1419,117 @@ export function createOpenAiProvider(
     return parseResponseSnapshot(response.value, wireLimits);
   }
 
+  function deadlineExceededWhileWaiting(context: OperationContext): ProviderError {
+    return new ProviderError(
+      "DEADLINE_EXCEEDED",
+      "The operation deadline passed while waiting to contact OpenAI.",
+      {},
+      {
+        operationId: context.controller.operation.operationId as string,
+        traceId: context.request.trace.traceId as string,
+      },
+    );
+  }
+
+  /** Waits without making cancellation or the caller's deadline wait for a backoff timer. */
+  async function waitForOperationDelay(context: OperationContext, requestedMs: number): Promise<boolean> {
+    let delayMs = requestedMs;
+    if (context.request.deadline !== null) {
+      const remainingMs = new Date(context.request.deadline).valueOf() - scheduler.now().valueOf();
+      if (remainingMs <= 0) {
+        throw deadlineExceededWhileWaiting(context);
+      }
+      delayMs = Math.min(delayMs, remainingMs);
+    }
+
+    const delay = scheduler.delay(Math.max(0, delayMs));
+    try {
+      const completed = await Promise.race([
+        delay.promise.then(() => true),
+        context.cancelled.then(() => false),
+      ]);
+      if (!completed) {
+        return false;
+      }
+      if (isDeadlineExpired(context.request.deadline, scheduler.now())) {
+        throw deadlineExceededWhileWaiting(context);
+      }
+      return true;
+    } finally {
+      delay.cancel();
+    }
+  }
+
+  /**
+   * Retries only caller-identical, read-only requests. POST /responses and
+   * POST /cancel are deliberately single-attempt because the public API
+   * contract does not give this adapter an idempotency guarantee for them.
+   */
+  async function withIdempotentRetries<T extends OpenAiJsonResponse | OpenAiStreamResponse>(
+    context: OperationContext,
+    route: "getResponse" | "streamResponse",
+    execute: () => Promise<T>,
+    errorOf: (value: T) => ProviderError | null,
+  ): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+      let failure: ProviderError;
+      try {
+        const value = await execute();
+        safelyObserve(openAiObserver, {
+          kind: "http",
+          route,
+          status: value.status,
+          requestId: value.metadata.requestId,
+          rateLimitRemaining: value.metadata.rateLimit?.remaining ?? null,
+          rateLimitResetMs: value.metadata.rateLimit?.retryAfterMs ?? null,
+          retryAfterMs: value.metadata.retryAfterMs,
+          serviceTier: value.metadata.serviceTier,
+          attempt,
+        });
+        const responseError = errorOf(value);
+        if (responseError === null) {
+          return value;
+        }
+        failure = responseError;
+      } catch (error) {
+        failure = toProviderError(error);
+      }
+
+      const retry = failure.retry;
+      if (
+        context.controller.isTerminal ||
+        attempt >= configuration.retry.maxAttempts ||
+        retry.strategy !== "same-after-delay" ||
+        !retry.requestReusable
+      ) {
+        throw failure;
+      }
+
+      const providerMinimumMs = Math.max(
+        retry.minimumDelayMs ?? 0,
+        retry.retryAfterMs ?? 0,
+        failure.retryAfterMs ?? 0,
+      );
+      // Never violate Retry-After merely to fit a local retry ceiling.
+      if (providerMinimumMs > configuration.retry.maxDelayMs) {
+        throw failure;
+      }
+      const backoffMs = computeBackoffMs(
+        {
+          baseDelayMs: configuration.retry.baseDelayMs,
+          maxDelayMs: configuration.retry.maxDelayMs,
+          jitterRatio: configuration.retry.jitterRatio,
+        },
+        attempt - 1,
+        jitter,
+      );
+      const waited = await waitForOperationDelay(context, Math.max(backoffMs, providerMinimumMs));
+      if (!waited) {
+        throw new ProviderError("CANCELLED", "The operation was cancelled during retry backoff.", {});
+      }
+    }
+  }
+
   async function runOperation(
     context: OperationContext,
     initial: OpenAiStreamResponse | OpenAiJsonResponse,
@@ -1349,11 +1538,10 @@ export function createOpenAiProvider(
   ): Promise<void> {
     const { controller, request } = context;
     const accumulator = createAccumulator();
-    firstEventOffset = null;
 
     const emitEvent = (build: Parameters<typeof controller.emit>[0]): void => {
-      if (firstEventOffset === null) {
-        firstEventOffset = Math.max(0, scheduler.now().valueOf() - context.startedAtMs);
+      if (accumulator.firstEventOffsetMs === null) {
+        accumulator.firstEventOffsetMs = Math.max(0, scheduler.now().valueOf() - context.startedAtMs);
       }
       controller.emit(build);
     };
@@ -1402,6 +1590,7 @@ export function createOpenAiProvider(
             guard,
             emitEvent,
             requestedAfter,
+            handleBox,
           );
           if (controller.isTerminal) {
             return;
@@ -1409,6 +1598,8 @@ export function createOpenAiProvider(
           if (outcome.kind === "terminal") {
             break;
           }
+
+          handle = handleBox.current;
 
           // The stream ended without a terminal response object. Only a
           // background response can be resumed: a synchronous stream has no
@@ -1449,18 +1640,18 @@ export function createOpenAiProvider(
           handleBox.current = handle;
           assertHandleUsable(handle, context.binding, scheduler.now());
 
-          const delay = scheduler.delay(
-            computeBackoffMs(
-              {
-                baseDelayMs: configuration.background.pollBaseDelayMs,
-                maxDelayMs: configuration.background.pollMaxDelayMs,
-                jitterRatio: configuration.background.pollJitterRatio,
-              },
-              resumeAttempt - 1,
-              jitter,
-            ),
+          const resumeDelayMs = computeBackoffMs(
+            {
+              baseDelayMs: configuration.background.pollBaseDelayMs,
+              maxDelayMs: configuration.background.pollMaxDelayMs,
+              jitterRatio: configuration.background.pollJitterRatio,
+            },
+            resumeAttempt - 1,
+            jitter,
           );
-          await delay.promise;
+          if (!(await waitForOperationDelay(context, resumeDelayMs))) {
+            return;
+          }
           if (controller.isTerminal) {
             return;
           }
@@ -1476,28 +1667,34 @@ export function createOpenAiProvider(
           });
 
           const resumeHandle = handle ?? current;
-          stream = await options.credentials.withApiKey(credentialRequest, async (apiKey) =>
-            transport.requestStream("streamResponse", null, {
-              apiKey,
-              ...requestTimeouts(true),
-              signal: context.abortFlag.signal,
-              responseId: resumeHandle.responseId,
-              query: {
-                stream: true,
-                ...(requestedAfter === null ? {} : { startingAfter: requestedAfter }),
-              },
-            }),
+          stream = await withIdempotentRetries(
+            context,
+            "streamResponse",
+            () =>
+              options.credentials.withApiKey(credentialRequest, async (apiKey) =>
+                transport.requestStream("streamResponse", null, {
+                  apiKey,
+                  ...requestTimeouts(true),
+                  signal: context.abortFlag.signal,
+                  responseId: resumeHandle.responseId,
+                  query: {
+                    stream: true,
+                    ...(requestedAfter === null ? {} : { startingAfter: requestedAfter }),
+                  },
+                }),
+              ),
+            (response) =>
+              response.ok
+                ? null
+                : httpStatusError({
+                    status: response.status,
+                    route: "streamResponse",
+                    retryAfterMs: response.metadata.retryAfterMs,
+                    rateLimit: response.metadata.rateLimit,
+                    upstream: response.upstreamError,
+                    operationMayStillBeRunning: true,
+                  }),
           );
-          if (!stream.ok) {
-            throw httpStatusError({
-              status: stream.status,
-              route: "streamResponse",
-              retryAfterMs: stream.metadata.retryAfterMs,
-              rateLimit: stream.metadata.rateLimit,
-              upstream: stream.upstreamError,
-              operationMayStillBeRunning: true,
-            });
-          }
         }
 
         safelyObserve(openAiObserver, {
@@ -1513,6 +1710,7 @@ export function createOpenAiProvider(
           throw malformedResponseError("empty-create-response");
         }
         let snapshot = parseResponseSnapshot(initial.value, wireLimits);
+        recordSnapshotIdentity(context, accumulator, snapshot);
         if (handle === null) {
           handle = createBackgroundHandle({
             responseId: snapshot.id,
@@ -1551,18 +1749,18 @@ export function createOpenAiProvider(
               { operationId: controller.operation.operationId as string },
             );
           }
-          const delay = scheduler.delay(
-            computeBackoffMs(
-              {
-                baseDelayMs: configuration.background.pollBaseDelayMs,
-                maxDelayMs: configuration.background.pollMaxDelayMs,
-                jitterRatio: configuration.background.pollJitterRatio,
-              },
-              pollAttempt,
-              jitter,
-            ),
+          const pollDelayMs = computeBackoffMs(
+            {
+              baseDelayMs: configuration.background.pollBaseDelayMs,
+              maxDelayMs: configuration.background.pollMaxDelayMs,
+              jitterRatio: configuration.background.pollJitterRatio,
+            },
+            pollAttempt,
+            jitter,
           );
-          await delay.promise;
+          if (!(await waitForOperationDelay(context, pollDelayMs))) {
+            return;
+          }
           if (controller.isTerminal) {
             return;
           }
@@ -1570,28 +1768,40 @@ export function createOpenAiProvider(
 
           assertHandleUsable(handle, context.binding, scheduler.now());
           const pollHandle = handle;
-          const polled = await options.credentials.withApiKey(credentialRequest, async (apiKey) =>
-            transport.requestJson("getResponse", null, {
-              apiKey,
-              timeoutMs: configuration.deadlines.pollTimeoutMs,
-              connectTimeoutMs: configuration.deadlines.connectTimeoutMs,
-              maxResponseBytes: configuration.limits.maxResponseBytes,
-              maxErrorBodyBytes: configuration.limits.maxErrorBodyBytes,
-              signal: context.abortFlag.signal,
-              responseId: pollHandle.responseId,
-            }),
+          const polled = await withIdempotentRetries(
+            context,
+            "getResponse",
+            () =>
+              options.credentials.withApiKey(credentialRequest, async (apiKey) =>
+                transport.requestJson("getResponse", null, {
+                  apiKey,
+                  timeoutMs: configuration.deadlines.pollTimeoutMs,
+                  connectTimeoutMs: configuration.deadlines.connectTimeoutMs,
+                  maxResponseBytes: configuration.limits.maxResponseBytes,
+                  maxErrorBodyBytes: configuration.limits.maxErrorBodyBytes,
+                  signal: context.abortFlag.signal,
+                  responseId: pollHandle.responseId,
+                }),
+              ),
+            (response) =>
+              response.ok && response.value !== null
+                ? null
+                : response.ok
+                  ? malformedResponseError("empty-poll-response")
+                  : httpStatusError({
+                      status: response.status,
+                      route: "getResponse",
+                      retryAfterMs: response.metadata.retryAfterMs,
+                      rateLimit: response.metadata.rateLimit,
+                      upstream: response.upstreamError,
+                      operationMayStillBeRunning: true,
+                    }),
           );
-          if (!polled.ok || polled.value === null) {
-            throw httpStatusError({
-              status: polled.status,
-              route: "getResponse",
-              retryAfterMs: polled.metadata.retryAfterMs,
-              rateLimit: polled.metadata.rateLimit,
-              upstream: polled.upstreamError,
-              operationMayStillBeRunning: true,
-            });
+          if (polled.value === null) {
+            throw malformedResponseError("empty-poll-response");
           }
           snapshot = parseResponseSnapshot(polled.value, wireLimits);
+          recordSnapshotIdentity(context, accumulator, snapshot);
           safelyObserve(openAiObserver, {
             kind: "background",
             phase: "polled",
@@ -1614,7 +1824,13 @@ export function createOpenAiProvider(
       if (terminal === null) {
         throw malformedResponseError("missing-terminal-response");
       }
+      if (!isTerminalStatus(terminal.status)) {
+        throw protocolViolationError("terminal-response-has-active-status", {
+          status: terminal.status,
+        });
+      }
       reconcileTerminal(accumulator, terminal);
+      context.terminalMetrics.totalTokens = accumulator.usage.totalTokens;
 
       emitEvent((base) => ({
         ...base,
@@ -1661,6 +1877,7 @@ export function createOpenAiProvider(
         return;
       }
       const wrapped = toProviderError(error);
+      context.terminalMetrics.totalTokens = accumulator.usage.totalTokens;
       failOperation(wrapped);
       safelyObserve(openAiObserver, {
         kind: "operation",

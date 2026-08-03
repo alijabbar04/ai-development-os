@@ -263,6 +263,19 @@ describe("output item validation", () => {
     }
   });
 
+  it("rejects a non-assistant message in response output", () => {
+    try {
+      parseOutputItem(
+        { id: "m", type: "message", role: "user", content: [{ type: "output_text", text: "x" }] },
+        LIMITS,
+      );
+      expect.unreachable("expected the response role to be rejected");
+    } catch (error) {
+      expect(isProviderError(error, "PROTOCOL_VIOLATION")).toBe(true);
+      expect(detailCode(error)).toBe("unexpected-output-message-role");
+    }
+  });
+
   it("bounds oversized tool arguments", () => {
     expect(() =>
       parseOutputItem(
@@ -337,6 +350,16 @@ describe("response snapshot validation", () => {
   it("rejects an object that is not a response", () => {
     expect(() => parseResponseSnapshot({ id: "x", object: "chat.completion", status: "completed" }, LIMITS)).toThrow();
   });
+
+  it("rejects a response id that cannot be used by the fixed retrieval routes", () => {
+    try {
+      parseResponseSnapshot({ id: "resp_../../other", status: "completed", output: [] }, LIMITS);
+      expect.unreachable("expected the hostile response id to be rejected");
+    } catch (error) {
+      expect(isProviderError(error, "MALFORMED_RESPONSE")).toBe(true);
+      expect(detailCode(error)).toBe("malformed-response-id");
+    }
+  });
 });
 
 describe("stream event classification", () => {
@@ -390,6 +413,25 @@ describe("stream event classification", () => {
     expect(() =>
       classifyStreamEvent({ type: "response.created", sequence_number: -1 } as never, LIMITS),
     ).toThrow();
+  });
+
+  it("requires lifecycle event names and embedded response status to agree", () => {
+    for (const [type, status] of [
+      ["response.completed", "in_progress"],
+      ["response.failed", "completed"],
+      ["response.queued", "in_progress"],
+    ] as const) {
+      try {
+        classifyStreamEvent(
+          event(type, { response: { id: "resp_1", status, output: [] } }) as never,
+          LIMITS,
+        );
+        expect.unreachable(`expected ${type}/${status} to be rejected`);
+      } catch (error) {
+        expect(isProviderError(error, "PROTOCOL_VIOLATION")).toBe(true);
+        expect(detailCode(error)).toBe("event-status-mismatch");
+      }
+    }
   });
 
   it.each([

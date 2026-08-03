@@ -717,4 +717,117 @@ describe("model selection", () => {
     expect(models.map((descriptor) => descriptor.model.modelId)).toEqual([TEST_MODEL]);
     await provider.close();
   });
+
+  it("rejects a duplicate tool-call start instead of overwriting its state", async () => {
+    resetSequence();
+    const { provider, fake } = createTestProvider();
+    const added = {
+      output_index: 0,
+      item: {
+        id: "fc_duplicate",
+        type: "function_call",
+        call_id: "call_duplicate",
+        name: "read-file",
+        arguments: "",
+        status: "in_progress",
+      },
+    };
+    fake.script("create", {
+      stream: [
+        sse("response.created", { response: responseObject({ status: "in_progress" }) }),
+        sse("response.output_item.added", added),
+        sse("response.output_item.added", added),
+      ],
+    });
+    const consumed = await consume(
+      guarded(await provider.start(testRequest("duplicate-tool-start", { tools: [READ_TOOL] }))),
+    );
+    expect(isProviderError(consumed.error, "TOOL_PROTOCOL_FAILURE")).toBe(true);
+    expect((consumed.error as ProviderError).details["detailCode"]).toBe("duplicate-tool-call-start");
+    await provider.close();
+  });
+
+  it("reconciles text-done events independently for multiple output items", async () => {
+    resetSequence();
+    const { provider, fake } = createTestProvider();
+    fake.script("create", {
+      stream: [
+        sse("response.created", { response: responseObject({ status: "in_progress" }) }),
+        sse("response.output_text.delta", {
+          item_id: "msg_1",
+          output_index: 0,
+          content_index: 0,
+          delta: "first",
+          logprobs: [],
+        }),
+        sse("response.output_text.done", {
+          item_id: "msg_1",
+          output_index: 0,
+          content_index: 0,
+          text: "first",
+          logprobs: [],
+        }),
+        sse("response.output_text.delta", {
+          item_id: "msg_2",
+          output_index: 1,
+          content_index: 0,
+          delta: "second",
+          logprobs: [],
+        }),
+        sse("response.output_text.done", {
+          item_id: "msg_2",
+          output_index: 1,
+          content_index: 0,
+          text: "second",
+          logprobs: [],
+        }),
+        sse("response.completed", {
+          response: responseObject({
+            status: "completed",
+            output: [messageItem("first", "msg_1"), messageItem("second", "msg_2")],
+            usage: usageObject(),
+          }),
+        }),
+      ],
+    });
+
+    const consumed = await consume(guarded(await provider.start(testRequest("multiple-text-items"))));
+    expect(consumed.streamError).toBeNull();
+    expect(textOf(consumed.result!)).toBe("firstsecond");
+    await provider.close();
+  });
+
+  it("fails closed when the terminal snapshot substitutes another model", async () => {
+    const { provider, fake } = createTestProvider();
+    fake.script("create", {
+      stream: textStreamScript(["substituted"], { model: "different-model" }),
+    });
+    const consumed = await consume(guarded(await provider.start(testRequest("model-substitution"))));
+    expect(isProviderError(consumed.error, "PROTOCOL_VIOLATION")).toBe(true);
+    expect((consumed.error as ProviderError).details["detailCode"]).toBe("response-model-mismatch");
+    await provider.close();
+  });
+});
+
+describe("retry boundary", () => {
+  it("does not retry the state-creating POST without a documented idempotency guarantee", async () => {
+    const { provider, fake } = createTestProvider({
+      configuration: { retry: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 100, jitterRatio: 0 } },
+    });
+    fake.script(
+      "create",
+      {
+        status: 500,
+        bodyText: JSON.stringify({ error: { type: "server_error", code: "server_error", param: null } }),
+        contentType: "application/json",
+      },
+      { stream: textStreamScript(["must not be reached"]) },
+    );
+
+    await expect(provider.start(testRequest("create-not-retried"))).rejects.toMatchObject({
+      code: "INTERNAL_FAILURE",
+    });
+    expect(fake.requests.filter((request) => request.method === "POST")).toHaveLength(1);
+    await provider.close();
+  });
 });

@@ -307,21 +307,31 @@ Limitations: no built-in backend is classified `secure-enforcing`, so production
 
 ## Stage 11: OpenAI Responses inference adapter
 
-Status: Gated for live tests by an OpenAI secret reference; implementation and fake tests do not require a key.
+Status: Complete.
 
 Package: `@ai-dev-os/provider-openai`
 
-Deliverables:
+Delivered:
 
-- Responses API structured output, tool events, streaming, background status, cancellation, continuation, and reconciliation.
-- Runtime model capability/pricing catalog with configuration override and effective-time snapshots.
-- Token-category and cost ledger integration, provider retention controls, and safety identifier support.
+- A strict OpenAI Responses adapter over the exact `https://api.openai.com/v1` origin and fixed create/get/cancel routes. It supports JSON and bounded SSE, text, structured output validated against the caller schema, caller-executed function tools, image references through an injected artifact resolver, reasoning controls, background create/poll/resume/cancel, usage reconciliation, and safe structural rate-limit/request metadata. Hosted tools, audio, MCP, arbitrary origins, redirects, and organization administration/usage/cost endpoints fail closed or are unrepresentable.
+- An operator-supplied, dated, provenanced, effective-time model/capability/price catalog with deterministic SHA-256 fingerprints and restrictive-only overrides. The package and README ship no OpenAI model id, context/output limit, or price; unavailable facts remain unavailable and missing prices produce unknown cost rather than a guess.
+- Request-scoped policy and secret composition: disclosure precedes artifact access, credential resolution, and network I/O; persistence and background temporary state require separate authorization; ordinary inference has one text `SecretRef` and no admin-key or implicit-default-model control. Safety identifiers are bounded salted HMAC values, never raw usernames or email addresses.
+- Retention reporting that distinguishes `store` from the roughly ten-minute temporary state required by background mode and treats an operator-declared Zero Data Retention arrangement as provenance-bearing configuration, not an inference from `store: false`.
+- Strict semantic-event and response reconciliation: unknown events/items fail closed; lifecycle event names must agree with embedded status; response id and model identity cannot change; per-item text/refusal completion, tool-call uniqueness, cursor continuity, replay deduplication, terminal usage, and integer-exact cost are checked.
+- Retry behavior is explicit and bounded. Only caller-identical GET polling/resume requests use the configured retry ceiling and cancellation/deadline-aware backoff; create and cancel POSTs remain single-attempt because no public idempotency guarantee was assumed. Retry dispositions preserve `operationMayStillBeRunning` and idempotency requirements for the later scheduler.
+- Current first-party documentation was rechecked on 2026-08-03: OpenAPI 2.3.0 still declares the fixed server and Responses routes, GET resume query, background cancel, safety identifier bound, semantic SSE events, and background temporary storage. Model/commercial facts remain external operator data even where current guidance names model families.
 
-Tests and gate:
+Tests and gate (Windows, Node 24.17.0, npm 11.13.0):
 
-- Fake HTTP contract tests cover throttling, retry headers, background polling, stream resume, malformed usage, storage policy, and cancellation races.
-- Budget-capped live canary uses a configured secret reference and records no key or prompt secret.
-- No permanent model ID is embedded in domain or routing logic.
+- OpenAI provider: 321 hermetic tests passed and 2 opt-in live tests were explicit skips; coverage 92.42% statements / 87.35% branches / 95.39% functions / 92.68% lines, above the 90/80/90/90 gate. The reusable Stage 5 inference contract suite passes against the fake transport.
+- Repository aggregate: 1,738 tests passed with 24 expected platform/live skips; numerator-weighted coverage 93.29% statements / 86.72% branches / 96.31% functions / 94.07% lines. Clean install, repository typecheck/test/build, and every package coverage threshold passed on the exact Release 11 checkpoint.
+- `npm audit --audit-level=high` reported zero vulnerabilities. The OpenAI package dry-run contains 70 files (108,281 packed bytes / 500,465 unpacked bytes), limited to README, package metadata, and `dist`; a fresh consumer installed six packed runtime-closure tarballs and completed a public-export-only end-to-end stream/usage/retention smoke.
+- Dependency, package-content, generated-artifact, inline-secret, direct-console, ambient-environment, filesystem/process, and shipped-model-fact scans passed. Tests cover denied disclosure/secret access before side effects, redirects, body/event bounds, malformed UTF-8/JSON/SSE, unknown semantic additions, response/model substitution, tool protocol disagreement, cancellation/close/backoff races, and error/observation secret canaries.
+- The live canary was skipped because `AI_DEV_OS_OPENAI_LIVE`, an API key, an explicitly selected model, dated input/output price facts, and a cost ceiling were not supplied. No model call, spend, or repository/user content left the machine. Linux, macOS, and CI were not run locally.
+
+Integration found and fixed release blockers rather than recording them as limitations: the parsed retry policy was dead; a background streaming response did not publish its response handle in time for remote cancellation; retry/poll delays could hold `close()` after cancellation; latency state was shared across concurrent operations and excluded initial request time; model/response identity and event/status agreement were not enforced; multi-item text completion used one global comparator; duplicate tool starts overwrote state; and unused admin-key/default-model fields implied capabilities the package did not provide.
+
+Limitations and deferred work: organization usage/cost APIs remain out of scope rather than partially implemented; create/cancel POST retry remains caller-owned; additive SSE event types require an adapter update; health is local-only to avoid a credentialed/billable probe; current Linux/macOS behavior is unverified locally. The proposed shared `cacheWriteTokens`/cache-write pricing and explicit applied-redaction transformation vocabulary were reviewed but not merged: one adapter does not yet justify widening shared contracts, so Stage 13 should evaluate them while building the normalized ledger.
 
 ## Stage 12: Multi-provider gateway and curated free-tier adapters
 

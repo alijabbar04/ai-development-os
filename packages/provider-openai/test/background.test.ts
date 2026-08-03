@@ -262,6 +262,78 @@ describe("background polling", () => {
     await handle.provider.close();
   });
 
+  it("retries a transient polling failure only on the idempotent GET route", async () => {
+    const handle = createTestProvider({
+      configuration: {
+        ...BACKGROUND_CONFIG,
+        retry: { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 2_000, jitterRatio: 0 },
+      },
+    });
+    handle.fake.script("create", {
+      json: responseObject({ id: "resp_retry", status: "queued", background: true }),
+    });
+    handle.fake.script(
+      "get",
+      {
+        status: 429,
+        headers: { "retry-after": "1" },
+        json: { error: { type: "rate_limit_error", code: "rate_limit_exceeded", param: null } },
+      },
+      {
+        json: responseObject({
+          id: "resp_retry",
+          status: "completed",
+          background: true,
+          output: [messageItem("after retry")],
+          usage: usageObject(),
+        }),
+      },
+    );
+
+    const operation = await handle.provider.start(
+      testRequest("bg-safe-retry", { extensions: BACKGROUND_EXTENSION }),
+    );
+    const outcome = await settle(drain(operation), handle.manual);
+
+    expect(outcome.error).toBeNull();
+    expect(handle.fake.requests.filter((request) => request.method === "GET")).toHaveLength(2);
+    const attempts = handle.observations
+      .filter(
+        (observation): observation is { kind: "http"; route: string; attempt: number } =>
+          typeof observation === "object" &&
+          observation !== null &&
+          (observation as { kind?: unknown }).kind === "http" &&
+          (observation as { route?: unknown }).route === "getResponse",
+      )
+      .map((observation) => observation.attempt);
+    expect(attempts).toEqual([1, 2]);
+    await handle.provider.close();
+  });
+
+  it("fails closed if polling switches to a different response id", async () => {
+    const handle = createTestProvider({ configuration: BACKGROUND_CONFIG });
+    handle.fake.script("create", {
+      json: responseObject({ id: "resp_original", status: "queued", background: true }),
+    });
+    handle.fake.script("get", {
+      json: responseObject({
+        id: "resp_substituted",
+        status: "completed",
+        background: true,
+        output: [messageItem("wrong response")],
+        usage: usageObject(),
+      }),
+    });
+
+    const operation = await handle.provider.start(
+      testRequest("bg-id-switch", { extensions: BACKGROUND_EXTENSION }),
+    );
+    const outcome = await settle(drain(operation), handle.manual);
+    expect(isProviderError(outcome.error, "PROTOCOL_VIOLATION")).toBe(true);
+    expect(detailCode(outcome.error)).toBe("response-id-changed");
+    await handle.provider.close();
+  });
+
   it("fails when a background response reports failure", async () => {
     const handle = createTestProvider({ configuration: BACKGROUND_CONFIG });
     handle.fake.script("create", {
@@ -588,6 +660,73 @@ describe("cancellation", () => {
     expect(cancelCalls).toHaveLength(1);
     expect(cancelCalls[0]!.url).toBe("https://api.openai.com/v1/responses/resp_c1/cancel");
     await handle.provider.close();
+  });
+
+  it("publishes a streaming response handle early enough for remote cancellation", async () => {
+    resetSequence();
+    const handle = createTestProvider({
+      configuration: {
+        background: {
+          mode: "allowed",
+          resumeStreamEnabled: true,
+          pollBaseDelayMs: 100,
+          pollMaxDelayMs: 1_000,
+        },
+      },
+    });
+    handle.fake.script("create", {
+      stream: [
+        sse(
+          "response.created",
+          { response: responseObject({ id: "resp_stream_cancel", status: "in_progress", background: true }) },
+          1,
+        ),
+        { holdUntilRelease: true },
+      ],
+    });
+    handle.fake.script("cancel", {
+      json: responseObject({ id: "resp_stream_cancel", status: "cancelled", background: true }),
+    });
+
+    const operation = await handle.provider.start(
+      testRequest("bg-stream-cancel", { extensions: BACKGROUND_EXTENSION }),
+    );
+    const draining = drain(operation);
+    await flush();
+    await flush();
+    await operation.cancel();
+    handle.fake.release();
+    const outcome = await settle(draining, handle.manual);
+    expect(isProviderError(outcome.error, "CANCELLED")).toBe(true);
+    await handle.provider.close();
+    expect(handle.fake.requests.filter((request) => request.url.endsWith("/cancel"))).toHaveLength(1);
+  });
+
+  it("does not make provider close wait for an uncancelled polling backoff", async () => {
+    const handle = createTestProvider({
+      configuration: {
+        background: {
+          mode: "allowed",
+          resumeStreamEnabled: false,
+          pollBaseDelayMs: 15_000,
+          pollMaxDelayMs: 15_000,
+        },
+      },
+    });
+    handle.fake.script("create", {
+      json: responseObject({ id: "resp_close_backoff", status: "queued", background: true }),
+    });
+    handle.fake.script("cancel", {
+      json: responseObject({ id: "resp_close_backoff", status: "cancelled", background: true }),
+    });
+
+    const operation = await handle.provider.start(
+      testRequest("bg-close-backoff", { extensions: BACKGROUND_EXTENSION }),
+    );
+    await flush();
+    await handle.provider.close();
+    const outcome = await drain(operation);
+    expect(isProviderError(outcome.error, "CANCELLED")).toBe(true);
   });
 
   it("settles active operations when the provider closes", async () => {

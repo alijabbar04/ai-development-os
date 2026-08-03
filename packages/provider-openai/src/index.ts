@@ -44,7 +44,6 @@ export {
 } from "./scheduler.js";
 
 export type {
-  AdminCredentialPort,
   ArtifactResolverPort,
   CredentialPort,
   CredentialRequest,

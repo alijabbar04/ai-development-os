@@ -199,6 +199,7 @@ export type OpenAiOutputItem = OpenAiMessageItem | OpenAiFunctionCallItem | Open
  * fails closed rather than dropping model output on the floor.
  */
 const SUPPORTED_ITEM_TYPES = new Set(["message", "function_call", "reasoning"]);
+const RESPONSE_ID_PATTERN = /^resp_[A-Za-z0-9_-]{1,120}$/;
 
 export interface WireLimits {
   readonly maxOutputItems: number;
@@ -271,10 +272,14 @@ export function parseOutputItem(value: unknown, limits: WireLimits): OpenAiOutpu
       throw protocolViolationError("unsupported-content-part", { partType });
     }
   }
+  const role = requiredString(item["role"], "malformed-message-role", 32);
+  if (role !== "assistant") {
+    throw protocolViolationError("unexpected-output-message-role", { role });
+  }
   return Object.freeze({
     type: "message" as const,
     id: optionalString(item["id"], "malformed-message-id", 128),
-    role: requiredString(item["role"], "malformed-message-role", 32),
+    role,
     content: Object.freeze(content),
   });
 }
@@ -332,8 +337,13 @@ export function parseResponseSnapshot(value: unknown, limits: WireLimits): OpenA
   const background = response["background"];
   const store = response["store"];
 
+  const responseId = requiredString(response["id"], "malformed-response-id", 128);
+  if (!RESPONSE_ID_PATTERN.test(responseId)) {
+    throw malformedResponseError("malformed-response-id");
+  }
+
   return Object.freeze({
-    id: requiredString(response["id"], "malformed-response-id", 128),
+    id: responseId,
     status: status as OpenAiResponseStatus,
     model: optionalString(response["model"], "malformed-response-model", 128),
     background: background === true,
@@ -425,6 +435,15 @@ export function classifyStreamEvent(value: JsonValue, limits: WireLimits): OpenA
 
   if (LIFECYCLE_TYPES.has(type) || TERMINAL_TYPES.has(type)) {
     const snapshot = parseResponseSnapshot(event["response"], limits);
+    const expectedStatus = type.slice("response.".length);
+    const createdWithActiveStatus =
+      type === "response.created" && (snapshot.status === "queued" || snapshot.status === "in_progress");
+    if (!createdWithActiveStatus && snapshot.status !== expectedStatus) {
+      throw protocolViolationError("event-status-mismatch", {
+        eventType: type,
+        responseStatus: snapshot.status,
+      });
+    }
     return Object.freeze({
       kind: TERMINAL_TYPES.has(type) ? ("terminal" as const) : ("lifecycle" as const),
       sequence,

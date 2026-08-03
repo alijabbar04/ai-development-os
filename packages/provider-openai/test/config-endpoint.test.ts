@@ -137,6 +137,20 @@ describe("configuration validation", () => {
     ).toThrow();
   });
 
+  it("does not accept an unused admin credential or an implicit default model", () => {
+    for (const unsupported of [
+      { adminApiKeyRef: TEST_API_KEY_REF },
+      { defaultModelId: TEST_MODEL },
+    ]) {
+      expect(() =>
+        parseOpenAiAdapterConfiguration({
+          ...testConfiguration(),
+          ...unsupported,
+        }),
+      ).toThrow();
+    }
+  });
+
   it("rejects prototype-pollution input", () => {
     const polluted = JSON.parse('{"__proto__": {"polluted": true}}') as object;
     try {
@@ -193,20 +207,6 @@ describe("configuration validation", () => {
       expect.unreachable("expected rejection");
     } catch (error) {
       expect(detailCode(error)).toBe("no-permitted-models");
-    }
-  });
-
-  it("requires the default model to be permitted", () => {
-    try {
-      createOpenAiAdapterConfiguration({
-        instanceId: "openai-test-1",
-        apiKeyRef: TEST_API_KEY_REF,
-        permittedModels: [TEST_MODEL],
-        defaultModelId: "some-other-model",
-      });
-      expect.unreachable("expected rejection");
-    } catch (error) {
-      expect(detailCode(error)).toBe("default-model-not-permitted");
     }
   });
 

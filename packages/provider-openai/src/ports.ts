@@ -76,15 +76,6 @@ export interface CredentialPort {
   ): Promise<T>;
 }
 
-/**
- * Optional read-only administrative credential, required only by the
- * organization usage/cost observation surface. Ordinary inference must
- * never need it.
- */
-export interface AdminCredentialPort {
-  withAdminKey<T>(request: CredentialRequest, use: (adminKey: string) => Promise<T>): Promise<T>;
-}
-
 // ---------------------------------------------------------------------------
 // Artifact resolution
 // ---------------------------------------------------------------------------

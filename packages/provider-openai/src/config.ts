@@ -177,12 +177,9 @@ export interface OpenAiAdapterConfiguration {
   readonly instanceId: string;
   readonly endpoint: OpenAiEndpoint;
   readonly apiKeyRef: SecretRef;
-  /** Read-only administrative key; ordinary inference never uses it. */
-  readonly adminApiKeyRef: SecretRef | null;
   readonly organizationId: string | null;
   readonly projectId: string | null;
   readonly permittedModels: readonly string[];
-  readonly defaultModelId: string | null;
   readonly reasoning: OpenAiReasoningControls;
   readonly verbosity: OpenAiVerbosity | null;
   readonly serviceTier: OpenAiServiceTier | null;
@@ -411,11 +408,9 @@ const CONFIGURATION_KEYS = [
   "instanceId",
   "endpoint",
   "apiKeyRef",
-  "adminApiKeyRef",
   "organizationId",
   "projectId",
   "permittedModels",
-  "defaultModelId",
   "reasoning",
   "verbosity",
   "serviceTier",
@@ -463,13 +458,6 @@ export function parseOpenAiAdapterConfiguration(value: unknown): OpenAiAdapterCo
     if (apiKeyRef.expectedKind !== "text") {
       throw invalidConfigurationError("api-key-must-be-text");
     }
-    const adminApiKeyRef = ensureNullable(record["adminApiKeyRef"], (raw) =>
-      parseSecretRef(raw, "openAiConfiguration.adminApiKeyRef"),
-    );
-    if (adminApiKeyRef !== null && adminApiKeyRef.expectedKind !== "text") {
-      throw invalidConfigurationError("admin-key-must-be-text");
-    }
-
     const permittedModels = uniqueStrings(
       ensureArray(record["permittedModels"], "openAiConfiguration.permittedModels", 256).map(
         (item, index) =>
@@ -483,17 +471,6 @@ export function parseOpenAiAdapterConfiguration(value: unknown): OpenAiAdapterCo
     );
     if (permittedModels.length === 0) {
       throw invalidConfigurationError("no-permitted-models");
-    }
-
-    const defaultModelId = ensureNullable(record["defaultModelId"], (raw) =>
-      ensureString(raw, "openAiConfiguration.defaultModelId", {
-        maxLength: 128,
-        pattern: MODEL_ID_PATTERN,
-        patternName: "OpenAI model id",
-      }),
-    );
-    if (defaultModelId !== null && !permittedModels.includes(defaultModelId)) {
-      throw invalidConfigurationError("default-model-not-permitted");
     }
 
     const catalog = parseOpenAiModelCatalog(record["catalog"], "openAiConfiguration.catalog");
@@ -527,7 +504,6 @@ export function parseOpenAiAdapterConfiguration(value: unknown): OpenAiAdapterCo
       }),
       endpoint,
       apiKeyRef,
-      adminApiKeyRef,
       organizationId: ensureNullable(record["organizationId"], (raw) =>
         ensureString(raw, "openAiConfiguration.organizationId", {
           maxLength: 64,
@@ -543,7 +519,6 @@ export function parseOpenAiAdapterConfiguration(value: unknown): OpenAiAdapterCo
         }),
       ),
       permittedModels,
-      defaultModelId,
       reasoning: parseReasoningControls(record["reasoning"], "openAiConfiguration.reasoning"),
       verbosity: ensureNullable(record["verbosity"], (raw) =>
         ensureEnum(raw, "openAiConfiguration.verbosity", OPENAI_VERBOSITIES),
@@ -591,10 +566,8 @@ export interface OpenAiAdapterConfigurationInput {
   readonly apiKeyRef: SecretRef;
   readonly permittedModels: readonly string[];
   readonly endpoint?: string;
-  readonly adminApiKeyRef?: SecretRef | null;
   readonly organizationId?: string | null;
   readonly projectId?: string | null;
-  readonly defaultModelId?: string | null;
   readonly reasoning?: Partial<OpenAiReasoningControls>;
   readonly verbosity?: OpenAiVerbosity | null;
   readonly serviceTier?: OpenAiServiceTier | null;
@@ -632,11 +605,9 @@ export function createOpenAiAdapterConfiguration(
     instanceId: input.instanceId,
     endpoint: input.endpoint ?? DEFAULT_OPENAI_ENDPOINT_PROFILE,
     apiKeyRef: input.apiKeyRef,
-    adminApiKeyRef: input.adminApiKeyRef ?? null,
     organizationId: input.organizationId ?? null,
     projectId: input.projectId ?? null,
     permittedModels: input.permittedModels,
-    defaultModelId: input.defaultModelId ?? null,
     reasoning: {
       effort: reasoning.effort ?? null,
       summary: reasoning.summary ?? null,

@@ -8,7 +8,8 @@ provider-neutral contracts and one specific HTTPS API. It performs no
 ambient I/O, reads no environment variables, opens no files, writes no
 logs, and executes no tools.
 
-- Verified against the official OpenAI OpenAPI document (v2.3.0) and the
+- Re-verified on 2026-08-03 against the official OpenAI OpenAPI document
+  (v2.3.0) and the
   streaming, background, structured-output, function-calling, data-controls,
   safety, and rate-limit guides.
 - Every wire field, event name, status value, and error code in this package
@@ -39,7 +40,8 @@ logs, and executes no tools.
 
 Hosted tools (web search, file search, code interpreter, computer use,
 hosted shell, remote MCP, image generation), audio modalities, Programmatic
-Tool Calling, organization administration, and arbitrary upstream base URLs.
+Tool Calling, organization usage/cost and administration APIs, and arbitrary
+upstream base URLs.
 
 None of these are silently ignored. A hosted-tool request is refused before
 any disclosure, and a hosted-tool stream event or output item **fails
@@ -51,55 +53,16 @@ a refusal, a usage figure, or a storage side effect.
 ## The model catalog is data, not code
 
 **This package ships no model identifiers, no context limits, and no
-prices.** Those facts are not derivable from the API schema, and the public
-model-guidance pages do not state context windows, output caps, or pricing
-for the current model families. Inventing them would produce silently wrong
-routing decisions and silently wrong bills.
+prices.** Model guidance and commercial facts change independently of this
+adapter's wire contract. Baking a transient snapshot into code would produce
+stale routing decisions and silently wrong bills.
 
 Instead, the operator supplies a dated, provenanced snapshot:
 
-```ts
-const catalog = parseOpenAiModelCatalog({
-  schemaVersion: 1,
-  catalogVersion: "2026-08-01",
-  source: "openai-pricing",
-  entries: [
-    {
-      modelId: "gpt-5.6-sol",           // opaque to every other layer
-      contextWindowTokens: 400_000,      // from YOUR authoritative snapshot
-      maxOutputTokens: 128_000,
-      supportsStructuredOutput: true,
-      supportsToolCalling: true,
-      supportsVision: true,
-      supportsReasoning: true,
-      supportedReasoningEfforts: ["low", "medium", "high"],
-      supportsSampling: false,           // reasoning models reject temperature/top_p
-      latencyClass: "standard",
-      codingCapability: 5,
-      reasoningCapability: 5,
-      evidence: {
-        source: "openai-model-guidance",
-        observedAt: "2026-08-01T00:00:00.000Z",
-        documentRevision: null,
-      },
-      effectiveFrom: "2026-08-01T00:00:00.000Z",
-      effectiveTo: null,
-      pricing: [
-        {
-          currency: "USD",
-          inputMicrosPerMillionTokens: 1_250_000,
-          cachedInputMicrosPerMillionTokens: 125_000,
-          cacheWriteMicrosPerMillionTokens: null,
-          outputMicrosPerMillionTokens: 10_000_000,
-          source: "openai-pricing",
-          effectiveFrom: "2026-08-01T00:00:00.000Z",
-          effectiveTo: null,
-        },
-      ],
-    },
-  ],
-});
-```
+The operator-provided record supplies the opaque model id, context and output
+limits, capability evidence, effective interval, and any dated price slices.
+The adapter validates and fingerprints that data; it does not fill in a
+missing field from a model name.
 
 Properties enforced by `parseOpenAiModelCatalog`:
 
@@ -261,7 +224,6 @@ Everything external is a port. Nothing is ambient.
 | Port | Purpose |
 | --- | --- |
 | `CredentialPort` | resolve the API key for one call |
-| `AdminCredentialPort` | separate read-only admin key; ordinary inference never uses it |
 | `DisclosurePort` | authorize disclosure, persistence, and temporary server state |
 | `ArtifactResolverPort` | read authorized image bytes |
 | `SafetyIdentifierPort` | derive `safety_identifier` |
@@ -279,11 +241,12 @@ secret resolver, without depending on any concrete secret backend.
 ## Configuration sketch
 
 ```ts
+const selectedModelId = operatorCatalog.entries[0].modelId;
 const configuration = createOpenAiAdapterConfiguration({
   instanceId: "openai-primary",
   apiKeyRef,                       // Stage 6 SecretRef, text kind
-  permittedModels: ["gpt-5.6-sol"],
-  catalog,
+  permittedModels: [selectedModelId],
+  catalog: operatorCatalog,
   supportedClassifications: ["public", "internal"],
 });
 ```
@@ -300,7 +263,7 @@ persistence, or lower the output bound. Widening any of these is rejected.
 
 ## Testing
 
-`npm test` runs 310 hermetic tests with no network, no TLS, and no real
+`npm test` runs 321 hermetic tests with no network, no TLS, and no real
 sleeps — an injected `fetch` serves scripted JSON and SSE bodies with
 controllable byte chunking, and all timing runs on a manual clock.
 
@@ -349,6 +312,13 @@ mistaken for live verification.
    credential and would bill the account; transport failures surface through
    operations instead.
 6. **Cache-write pricing is unmodelled upstream** (see below).
+7. **Organization usage/cost APIs are not implemented.** Ordinary inference
+   accepts only its request-scoped API-key port; the package exposes no admin
+   credential field or implicit organization-metrics call.
+8. **Create and cancel POSTs are single-attempt.** Automatic retries are
+   limited to bounded, caller-identical GET polling/resume requests. A
+   transient create/cancel failure is surfaced with retry disposition rather
+   than risking duplicate remote state on an undocumented assumption.
 
 ## Proposed upstream contract changes
 
