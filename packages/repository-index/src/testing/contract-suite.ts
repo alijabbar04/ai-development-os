@@ -19,6 +19,13 @@ import {
   type MemorySnapshotOptions,
 } from "./fixtures.js";
 
+/**
+ * The fixtures are part of the testing entry point: a consumer that adopts the
+ * contract suite invariably needs the deterministic clock and the in-memory
+ * snapshot port alongside it.
+ */
+export * from "./fixtures.js";
+
 export interface RepositoryIndexContractHarness {
   /** Builds a read port over the declared fixture content. */
   createPort(options: MemorySnapshotOptions): Promise<SnapshotReadPort> | SnapshotReadPort;
