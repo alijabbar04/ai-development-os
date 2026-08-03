@@ -105,7 +105,7 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
   async function obtainResponse(request: InferenceRequest, operationId: ProviderOperationId, signal: AbortFlag["signal"]): Promise<HttpResponse> {
     const streaming = configuration.streaming === "always";
     const capabilities = requestedPolicyCapabilities(request, streaming);
-    const body = toCanonicalJson(buildChatCompletionsBody(request, profile, streaming, configuration.catalogModelId));
+    const body = JSON.stringify(buildChatCompletionsBody(request, profile, streaming, configuration.catalogModelId));
     if (Buffer.byteLength(body, "utf8") > MAX_CHAT_COMPLETIONS_REQUEST_BYTES) throw new ProviderError("INVALID_REQUEST", "The Chat Completions request exceeded the adapter's serialized byte bound.", { maximum: MAX_CHAT_COMPLETIONS_REQUEST_BYTES });
     return options.access.withAuthorizedApiKey({ descriptor, model, request, operationId, requestedCapabilities: capabilities, signal }, async (apiKey) => {
       if (apiKey.length === 0 || apiKey.length > 8_192 || /[\r\n]/u.test(apiKey)) throw new ProviderError("AUTHENTICATION_FAILED", "The provider API key is invalid.", {});

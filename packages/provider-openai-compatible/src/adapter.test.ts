@@ -154,6 +154,20 @@ describe("provider operations", () => {
     await h.provider.close();
   });
 
+  it("serializes valid joined message content beyond the domain canonical string limit", async () => {
+    const h = providerHarness("never");
+    h.transport.responses.push(response(completion()));
+    const maximumPart = "x".repeat(262_144);
+    const operation = await h.provider.start(request("joined-content", {
+      messages: [{ role: "user", parts: Array.from({ length: 4 }, () => ({ type: "text" as const, text: maximumPart })) }],
+    }));
+    await expect(operation.result).resolves.toMatchObject({ finishReason: "stop" });
+    expect(h.access.calls).toBe(1);
+    expect(h.transport.requests).toHaveLength(1);
+    expect(JSON.parse(h.transport.requests[0]!.body).messages[0].content).toHaveLength((4 * 262_144) + 3);
+    await h.provider.close();
+  });
+
   it("bounds transport by the earlier request deadline", async () => {
     const h = providerHarness("never");
     h.transport.responses.push(response(completion()));
