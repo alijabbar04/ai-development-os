@@ -1,0 +1,34 @@
+{
+  "name": "@ai-dev-os/provider-openai-compatible",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Finite-profile OpenAI Chat Completions adapters for Groq, Cerebras, and OpenRouter.",
+  "type": "module",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./testing": { "types": "./dist/testing/profile-contract-suite.d.ts", "import": "./dist/testing/profile-contract-suite.js" }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "prebuild": "npm --prefix ../provider-catalog run build && npm --prefix ../policy run build && npm --prefix ../secrets run build && npm --prefix ../providers run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm run prebuild",
+    "test": "vitest run",
+    "pretest:coverage": "npm run prebuild",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm run prebuild",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:live:groq": "vitest run --config vitest.live.config.ts src/live/groq.live.test.ts",
+    "test:live:cerebras": "vitest run --config vitest.live.config.ts src/live/cerebras.live.test.ts",
+    "test:live:openrouter": "vitest run --config vitest.live.config.ts src/live/openrouter.live.test.ts"
+  },
+  "dependencies": {
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/policy": "^0.1.0",
+    "@ai-dev-os/provider-catalog": "^0.1.0",
+    "@ai-dev-os/providers": "^0.1.0",
+    "@ai-dev-os/secrets": "^0.1.0"
+  },
+  "peerDependencies": { "vitest": ">=4.0.0" },
+  "peerDependenciesMeta": { "vitest": { "optional": true } }
+}

@@ -1,0 +1,11 @@
+# Native Gemini provider
+
+This adapter targets only Google's documented native `v1beta` `generateContent` and `streamGenerateContent` methods at `https://generativelanguage.googleapis.com`. The origin, path, `x-goog-api-key` delivery, query, and headers are fixed. It is not an OpenAI-compatibility wrapper.
+
+The adapter supports bounded text, JSON structured output, caller-executed function declarations/calls/results, safety settings, reasoning parts, usage metadata, and inline PNG/JPEG/WebP/HEIC/HEIF images resolved through an injected artifact port. Inline image bytes remain artifact references until policy authorizes disclosure; per-image and aggregate bytes are capped below Google's documented 20 MB inline request boundary. Files API uploads, audio, video, and PDF input are not implemented.
+
+Capability checks run before policy, secret, artifact, or HTTP effects. Policy authorization runs before artifact resolution. The instance's own callback-scoped API-key `SecretRef` is resolved only after the body is ready to send. Strict parsers reject redirects, invalid UTF-8/JSON/SSE, unknown finish reasons, model/protocol inconsistencies, missing terminal usage, oversized output, and malformed function calls. Safety and prompt blocks become typed outcomes without logging upstream bodies.
+
+The live canary is excluded from ordinary tests and skips unless `AI_DEV_OS_LIVE_GEMINI=1` and `GEMINI_API_KEY` are both present. Run it with `npm run test:live:gemini`; it makes one native explicit-model request capped at 24 output tokens and never prints the key or response body.
+
+Only Google's documented API-key flow is supported; browser cookies, consumer sessions, unofficial OAuth, keyless access, account cycling, and quota evasion are deliberately excluded. Quota and health remain timestamped observations: Stage 13 owns normalized usage accounting and forecasting, and intelligent routing is deferred to a later stage.
