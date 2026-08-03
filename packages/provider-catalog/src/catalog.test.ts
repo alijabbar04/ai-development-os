@@ -25,6 +25,10 @@ describe("built-in provider catalog", () => {
       "google-gemini", "groq", "cerebras", "openrouter",
     ]);
     expect(BUILTIN_PROVIDER_CATALOG.providers.flatMap((provider) => provider.models.map((model) => model.modelId))).not.toContain("openrouter/free");
+    const cerebras = resolveCatalogProvider(BUILTIN_PROVIDER_CATALOG, "cerebras")!;
+    expect(cerebras.models[0]?.limits.maxOutputTokens).toBe(40_960);
+    expect(cerebras.freeTier.restrictions.join(" ")).toContain("verified payment method");
+    expect(cerebras.quota.scope).toBe("organization");
     expect(parseProviderCatalog(BUILTIN_PROVIDER_CATALOG)).toEqual(BUILTIN_PROVIDER_CATALOG);
   });
 
@@ -65,10 +69,12 @@ describe("catalog validation", () => {
     ["wildcard origin", (value: any) => { value.providers[0].endpoint.origin = "https://*.example.com"; }, "UNSAFE_ENDPOINT"],
     ["malformed origin", (value: any) => { value.providers[0].endpoint.origin = "not a url"; }, "UNSAFE_ENDPOINT"],
     ["unbounded redirects", (value: any) => { value.providers[0].endpoint.redirectPolicy = "follow"; }, "UNSAFE_ENDPOINT"],
+    ["encoded path traversal", (value: any) => { value.providers[0].endpoint.allowedPaths = ["/v1/%2e%2e/escape"]; }, "UNSAFE_ENDPOINT"],
     ["unknown field", (value: any) => { value.providers[0].endpoint.headers = {}; }, "INVALID_CATALOG"],
     ["missing capability evidence", (value: any) => { value.providers[0].models[0].capabilities[0].evidenceUrl = null; }, "UNSAFE_CAPABILITY_ESCALATION"],
     ["impossible expiry", (value: any) => { value.providers[0].verification.refreshAfter = value.providers[0].verification.lastVerifiedAt; }, "INVALID_VERIFICATION_WINDOW"],
-    ["ambiguous alias", (value: any) => { value.providers[1].aliases = ["same", " SAME "]; }, "AMBIGUOUS_ALIAS"],
+    ["ambiguous alias", (value: any) => { value.providers[1].aliases = ["same", "same"]; }, "AMBIGUOUS_ALIAS"],
+    ["non-identity alias", (value: any) => { value.providers[1].aliases = ["  "]; }, "INVALID_CATALOG"],
   ])("rejects %s", (_label, mutate, code) => {
     const value = clone(BUILTIN_PROVIDER_CATALOG);
     mutate(value);
@@ -95,6 +101,14 @@ describe("signed envelopes and overlays", () => {
     await expect(parseCatalogEnvelope(
       { schemaVersion: 1, catalog: BUILTIN_PROVIDER_CATALOG, signature },
       { source: "remote", verifier: { verify: () => false } },
+    )).rejects.toMatchObject({ code: "INVALID_CATALOG" });
+    await expect(parseCatalogEnvelope(
+      { schemaVersion: 1, catalog: BUILTIN_PROVIDER_CATALOG, signature: { ...signature, keyId: "INVALID KEY" } },
+      { source: "remote", verifier: { verify: () => true } },
+    )).rejects.toMatchObject({ code: "INVALID_CATALOG" });
+    await expect(parseCatalogEnvelope(
+      { schemaVersion: 1, catalog: BUILTIN_PROVIDER_CATALOG, signature: { ...signature, value: "x".repeat(4_097) } },
+      { source: "remote", verifier: { verify: () => true } },
     )).rejects.toMatchObject({ code: "INVALID_CATALOG" });
   });
 

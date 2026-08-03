@@ -8,9 +8,25 @@ import { GEMINI_ORIGIN, parseGeminiConfiguration } from "./config.js";
 import { buildGeminiBody, geminiPolicyCapabilities, preflightGeminiRequest } from "./request.js";
 import { createFetchGeminiTransport, parseGeminiSse, readGeminiBody } from "./transport.js";
 import { geminiHttpError, parseGeminiJson, parseGeminiResponse, type GeminiParsed } from "./wire.js";
-import type { CreateGeminiProviderOptions } from "./types.js";
+import type { CreateGeminiProviderOptions, GeminiHttpResponse } from "./types.js";
 
 function abortFlag() { let aborted = false; const listeners: Array<() => void> = []; return { signal: { get aborted() { return aborted; }, addEventListener(_type: "abort", listener: () => void) { if (aborted) listener(); else listeners.push(listener); } }, abort() { if (aborted) return; aborted = true; for (const listener of listeners.splice(0)) listener(); } }; }
+const GEMINI_MAX_SERIALIZED_REQUEST_BYTES = 20_000_000;
+
+function mapDeadlineTimeout(response: GeminiHttpResponse, deadlineBound: boolean): GeminiHttpResponse {
+  if (!deadlineBound) return response;
+  const body = (async function* (): AsyncIterable<Uint8Array> {
+    try {
+      yield* response.body;
+    } catch (error) {
+      if (error instanceof ProviderError && error.code === "TIMEOUT") {
+        throw new ProviderError("DEADLINE_EXCEEDED", "The Gemini operation exceeded the request deadline.", {});
+      }
+      throw error;
+    }
+  })();
+  return Object.freeze({ ...response, body });
+}
 
 export function createGeminiProvider(options: CreateGeminiProviderOptions): InferenceProvider {
   const configuration = parseGeminiConfiguration(options.configuration); const transport = options.transport ?? createFetchGeminiTransport(); const clock: Clock = options.clock ?? systemClock;
@@ -32,23 +48,44 @@ export function createGeminiProvider(options: CreateGeminiProviderOptions): Infe
   async function pump(request: InferenceRequest, controller: ReturnType<typeof createOperationController<InferenceEvent, InferenceResult>>, abort: ReturnType<typeof abortFlag>, started: number): Promise<void> {
     const emit = (build: Parameters<typeof controller.emit>[0]) => { if (!controller.isTerminal) controller.emit(build); };
     try {
+      if (controller.isTerminal || abort.signal.aborted) return;
       emit((base) => ({ ...base, kind: "operation-started", payload: { modelId: request.modelId } })); emit((base) => ({ ...base, kind: "message-started", payload: { messageIndex: 0 } })); emit((base) => ({ ...base, kind: "usage-update", payload: { usage: ZERO_PROVIDER_USAGE } }));
       if (isDeadlineExpired(request.deadline, clock.now())) throw new ProviderError("DEADLINE_EXCEEDED", "The request deadline expired before Gemini access.", {});
       const accessRequest = { descriptor, model, request, operationId: controller.operation.operationId, requestedCapabilities: geminiPolicyCapabilities(request, configuration.streaming === "always") };
       const authorization = await options.authorization.authorize(accessRequest);
-      const body = toCanonicalJson(await buildGeminiBody(request, configuration, options.artifacts, thoughtSignatures));
+      const body = JSON.stringify(await buildGeminiBody(request, configuration, options.artifacts, thoughtSignatures));
+      if (Buffer.byteLength(body, "utf8") > GEMINI_MAX_SERIALIZED_REQUEST_BYTES) throw new ProviderError("INVALID_REQUEST", "The Gemini request exceeded the documented serialized inline-request boundary.", { maximum: GEMINI_MAX_SERIALIZED_REQUEST_BYTES });
       const response = await options.credentials.withApiKey({ ...accessRequest, authorization, signal: abort.signal }, async (apiKey) => {
         if (apiKey.length === 0 || apiKey.length > 8_192 || /[\r\n]/u.test(apiKey)) throw new ProviderError("AUTHENTICATION_FAILED", "The Gemini API key is invalid.", {});
         const method = configuration.streaming === "always" ? "streamGenerateContent" : "generateContent"; const query = configuration.streaming === "always" ? "?alt=sse" : "";
-        return transport.send({ url: `${GEMINI_ORIGIN}/v1beta/models/${configuration.catalogModelId}:${method}${query}`, headers: Object.freeze({ "Content-Type": "application/json", Accept: configuration.streaming === "always" ? "text/event-stream" : "application/json", "x-goog-api-key": apiKey }), body, timeoutMs: configuration.limits.requestTimeoutMs, maxResponseBytes: configuration.streaming === "always" ? configuration.limits.maxStreamBytes : configuration.limits.maxResponseBytes, signal: abort.signal });
+        let timeoutMs = configuration.limits.requestTimeoutMs; let deadlineBound = false;
+        if (request.deadline !== null) { const remaining = Date.parse(request.deadline) - clock.now().valueOf(); if (remaining <= 0) throw new ProviderError("DEADLINE_EXCEEDED", "The request deadline expired before Gemini transport.", {}); if (remaining <= timeoutMs) { timeoutMs = Math.max(1, remaining); deadlineBound = true; } }
+        try {
+          const response = await transport.send({ url: `${GEMINI_ORIGIN}/v1beta/models/${configuration.catalogModelId}:${method}${query}`, headers: Object.freeze({ "Content-Type": "application/json", Accept: configuration.streaming === "always" ? "text/event-stream" : "application/json", "x-goog-api-key": apiKey }), body, timeoutMs, maxResponseBytes: configuration.streaming === "always" ? configuration.limits.maxStreamBytes : configuration.limits.maxResponseBytes, signal: abort.signal });
+          return mapDeadlineTimeout(response, deadlineBound);
+        } catch (error) {
+          if (deadlineBound && error instanceof ProviderError && error.code === "TIMEOUT") throw new ProviderError("DEADLINE_EXCEEDED", "The Gemini operation exceeded the request deadline.", {});
+          throw error;
+        }
       });
       if (response.status < 200 || response.status >= 300) { await readGeminiBody(response.body, Math.min(configuration.limits.maxResponseBytes, 64 * 1_024)); throw geminiHttpError(response.status, response.headers); }
       let combined: GeminiParsed;
-      if (configuration.streaming === "never") combined = parseGeminiResponse(parseGeminiJson(await readGeminiBody(response.body, configuration.limits.maxResponseBytes)), () => ids("tool-call"));
+      if (configuration.streaming === "never") {
+        combined = parseGeminiResponse(parseGeminiJson(await readGeminiBody(response.body, configuration.limits.maxResponseBytes)), () => ids("tool-call"));
+        if (combined.finishReason === null || combined.usage === null) throw new ProviderError("PROTOCOL_VIOLATION", "Gemini JSON response omitted terminal finish or usage metadata.", {});
+      }
       else {
         let text = ""; let reasoning = ""; let finishReason: GeminiParsed["finishReason"] = null; let finalUsage: ProviderUsage | null = null; let warning: string | null = null; const invocations: ToolInvocation[] = []; const signatures: Array<{ readonly callId: string; readonly value: string }> = [];
         for await (const eventText of parseGeminiSse(response.body, { stream: configuration.limits.maxStreamBytes, event: configuration.limits.maxSseEventBytes })) {
-          const event = parseGeminiResponse(parseGeminiJson(eventText), () => ids("tool-call")); text += event.text; reasoning += event.reasoning; invocations.push(...event.invocations); signatures.push(...event.signatures); if (event.finishReason !== null) { if (finishReason !== null) throw new ProviderError("PROTOCOL_VIOLATION", "Gemini stream produced duplicate terminal finish reasons.", {}); finishReason = event.finishReason; } if (event.usage !== null) finalUsage = event.usage; if (event.warning !== null) warning = event.warning;
+          const event = parseGeminiResponse(parseGeminiJson(eventText), () => ids("tool-call"));
+          const terminalSeen = finishReason !== null;
+          const hasPayload = event.text.length > 0 || event.reasoning.length > 0 || event.invocations.length > 0 || event.signatures.length > 0 || event.warning !== null;
+          if (terminalSeen && (hasPayload || event.finishReason !== null || event.usage === null)) throw new ProviderError("PROTOCOL_VIOLATION", "Gemini continued after its terminal finish; only one trailing usage event is allowed.", {});
+          if (event.usage !== null) {
+            if (finalUsage !== null) throw new ProviderError("PROTOCOL_VIOLATION", "Gemini reported terminal usage more than once.", {});
+            if (!terminalSeen && event.finishReason === null) throw new ProviderError("PROTOCOL_VIOLATION", "Gemini reported terminal usage before its finish reason.", {});
+          }
+          text += event.text; reasoning += event.reasoning; for (const invocation of event.invocations) { if (invocations.some((prior) => prior.toolCallId === invocation.toolCallId)) throw new ProviderError("TOOL_PROTOCOL_FAILURE", "Gemini stream repeated a tool-call ID.", {}); invocations.push(invocation); } signatures.push(...event.signatures); if (event.finishReason !== null) { if (finishReason !== null) throw new ProviderError("PROTOCOL_VIOLATION", "Gemini stream produced duplicate terminal finish reasons.", {}); finishReason = event.finishReason; } if (event.usage !== null) finalUsage = event.usage; if (event.warning !== null) warning = event.warning;
           if (event.text.length > 0) emit(request.structuredOutput === null ? (base) => ({ ...base, kind: "text-delta", payload: { text: event.text } }) : (base) => ({ ...base, kind: "structured-output-delta", payload: { textDelta: event.text } })); if (event.reasoning.length > 0) emit((base) => ({ ...base, kind: "reasoning-delta", payload: { text: event.reasoning } }));
           for (const invocation of event.invocations) { emit((base) => ({ ...base, kind: "tool-call-started", payload: { toolCallId: invocation.toolCallId, toolName: invocation.toolName } })); emit((base) => ({ ...base, kind: "tool-call-delta", payload: { toolCallId: invocation.toolCallId, argumentsDelta: toCanonicalJson(invocation.arguments) } })); emit((base) => ({ ...base, kind: "tool-call-completed", payload: { invocation } })); }
           if (event.usage !== null) emit((base) => ({ ...base, kind: "usage-update", payload: { usage: event.usage! } }));

@@ -42,7 +42,23 @@ function createAbortFlag(): AbortFlag {
   return { signal: { get aborted() { return aborted; }, addEventListener(_type, listener) { if (aborted) listener(); else listeners.push(listener); } }, abort() { if (aborted) return; aborted = true; for (const listener of listeners.splice(0)) listener(); } };
 }
 
+function mapDeadlineTimeout(response: HttpResponse, deadlineBound: boolean): HttpResponse {
+  if (!deadlineBound) return response;
+  const body = (async function* (): AsyncIterable<Uint8Array> {
+    try {
+      yield* response.body;
+    } catch (error) {
+      if (error instanceof ProviderError && error.code === "TIMEOUT") {
+        throw new ProviderError("DEADLINE_EXCEEDED", "The provider operation exceeded the request deadline.", {});
+      }
+      throw error;
+    }
+  })();
+  return Object.freeze({ ...response, body });
+}
+
 interface PendingCall { id: string | null; name: string | null; arguments: string; emitted: number; started: boolean }
+const MAX_CHAT_COMPLETIONS_REQUEST_BYTES = 8 * 1_024 * 1_024;
 
 export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProviderOptions): InferenceProvider {
   const configuration = parseOpenAiCompatibleConfiguration(options.configuration);
@@ -89,20 +105,30 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
   async function obtainResponse(request: InferenceRequest, operationId: ProviderOperationId, signal: AbortFlag["signal"]): Promise<HttpResponse> {
     const streaming = configuration.streaming === "always";
     const capabilities = requestedPolicyCapabilities(request, streaming);
+    const body = toCanonicalJson(buildChatCompletionsBody(request, profile, streaming, configuration.catalogModelId));
+    if (Buffer.byteLength(body, "utf8") > MAX_CHAT_COMPLETIONS_REQUEST_BYTES) throw new ProviderError("INVALID_REQUEST", "The Chat Completions request exceeded the adapter's serialized byte bound.", { maximum: MAX_CHAT_COMPLETIONS_REQUEST_BYTES });
     return options.access.withAuthorizedApiKey({ descriptor, model, request, operationId, requestedCapabilities: capabilities, signal }, async (apiKey) => {
       if (apiKey.length === 0 || apiKey.length > 8_192 || /[\r\n]/u.test(apiKey)) throw new ProviderError("AUTHENTICATION_FAILED", "The provider API key is invalid.", {});
-      const body = toCanonicalJson(buildChatCompletionsBody(request, profile, streaming, configuration.catalogModelId));
-      return transport.send({
-        url: `${profile.origin}${profile.path}`, method: "POST", headers: Object.freeze({ "Content-Type": "application/json", Accept: streaming ? "text/event-stream" : "application/json", Authorization: `Bearer ${apiKey}`, ...profile.fixedHeaders }),
-        body, redirect: "reject", timeoutMs: configuration.limits.requestTimeoutMs,
-        maxResponseBytes: streaming ? configuration.limits.maxStreamBytes : configuration.limits.maxResponseBytes, signal,
-      });
+      let timeoutMs = configuration.limits.requestTimeoutMs; let deadlineBound = false;
+      if (request.deadline !== null) { const remaining = Date.parse(request.deadline) - clock.now().valueOf(); if (remaining <= 0) throw new ProviderError("DEADLINE_EXCEEDED", "The request deadline expired before provider transport.", {}); if (remaining <= timeoutMs) { timeoutMs = Math.max(1, remaining); deadlineBound = true; } }
+      try {
+        const response = await transport.send({
+          url: `${profile.origin}${profile.path}`, method: "POST", headers: Object.freeze({ "Content-Type": "application/json", Accept: streaming ? "text/event-stream" : "application/json", Authorization: `Bearer ${apiKey}`, ...profile.fixedHeaders }),
+          body, redirect: "reject", timeoutMs,
+          maxResponseBytes: streaming ? configuration.limits.maxStreamBytes : configuration.limits.maxResponseBytes, signal,
+        });
+        return mapDeadlineTimeout(response, deadlineBound);
+      } catch (error) {
+        if (deadlineBound && error instanceof ProviderError && error.code === "TIMEOUT") throw new ProviderError("DEADLINE_EXCEEDED", "The provider operation exceeded the request deadline.", {});
+        throw error;
+      }
     });
   }
 
   async function pump(request: InferenceRequest, controller: ReturnType<typeof createOperationController<InferenceEvent, InferenceResult>>, abort: AbortFlag, started: number): Promise<void> {
     const emit = (build: Parameters<typeof controller.emit>[0]): void => { if (!controller.isTerminal) controller.emit(build); };
     try {
+      if (controller.isTerminal || abort.signal.aborted) return;
       emit((base) => ({ ...base, kind: "operation-started", payload: { modelId: request.modelId } }));
       emit((base) => ({ ...base, kind: "message-started", payload: { messageIndex: 0 } }));
       emit((base) => ({ ...base, kind: "usage-update", payload: { usage: ZERO_PROVIDER_USAGE } }));
@@ -114,7 +140,7 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
         const text = await readBoundedBody(response.body, configuration.limits.maxResponseBytes);
         let json: JsonValue;
         try { json = parseJsonText(text, "completion"); } catch { throw new ProviderError("MALFORMED_RESPONSE", "The provider response was not valid bounded JSON.", {}); }
-        completion = parseChatCompletion(json, configuration.catalogModelId);
+        completion = parseChatCompletion(json, configuration.catalogModelId, configuration.limits.maxToolArgumentsBytes);
         if (request.structuredOutput !== null) emit((base) => ({ ...base, kind: "structured-output-delta", payload: { textDelta: completion.text } }));
         else if (completion.text.length > 0) emit((base) => ({ ...base, kind: "text-delta", payload: { text: completion.text } }));
         if (completion.reasoning.length > 0) emit((base) => ({ ...base, kind: "reasoning-delta", payload: { text: completion.reasoning } }));
@@ -128,10 +154,19 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
         let reasoning = "";
         let finishReason: WireCompletion["finishReason"] | null = null;
         let finalUsage: ProviderUsage | null = null;
+        let sawExpectedModel = false;
         const calls = new Map<number, PendingCall>();
         for await (const raw of parseChatCompletionSse(response.body, { maxStreamBytes: configuration.limits.maxStreamBytes, maxEventBytes: configuration.limits.maxSseEventBytes })) {
-          const delta = parseChatCompletionDelta(raw);
+          const delta = parseChatCompletionDelta(raw, configuration.limits.maxToolArgumentsBytes);
           if (delta.model !== null && delta.model !== configuration.catalogModelId) throw new ProviderError("PROTOCOL_VIOLATION", "A stream chunk reported a different model.", { expectedModel: configuration.catalogModelId, returnedModel: delta.model });
+          if (delta.model === configuration.catalogModelId) sawExpectedModel = true;
+          const terminalSeen = finishReason !== null;
+          const hasPayload = delta.text.length > 0 || delta.reasoning.length > 0 || delta.toolCalls.length > 0;
+          if (terminalSeen && (hasPayload || delta.finishReason !== null || delta.usage === null)) throw new ProviderError("PROTOCOL_VIOLATION", "The stream continued after its terminal finish; only one trailing usage chunk is allowed.", {});
+          if (delta.usage !== null) {
+            if (finalUsage !== null) throw new ProviderError("PROTOCOL_VIOLATION", "The stream reported terminal usage more than once.", {});
+            if (!terminalSeen && delta.finishReason === null) throw new ProviderError("PROTOCOL_VIOLATION", "The stream reported terminal usage before its finish reason.", {});
+          }
           if (delta.text.length > 0) { text += delta.text; if (text.length > 262_144) throw new ProviderError("MALFORMED_RESPONSE", "Streamed text exceeded the result bound.", {}); emit(request.structuredOutput === null ? (base) => ({ ...base, kind: "text-delta", payload: { text: delta.text } }) : (base) => ({ ...base, kind: "structured-output-delta", payload: { textDelta: delta.text } })); }
           if (delta.reasoning.length > 0) { reasoning += delta.reasoning; if (reasoning.length > 262_144) throw new ProviderError("MALFORMED_RESPONSE", "Streamed reasoning exceeded the result bound.", {}); emit((base) => ({ ...base, kind: "reasoning-delta", payload: { text: delta.reasoning } })); }
           for (const fragment of delta.toolCalls) {
@@ -147,12 +182,14 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
           if (delta.finishReason !== null) { if (finishReason !== null) throw new ProviderError("PROTOCOL_VIOLATION", "The stream produced more than one terminal finish reason.", {}); finishReason = delta.finishReason; }
           if (delta.usage !== null) { finalUsage = delta.usage; emit((base) => ({ ...base, kind: "usage-update", payload: { usage: delta.usage! } })); }
         }
-        if (finishReason === null || finalUsage === null) throw new ProviderError("PROTOCOL_VIOLATION", "The stream omitted terminal finish or usage data.", {});
+        if (!sawExpectedModel || finishReason === null || finalUsage === null) throw new ProviderError("PROTOCOL_VIOLATION", "The stream omitted exact model identity, terminal finish, or usage data.", {});
         const invocations: ToolInvocation[] = [];
+        const invocationIds = new Set<string>();
         for (const pending of [...calls.entries()].sort(([a], [b]) => a - b).map(([, item]) => item)) {
           if (pending.id === null || pending.name === null || !pending.started) throw new ProviderError("TOOL_PROTOCOL_FAILURE", "A streamed tool call was incomplete.", {});
           let args: JsonValue;
           try { args = parseJsonText(pending.arguments, "tool.arguments"); } catch { throw new ProviderError("TOOL_PROTOCOL_FAILURE", "Streamed tool arguments were not valid bounded JSON.", { toolName: pending.name }); }
+          if (invocationIds.has(pending.id)) throw new ProviderError("TOOL_PROTOCOL_FAILURE", "Streamed tool-call IDs must be unique.", {}); invocationIds.add(pending.id);
           const invocation = parseToolInvocation({ toolCallId: pending.id, toolName: pending.name, arguments: args });
           invocations.push(invocation); emit((base) => ({ ...base, kind: "tool-call-completed", payload: { invocation } }));
         }

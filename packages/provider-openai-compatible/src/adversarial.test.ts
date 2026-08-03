@@ -67,8 +67,21 @@ describe("wire adversaries", () => {
     expect(parseChatCompletion(parseJsonText(JSON.stringify(valid)), valid.model)).toMatchObject({ finishReason: "tool-calls", invocations: [{ toolName: "read_file" }] });
     expect(() => parseChatCompletion(parseJsonText(JSON.stringify({ ...valid, choices: [] })), valid.model)).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
     expect(() => parseChatCompletion(parseJsonText(JSON.stringify({ ...valid, usage: null })), valid.model)).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
+    expect(() => parseChatCompletion(parseJsonText(JSON.stringify({ ...valid, usage: { prompt_tokens: 1 } })), valid.model)).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
     valid.choices[0].message.tool_calls[0].function.arguments = "{";
     expect(() => parseChatCompletion(parseJsonText(JSON.stringify(valid)), valid.model)).toThrowError(expect.objectContaining({ code: "TOOL_PROTOCOL_FAILURE" }));
+  });
+
+  it("enforces message identity, choice indices, unique calls, and the configured non-streaming argument bound", () => {
+    const base: any = { model: "openai/gpt-oss-120b", choices: [{ index: 0, finish_reason: "tool_calls", message: { role: "assistant", content: null, tool_calls: [{ id: "call-1", function: { name: "read_file", arguments: "{}" } }] } }], usage: baseUsage };
+    expect(() => parseChatCompletion(parseJsonText(JSON.stringify({ ...base, choices: [{ ...base.choices[0], index: 1 }] })), base.model)).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
+    expect(() => parseChatCompletion(parseJsonText(JSON.stringify({ ...base, choices: [{ ...base.choices[0], message: { ...base.choices[0].message, role: "user" } }] })), base.model)).toThrowError(expect.objectContaining({ code: "PROTOCOL_VIOLATION" }));
+    const duplicate = { ...base, choices: [{ ...base.choices[0], message: { ...base.choices[0].message, tool_calls: [base.choices[0].message.tool_calls[0], base.choices[0].message.tool_calls[0]] } }] };
+    expect(() => parseChatCompletion(parseJsonText(JSON.stringify(duplicate)), base.model)).toThrowError(expect.objectContaining({ code: "TOOL_PROTOCOL_FAILURE" }));
+    base.choices[0].message.tool_calls[0].function.arguments = "{\"long\":true}";
+    expect(() => parseChatCompletion(parseJsonText(JSON.stringify(base)), base.model, 8)).toThrowError(expect.objectContaining({ code: "TOOL_PROTOCOL_FAILURE" }));
+    expect(() => parseChatCompletionDelta(parseJsonText(JSON.stringify({ choices: [{ index: 2, delta: {} }] })))).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
+    expect(() => parseChatCompletionDelta(parseJsonText(JSON.stringify({ choices: [{ index: 0, delta: { role: "user" } }] })))).toThrowError(expect.objectContaining({ code: "PROTOCOL_VIOLATION" }));
   });
 
   it("handles usage-only deltas and rejects multiple choices", () => {
@@ -117,6 +130,29 @@ describe("fetch transport", () => {
     }));
     await expect(transport.send({ ...request, timeoutMs: 1 })).rejects.toMatchObject({ code: "TIMEOUT" });
   });
+
+  it("distinguishes caller cancellation from its own timeout", async () => {
+    const transport = createFetchHttpTransport(async (_url, init) => new Promise<Response>((_resolve, reject) => {
+      if (init?.signal?.aborted === true) { reject(new Error("already aborted")); return; }
+      init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }));
+    let abort!: () => void;
+    const signal = { aborted: false, addEventListener(_type: "abort", listener: () => void) { abort = listener; } };
+    const pending = transport.send({ ...request, timeoutMs: 10_000, signal });
+    await Promise.resolve(); abort();
+    await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(transport.send({ ...request, signal: { aborted: true, addEventListener() {} } })).rejects.toMatchObject({ code: "CANCELLED" });
+  });
+
+  it("keeps the configured timeout active until the response body completes", async () => {
+    const transport = createFetchHttpTransport(async (_url, init) => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        init?.signal?.addEventListener("abort", () => controller.error(new DOMException("aborted body", "AbortError")), { once: true });
+      },
+    })));
+    const result = await transport.send({ ...request, timeoutMs: 1, maxResponseBytes: 10 });
+    await expect(async () => { for await (const _ of result.body) void _; }).rejects.toMatchObject({ code: "TIMEOUT" });
+  });
 });
 
 describe("provider failure boundaries", () => {
@@ -150,7 +186,7 @@ describe("provider failure boundaries", () => {
     await badKey.close();
   });
 
-  it("rejects malformed JSON, missing usage, stream model substitution, and duplicate finish", async () => {
+  it("rejects malformed JSON, missing usage/model identity, stream substitution, and post-terminal continuation", async () => {
     const malformedTransport = new QueueTransport();
     const malformed = makeProvider("never", malformedTransport);
     malformedTransport.queue.push({ status: 200, headers: {}, body: bytes("not-json") });
@@ -165,6 +201,13 @@ describe("provider failure boundaries", () => {
     await expect(two.result).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" });
     await stream.close();
 
+    const missingModelTransport = new QueueTransport();
+    const missingModel = makeProvider("always", missingModelTransport);
+    missingModelTransport.queue.push({ status: 200, headers: {}, body: bytes(`data: ${JSON.stringify({ choices: [{ delta: { content: "x" }, finish_reason: "stop" }], usage: baseUsage })}\n\ndata: [DONE]\n\n`) });
+    const missing = await missingModel.start(inference("missing-model"));
+    await expect(missing.result).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" });
+    await missingModel.close();
+
     const duplicateTransport = new QueueTransport();
     const duplicate = makeProvider("always", duplicateTransport);
     const terminal = JSON.stringify({ model: "openai/gpt-oss-120b", choices: [{ delta: {}, finish_reason: "stop" }] });
@@ -172,5 +215,22 @@ describe("provider failure boundaries", () => {
     const three = await duplicate.start(inference("duplicate"));
     await expect(three.result).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" });
     await duplicate.close();
+
+    const continuationTransport = new QueueTransport();
+    const continuation = makeProvider("always", continuationTransport);
+    const finished = JSON.stringify({ model: "openai/gpt-oss-120b", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
+    const continued = JSON.stringify({ model: "openai/gpt-oss-120b", choices: [{ index: 0, delta: { content: "late" }, finish_reason: null }] });
+    continuationTransport.queue.push({ status: 200, headers: {}, body: bytes(`data: ${finished}\n\ndata: ${continued}\n\ndata: [DONE]\n\n`) });
+    const four = await continuation.start(inference("continued"));
+    await expect(four.result).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" });
+    await continuation.close();
+
+    const duplicateUsageTransport = new QueueTransport();
+    const duplicateUsage = makeProvider("always", duplicateUsageTransport);
+    const usage = JSON.stringify({ model: "openai/gpt-oss-120b", choices: [], usage: baseUsage });
+    duplicateUsageTransport.queue.push({ status: 200, headers: {}, body: bytes(`data: ${finished}\n\ndata: ${usage}\n\ndata: ${usage}\n\ndata: [DONE]\n\n`) });
+    const five = await duplicateUsage.start(inference("duplicate-usage"));
+    await expect(five.result).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" });
+    await duplicateUsage.close();
   });
 });

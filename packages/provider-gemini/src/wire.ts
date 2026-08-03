@@ -1,7 +1,7 @@
 import { parseJsonText, toCanonicalJson, validation, type JsonValue } from "@ai-dev-os/domain";
 import { ProviderError, parseProviderUsage, parseToolInvocation, type FinishReason, type ProviderUsage, type ToolInvocation } from "@ai-dev-os/providers";
 
-const { ensureArray, ensureRecord, ensureSafeInteger, ensureString } = validation;
+const { ensureArray, ensureExactKeys, ensureRecord, ensureSafeInteger, ensureString } = validation;
 export interface GeminiParsed { readonly text: string; readonly reasoning: string; readonly invocations: readonly ToolInvocation[]; readonly signatures: readonly { readonly callId: string; readonly value: string }[]; readonly finishReason: FinishReason | null; readonly usage: ProviderUsage | null; readonly warning: string | null }
 
 function usage(value: unknown): ProviderUsage | null {
@@ -36,17 +36,26 @@ export function parseGeminiResponse(value: JsonValue, idSource: () => string): G
     if (candidates.length !== 1) throw new ProviderError("MALFORMED_RESPONSE", "Exactly one Gemini candidate is supported.", { candidateCount: candidates.length });
     const candidate = ensureRecord(candidates[0], "candidates[0]");
     const content = ensureRecord(candidate["content"], "candidates[0].content");
+    if (content["role"] !== undefined && content["role"] !== "model") throw new ProviderError("PROTOCOL_VIOLATION", "Gemini response content must use the model role.", {});
     const parts = ensureArray(content["parts"], "candidates[0].content.parts", 128);
     let text = ""; let reasoning = ""; const invocations: ToolInvocation[] = []; const signatures: Array<{ readonly callId: string; readonly value: string }> = [];
+    const callIds = new Set<string>();
     for (let index = 0; index < parts.length; index += 1) {
       const part = ensureRecord(parts[index], `parts[${index}]`);
+      const hasText = part["text"] !== undefined; const hasFunctionCall = part["functionCall"] !== undefined;
+      if (hasText === hasFunctionCall) throw new ProviderError("MALFORMED_RESPONSE", "Each Gemini response part must contain exactly one supported content variant.", { partIndex: index });
+      ensureExactKeys(part, hasText ? ["text", "thought"] : ["functionCall", "thought", "thoughtSignature"], `parts[${index}]`);
+      if (part["thought"] !== undefined && typeof part["thought"] !== "boolean") throw new ProviderError("MALFORMED_RESPONSE", "Gemini thought metadata must be boolean.", { partIndex: index });
+      if (!hasFunctionCall && part["thoughtSignature"] !== undefined) throw new ProviderError("MALFORMED_RESPONSE", "A Gemini thought signature must accompany a function call.", { partIndex: index });
       if (part["text"] !== undefined) {
         const chunk = ensureString(part["text"], `parts[${index}].text`, { minLength: 0, maxLength: 262_144 });
         if (part["thought"] === true) reasoning += chunk; else text += chunk;
       }
       if (part["functionCall"] !== undefined) {
         const call = ensureRecord(part["functionCall"], `parts[${index}].functionCall`);
+        ensureExactKeys(call, ["id", "name", "args"], `parts[${index}].functionCall`);
         const callId = call["id"] === undefined ? idSource() : ensureString(call["id"], `parts[${index}].functionCall.id`, { maxLength: 128 });
+        if (callIds.has(callId)) throw new ProviderError("TOOL_PROTOCOL_FAILURE", "Gemini tool-call IDs must be unique.", {}); callIds.add(callId);
         const invocation = parseToolInvocation({ toolCallId: callId, toolName: ensureString(call["name"], `parts[${index}].functionCall.name`, { maxLength: 64 }), arguments: call["args"] ?? {} });
         invocations.push(invocation);
         if (part["thoughtSignature"] !== undefined) signatures.push(Object.freeze({ callId, value: ensureString(part["thoughtSignature"], `parts[${index}].thoughtSignature`, { maxLength: 16_384 }) }));

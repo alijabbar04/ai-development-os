@@ -34,6 +34,7 @@ describe("native configuration and request mapping", () => {
     expect(config).toMatchObject({ catalogModelId: "gemini-3.5-flash", safetyMode: "provider-default" });
     expect(() => parseGeminiConfiguration({ ...config, origin: "https://evil.example" })).toThrow();
     expect(() => parseGeminiConfiguration({ ...config, catalogModelId: "unknown" })).toThrowError(expect.objectContaining({ code: "MODEL_UNAVAILABLE" }));
+    expect(() => parseGeminiConfiguration({ ...config, catalogModelId: "GEMINI-3.5-FLASH" })).toThrowError(expect.objectContaining({ code: "MODEL_UNAVAILABLE" }));
     expect(() => parseGeminiConfiguration({ ...config, limits: { ...config.limits, maxInlineImageBytes: config.limits.maxTotalInlineImageBytes + 1 } })).toThrowError(expect.objectContaining({ code: "INVALID_REQUEST" }));
   });
 
@@ -62,12 +63,30 @@ describe("native configuration and request mapping", () => {
     expect(geminiPolicyCapabilities(request, true)).toEqual(["network-access", "streaming", "structured-output", "tool-calling", "image-input"]);
   });
 
+  it("maps every finite function-calling mode and fails closed without an artifact resolver", async () => {
+    const config = defaultGeminiConfiguration({ instanceId: "gemini-1" });
+    const expected = { none: "NONE", auto: "AUTO", required: "ANY" } as const;
+    const tools = [{ name: "read_file", description: "Read", inputSchema: {}, risk: "read-only", approval: "never", executionLocation: "caller" }];
+    for (const mode of ["none", "auto", "required"] as const) {
+      const body: any = await buildGeminiBody(req(`mode-${mode}`, { tools, toolChoice: { mode } }), config, undefined, new Map());
+      expect(body.toolConfig.functionCallingConfig.mode).toBe(expected[mode]);
+    }
+    const imageRequest = req("unresolved-image", { messages: [{ role: "user", parts: [{ type: "image-artifact", artifactId: "art-1", mediaType: "image/png" }] }] });
+    await expect(buildGeminiBody(imageRequest, config, undefined, new Map())).rejects.toMatchObject({ code: "UNSUPPORTED_CAPABILITY" });
+  });
+
   it("rejects mismatched and oversized resolved image content", async () => {
     const config = defaultGeminiConfiguration({ instanceId: "gemini-1" });
     const imageRequest = req("image", { messages: [{ role: "user", parts: [{ type: "image-artifact", artifactId: "art-1", mediaType: "image/png" }] }] });
     await expect(buildGeminiBody(imageRequest, config, { resolve: async () => ({ bytes: new Uint8Array(1), mediaType: "image/jpeg" }) }, new Map())).rejects.toMatchObject({ code: "INVALID_REQUEST" });
     const small = parseGeminiConfiguration({ ...config, limits: { ...config.limits, maxInlineImageBytes: 2, maxTotalInlineImageBytes: 2 } });
     await expect(buildGeminiBody(imageRequest, small, { resolve: async () => ({ bytes: new Uint8Array(3), mediaType: "image/png" }) }, new Map())).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+
+    const order: string[] = []; const access = ports(order);
+    const large = parseGeminiConfiguration({ ...config, instanceId: "gemini-large", limits: { ...config.limits, maxInlineImageBytes: 16 * 1_024 * 1_024, maxTotalInlineImageBytes: 16 * 1_024 * 1_024 } });
+    const provider = createGeminiProvider({ configuration: large, ...access, artifacts: { async resolve() { order.push("artifact"); return { bytes: new Uint8Array(15 * 1_024 * 1_024), mediaType: "image/png" }; } }, transport: new Transport(), clock: { now: () => new Date("2026-08-03T12:00:00.000Z") } });
+    const operation = await provider.start(imageRequest); await expect(operation.result).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    expect(order).toEqual(["authorize", "artifact"]); await provider.close();
   });
 });
 
@@ -84,6 +103,21 @@ describe("native response and SSE parsing", () => {
     expect(() => parseGeminiResponse(parseGeminiJson(JSON.stringify({ candidates: [], promptFeedback: { blockReason: "SAFETY" } })), () => "id")).toThrowError(expect.objectContaining({ code: "CONTENT_REJECTED" }));
     expect(() => parseGeminiResponse(parseGeminiJson(JSON.stringify({ candidates: [{ content: { parts: [] }, finishReason: "FUTURE" }] })), () => "id")).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
     expect(() => parseGeminiJson("not-json")).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
+  });
+
+  it("handles an empty unblocked response and normalizes schema-validation failures", () => {
+    expect(parseGeminiResponse({ candidates: [], usageMetadata: { promptTokenCount: 1 } }, () => "id")).toMatchObject({ text: "", finishReason: null, usage: { tokens: { inputTokens: 1 } } });
+    expect(() => parseGeminiResponse([] as any, () => "id")).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
+  });
+
+  it("rejects role substitution, ambiguous/unsupported parts, and duplicate function IDs", () => {
+    const candidate = (parts: any[], role: string = "model") => ({ candidates: [{ content: { role, parts }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } });
+    expect(() => parseGeminiResponse(candidate([{ text: "x" }], "user") as any, () => "id")).toThrowError(expect.objectContaining({ code: "PROTOCOL_VIOLATION" }));
+    expect(() => parseGeminiResponse(candidate([{ text: "x", functionCall: { id: "call-1", name: "read_file", args: {} } }]) as any, () => "id")).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
+    expect(() => parseGeminiResponse(candidate([{ text: "x", executableCode: { code: "hidden" } }]) as any, () => "id")).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
+    expect(() => parseGeminiResponse(candidate([{ executableCode: { code: "x" } }]) as any, () => "id")).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
+    expect(() => parseGeminiResponse(candidate([{ functionCall: { id: "call-1", name: "read_file", args: {}, extra: true } }]) as any, () => "id")).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
+    expect(() => parseGeminiResponse(candidate([{ functionCall: { id: "call-1", name: "read_file", args: {} } }, { functionCall: { id: "call-1", name: "read_file", args: {} } }]) as any, () => "id")).toThrowError(expect.objectContaining({ code: "TOOL_PROTOCOL_FAILURE" }));
   });
 
   it("parses fragmented SSE and rejects fields, byte excess, and invalid UTF-8", async () => {
@@ -109,6 +143,20 @@ describe("Gemini provider", () => {
     expect((await h.provider.health()).status).toBe("ready"); expect(await h.provider.listModels()).toHaveLength(1); await h.provider.close();
   });
 
+  it("bounds transport by the earlier request deadline", async () => {
+    const h = harness("never"); h.transport.queue.push(response(basic));
+    const operation = await h.provider.start(req("deadline-bound", { deadline: "2026-08-03T12:00:30.000Z" }));
+    await operation.result;
+    expect(h.transport.requests[0]?.timeoutMs).toBe(30_000);
+    await h.provider.close();
+
+    const bodyTimeout = harness("never");
+    bodyTimeout.transport.queue.push({ status: 200, headers: {}, body: (async function* () { throw new ProviderError("TIMEOUT", "bounded body timeout", {}); })() });
+    const timedOut = await bodyTimeout.provider.start(req("deadline-body", { deadline: "2026-08-03T12:00:30.000Z" }));
+    await expect(timedOut.result).rejects.toMatchObject({ code: "DEADLINE_EXCEEDED" });
+    await bodyTimeout.provider.close();
+  });
+
   it("orders authorization before artifact resolution, credential access, and HTTP", async () => {
     const order: string[] = [];
     const artifact: GeminiArtifactResolver = { async resolve() { order.push("artifact"); return { bytes: new Uint8Array([1]), mediaType: "image/png" }; } };
@@ -119,7 +167,7 @@ describe("Gemini provider", () => {
     expect(order).toEqual(["authorize", "artifact", "credential", "http"]); await h.provider.close();
   });
 
-  it("streams structured output, reasoning, functions, safety warnings, and usage", async () => {
+  it("streams structured output and rejects post-terminal content or repeated usage", async () => {
     const h = harness("always");
     const first = { candidates: [{ content: { parts: [{ text: "{\"ok\":" }, { text: "thought", thought: true }] } }] };
     const second = { candidates: [{ content: { parts: [{ text: "true}" }, { functionCall: { name: "read_file", args: {} }, thoughtSignature: "sig" }] }, finishReason: "STOP", safetyRatings: [{}] }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } };
@@ -127,6 +175,15 @@ describe("Gemini provider", () => {
     h.transport.queue.push({ status: 200, headers: {}, body: bytes(sse.slice(0, 50), sse.slice(50)) });
     const operation = await h.provider.start(req("stream", { structuredOutput: { schema: { type: "object" }, strict: true }, tools: [{ name: "read_file", description: "Read", inputSchema: {}, risk: "read-only", approval: "never", executionLocation: "caller" }] }));
     const result = await operation.result; expect(result.structuredOutput).toEqual({ ok: true }); expect(result.warnings).toHaveLength(1); await h.provider.close();
+
+    const finished = { candidates: [{ content: { role: "model", parts: [{ text: "done" }] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } };
+    const late = { candidates: [{ content: { role: "model", parts: [{ text: "late" }] } }] };
+    const continued = harness("always"); continued.transport.queue.push({ status: 200, headers: {}, body: bytes(`data: ${JSON.stringify(finished)}\n\ndata: ${JSON.stringify(late)}\n\n`) });
+    const continuedOperation = await continued.provider.start(req("continued")); await expect(continuedOperation.result).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" }); await continued.provider.close();
+
+    const usageOnly = { candidates: [], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } };
+    const repeated = harness("always"); repeated.transport.queue.push({ status: 200, headers: {}, body: bytes(`data: ${JSON.stringify(finished)}\n\ndata: ${JSON.stringify(usageOnly)}\n\n`) });
+    const repeatedOperation = await repeated.provider.start(req("repeated-usage")); await expect(repeatedOperation.result).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" }); await repeated.provider.close();
   });
 
   it("preflight/policy/deadline/upstream/cancellation paths produce typed terminal behavior", async () => {
@@ -136,6 +193,49 @@ describe("Gemini provider", () => {
     h.transport.queue.push(response("sensitive", 429)); const failed = await h.provider.start(req("rate")); await expect(failed.result).rejects.toMatchObject({ code: "RATE_LIMITED" });
     h.transport.queue.push(response(basic)); const cancelled = await h.provider.start(req("cancel")); await cancelled.cancel(); await expect(cancelled.result).rejects.toMatchObject({ code: "CANCELLED" });
     await h.provider.close(); await expect(h.provider.start(req("closed"))).rejects.toMatchObject({ code: "PROVIDER_CLOSED" });
+
+    const order: string[] = [];
+    const preAborted = harness("never", { order }); preAborted.transport.queue.push(response(basic));
+    const alreadyCancelled = await preAborted.provider.start(req("pre-aborted"), { signal: AbortSignal.abort() });
+    await expect(alreadyCancelled.result).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(order).toEqual([]); expect(preAborted.transport.requests).toHaveLength(0);
+    await preAborted.provider.close();
+  });
+
+  it("requires terminal finish and usage metadata from non-streaming responses", async () => {
+    const h = harness("never");
+    h.transport.queue.push(response({ candidates: [{ content: { role: "model", parts: [{ text: "incomplete" }] } }] }));
+    const operation = await h.provider.start(req("incomplete-json"));
+    await expect(operation.result).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" });
+    await h.provider.close();
+  });
+
+  it("propagates cancellation through the scoped credential signal and closes idempotently", async () => {
+    let entered!: () => void;
+    const credentialEntered = new Promise<void>((resolve) => { entered = resolve; });
+    let observedSignal: any;
+    const access = ports();
+    const provider = createGeminiProvider({
+      configuration: defaultGeminiConfiguration({ instanceId: "gemini-cancel", streaming: "never" }),
+      authorization: access.authorization,
+      credentials: {
+        async withApiKey(request: any): Promise<never> {
+          observedSignal = request.signal;
+          entered();
+          await new Promise<void>((resolve) => request.signal.addEventListener("abort", resolve));
+          throw new ProviderError("CANCELLED", "cancelled", {});
+        },
+      },
+      transport: new Transport(),
+    });
+    const operation = await provider.start(req("signal"));
+    await credentialEntered;
+    expect(observedSignal.aborted).toBe(false);
+    await operation.cancel("caller-requested");
+    expect(observedSignal.aborted).toBe(true);
+    await expect(operation.result).rejects.toMatchObject({ code: "CANCELLED" });
+    await provider.close();
+    await provider.close();
   });
 });
 
@@ -153,11 +253,61 @@ describe("policy-aware Gemini access and fetch transport", () => {
     expect(observed[0].policyRequest).toMatchObject({ action: "secret-access", subjectDigest: secretRefFingerprint(ref), model: { modelId: "gemini-3.5-flash" } });
   });
 
+  it("normalizes expected secret-access denials without swallowing unexpected resolver failures", async () => {
+    const ref = parseSecretRef({ schemaVersion: 1, type: "named", namespace: "provider", version: null, expectedKind: "text", providerInstanceId: "gemini-never", name: "gemini-key" });
+    const h = harness("never");
+    const accessRequest: any = { descriptor: h.provider.describe(), model: (await h.provider.listModels())[0]!.model, request: req("secret-errors"), operationId: "op-secret-errors", requestedCapabilities: ["network-access"] };
+    const makeAccess = (error: Error) => createPolicyAwareGeminiAccess({
+      policy: { evaluate: () => ({ outcome: "allowed", code: "ALLOWED", fingerprint: "a".repeat(64) } as any) },
+      resolver: { async withSecret() { throw error; } } as any,
+      apiKeyRef: ref,
+      context: { handlingPolicy: defaultDataHandlingPolicy, risk: "low", projectId: null },
+    });
+    for (const code of ["ACCESS_DENIED", "NOT_FOUND", "KIND_MISMATCH"]) {
+      const failure = Object.assign(new Error("resolver detail"), { code });
+      const access = makeAccess(failure);
+      const authorization = await access.authorization.authorize(accessRequest);
+      await expect(access.credentials.withApiKey({ ...accessRequest, authorization }, async () => "unused")).rejects.toMatchObject({ code: "POLICY_DENIED" });
+    }
+    const unexpected = new Error("unexpected resolver failure");
+    const access = makeAccess(unexpected);
+    const authorization = await access.authorization.authorize(accessRequest);
+    await expect(access.credentials.withApiKey({ ...accessRequest, authorization }, async () => "unused")).rejects.toBe(unexpected);
+    await h.provider.close();
+  });
+
   it("uses manual redirects, bounds bodies, and classifies fetch failures", async () => {
     let init: RequestInit | undefined; const transport = createFetchGeminiTransport(async (_url, value) => { init = value; return new Response("ok", { status: 200 }); });
     const result = await transport.send({ url: "https://example.test", headers: {}, body: "{}", timeoutMs: 1_000, maxResponseBytes: 3 }); expect(await readGeminiBody(result.body, 3)).toBe("ok"); expect(init?.redirect).toBe("manual");
     await expect(createFetchGeminiTransport(async () => new Response(null, { status: 302 })).send({ url: "https://x", headers: {}, body: "{}", timeoutMs: 100, maxResponseBytes: 10 })).rejects.toMatchObject({ code: "PROTOCOL_VIOLATION" });
     await expect(createFetchGeminiTransport(async () => { throw new Error("secret socket"); }).send({ url: "https://x", headers: {}, body: "{}", timeoutMs: 100, maxResponseBytes: 10 })).rejects.toMatchObject({ code: "NETWORK_FAILURE" });
     await expect(readGeminiBody(bytes("four"), 3)).rejects.toMatchObject({ code: "MALFORMED_RESPONSE" });
+  });
+
+  it("aborts a pending fetch on both the configured timer and the caller signal", async () => {
+    const waitingFetch: typeof fetch = async (_url, init) => new Promise<Response>((_resolve, reject) => {
+      if (init?.signal?.aborted === true) { reject(new DOMException("already aborted", "AbortError")); return; }
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+    });
+    const base = { url: "https://example.test", headers: {}, body: "{}", maxResponseBytes: 10 };
+    await expect(createFetchGeminiTransport(waitingFetch).send({ ...base, timeoutMs: 1 })).rejects.toMatchObject({ code: "TIMEOUT" });
+
+    let callerAbort!: () => void;
+    const signal = { aborted: false, addEventListener(_type: "abort", listener: () => void) { callerAbort = listener; } };
+    const pending = createFetchGeminiTransport(waitingFetch).send({ ...base, timeoutMs: 10_000, signal });
+    await Promise.resolve();
+    callerAbort();
+    await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(createFetchGeminiTransport(waitingFetch).send({ ...base, timeoutMs: 10_000, signal: { aborted: true, addEventListener() {} } })).rejects.toMatchObject({ code: "CANCELLED" });
+  });
+
+  it("keeps the configured timeout active until the response body completes", async () => {
+    const transport = createFetchGeminiTransport(async (_url, init) => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        init?.signal?.addEventListener("abort", () => controller.error(new DOMException("aborted body", "AbortError")), { once: true });
+      },
+    })));
+    const result = await transport.send({ url: "https://example.test", headers: {}, body: "{}", timeoutMs: 1, maxResponseBytes: 10 });
+    await expect(readGeminiBody(result.body, 10)).rejects.toMatchObject({ code: "TIMEOUT" });
   });
 });

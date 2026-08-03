@@ -6,7 +6,7 @@ Callers select one configured provider instance and one catalog model explicitly
 
 Request capability checks occur before policy, secret resolution, and HTTP. `createPolicyAwareProviderAccess` then evaluates an exact cloud-execution decision and uses the Stage 6 policy-aware secret resolver with the instance's own `SecretRef`. API-key material is available only inside the callback that starts the HTTP request.
 
-Both JSON and fragmented SSE responses are byte-bounded and runtime-validated. Redirects, model substitution, unknown terminal finish reasons, incomplete tool calls, malformed arguments, invalid UTF-8/JSON, missing usage, truncated streams, and continuation after `[DONE]` fail with typed provider errors. The adapter never retries or falls back.
+Serialized requests are capped at 8 MiB. Both JSON and fragmented SSE responses are byte-bounded and runtime-validated. The request timeout covers connection, headers, and complete body consumption; an earlier caller deadline bounds the same interval and remains distinguishable from caller cancellation. Redirects, model/role/choice substitution, unknown terminal finish reasons, duplicate or incomplete tool calls, oversized or malformed arguments, invalid UTF-8/JSON, missing model/usage/finish evidence, truncated streams, and continuation after a terminal finish or `[DONE]` fail with typed provider errors. The adapter never retries or falls back.
 
 `@ai-dev-os/provider-openai-compatible/testing` exports the reusable finite-profile contract suite used against Groq, Cerebras, and OpenRouter.
 

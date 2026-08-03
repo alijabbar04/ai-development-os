@@ -92,6 +92,10 @@ function strings(value: unknown, path: string): readonly string[] {
   return Object.freeze(array(value, path).map((item, index) => string(item, `${path}[${index}]`)));
 }
 
+function identityAliases(value: unknown, path: string): readonly string[] {
+  return uniqueNormalized(Object.freeze(array(value, path).map((item, index) => id(item, `${path}[${index}]`))), path);
+}
+
 function timestamp(value: unknown, path: string): string {
   const parsed = string(value, path, 64);
   const millis = Date.parse(parsed);
@@ -113,7 +117,7 @@ function httpsUrl(value: unknown, path: string, originOnly = false): string {
 
 function pathTemplate(value: unknown, path: string): string {
   const parsed = string(value, path, 256);
-  if (!parsed.startsWith("/") || parsed.startsWith("//") || parsed.includes("..") || parsed.includes("?") || parsed.includes("#") || parsed.includes("\\")) {
+  if (!parsed.startsWith("/") || parsed.startsWith("//") || parsed.includes("..") || parsed.includes("?") || parsed.includes("#") || parsed.includes("\\") || parsed.includes("%") || /[\u0000-\u0020\u007f]/u.test(parsed)) {
     fail("UNSAFE_ENDPOINT", path, "must be a fixed absolute path template without traversal, query, fragment, or backslash");
   }
   return parsed;
@@ -198,7 +202,7 @@ function parseModel(value: unknown, path: string, verifyFingerprint: boolean): C
     if (!Number.isSafeInteger(raw) || (raw as number) <= 0) fail("INVALID_CATALOG", target, "must be a positive safe integer or null");
     return raw as number;
   };
-  const aliases = uniqueNormalized(strings(input["aliases"], `${path}.aliases`), `${path}.aliases`);
+  const aliases = identityAliases(input["aliases"], `${path}.aliases`);
   const modelId = id(input["modelId"], `${path}.modelId`);
   if (aliases.some((alias) => alias.trim().toLowerCase() === modelId)) fail("AMBIGUOUS_ALIAS", `${path}.aliases`, "alias duplicates the model identity");
   const fingerprint = string(input["fingerprint"], `${path}.fingerprint`, 64);
@@ -275,7 +279,7 @@ function parseProvider(value: unknown, path: string, verifyFingerprint: boolean)
       modelNames.set(name, model.modelId);
     }
   }
-  const aliases = uniqueNormalized(strings(input["aliases"], `${path}.aliases`), `${path}.aliases`);
+  const aliases = identityAliases(input["aliases"], `${path}.aliases`);
   const providerId = id(input["providerId"], `${path}.providerId`);
   if (aliases.some((alias) => alias.trim().toLowerCase() === providerId)) fail("AMBIGUOUS_ALIAS", `${path}.aliases`, "alias duplicates provider identity");
   const fingerprint = string(input["fingerprint"], `${path}.fingerprint`, 64);

@@ -88,6 +88,7 @@ describe("finite profile configuration and request mapping", () => {
     expect(getOpenAiCompatibleProfile("cerebras-chat-completions-v2").fixedHeaders).toEqual({ "X-Cerebras-Version-Patch": "2" });
     expect(getOpenAiCompatibleProfile("openrouter-chat-completions-v1")).toMatchObject({ origin: "https://openrouter.ai", path: "/api/v1/chat/completions" });
     expect(() => parseOpenAiCompatibleConfiguration({ ...defaultOpenAiCompatibleConfiguration({ instanceId: "x", profileId: "groq-chat-completions-v1", modelId: "gpt-oss-120b", catalogModelId: "openai/gpt-oss-120b" }), endpoint: "https://evil.example" })).toThrow();
+    expect(() => createOpenAiCompatibleProvider({ configuration: defaultOpenAiCompatibleConfiguration({ instanceId: "case", profileId: "groq-chat-completions-v1", modelId: "gpt-oss-120b", catalogModelId: "OPENAI/GPT-OSS-120B" }), access: fakeAccess() })).toThrowError(expect.objectContaining({ code: "MODEL_UNAVAILABLE" }));
   });
 
   it("maps tools, sampling, structured output, and OpenRouter's no-fallback policy", () => {
@@ -153,6 +154,21 @@ describe("provider operations", () => {
     await h.provider.close();
   });
 
+  it("bounds transport by the earlier request deadline", async () => {
+    const h = providerHarness("never");
+    h.transport.responses.push(response(completion()));
+    const operation = await h.provider.start(request("deadline-bound", { deadline: "2026-08-03T12:00:30.000Z" }));
+    await operation.result;
+    expect(h.transport.requests[0]?.timeoutMs).toBe(30_000);
+    await h.provider.close();
+
+    const bodyTimeout = providerHarness("never");
+    bodyTimeout.transport.responses.push({ status: 200, headers: {}, body: (async function* () { throw new ProviderError("TIMEOUT", "bounded body timeout", {}); })() });
+    const timedOut = await bodyTimeout.provider.start(request("deadline-body", { deadline: "2026-08-03T12:00:30.000Z" }));
+    await expect(timedOut.result).rejects.toMatchObject({ code: "DEADLINE_EXCEEDED" });
+    await bodyTimeout.provider.close();
+  });
+
   it("streams fragmented text, reasoning, tools, structured output, and terminal usage", async () => {
     const h = providerHarness("always");
     const events = [
@@ -183,6 +199,22 @@ describe("provider operations", () => {
     await expect(denied.provider.start(request("classification", { disclosure: { ...request("base").disclosure, classification: "personal" } }))).rejects.toMatchObject({ code: "POLICY_DENIED" });
     expect(denied.access.calls).toBe(1);
     await denied.provider.close();
+
+    const preAborted = providerHarness("never");
+    preAborted.transport.responses.push(response(completion()));
+    const cancelled = await preAborted.provider.start(request("pre-aborted"), { signal: AbortSignal.abort() });
+    await expect(cancelled.result).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(preAborted.access.calls).toBe(0);
+    expect(preAborted.transport.requests).toHaveLength(0);
+    await preAborted.provider.close();
+
+    const oversized = providerHarness("never");
+    const largeMessages = Array.from({ length: 33 }, () => ({ role: "user" as const, parts: [{ type: "text" as const, text: "x".repeat(262_144) }] }));
+    const tooLarge = await oversized.provider.start(request("oversized-request", { messages: largeMessages }));
+    await expect(tooLarge.result).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    expect(oversized.access.calls).toBe(0);
+    expect(oversized.transport.requests).toHaveLength(0);
+    await oversized.provider.close();
   });
 
   it("turns upstream errors, truncation, and cancellation into one typed terminal outcome", async () => {

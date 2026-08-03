@@ -37,6 +37,7 @@ export function resolveCompatibleCatalog(configuration: OpenAiCompatibleConfigur
   const provider = resolveCatalogProvider(BUILTIN_PROVIDER_CATALOG, profile.providerId);
   const model = provider === undefined ? undefined : resolveCatalogModel(provider, configuration.catalogModelId);
   if (provider === undefined || model === undefined || provider.state !== "enabled" || model.state !== "enabled") throw new ProviderError("MODEL_UNAVAILABLE", "The configured provider/model is absent or disabled in the curated catalog.", { providerId: profile.providerId, modelId: configuration.catalogModelId });
+  if (configuration.catalogModelId !== model.modelId) throw new ProviderError("MODEL_UNAVAILABLE", "The wire model ID must exactly match the canonical curated identity.", { modelId: configuration.catalogModelId, canonicalModelId: model.modelId });
   if (provider.adapterProfileId !== profile.profileId || provider.endpoint.origin !== profile.origin || !provider.endpoint.allowedPaths.includes(profile.path)) throw new ProviderError("INTERNAL_FAILURE", "The adapter profile does not match its curated endpoint policy.", { profileId: profile.profileId });
   return Object.freeze({ provider: provider as CatalogProvider, model: model as CatalogModel });
 }

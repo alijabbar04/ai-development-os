@@ -56,7 +56,15 @@ function parseSignature(value: unknown): CatalogSignature {
   const input = value as Record<string, unknown>;
   const keys = Object.keys(input);
   if (keys.length !== 3 || !keys.includes("algorithm") || !keys.includes("keyId") || !keys.includes("value")) throw new CatalogValidationError("INVALID_CATALOG", "envelope.signature", "contains missing or unknown fields");
-  if (input["algorithm"] !== "ed25519" || typeof input["keyId"] !== "string" || typeof input["value"] !== "string" || input["keyId"].length === 0 || input["value"].length === 0) throw new CatalogValidationError("INVALID_CATALOG", "envelope.signature", "is invalid");
+  if (
+    input["algorithm"] !== "ed25519"
+    || typeof input["keyId"] !== "string"
+    || !/^[a-z0-9][a-z0-9._:-]{0,127}$/u.test(input["keyId"])
+    || typeof input["value"] !== "string"
+    || input["value"].length === 0
+    || input["value"].length > 4_096
+    || /[\u0000-\u001f\u007f]/u.test(input["value"])
+  ) throw new CatalogValidationError("INVALID_CATALOG", "envelope.signature", "is invalid or exceeds its bound");
   return Object.freeze({ algorithm: "ed25519", keyId: input["keyId"], value: input["value"] });
 }
 

@@ -8,7 +8,7 @@ import { createProviderGateway, createUnknownQuotaPort, parseRuntimeQuotaObserva
 import { describeProviderGatewayContract } from "./testing/contract-suite.js";
 
 const clock = { now: () => new Date("2026-08-04T00:00:00.000Z") };
-function model(providerId: "groq" | "cerebras") { return createModelCapabilities({ providerId: parseProviderId(providerId), modelId: parseModelId("gpt-oss-120b"), contextWindowTokens: 131_072, maxOutputTokens: 65_536, supportsToolUse: true, supportsStructuredOutput: true, supportsVision: false, locality: "cloud", latencyClass: "fast", codingCapability: 2, reasoningCapability: 2, cost: null }); }
+function model(providerId: "groq" | "cerebras", maxOutputTokens = providerId === "cerebras" ? 40_960 : 65_536) { return createModelCapabilities({ providerId: parseProviderId(providerId), modelId: parseModelId("gpt-oss-120b"), contextWindowTokens: 131_072, maxOutputTokens, supportsToolUse: true, supportsStructuredOutput: true, supportsVision: false, locality: "cloud", latencyClass: "fast", codingCapability: 2, reasoningCapability: 2, cost: null }); }
 function fake(providerId: "groq" | "cerebras", instanceId: string, fail = false) {
   return createFakeInferenceProvider({ descriptor: { providerId: parseProviderId(providerId), instanceId: parseProviderInstanceId(instanceId), locality: "cloud" }, models: [model(providerId)], script: { steps: fail ? [{ kind: "fail", code: "RATE_LIMITED" }] : [{ kind: "text", text: `${providerId}-ok` }] } });
 }
@@ -26,6 +26,9 @@ describe("explicit registry construction", () => {
     const snapshot = gateway.listInstances()[0]!;
     expect(snapshot).toMatchObject({ instanceId: "groq-a", contractModelId: "gpt-oss-120b", catalog: { modelId: "openai/gpt-oss-120b", adapterProfileId: "groq-chat-completions-v1" }, eligibility: "verified-free-only", userPreference: "enabled" });
     expect(snapshot.secretRefFingerprint).toMatch(/^[a-f0-9]{64}$/u);
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen(snapshot.catalog)).toBe(true);
+    expect(() => { (snapshot.catalog as any).modelId = "mutated"; }).toThrow(TypeError);
     expect(JSON.stringify(snapshot)).not.toContain("groq-a-key");
     expect(await gateway.status("groq-a")).toMatchObject({ health: { status: "ready" }, quota: { state: "limited", requestsRemaining: 3 } });
     expect(gateway.getInstance("groq-a")).toBe(snapshot); expect(gateway.catalog().fingerprint).toBe(BUILTIN_PROVIDER_CATALOG.fingerprint); expect(gateway.fingerprint()).toMatch(/^[a-f0-9]{64}$/u);
@@ -50,12 +53,21 @@ describe("explicit registry construction", () => {
   });
 
   it("rejects descriptor, model, profile, catalog, and SecretRef binding mismatches", async () => {
+    const overclaiming = createFakeInferenceProvider({ descriptor: { providerId: parseProviderId("cerebras"), instanceId: parseProviderInstanceId("overclaim"), locality: "cloud" }, models: [model("cerebras", 65_536)], script: { steps: [{ kind: "text", text: "no" }] } });
+    const duplicateModels = createFakeInferenceProvider({ descriptor: { providerId: parseProviderId("groq"), instanceId: parseProviderInstanceId("duplicate-models"), locality: "cloud" }, models: [model("groq"), model("groq")], script: { steps: [{ kind: "text", text: "no" }] } });
+    const wrongDescriptorBase = fake("groq", "wrong-descriptor-kind");
+    const wrongDescriptorKind = { ...wrongDescriptorBase, describe: () => ({ ...wrongDescriptorBase.describe(), kind: "coding-agent" }) } as any;
+    const byteRef = parseSecretRef({ schemaVersion: 1, type: "named", namespace: "provider", version: null, expectedKind: "bytes", providerInstanceId: "byte-secret", name: "key" });
     const cases: ProviderGatewayRegistration[] = [
       registration("groq", "descriptor", { catalogProviderId: "cerebras", catalogModelId: "gpt-oss-120b", adapter: { packageName: "@ai-dev-os/provider-openai-compatible", profileId: "cerebras-chat-completions-v2", version: "0.1.0" } }),
       registration("groq", "model", { contractModelId: "other" }),
       registration("groq", "profile", { adapter: { packageName: "custom", profileId: "wrong-profile", version: "1" } }),
       registration("groq", "catalog", { catalogModelId: "absent" }),
       registration("groq", "binding", { secretRef: ref("different") }),
+      registration("cerebras", "overclaim", { provider: overclaiming, secretRef: ref("overclaim") }),
+      registration("groq", "duplicate-models", { provider: duplicateModels, secretRef: ref("duplicate-models") }),
+      registration("groq", "wrong-descriptor-kind", { provider: wrongDescriptorKind, secretRef: ref("wrong-descriptor-kind") }),
+      registration("groq", "byte-secret", { secretRef: byteRef }),
     ];
     for (const item of cases) { await expect(createProviderGateway({ catalog: BUILTIN_PROVIDER_CATALOG, registrations: [item], clock })).rejects.toBeTruthy(); await item.provider.close(); }
   });

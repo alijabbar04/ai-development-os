@@ -27,6 +27,7 @@ function finish(value: unknown, terminalRequired: boolean): FinishReason | null 
 function usage(value: unknown): ProviderUsage | null {
   if (value === undefined || value === null) return null;
   const input = ensureRecord(value, "usage");
+  if (input["prompt_tokens"] === undefined || input["completion_tokens"] === undefined) throw new ProviderError("MALFORMED_RESPONSE", "Usage must report both prompt and completion token counts.", {});
   const promptDetails = input["prompt_tokens_details"] === undefined || input["prompt_tokens_details"] === null ? {} : ensureRecord(input["prompt_tokens_details"], "usage.prompt_tokens_details");
   const completionDetails = input["completion_tokens_details"] === undefined || input["completion_tokens_details"] === null ? {} : ensureRecord(input["completion_tokens_details"], "usage.completion_tokens_details");
   const prompt = ensureSafeInteger(input["prompt_tokens"] ?? 0, "usage.prompt_tokens", 0, 1_000_000_000);
@@ -41,22 +42,24 @@ function usage(value: unknown): ProviderUsage | null {
   }, toolCalls: 0 });
 }
 
-function toolCalls(value: unknown, path: string, deltas: boolean): readonly WireToolCall[] {
+function toolCalls(value: unknown, path: string, deltas: boolean, maxArgumentsBytes: number): readonly WireToolCall[] {
   if (value === undefined || value === null) return [];
   return Object.freeze(ensureArray(value, path, 64).map((raw, position) => {
     const item = ensureRecord(raw, `${path}[${position}]`);
     const fn = ensureRecord(item["function"], `${path}[${position}].function`);
     const index = deltas ? ensureSafeInteger(item["index"] ?? position, `${path}[${position}].index`, 0, 63) : position;
+    const argumentsDelta = optionalString(fn["arguments"], `${path}[${position}].function.arguments`, 1_048_576);
+    if (Buffer.byteLength(argumentsDelta, "utf8") > maxArgumentsBytes) throw new ProviderError("TOOL_PROTOCOL_FAILURE", "Tool arguments exceeded the configured byte bound.", { maximum: maxArgumentsBytes });
     return Object.freeze({
       index,
       id: item["id"] === undefined || item["id"] === null ? null : ensureString(item["id"], `${path}[${position}].id`, { maxLength: 128 }),
       name: fn["name"] === undefined || fn["name"] === null ? null : ensureString(fn["name"], `${path}[${position}].function.name`, { maxLength: 64 }),
-      argumentsDelta: optionalString(fn["arguments"], `${path}[${position}].function.arguments`, 1_048_576),
+      argumentsDelta,
     });
   }));
 }
 
-export function parseChatCompletion(value: JsonValue, expectedModel: string): WireCompletion {
+export function parseChatCompletion(value: JsonValue, expectedModel: string, maxToolArgumentsBytes = 1_048_576): WireCompletion {
   try {
     const root = ensureRecord(value, "completion");
     const model = ensureString(root["model"], "completion.model", { maxLength: 128 });
@@ -64,9 +67,13 @@ export function parseChatCompletion(value: JsonValue, expectedModel: string): Wi
     const choices = ensureArray(root["choices"], "completion.choices", 8);
     if (choices.length !== 1) throw new ProviderError("MALFORMED_RESPONSE", "Exactly one completion choice is required.", { choiceCount: choices.length });
     const choice = ensureRecord(choices[0], "completion.choices[0]");
+    if (choice["index"] !== undefined && choice["index"] !== 0) throw new ProviderError("MALFORMED_RESPONSE", "The completion choice index must be zero.", {});
     const message = ensureRecord(choice["message"], "completion.choices[0].message");
-    const calls = toolCalls(message["tool_calls"], "completion.choices[0].message.tool_calls", false).map((call) => {
+    if (message["role"] !== undefined && message["role"] !== "assistant") throw new ProviderError("PROTOCOL_VIOLATION", "The completion message role must be assistant.", {});
+    const callIds = new Set<string>();
+    const calls = toolCalls(message["tool_calls"], "completion.choices[0].message.tool_calls", false, maxToolArgumentsBytes).map((call) => {
       if (call.id === null || call.name === null) throw new ProviderError("TOOL_PROTOCOL_FAILURE", "A completed tool call omitted its ID or name.", {});
+      if (callIds.has(call.id)) throw new ProviderError("TOOL_PROTOCOL_FAILURE", "Completed tool-call IDs must be unique.", {}); callIds.add(call.id);
       let args: JsonValue;
       try { args = parseJsonText(call.argumentsDelta, "tool.arguments"); } catch { throw new ProviderError("TOOL_PROTOCOL_FAILURE", "Tool arguments were not valid bounded JSON.", { toolName: call.name }); }
       return parseToolInvocation({ toolCallId: call.id, toolName: call.name, arguments: args });
@@ -80,18 +87,20 @@ export function parseChatCompletion(value: JsonValue, expectedModel: string): Wi
   }
 }
 
-export function parseChatCompletionDelta(value: JsonValue): WireDelta {
+export function parseChatCompletionDelta(value: JsonValue, maxToolArgumentsBytes = 1_048_576): WireDelta {
   try {
     const root = ensureRecord(value, "chunk");
     const choices = ensureArray(root["choices"] ?? [], "chunk.choices", 8);
     if (choices.length > 1) throw new ProviderError("MALFORMED_RESPONSE", "A stream chunk contained multiple choices.", { choiceCount: choices.length });
     if (choices.length === 0) return Object.freeze({ text: "", reasoning: "", toolCalls: [], finishReason: null, usage: usage(root["usage"]), model: root["model"] === undefined ? null : ensureString(root["model"], "chunk.model", { maxLength: 128 }) });
     const choice = ensureRecord(choices[0], "chunk.choices[0]");
+    if (choice["index"] !== undefined && choice["index"] !== 0) throw new ProviderError("MALFORMED_RESPONSE", "The stream choice index must be zero.", {});
     const delta = ensureRecord(choice["delta"] ?? {}, "chunk.choices[0].delta");
+    if (delta["role"] !== undefined && delta["role"] !== "assistant") throw new ProviderError("PROTOCOL_VIOLATION", "The stream delta role must be assistant.", {});
     return Object.freeze({
       text: optionalString(delta["content"], "chunk.delta.content"),
       reasoning: optionalString(delta["reasoning_content"] ?? delta["reasoning"], "chunk.delta.reasoning"),
-      toolCalls: toolCalls(delta["tool_calls"], "chunk.delta.tool_calls", true),
+      toolCalls: toolCalls(delta["tool_calls"], "chunk.delta.tool_calls", true, maxToolArgumentsBytes),
       finishReason: finish(choice["finish_reason"], false),
       usage: usage(root["usage"]),
       model: root["model"] === undefined ? null : ensureString(root["model"], "chunk.model", { maxLength: 128 }),

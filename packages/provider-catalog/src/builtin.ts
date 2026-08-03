@@ -102,7 +102,10 @@ const cerebrasModel: UnsignedCatalogModel = {
   freeTier: {
     state: "verified",
     evidenceUrl: "https://inference-docs.cerebras.ai/support/rate-limits",
-    restrictions: ["Free-tier quotas are account- and model-specific and may change."],
+    restrictions: [
+      "The Free Trial grants $5 in credits only after a verified payment method is added; API access is inactive without it.",
+      "Trial credits expire 30 days after grant, and organization/model quotas may change.",
+    ],
   },
   capabilities: [
     supported("text-input", cerebrasModelDocs, "Official public-model table lists this text model."),
@@ -117,7 +120,7 @@ const cerebrasModel: UnsignedCatalogModel = {
     supported("reasoning", "https://inference-docs.cerebras.ai/api-reference/chat-completions", "Reasoning fields are documented for chat completions."),
   ],
   restrictions: ["OpenAI compatibility is a finite Chat Completions profile and does not imply Responses API support."],
-  limits: { contextTokens: 131_072, maxOutputTokens: 65_536, evidenceUrl: cerebrasModelDocs },
+  limits: { contextTokens: 131_072, maxOutputTokens: 40_960, evidenceUrl: cerebrasModelDocs },
   state: "enabled",
 };
 
@@ -253,8 +256,12 @@ const providers: readonly UnsignedCatalogProvider[] = [
       storage: verified("https://support.cerebras.net/articles/1811589793-does-cerebras-retain-my-data", "The support statement says inference inputs and outputs are not stored."),
       zeroDataRetention: unknown("The source describes non-retention but does not establish a separately contracted ZDR mode."),
     },
-    freeTier: { state: "verified", evidenceUrl: "https://inference-docs.cerebras.ai/support/rate-limits", restrictions: ["Free Tier limits are model- and account-specific."] },
-    quota: { sourceUrl: "https://inference-docs.cerebras.ai/support/rate-limits", scope: "account", semantics: "documented-limit", note: "Published limits include per-minute, hourly, and daily windows." },
+    freeTier: {
+      state: "verified",
+      evidenceUrl: "https://inference-docs.cerebras.ai/support/rate-limits",
+      restrictions: ["Free Trial API access requires a verified payment method; the $5 credit grant expires after 30 days and is not recurring free capacity."],
+    },
+    quota: { sourceUrl: "https://inference-docs.cerebras.ai/support/rate-limits", scope: "organization", semantics: "documented-limit", note: "Published Free Trial limits include per-minute, hourly, and daily windows and vary by model." },
     restrictions: ["The finite profile sends the documented API version header and does not accept caller-defined headers."],
     state: "enabled",
     models: [cerebrasModel],

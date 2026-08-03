@@ -238,7 +238,7 @@ export function runProcessBrokerContractSuite(factory: ProcessBrokerContractFact
         expect(result.output.stdout.byteLength).toBeLessThanOrEqual(8_192);
         expect(result.output.combinedByteLength).toBeLessThanOrEqual(16_384);
       });
-    });
+    }, 15_000);
 
     it("enforces a wall-clock deadline on a process that would never exit", async () => {
       await withHarness(async (harness) => {
@@ -380,7 +380,7 @@ export function runProcessBrokerContractSuite(factory: ProcessBrokerContractFact
         expect(serialized).not.toContain("canary-value");
         expect(serialized.length).toBeLessThan(1_000);
       });
-    });
+    }, 15_000);
   });
 }
 

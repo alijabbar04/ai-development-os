@@ -335,20 +335,29 @@ Limitations and deferred work: organization usage/cost APIs remain out of scope 
 
 ## Stage 12: Multi-provider gateway and curated free-tier adapters
 
-Status: Planned.
+Status: Complete.
 
-Packages: `@ai-dev-os/provider-gateway`, curated free-tier adapters
+Packages: `@ai-dev-os/provider-catalog`, `@ai-dev-os/provider-gateway`, `@ai-dev-os/provider-openai-compatible`, `@ai-dev-os/provider-gemini`
 
-Deliverables:
+Delivered:
 
-- A gateway abstraction over multiple upstream provider instances sharing one credential and policy boundary.
-- Curated free-tier adapters with explicit, documented terms compliance and per-provider capability declarations.
-- Per-upstream health, quota, and eligibility reporting feeding the later routing engine.
+- A strict, immutable, versioned provider/model catalog with exact HTTPS origins and path templates, official-source provenance, dated verification windows, deterministic SHA-256 provider/model/catalog fingerprints, restrictive whole-provider overlays, and signed remote-envelope verification. Unknown fields, normalized-identity collisions, encoded traversal, unsupported capability claims without evidence, and fingerprint drift fail closed. The package performs no network refresh and does not compete with Stage 11's operator-owned OpenAI model/price catalog.
+- The built-in snapshot was generated/verified at `2026-08-03T00:00:00.000Z`; verified-free eligibility expires at `2026-08-10T00:00:00.000Z`. Its catalog fingerprint is `56874888955077c641b225a862dc3bac8b9a4fe774a326e5b81dee3eb926173b`. The exact models are Google `gemini-3.5-flash`, Groq `openai/gpt-oss-120b`, Cerebras `gpt-oss-120b`, and OpenRouter `openai/gpt-oss-20b:free`; the nondeterministic `openrouter/free` router is absent.
+- A composition gateway that requires an explicit provider instance and contract model for every invocation. Registration binds one available provider model, one exact catalog model/profile, and one exact-instance text `SecretRef`; rejects token-limit/capability overclaims and credential reuse; exposes frozen, fingerprinted instance snapshots; and keeps independent health/quota observations outside configuration identity. It performs no ranking, recommendation, selection, retry, fallback, cross-provider substitution, or fan-out.
+- Finite Groq, Cerebras, and OpenRouter Chat Completions profiles over fixed documented endpoints. Callers cannot supply origins, paths, redirects, authorization/security headers, proxies, or compatibility profiles. OpenRouter pins one concrete model and sets `allow_fallbacks: false`, `require_parameters: true`, and `data_collection: "deny"`. Strict JSON/SSE parsing validates model, role, choice, finish, usage, tool identity/arguments, stream completion, UTF-8, and byte bounds; total request timeout includes body consumption.
+- A native Gemini `v1beta` adapter using fixed `generateContent`/`streamGenerateContent` routes and `x-goog-api-key`, with bounded inline artifact-resolved images, caller-executed functions, structured JSON, reasoning parts/signatures, safety settings, usage, strict JSON/SSE parsing, and policy-before-artifact-before-secret-before-HTTP ordering. It is not an OpenAI compatibility approximation.
+- First-party provider documentation was rechecked on 2026-08-03 before the refresh boundary. Cerebras was corrected to a 40,960-token maximum completion and an organization-scoped, payment-method-gated $5 Free Trial whose credits expire after 30 days; this is not recurring free capacity. OpenRouter access remains account/rate/upstream constrained, and every free claim is dated rather than a production-capacity promise.
 
-Tests and gate:
+Tests and gate (Windows, Node 24.17.0, npm 11.13.0):
 
-- Fake upstreams cover credential isolation, per-upstream failure, quota exhaustion, and terms-restricted capability refusal.
-- No adapter claims a capability its upstream cannot enforce.
+- Catalog: 28 tests; coverage 91.17% statements / 87.93% branches / 97.01% functions / 100% lines.
+- Gateway: 13 tests; coverage 97.16% statements / 91.52% branches / 97.43% functions / 98.55% lines. Fakes prove runtime descriptor/model validation, exact credential binding, explicit invocation, disabled/expired eligibility, quota isolation, failure isolation, immutability, and catalog limit/capability enforcement.
+- OpenAI-compatible profiles: 36 tests; coverage 91.45% statements / 83.75% branches / 94.17% functions / 96.60% lines. The reusable finite-profile contract suite passes for Groq, Cerebras, and OpenRouter; adversarial tests cover canonical upstream IDs, pre-aborted no-effect behavior, serialized request bounds, and terminal stream continuation/usage conflicts.
+- Gemini: the worker's 14 tests covered only 89.29% statements / 79.53% branches / 85.89% functions / 96.84% lines behind lowered 85/75/85/90 gates. Integration restored 90/80/90/90, added meaningful protocol, secret, cancellation, deadline/body-timeout, actual 20,000,000-byte serialized-request, artifact, function-mode, terminal-evidence, and error-normalization tests, and now passes 23 tests at 91.92% / 84.74% / 91.66% / 98.31%.
+- Repository aggregate: 1,838 tests passed with 24 expected platform/live skips; numerator-weighted coverage is 93.15% statements / 86.55% branches / 96.12% functions / 94.37% lines. The first exact aggregate pass exposed three inherited process-broker tests hitting Vitest's 5-second harness limit under coverage instrumentation. Their production output/deadline bounds were unchanged; two test-local ceilings were narrowly raised to 15 seconds, the focused 233-test process-broker coverage suite passed, and the full exact-tree aggregate rerun passed in 613.9 seconds.
+- Live canaries for Gemini, Groq, Cerebras, and OpenRouter remained explicit skips because their provider-specific opt-ins and API keys were absent. No paid request or repository/user content left the machine. Linux, macOS, and CI were not run locally.
+
+Limitations and deferred work: the bundled commercial/free facts require refresh after 2026-08-10 and fail closed for `verified-free-only` use; the catalog has no downloader; health and quota are current observations rather than durable history; no automatic routing, retry, fallback, or capacity promise exists; Gemini audio/video/PDF and Files API uploads are unsupported; OpenAI-compatible profiles implement a finite Chat Completions subset, not Responses parity. Stage 13 owns normalized usage/cost/quota/health history, reset estimation, and forecasting. Intelligent selection and routing remain later-stage work.
 
 ## Stage 13: Unified quota, cost, health, and capacity ledger
 
@@ -358,9 +367,11 @@ Package: `@ai-dev-os/telemetry-ledger`
 
 Deliverables:
 
-- One durable ledger reconciling estimated versus actual usage, integer-exact cost, provider health, and capacity observations across every provider.
+- One durable normalized ledger reconciling streamed versus terminal usage, estimated versus actual usage, integer-exact cost, provider health, quota/capacity observations, and their provider/model/instance provenance across every provider.
 - Explicit distinction between billed cost, subscription-equivalent estimate, and unknown, carried end to end rather than flattened.
-- Staleness-aware capacity aggregation with no invented values.
+- Staleness-aware quota reset estimation and capacity forecasting with confidence/provenance, while missing values remain unknown.
+- Evaluation of the deferred `cacheWriteTokens`/cache-write pricing and explicit applied-redaction transformation vocabulary against genuine cross-provider requirements.
+- No provider ranking, route selection, automatic fallback, or task allocation; the ledger supplies evidence to later routing stages without owning their decisions.
 
 Tests and gate:
 
@@ -573,6 +584,6 @@ run, because Stage 17 is what makes containment real.
 
 ## Immediate next module after this delivery
 
-Stages 0 through 9 are complete: the task-graph kernel, the domain vocabulary, persistence, artifact byte storage, the provider contracts, configuration/secrets/policy, the Ollama adapter, workspace and process isolation, and now the Claude Code coding-agent adapter. Implement Stage 10 (Codex coding-agent adapter and Codex usage telemetry) next; it reuses the Stage 9 shape — trusted absolute executable, probe through the process-broker seam, adapter-owned finite argument vector, instructions on stdin, bounded stream parsing that fails closed, workspace reconciliation as the sole source of truth, and honest usage and cost mapping — against a second coding CLI.
+Stages 0 through 12 are complete. Implement Stage 13's normalized quota, cost, health, and capacity ledger next. It should preserve provider/model/instance provenance, reconcile streamed and terminal usage without double counting, distinguish billed/subscription-equivalent/unknown cost, retain timestamped raw quota and health observations, estimate reset windows, and forecast capacity without inventing missing values. It must not absorb ranking, routing, fallback, or task-allocation responsibilities.
 
-One constraint carries forward and must not be quietly dropped: no built-in sandbox backend is classified secure-enforcing, so production autonomous execution still refuses before any agent process starts. Stage 9 was developed and tested against the explicitly unsafe development backend, and Stage 10 will be too. Shipping autonomous repository execution to users requires Stage 17 to deliver a real enforcing backend on each advertised platform first; until then, every result from a coding adapter carries the uncontained-execution warning naming the backend and its security class.
+The completed Stage 14 repository-index/memory/context worker remains intentionally parked until Stage 13 establishes that ledger boundary. One execution constraint also carries forward: no built-in sandbox backend is classified secure-enforcing, so production autonomous execution still refuses before any agent process starts. Shipping autonomous repository execution to users requires Stage 17 to deliver a real enforcing backend on each advertised platform first; until then, every coding-adapter result carries the uncontained-execution warning naming the backend and its security class.
