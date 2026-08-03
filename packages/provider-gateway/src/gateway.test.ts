@@ -44,12 +44,16 @@ describe("explicit registry construction", () => {
     await first.close(); await second.close();
   });
 
-  it.each([
-    ["duplicate instance", [registration("groq", "same"), registration("groq", "same")]],
-    ["reused secret", [registration("groq", "one", { secretRef: ref(null, "shared-key") }), registration("cerebras", "two", { secretRef: ref(null, "shared-key") })]],
-  ])("rejects %s", async (_label, registrations) => {
-    await expect(createProviderGateway({ catalog: BUILTIN_PROVIDER_CATALOG, registrations, clock })).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+  it("rejects a duplicate provider instance identity", async () => {
+    const registrations = [registration("groq", "same"), registration("groq", "same")];
+    await expect(createProviderGateway({ catalog: BUILTIN_PROVIDER_CATALOG, registrations, clock })).rejects.toMatchObject({ code: "INVALID_REQUEST", message: "Provider gateway instance IDs must be unique." });
     await Promise.all(registrations.map((item) => item.provider.close()));
+  });
+
+  it("rejects a SecretRef that is not bound to the exact provider instance", async () => {
+    const item = registration("groq", "one", { secretRef: ref(null, "shared-key") });
+    await expect(createProviderGateway({ catalog: BUILTIN_PROVIDER_CATALOG, registrations: [item], clock })).rejects.toMatchObject({ code: "INVALID_REQUEST", message: "The SecretRef must be bound to this exact provider instance.", details: { instanceId: "one" } });
+    await item.provider.close();
   });
 
   it("rejects descriptor, model, profile, catalog, and SecretRef binding mismatches", async () => {

@@ -10,10 +10,10 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", "!dist/**/*.test.*", "!dist/live"],
   "scripts": {
     "prebuild": "npm --prefix ../domain run build",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "pretest": "npm --prefix ../domain run build",
     "test": "vitest run",
     "pretest:coverage": "npm --prefix ../domain run build",

@@ -8,10 +8,10 @@
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./testing": { "types": "./dist/testing/profile-contract-suite.d.ts", "import": "./dist/testing/profile-contract-suite.js" }
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", "!dist/**/*.test.*", "!dist/live"],
   "scripts": {
     "prebuild": "npm --prefix ../provider-catalog run build && npm --prefix ../policy run build && npm --prefix ../secrets run build && npm --prefix ../providers run build",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "pretest": "npm run prebuild",
     "test": "vitest run",
     "pretest:coverage": "npm run prebuild",

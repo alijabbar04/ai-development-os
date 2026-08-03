@@ -68,7 +68,7 @@ export function createGeminiProvider(options: CreateGeminiProviderOptions): Infe
           throw error;
         }
       });
-      if (response.status < 200 || response.status >= 300) { await readGeminiBody(response.body, Math.min(configuration.limits.maxResponseBytes, 64 * 1_024)); throw geminiHttpError(response.status, response.headers); }
+      if (response.status < 200 || response.status >= 300) { await readGeminiBody(response.body, Math.min(configuration.limits.maxResponseBytes, 64 * 1_024)).catch(() => undefined); throw geminiHttpError(response.status, response.headers); }
       let combined: GeminiParsed;
       if (configuration.streaming === "never") {
         combined = parseGeminiResponse(parseGeminiJson(await readGeminiBody(response.body, configuration.limits.maxResponseBytes)), () => ids("tool-call"));

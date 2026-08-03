@@ -379,6 +379,15 @@ export function createFetchOpenAiTransport(options: FetchOpenAiTransportOptions)
     return combined;
   }
 
+  async function readErrorBody(started: StartedRequest, maxBytes: number, timeoutMs: number): Promise<Uint8Array> {
+    try {
+      return await readBounded(started, maxBytes, timeoutMs);
+    } catch {
+      started.controller.abort();
+      return new Uint8Array(0);
+    }
+  }
+
   function parseBoundedBody(bytes: Uint8Array): JsonValue | null {
     if (bytes.byteLength === 0) {
       return null;
@@ -400,7 +409,9 @@ export function createFetchOpenAiTransport(options: FetchOpenAiTransportOptions)
           started.controller.abort();
           throw malformedResponseError("unexpected-content-type");
         }
-        const bytes = await readBounded(started, maxBytes, requestOptions.timeoutMs);
+        const bytes = ok
+          ? await readBounded(started, maxBytes, requestOptions.timeoutMs)
+          : await readErrorBody(started, maxBytes, requestOptions.timeoutMs);
         const value = parseBoundedBody(bytes);
         if (ok && value === null) {
           throw malformedResponseError("unparsable-json-body");
@@ -424,7 +435,7 @@ export function createFetchOpenAiTransport(options: FetchOpenAiTransportOptions)
 
       if (!response.ok) {
         try {
-          const bytes = await readBounded(started, requestOptions.maxErrorBodyBytes, requestOptions.timeoutMs);
+          const bytes = await readErrorBody(started, requestOptions.maxErrorBodyBytes, requestOptions.timeoutMs);
           return Object.freeze({
             status: response.status,
             ok: false,

@@ -113,16 +113,24 @@ describe("transport requests", () => {
       bodyText: JSON.stringify({ error: { type: "server_error", message: `${canary} ${"x".repeat(50_000)}` } }),
     });
     const { transport } = makeTransport(fake);
-    try {
-      const response = await transport.requestJson("createResponse", null, {
-        ...CALL,
-        maxErrorBodyBytes: 512,
-      });
-      // Either the read is refused or the body is dropped; never surfaced.
-      expect(JSON.stringify(response.upstreamError)).not.toContain(canary);
-    } catch (error) {
-      expect(JSON.stringify((error as ProviderError).toJSON())).not.toContain(canary);
-    }
+    const response = await transport.requestJson("createResponse", null, {
+      ...CALL,
+      maxErrorBodyBytes: 512,
+    });
+    expect(response).toMatchObject({ status: 500, ok: false, value: null, upstreamError: { type: null, code: null, param: null } });
+    expect(JSON.stringify(response.upstreamError)).not.toContain(canary);
+    transport.close();
+  });
+
+  it("preserves streaming error status when its body exceeds the drain bound", async () => {
+    const canary = "LEAKED-STREAM-ERROR-CANARY";
+    const fake = createFakeOpenAi();
+    fake.script("create", { status: 429, headers: { "retry-after": "2" }, bodyText: `${canary}${"x".repeat(50_000)}` });
+    const { transport } = makeTransport(fake);
+    const response = await transport.requestStream("createResponse", null, { ...CALL, maxErrorBodyBytes: 512 });
+    expect(response).toMatchObject({ status: 429, ok: false, metadata: { retryAfterMs: 2_000 }, upstreamError: { type: null, code: null, param: null } });
+    expect(JSON.stringify(response.upstreamError)).not.toContain(canary);
+    expect(() => response.chunks()).toThrowError(expect.objectContaining({ code: "MALFORMED_RESPONSE" }));
     transport.close();
   });
 
@@ -277,6 +285,22 @@ describe("HTTP status mapping through the provider", () => {
       expect(providerError.retryAfterMs).toBe(7_000);
       expect(providerError.retry.strategy).toBe("same-after-delay");
       expect(providerError.rateLimit?.remaining).toBe(0);
+    }
+    await provider.close();
+  });
+
+  it.each([[429, "RATE_LIMITED"], [503, "PROVIDER_OVERLOADED"]] as const)("preserves %i status when the error body exceeds its bound", async (status, expectedCode) => {
+    const canary = `OVERSIZED-${status}-ERROR-CANARY`;
+    const { provider, fake } = createTestProvider();
+    fake.script("create", { status, headers: status === 429 ? { "retry-after": "2" } : {}, bodyText: `${canary}${"x".repeat(50_000)}` });
+    try {
+      await provider.start(testRequest(`oversized-${status}`));
+      expect.unreachable(`expected ${expectedCode}`);
+    } catch (error) {
+      const providerError = error as ProviderError;
+      expect(providerError.code).toBe(expectedCode);
+      if (status === 429) expect(providerError.retryAfterMs).toBe(2_000);
+      expect(JSON.stringify(providerError.toJSON())).not.toContain(canary);
     }
     await provider.close();
   });

@@ -252,6 +252,18 @@ describe("provider operations", () => {
     await expect(third.result).rejects.toMatchObject({ code: "CANCELLED" });
     await cancelling.provider.close();
   });
+
+  it("preserves status classification when an error body exceeds the drain bound", async () => {
+    for (const [status, code, headers] of [[429, "RATE_LIMITED", { "retry-after": "2" }], [503, "PROVIDER_OVERLOADED", {}]] as const) {
+      const h = providerHarness("never");
+      const canary = `oversized-${status}-error-canary`;
+      h.transport.responses.push(response(`${canary}${"x".repeat((64 * 1_024) + 1)}`, status, headers));
+      const operation = await h.provider.start(request(`oversized-error-${status}`));
+      await expect(operation.result).rejects.toMatchObject({ code, ...(status === 429 ? { retryAfterMs: 2_000 } : {}) });
+      expect(JSON.stringify(await collect(operation))).not.toContain(canary);
+      await h.provider.close();
+    }
+  });
 });
 
 describe("policy-aware access composition", () => {

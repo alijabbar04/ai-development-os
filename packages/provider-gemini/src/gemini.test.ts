@@ -167,6 +167,20 @@ describe("Gemini provider", () => {
     expect(order).toEqual(["authorize", "artifact", "credential", "http"]); await h.provider.close();
   });
 
+  it("sends an authorized multi-megabyte image below the serialized request cap", async () => {
+    const image = new Uint8Array(5 * 1_024 * 1_024);
+    const h = harness("never", { artifacts: { async resolve() { return { bytes: image, mediaType: "image/png" }; } } });
+    h.transport.queue.push(response(basic));
+    const operation = await h.provider.start(req("large-valid-image", { messages: [{ role: "user", parts: [{ type: "image-artifact", artifactId: "art-1", mediaType: "image/png" }] }] }));
+    await expect(operation.result).resolves.toMatchObject({ finishReason: "stop" });
+    expect(h.transport.requests).toHaveLength(1);
+    const wireBytes = Buffer.byteLength(h.transport.requests[0]!.body, "utf8");
+    expect(wireBytes).toBeGreaterThan(6_000_000);
+    expect(wireBytes).toBeLessThanOrEqual(20_000_000);
+    expect(JSON.parse(h.transport.requests[0]!.body).contents[0].parts[0].inlineData.data).toHaveLength(6_990_508);
+    await h.provider.close();
+  });
+
   it("streams structured output and rejects post-terminal content or repeated usage", async () => {
     const h = harness("always");
     const first = { candidates: [{ content: { parts: [{ text: "{\"ok\":" }, { text: "thought", thought: true }] } }] };
@@ -200,6 +214,17 @@ describe("Gemini provider", () => {
     await expect(alreadyCancelled.result).rejects.toMatchObject({ code: "CANCELLED" });
     expect(order).toEqual([]); expect(preAborted.transport.requests).toHaveLength(0);
     await preAborted.provider.close();
+  });
+
+  it("preserves status classification when an error body exceeds the drain bound", async () => {
+    for (const [status, code, headers] of [[429, "RATE_LIMITED", { "retry-after": "2" }], [503, "PROVIDER_OVERLOADED", {}]] as const) {
+      const h = harness("never");
+      const canary = `oversized-${status}-error-canary`;
+      h.transport.queue.push(response(`${canary}${"x".repeat((64 * 1_024) + 1)}`, status, headers));
+      const operation = await h.provider.start(req(`oversized-error-${status}`));
+      await expect(operation.result).rejects.toMatchObject({ code, ...(status === 429 ? { retryAfterMs: 2_000 } : {}) });
+      await h.provider.close();
+    }
   });
 
   it("requires terminal finish and usage metadata from non-streaming responses", async () => {

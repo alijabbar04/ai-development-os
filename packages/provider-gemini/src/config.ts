@@ -25,6 +25,7 @@ export function parseGeminiConfiguration(value: unknown): GeminiConfiguration {
   const provider = resolveCatalogProvider(BUILTIN_PROVIDER_CATALOG, "google-gemini");
   const model = provider === undefined ? undefined : resolveCatalogModel(provider, parsed.catalogModelId);
   if (provider === undefined || model === undefined || provider.adapterProfileId !== "google-gemini-native-v1beta") throw new ProviderError("MODEL_UNAVAILABLE", "The Gemini model is absent from the curated native profile.", { modelId: parsed.catalogModelId });
+  if (provider.endpoint.origin !== GEMINI_ORIGIN || !provider.endpoint.allowedPaths.includes("/v1beta/models/{model}:generateContent") || !provider.endpoint.allowedPaths.includes("/v1beta/models/{model}:streamGenerateContent")) throw new ProviderError("INTERNAL_FAILURE", "The Gemini adapter profile does not match its curated endpoint policy.", {});
   if (parsed.catalogModelId !== model.modelId) throw new ProviderError("MODEL_UNAVAILABLE", "The Gemini wire model ID must exactly match the canonical curated identity.", { modelId: parsed.catalogModelId, canonicalModelId: model.modelId });
   return parsed;
 }

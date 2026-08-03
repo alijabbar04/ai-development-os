@@ -19,7 +19,7 @@ function adapter(value: GatewayAdapterReference): GatewayAdapterReference {
 interface Internal { readonly provider: InferenceProvider; readonly quota: RuntimeQuotaPort; readonly snapshot: GatewayInstanceSnapshot }
 
 export async function createProviderGateway(options: CreateProviderGatewayOptions): Promise<ProviderGateway> {
-  const catalog: ProviderCatalogSnapshot = parseProviderCatalog(options.catalog); const clock = options.clock ?? systemClock; const records = new Map<string, Internal>(); const secretFingerprints = new Set<string>();
+  const catalog: ProviderCatalogSnapshot = parseProviderCatalog(options.catalog); const clock = options.clock ?? systemClock; const records = new Map<string, Internal>();
   for (const [index, registration] of options.registrations.entries()) {
     if (registration.provider.kind !== "inference") throw new ProviderError("INVALID_REQUEST", "A provider gateway registration must be an inference provider.", { index });
     const descriptor = parseProviderDescriptor(registration.provider.describe(), `registrations[${index}].descriptor`); const instanceId = descriptor.instanceId as string;
@@ -44,7 +44,7 @@ export async function createProviderGateway(options: CreateProviderGatewayOption
       || (model.model.supportsVision && !supports("image-input"))
     ) throw new ProviderError("INVALID_REQUEST", "The registered model overclaims a curated capability.", { contractModelId: registration.contractModelId, catalogModelId: selected.model.modelId });
     const ref = parseSecretRef(registration.secretRef); if (ref.expectedKind !== selected.provider.authentication.requiredSecretKind) throw new ProviderError("INVALID_REQUEST", "The SecretRef kind does not match the catalog authentication contract.", { instanceId }); if (ref.providerInstanceId !== instanceId) throw new ProviderError("INVALID_REQUEST", "The SecretRef must be bound to this exact provider instance.", { instanceId });
-    const refFingerprint = secretRefFingerprint(ref); if (secretFingerprints.has(refFingerprint)) throw new ProviderError("INVALID_REQUEST", "A SecretRef cannot be reused across gateway instances.", { instanceId }); secretFingerprints.add(refFingerprint);
+    const refFingerprint = secretRefFingerprint(ref);
     const parsedAdapter = adapter(registration.adapter); if (parsedAdapter.profileId !== selected.provider.adapterProfileId) throw new ProviderError("INVALID_REQUEST", "The adapter reference does not match the catalog profile.", { profileId: parsedAdapter.profileId, catalogProfileId: selected.provider.adapterProfileId });
     const eligibility = ensureEnum(registration.eligibility, "registration.eligibility", ["any", "verified-free-only"] as const); const userPreference = ensureEnum(registration.userPreference, "registration.userPreference", ["enabled", "disabled"] as const);
     const catalogReference = Object.freeze({ catalogId: catalog.catalogId, catalogFingerprint: catalog.fingerprint, providerId: selected.provider.providerId, providerFingerprint: selected.provider.fingerprint, modelId: selected.model.modelId, modelFingerprint: selected.model.fingerprint, adapterProfileId: selected.provider.adapterProfileId, lastVerifiedAt: selected.model.verification.lastVerifiedAt, refreshAfter: selected.model.verification.refreshAfter });

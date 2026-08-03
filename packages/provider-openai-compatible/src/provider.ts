@@ -134,7 +134,7 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
       emit((base) => ({ ...base, kind: "usage-update", payload: { usage: ZERO_PROVIDER_USAGE } }));
       if (isDeadlineExpired(request.deadline, clock.now())) throw new ProviderError("DEADLINE_EXCEEDED", "The request deadline expired before provider access.", {});
       const response = await obtainResponse(request, controller.operation.operationId, abort.signal);
-      if (response.status < 200 || response.status >= 300) { await readBoundedBody(response.body, Math.min(configuration.limits.maxResponseBytes, 64 * 1_024)); throw httpStatusError(response.status, response.headers); }
+      if (response.status < 200 || response.status >= 300) { await readBoundedBody(response.body, Math.min(configuration.limits.maxResponseBytes, 64 * 1_024)).catch(() => undefined); throw httpStatusError(response.status, response.headers); }
       let completion: WireCompletion;
       if (configuration.streaming === "never") {
         const text = await readBoundedBody(response.body, configuration.limits.maxResponseBytes);
