@@ -1,0 +1,36 @@
+{
+  "name": "@ai-dev-os/provider-openai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenAI Responses inference adapter for AI Development OS: HTTPS-only transport, bounded SSE streaming, structured output, custom function tools, background responses with resumable streaming, honest retention disclosure, privacy-preserving safety identifiers, and integer-safe usage and cost reconciliation.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../secrets run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../secrets run build && npm --prefix ../provider-testkit run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../secrets run build && npm --prefix ../provider-testkit run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../secrets run build && npm --prefix ../provider-testkit run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/policy": "^0.1.0",
+    "@ai-dev-os/providers": "^0.1.0",
+    "@ai-dev-os/secrets": "^0.1.0"
+  },
+  "devDependencies": {
+    "@ai-dev-os/provider-testkit": "^0.1.0"
+  }
+}
