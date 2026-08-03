@@ -22,6 +22,13 @@ import {
   verifiedFact,
 } from "./fixtures.js";
 
+/**
+ * The fixtures are part of the testing entry point: a consumer that adopts the
+ * contract suite invariably needs the manual clock, the counting identifier
+ * source, and the scope tuples alongside it.
+ */
+export * from "./fixtures.js";
+
 export interface MemoryPortContractHarness {
   createPort(): Promise<MemoryStorePort> | MemoryStorePort;
   dispose?(): Promise<void>;
