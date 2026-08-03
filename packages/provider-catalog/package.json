@@ -1,0 +1,27 @@
+{
+  "name": "@ai-dev-os/provider-catalog",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Strict, immutable, provenance-bearing provider and model catalog snapshots for AI Development OS.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "prebuild": "npm --prefix ../domain run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../domain run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../domain run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../domain run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/domain": "^0.1.0"
+  }
+}
