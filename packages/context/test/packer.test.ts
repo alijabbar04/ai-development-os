@@ -15,10 +15,11 @@ import {
   type RepositoryIndexSearchHit,
   type SnapshotReadPort,
 } from "@ai-dev-os/repository-index";
+// The fixtures subpath carries no vitest dependency, unlike `/testing`.
 import {
   createManualIndexClock,
   createMemorySnapshotPort,
-} from "@ai-dev-os/repository-index/testing";
+} from "@ai-dev-os/repository-index/testing/fixtures";
 import {
   createProjectContextAuthorizer,
   denyAllContextAuthorizer,

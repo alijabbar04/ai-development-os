@@ -12,6 +12,10 @@
     "./testing": {
       "types": "./dist/testing/contract-suite.d.ts",
       "import": "./dist/testing/contract-suite.js"
+    },
+    "./testing/fixtures": {
+      "types": "./dist/testing/fixtures.d.ts",
+      "import": "./dist/testing/fixtures.js"
     }
   },
   "files": [
@@ -29,7 +33,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@ai-dev-os/artifacts": "^0.1.0",
     "@ai-dev-os/domain": "^0.1.0",
     "@ai-dev-os/memory": "^0.1.0",
     "@ai-dev-os/repository-index": "^0.1.0"
