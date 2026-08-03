@@ -1,0 +1,23 @@
+{
+  "name": "@ai-dev-os/provider-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Explicit provider-instance registry and invocation gateway without routing, fallback, or retries.",
+  "type": "module",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./testing": { "types": "./dist/testing/contract-suite.d.ts", "import": "./dist/testing/contract-suite.js" }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "prebuild": "npm --prefix ../provider-catalog run build && npm --prefix ../secrets run build && npm --prefix ../providers run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm run prebuild && npm --prefix ../provider-testkit run build", "test": "vitest run",
+    "pretest:coverage": "npm run prebuild && npm --prefix ../provider-testkit run build", "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm run prebuild && npm --prefix ../provider-testkit run build", "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": { "@ai-dev-os/domain": "^0.1.0", "@ai-dev-os/provider-catalog": "^0.1.0", "@ai-dev-os/providers": "^0.1.0", "@ai-dev-os/secrets": "^0.1.0" },
+  "devDependencies": { "@ai-dev-os/provider-testkit": "^0.1.0" },
+  "peerDependencies": { "vitest": ">=4.0.0" },
+  "peerDependenciesMeta": { "vitest": { "optional": true } }
+}
