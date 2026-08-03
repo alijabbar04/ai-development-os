@@ -144,6 +144,25 @@ Control characters, zero-width characters, and bidirectional overrides are
 stripped from every stored body and locator, so a record can never carry a
 forged frame boundary into a later prompt.
 
+## Composing with Stage 6 configuration
+
+This package does not import `@ai-dev-os/config`; that would make a low-level
+store depend on the whole application configuration graph and close off any
+future dependency in the other direction. The seam is composition at the call
+site through Stage 6's extension mechanism, with the recommended namespace
+`memory`:
+
+```ts
+const extension = findExtension(resolved.configuration, "memory");   // Stage 6
+const configuration = extension === undefined
+  ? DEFAULT_MEMORY_CONFIGURATION
+  : unwrap(parseMemoryConfiguration(extension.value));
+```
+
+`ConfigExtension.value` is already canonical, frozen JSON that Stage 6 has
+screened for inline secrets, and `parseMemoryConfiguration` validates it against
+this package's own schema.
+
 ## Public API
 
 ```ts
