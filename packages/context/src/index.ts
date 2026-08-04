@@ -95,6 +95,7 @@ export {
 
 export {
   contextPackFingerprint,
+  parseContextPack,
   sealContextPack,
   summarizeContextPack,
   type ContextOmission,

@@ -23,7 +23,7 @@ memory`. Nothing upstream depends back on it.
 **Not a prompt compiler.** This package emits no system message, no role, and
 no instruction. It produces a transport form and a structured pack; deciding
 what a model is actually told — and estimating that model's real tokens — is
-Stage 16's job.
+outside this package. Stage 15's prompt compiler owns the message boundary.
 
 ## Trust boundary
 
@@ -196,7 +196,7 @@ buildContextPack({ request, sources, authorizer, clock, configuration?, estimato
 planContextPack({ candidates, configuration, estimator, deniedIdentities?, priorOmissions?, priorDiagnostics? })
 collectContextCandidates({ request, sources, configuration, now })
 
-contextPackFingerprint(pack)   summarizeContextPack(pack)   renderContextPack(pack)
+contextPackFingerprint(pack)   parseContextPack(value)   summarizeContextPack(pack)   renderContextPack(pack)
 parseContextConfiguration(value)   withContextOverrides(base, overrides)
 parseContextRequest(value)   parseContextCandidate(value)   parseContextBudget(value)
 conservativeUnitEstimator   validateEstimator(estimator)

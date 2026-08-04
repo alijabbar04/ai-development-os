@@ -25,7 +25,7 @@
  *
  * This module renders a transport form. It is **not** a prompt compiler. It
  * emits no system message, no role, and no instruction — deciding what a model
- * is told belongs to Stage 16.
+ * is told belongs to Stage 15's prompt compiler.
  */
 
 export const CONTEXT_FRAME_VERSION = 1 as const;
