@@ -2,7 +2,7 @@
 
 AI Development OS is a local-first orchestration engine for software engineering. It coordinates remote reasoning models, Claude Code, and local Ollama models through a durable task graph, policy-controlled routing, isolated repository workspaces, persistent project memory, and an auditable desktop control surface.
 
-This repository is being delivered in tested modules. Stages 0 through 12 are complete: the task-graph kernel, domain vocabulary, persistence, content-addressed artifact storage, provider contracts, configuration/secrets/policy, Ollama and cloud inference adapters, workspace/process isolation, Claude Code and Codex coding-agent adapters, the strict OpenAI Responses adapter, and the explicit multi-provider catalog/gateway.
+This repository is being delivered in tested modules. Stages 0 through 13 are complete: the task-graph kernel, domain vocabulary, persistence, content-addressed artifact storage, provider contracts, configuration/secrets/policy, Ollama and cloud inference adapters, workspace/process isolation, Claude Code and Codex coding-agent adapters, the strict OpenAI Responses adapter, the explicit multi-provider catalog/gateway, and a durable provider-neutral quota/cost/health/usage/capacity evidence ledger. Stage 13 reconciles cumulative and terminal usage without double counting, keeps billed/subscription-equivalent/unknown cost distinct, and provides scoped current-state and deterministic forecast evidence without taking over routing or scheduling.
 
 ## Documents
 

@@ -1,0 +1,57 @@
+{
+  "name": "@ai-dev-os/telemetry-ledger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Durable provider-neutral quota, cost, health, usage, and capacity evidence ledger.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./providers": {
+      "types": "./dist/providers.d.ts",
+      "import": "./dist/providers.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/contract-suite.d.ts",
+      "import": "./dist/testing/contract-suite.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../persistence run build && npm --prefix ../providers run build && npm --prefix ../provider-ollama run build && npm --prefix ../provider-claude-code run build && npm --prefix ../provider-codex run build && npm --prefix ../provider-openai run build && npm --prefix ../provider-gateway run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm run prebuild && npm --prefix ../persistence-memory run build && npm --prefix ../persistence-sqlite run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm run prebuild && npm --prefix ../persistence-memory run build && npm --prefix ../persistence-sqlite run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm run prebuild",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/persistence": "^0.1.0",
+    "@ai-dev-os/provider-claude-code": "^0.1.0",
+    "@ai-dev-os/provider-codex": "^0.1.0",
+    "@ai-dev-os/provider-gateway": "^0.1.0",
+    "@ai-dev-os/provider-ollama": "^0.1.0",
+    "@ai-dev-os/provider-openai": "^0.1.0",
+    "@ai-dev-os/providers": "^0.1.0"
+  },
+  "devDependencies": {
+    "@ai-dev-os/persistence-memory": "^0.1.0",
+    "@ai-dev-os/persistence-sqlite": "^0.1.0"
+  },
+  "peerDependencies": {
+    "vitest": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  }
+}
