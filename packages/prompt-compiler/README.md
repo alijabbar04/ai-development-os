@@ -80,6 +80,33 @@ full output schema travels through `InferenceRequest.structuredOutput` and is
 not duplicated in prose. Every request has exact `tools: []` and
 `toolChoice: { mode: "none" }`.
 
+## Target composition and model preferences
+
+The compiler receives one already-resolved immutable target snapshot and binds
+its provider instance, model, capabilities, policy scope, authorization, and
+fingerprint. It does not read Stage 6 aliases or choose among them. The thinker
+composition resolves preferences deterministically:
+
+```text
+planning aliases: [primary-thinker, alternate-thinker]
+default: primary-thinker
+request override: alternate-thinker
+```
+
+Aliases may point to any eligible configured `InferenceProvider` model. IDs
+are opaque and never appear in the stable system prompt. There is no direct
+first-party Anthropic inference adapter in the repository today; a concrete
+Claude model requires a supported inference-provider registration. Claude
+Code and Codex implement `CodingAgentProvider`, return workspace/artifact
+outcomes rather than general inference text, and cannot be cast or scraped as
+thinkers. Stage 17's production-execution gate remains unchanged.
+
+Trusted provider-specific effort or compatibility settings travel only in the
+existing finite `ProviderExtension` array. They are runtime validated,
+canonicalized, ordered, and included in compilation identity. The compiler
+does not derive provider effort from generic reasoning hints or model-name
+heuristics.
+
 Versions at release:
 
 - compiler schema: `1`

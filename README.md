@@ -2,7 +2,9 @@
 
 AI Development OS is a local-first orchestration engine for software engineering. It coordinates remote reasoning models, Claude Code, and local Ollama models through a durable task graph, policy-controlled routing, isolated repository workspaces, persistent project memory, and an auditable desktop control surface.
 
-This repository is being delivered in tested modules. Stages 0 through 14 are complete: the task-graph kernel, domain vocabulary, persistence, content-addressed artifact storage, provider contracts, configuration/secrets/policy, Ollama and cloud inference adapters, workspace/process isolation, Claude Code and Codex coding-agent adapters, the strict OpenAI Responses adapter, the explicit multi-provider catalog/gateway, a durable provider-neutral quota/cost/health/usage/capacity evidence ledger, deterministic fixed-revision repository indexing, provenance-aware scoped memory, and deterministic context packing. Stage 14 keeps retrieved material untrusted, enforces explicit authorization and byte/unit/item budgets, and returns framed context evidence without calling a model, writing an ambient artifact, or broadening execution authority.
+This repository is being delivered in tested modules. Stages 0 through 15 are complete: the task-graph kernel, domain vocabulary, persistence, content-addressed artifact storage, provider contracts, configuration/secrets/policy, Ollama and cloud inference adapters, workspace/process isolation, Claude Code and Codex coding-agent adapters, the strict OpenAI Responses adapter, the explicit multi-provider catalog/gateway, a durable provider-neutral quota/cost/health/usage/capacity evidence ledger, deterministic fixed-revision repository indexing, provenance-aware scoped memory, deterministic context packing, deterministic policy-bound prompt compilation, and replaceable authority-free inference planning.
+
+Stage 15 keeps every retrieved context body in the untrusted user layer, compiles a byte-reproducible no-tools inference request only after exact policy/disclosure authorization, invokes one explicitly configured planning alias with no fallback, and accepts only a bounded structured proposal marked `authority: "none"`. It does not execute, approve, schedule, route, edit, or mutate a task graph.
 
 ## Documents
 
@@ -29,6 +31,13 @@ apps/                  Deployable daemon and desktop applications
 packages/              Domain, application, and adapter modules
 docs/                  Architecture, decisions, and delivery roadmap
 ```
+
+## Stage 15 packages
+
+- [`@ai-dev-os/prompt-compiler`](packages/prompt-compiler/README.md) compiles one exact Stage 14 context pack and trusted authority ceiling into a deterministic three-message, strict-structured-output inference request after deny-by-default policy authorization. It selects or invokes no provider.
+- [`@ai-dev-os/thinker`](packages/thinker/README.md) resolves the default or explicit Stage 6 planning alias, invokes exactly one guarded inference target, discards raw response bodies, and seals a validated zero-authority proposal plus safe receipt metadata.
+
+Provider/model IDs remain opaque configuration. Claude Code and Codex adapters implement the separate coding-agent contract and cannot be used as inference thinkers. A concrete Claude model requires a supported inference-provider registration; this repository does not currently ship a direct first-party Anthropic inference adapter.
 
 The project is pre-1.0. Live provider calls are explicit opt-in operations with policy and scoped-secret boundaries. Autonomous repository execution remains disabled in production until a genuinely enforcing isolation backend exists.
 
