@@ -18,6 +18,7 @@ export const AGGREGATE_TYPES = Object.freeze([
   "project",
   "task-graph",
   "task-run",
+  "telemetry-ledger",
 ] as const);
 
 export type AggregateType = (typeof AGGREGATE_TYPES)[number];

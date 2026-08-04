@@ -143,6 +143,7 @@ describe("record validation", () => {
     expect(parsePersistedId("ok-id", "id")).toBe("ok-id");
     expect(() => parsePersistedId("", "id")).toThrow(ValidationError);
     expect(parseAggregateType("budget-account")).toBe("budget-account");
+    expect(parseAggregateType("telemetry-ledger")).toBe("telemetry-ledger");
     expect(() => parseAggregateType("wallet")).toThrow(ValidationError);
   });
 });
