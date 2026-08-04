@@ -364,26 +364,42 @@ Limitations and deferred work: the bundled commercial/free facts require refresh
 
 ## Stage 13: Unified quota, cost, health, and capacity ledger
 
-Status: Planned.
+Status: Complete.
 
 Package: `@ai-dev-os/telemetry-ledger`
 
-Deliverables:
+Release checkpoint:
 
-- One durable normalized ledger reconciling streamed versus terminal usage, estimated versus actual usage, integer-exact cost, provider health, quota/capacity observations, and their provider/model/instance provenance across every provider.
-- Explicit distinction between billed cost, subscription-equivalent estimate, and unknown, carried end to end rather than flattened.
-- Staleness-aware quota reset estimation and capacity forecasting with confidence/provenance, while missing values remain unknown.
-- Evaluation of the deferred `cacheWriteTokens`/cache-write pricing and explicit applied-redaction transformation vocabulary against genuine cross-provider requirements.
-- No provider ranking, route selection, automatic fallback, or task allocation; the ledger supplies evidence to later routing stages without owning their decisions.
+- Release 12 base: annotated tag `v0.12.0-provider-gateway`, commit `d12ea1295a488e2711952ca1cb4898e6d4bb329b`.
+- Additive Stage 3 prerequisite: commit `524e4c996eda3c93d8176cb75bcd65a69fec1774` adds the closed `telemetry-ledger` aggregate type and contract evidence.
+- Verified Stage 13 implementation: commit `571c592a8fcb58d4766b1fec3e6720b4618e8e91`.
+- Final completion record: the commit containing this entry, released by annotated tag `v0.13.0-telemetry-ledger` (the tag is the immutable exact commit reference and can be resolved with `git rev-list -n 1 v0.13.0-telemetry-ledger`).
 
-Tests and gate:
+Delivered:
 
-- Reconciliation property tests prove no double counting across streamed and terminal usage.
-- Missing data stays unknown at every aggregation level.
+- A strict schema/algorithm-versioned, exact-key, deeply frozen, content-free observation vocabulary for estimates, cumulative and terminal usage, cost, provider health, quota/capacity, corrections/tombstones, derived state, forecasts, and account usage. Every store binds one logical ledger across ingest, authorization, reads, export, verification, idempotency, correction lookup, and partition limits.
+- Ledger-local disjoint token accounting preserves uncached input, cache writes, cached reads, visible output, reasoning, unknown/combined tokens, tool calls, and category completeness without widening the released Stage 2 `TokenUsage` contract. Cumulative stream snapshots and terminal totals reconcile as replacement evidence, not deltas; a bounded 64-seed property test proves terminal usage is never added on top.
+- Integer-exact, currency-separated cost components retain provider-billed, locally computed, subscription-equivalent, verified-zero, and unknown semantics. Provider-scoped source fingerprints deduplicate generic/provider-specific views without adding bills and estimates together; known plus unknown remains partial.
+- Staleness/effective-interval-aware current quota, capacity, and health snapshots keep primary/secondary, five-hour/seven-day, model, instance, dimension, and provider-window identities distinct. Deterministic fixed-point forecasts support absolute remaining units and percentage basis points, segment at resets, expose confidence/sample evidence, and fail closed for incomparable or insufficient samples.
+- Append-only journal events and bounded per-partition checkpoints use the Stage 3 transaction, checksum, optimistic-concurrency, and pagination ports. Atomic append/checkpoint updates, live-clock idempotency, global per-ledger collision checks, cross-partition corrections, checkpoint recovery, checksum/new-schema refusal, close races, memory/SQLite contracts, and replay fingerprint verification are covered. A proactive checkpoint-size guard fails as `PARTITION_FULL` before the persistence text bound.
+- Required deny-conservative authorization/audit injection, exact subject/organization/project/workspace matching, per-observation disclosure filtering, partial-result propagation, bounded content-free audit records, hostile payload canaries, and no console/process/environment/network/filesystem bypass in production code.
+- Pure public bridges for Ollama, Claude Code, Codex, OpenAI, the Stage 12 gateway, and the generic Gemini/Groq/Cerebras/OpenRouter provider contract. Bridges consume already-obtained public facts only; they never poll providers, read credentials/auth files, redeem credits, pool keys, select routes, retry, or mutate budget/scheduler state.
+- ADR 0013 keeps cache-write categories ledger-local and defers a new shared applied-redaction vocabulary because the ledger stores no prompt/response content and no second released consumer requires the same transformation list.
+
+Tests and gate (Windows, Node 24.17.0, npm 11.13.0):
+
+- Telemetry ledger: 54 tests pass across schema/configuration, reconciliation/property/adversarial cost cases, provider bridges, authorization/privacy, pagination/queries, correction semantics, deterministic forecasting, corruption/recovery/concurrency/close behavior, and the reusable memory/SQLite persistence contract. Coverage is 93.54% statements (870/930), 82.64% branches (762/922), 100% functions (201/201), and 97.33% lines (693/712), above the 90/80/98/90 release gates.
+- Repository aggregate: 1,899 tests pass with 24 expected platform/live skips. Numerator-weighted coverage is 93.18% statements (13,980/15,002), 86.22% branches (9,461/10,972), 96.39% functions (2,754/2,857), and 94.54% lines (12,305/13,015).
+- A clean `npm ci` preserves lockfile SHA-256 `cb5c4df83a1d2c9fb3ed6e22bf8dc1c2c8efa73986c94ce72a6f408f67d5f590` and reports zero vulnerabilities. The exact full `npm run check` passes in 687.9 seconds, aggregate `npm run test:coverage` passes in 404.8 seconds, and `npm audit --audit-level=high` reports zero vulnerabilities.
+- Dry-run packages contain only declared public artifacts: telemetry ledger 54 files / 58,873 packed bytes / 312,905 unpacked bytes; persistence 46 / 37,633 / 181,986. A fresh external consumer installs 17 packed local dependencies with zero vulnerabilities and uses only root, `./providers`, and persistence-memory public exports to bridge, ingest, audit, filter by model, query, verify, and close (`consumer-ok ce536e069baa14797c4d539da0093935c2ee76534f71fae1bacf4cb6bdc9ecef`).
+- Static scans find no package-private imports, provider back-edge, console/process/environment/network/filesystem/better-sqlite3 bypass, conflict marker, or ambient credential access. Stage 14 remains at clean provisional commit `ebb5a3d63eda97d80ce21bda80c5f29dc44f6ddb`; neither Stage 13 nor Stage 14 is in the other's ancestry.
+- The first exact Claude Opus 5 High read-only audit invocation timed out without a report or mutation. Three subsequent exact Opus 5 High read-only passes completed. The first found six blockers (denial audit short-circuit, receipt-time idempotency, oldest-page reads, correction-window failure/chains, provider-window collapse, and Claude capacity state); the second verified those fixes and found four more (non-usage-only summary failure, later correction retraction, unscoped ledgers, and unreachable multi-signal/percentage forecasts); the final pass verified all ten fixes and found only a stale README quickstart, which was corrected before release. Its final verdict found no code, integrity, isolation, or replay blocker.
+
+Limitations and deferred work: the Stage 3 port has no authorized delete primitive, so configured retention durations are recorded but physical journal deletion remains deferred and checkpoint-only compaction is lossless. Cross-partition idempotency/correction checks perform a bounded full-ledger scan on writes, and complete aggregate reads page through the authorized event set rather than promising a transactionally frozen multi-page snapshot. Raw history/exports deliberately retain superseded facts and must not be used to recompute corrected totals. Burn units are dimension-labelled (basis points for percentages, absolute units otherwise). Forecasts remain evidence rather than provider-policy predictions or availability promises. Stage 13 does not rank, route, retry, fall back, reserve budget/quota, admit tasks, allocate work, or integrate the provisional Stage 14 branch.
 
 ## Stage 14: Repository index, memory, artifacts, and context packs
 
-Status: Planned.
+Status: Implementation complete on clean provisional branch `parallel/stage-14-context-memory`; not integrated or released.
 
 Packages: `@ai-dev-os/repository-index`, `@ai-dev-os/memory`, `@ai-dev-os/context`
 
@@ -587,6 +603,6 @@ run, because Stage 17 is what makes containment real.
 
 ## Immediate next module after this delivery
 
-Stages 0 through 12 are complete. Implement Stage 13's normalized quota, cost, health, and capacity ledger next. It should preserve provider/model/instance provenance, reconcile streamed and terminal usage without double counting, distinguish billed/subscription-equivalent/unknown cost, retain timestamped raw quota and health observations, estimate reset windows, and forecast capacity without inventing missing values. It must not absorb ranking, routing, fallback, or task-allocation responsibilities.
+Stages 0 through 13 are complete. The next action is to review and integrate the already-implemented Stage 14 repository-index/memory/context work from clean provisional branch `parallel/stage-14-context-memory`; do not rewrite it or treat it as part of the Stage 13 release. Integration must preserve the released Stage 13 ledger boundary and rerun Stage 14's own isolation, poisoned-memory, expiry, provenance, deterministic-context, package, and repository gates.
 
-The completed Stage 14 repository-index/memory/context worker remains intentionally parked until Stage 13 establishes that ledger boundary. One execution constraint also carries forward: no built-in sandbox backend is classified secure-enforcing, so production autonomous execution still refuses before any agent process starts. Shipping autonomous repository execution to users requires Stage 17 to deliver a real enforcing backend on each advertised platform first; until then, every coding-adapter result carries the uncontained-execution warning naming the backend and its security class.
+One execution constraint also carries forward: no built-in sandbox backend is classified secure-enforcing, so production autonomous execution still refuses before any agent process starts. Shipping autonomous repository execution to users requires Stage 17 to deliver a real enforcing backend on each advertised platform first; until then, every coding-adapter result carries the uncontained-execution warning naming the backend and its security class.
