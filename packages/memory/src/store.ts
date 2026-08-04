@@ -1118,14 +1118,22 @@ export function createMemoryStore(options: CreateMemoryStoreOptions): MemoryStor
     scope: MemoryScope,
     record: MemoryRecord,
   ): Promise<MemoryFailure | null> {
-    if (record.variant !== "inferred-preference-candidate" || record.supersedes === null) {
+    if (record.supersedes === null) {
       return null;
     }
     const loaded = await loadEntry(scopeKey, scope, record.supersedes);
     if ("failure" in loaded) {
       return loaded.failure;
     }
-    if (loaded.entry.record.variant === "explicit-preference") {
+    if (loaded.entry.supersededBy !== null) {
+      return memoryFailure("VERSION_CONFLICT", "The superseded record was already superseded.", {
+        supersededBy: loaded.entry.supersededBy,
+      });
+    }
+    if (
+      record.variant === "inferred-preference-candidate" &&
+      loaded.entry.record.variant === "explicit-preference"
+    ) {
       return memoryFailure(
         "PRECEDENCE_VIOLATION",
         "An inferred candidate cannot supersede an explicit user preference.",

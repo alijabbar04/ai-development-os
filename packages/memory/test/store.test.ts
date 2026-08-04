@@ -321,6 +321,62 @@ describe("lifecycle", () => {
     ).toBe("VERSION_CONFLICT");
   });
 
+  it("refuses a dangling supersession link before state or audit mutation", async () => {
+    const { store } = harness();
+    expect(
+      code(
+        await store.append({
+          record: {
+            ...explicitPreference({ recordId: "p2", subject: "Indentation", text: "spaces" }),
+            supersedes: "missing-record",
+          },
+          purpose: "context-assembly",
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+    expect(
+      code(await store.read({ scope: USER_SCOPE, recordId: "p2", purpose: "context-assembly" })),
+    ).toBe("NOT_FOUND");
+    expect(unwrap(await store.events({ scope: USER_SCOPE, purpose: "maintenance" }))).toEqual([]);
+  });
+
+  it("refuses a direct replacement of an already-superseded record before mutation", async () => {
+    const { store } = harness();
+    const first = unwrap(
+      await store.append({
+        record: explicitPreference({ recordId: "p1", subject: "Indentation", text: "tabs" }),
+        purpose: "context-assembly",
+      }),
+    );
+    unwrap(
+      await store.supersede({
+        scope: USER_SCOPE,
+        supersededRecordId: "p1",
+        expectedVersion: first.version,
+        replacement: explicitPreference({ recordId: "p2", subject: "Indentation", text: "spaces" }),
+        purpose: "context-assembly",
+      }),
+    );
+    const eventsBefore = unwrap(await store.events({ scope: USER_SCOPE, purpose: "maintenance" }));
+    expect(
+      code(
+        await store.append({
+          record: {
+            ...explicitPreference({ recordId: "p3", subject: "Indentation", text: "mixed" }),
+            supersedes: "p1",
+          },
+          purpose: "context-assembly",
+        }),
+      ),
+    ).toBe("VERSION_CONFLICT");
+    expect(
+      code(await store.read({ scope: USER_SCOPE, recordId: "p3", purpose: "context-assembly" })),
+    ).toBe("NOT_FOUND");
+    expect(unwrap(await store.events({ scope: USER_SCOPE, purpose: "maintenance" }))).toEqual(
+      eventsBefore,
+    );
+  });
+
   it("supersedes with an explicit chain and marks the predecessor", async () => {
     const { store } = harness();
     const first = unwrap(
