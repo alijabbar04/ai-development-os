@@ -1,4 +1,6 @@
 import {
+  InvariantViolationError,
+  ValidationError,
   estimateModelCost,
   validation,
   type DataHandlingPolicy,
@@ -65,9 +67,18 @@ function milliseconds(iso: string): number {
   return new Date(ensureTimestamp(iso, "instant")).valueOf();
 }
 
-function isFresh(nowMs: number, observedAt: string, staleAt: string, maximumAgeMs: number): boolean {
+function isFresh(
+  nowMs: number,
+  observedAt: string,
+  staleAt: string | null,
+  maximumAgeMs: number
+): boolean {
   const observedMs = milliseconds(observedAt);
-  return observedMs <= nowMs && nowMs <= milliseconds(staleAt) && nowMs - observedMs <= maximumAgeMs;
+  return (
+    observedMs <= nowMs &&
+    (staleAt === null || nowMs <= milliseconds(staleAt)) &&
+    nowMs - observedMs <= maximumAgeMs
+  );
 }
 
 function healthStaleAt(checkedAt: string, maximumAgeMs: number): string {
@@ -99,6 +110,18 @@ function withSafetyMarginOrNull(value: number, basisPoints: number): number | nu
   const amount = BigInt(value);
   const result = amount + (amount * BigInt(basisPoints) + 9_999n) / 10_000n;
   return result > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(result);
+}
+
+function isArithmeticBoundaryError(error: unknown): boolean {
+  if (error instanceof RouterError) return error.code === "ARITHMETIC_OVERFLOW";
+  if (error instanceof InvariantViolationError) {
+    return error.message.includes("overflow") || error.message.includes("safe integer");
+  }
+  return (
+    error instanceof ValidationError &&
+    error.issues.length > 0 &&
+    error.issues.every((issue) => issue.code === "bad_integer")
+  );
 }
 
 function aliasesForCandidate(
@@ -445,10 +468,7 @@ function runtimeFailures(
     !isFresh(
       nowMs,
       candidate.secureExecution.verifiedAt,
-      new Date(
-        milliseconds(candidate.secureExecution.verifiedAt) +
-          configuration.freshness.secureExecutionMs
-      ).toISOString(),
+      null,
       configuration.freshness.secureExecutionMs
     )
   ) {
@@ -560,7 +580,8 @@ function evaluateCandidate(
       expectedDurationMs: request.expectedDurationMs,
       configuration
     });
-  } catch {
+  } catch (error) {
+    if (!isArithmeticBoundaryError(error)) throw error;
     addCode(codes, "ARITHMETIC_BOUND_EXCEEDED");
   }
   if (
@@ -587,7 +608,8 @@ function evaluateCandidate(
       ) {
         addCode(codes, "COST_EVIDENCE_MISMATCH");
       }
-    } catch {
+    } catch (error) {
+      if (!isArithmeticBoundaryError(error)) throw error;
       addCode(codes, "ARITHMETIC_BOUND_EXCEEDED");
     }
   }

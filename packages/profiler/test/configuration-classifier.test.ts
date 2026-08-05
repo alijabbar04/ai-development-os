@@ -35,7 +35,7 @@ describe("profiler configuration", () => {
     expect(inspectProfilerConfiguration(configured)).not.toContain("maximumEstimatorInputBytes");
   });
 
-  it("rejects tampering and unsupported accuracy", () => {
+  it("rejects tampering and unsupported configuration keys", () => {
     expect(() =>
       parseProfilerConfiguration({
         ...DEFAULT_PROFILER_CONFIGURATION,
@@ -47,7 +47,7 @@ describe("profiler configuration", () => {
     expect(() =>
       parseProfilerConfiguration({
         ...DEFAULT_PROFILER_CONFIGURATION,
-        minimumHardFitAccuracy: "heuristic"
+        unsupportedProfilerOption: true
       })
     ).toThrow();
   });
