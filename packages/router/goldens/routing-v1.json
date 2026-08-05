@@ -1,0 +1,691 @@
+{
+  "schemaVersion": 1,
+  "routerSchemaVersion": 1,
+  "routingAlgorithmVersion": 1,
+  "fixedEpoch": "2026-08-05T10:00:00.000Z",
+  "updateCommand": "npm --prefix packages/router run build && node packages/router/scripts/update-goldens.mjs --approve",
+  "reviewRequired": true,
+  "requiredMatrix": [
+    "planning",
+    "architecture",
+    "implementation",
+    "refactor",
+    "debug",
+    "review",
+    "test",
+    "documentation",
+    "explanation",
+    "vision",
+    "low-reasoning",
+    "medium-reasoning",
+    "high-reasoning",
+    "extreme-reasoning",
+    "no-edit",
+    "single-file",
+    "multi-file",
+    "cross-package",
+    "low-risk",
+    "medium-risk",
+    "high-risk",
+    "critical-risk",
+    "tiny-repository",
+    "medium-repository",
+    "large-repository",
+    "limit-exhausted-repository",
+    "small-prompt",
+    "large-prompt",
+    "near-limit-prompt",
+    "small-output",
+    "near-limit-output",
+    "public",
+    "internal",
+    "proprietary",
+    "personal",
+    "secret",
+    "local-only",
+    "cloud-allowed",
+    "redaction-required",
+    "logging-restricted",
+    "retention-restricted",
+    "capable-model",
+    "incapable-model",
+    "unknown-model",
+    "healthy",
+    "degraded",
+    "unavailable",
+    "closed",
+    "verified-free",
+    "unknown-free",
+    "not-free",
+    "ineligible",
+    "expired-catalog",
+    "fresh-quota",
+    "stale-quota",
+    "partial-quota",
+    "unknown-quota",
+    "limited-quota",
+    "exhausted-quota",
+    "known-reset",
+    "unknown-reset",
+    "protected-reserve",
+    "known-budget",
+    "unknown-cost",
+    "exceeded-budget",
+    "currency-mismatch",
+    "local-capacity",
+    "local-concurrency-exhausted",
+    "local-memory-exhausted",
+    "explicit-primary",
+    "explicit-alternate",
+    "prefer-local",
+    "prefer-cloud",
+    "prefer-cost",
+    "prefer-latency",
+    "prefer-free",
+    "strict-no-fallback",
+    "bounded-fallback",
+    "open-circuit",
+    "half-open-circuit",
+    "closed-circuit",
+    "exact-estimate",
+    "upper-bound-estimate",
+    "heuristic-estimate",
+    "equal-score-tie",
+    "permuted-input",
+    "no-route"
+  ],
+  "cases": [
+    {
+      "id": "plan-public-free",
+      "tags": [
+        "planning",
+        "low-reasoning",
+        "no-edit",
+        "low-risk",
+        "tiny-repository",
+        "small-prompt",
+        "small-output",
+        "public",
+        "cloud-allowed",
+        "healthy",
+        "verified-free",
+        "fresh-quota",
+        "known-reset",
+        "known-budget",
+        "prefer-free",
+        "bounded-fallback",
+        "closed-circuit",
+        "upper-bound-estimate",
+        "capable-model"
+      ],
+      "requestFingerprint": "264cc53d9bb67b5b89374181ef0f72c1c7633ee41aef78bca8f140d66b60945c",
+      "profileFingerprint": "00b92c1329c46d541cffdd267be85bb6e35ae758411bfa414868f62a5dfeaaab",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "no-route",
+      "primaryCandidateId": null,
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [],
+      "rejections": [
+        {
+          "candidateId": "plan-free",
+          "codes": [
+            "CLASSIFICATION_MISMATCH"
+          ]
+        },
+        {
+          "candidateId": "plan-paid",
+          "codes": [
+            "CLASSIFICATION_MISMATCH"
+          ]
+        }
+      ],
+      "decisionFingerprint": "8795938c03cda030b8ec41393004d697ead1555f7a3b1955626ed66ed8c78d2d"
+    },
+    {
+      "id": "architecture-critical-large",
+      "tags": [
+        "architecture",
+        "extreme-reasoning",
+        "cross-package",
+        "critical-risk",
+        "large-repository",
+        "large-prompt",
+        "near-limit-output",
+        "internal",
+        "capable-model",
+        "prefer-latency"
+      ],
+      "requestFingerprint": "23c6c720b434a49853c54065778ab144bcc5c6dd2b30c5321ce61e98b629f1ed",
+      "profileFingerprint": "cb5817c7bcb9c36f1c9b3949877d673fb7d0402d752ad169ef2cf99c722d3a16",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "no-route",
+      "primaryCandidateId": null,
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [],
+      "rejections": [
+        {
+          "candidateId": "architecture",
+          "codes": [
+            "OUTPUT_LIMIT_EXCEEDED"
+          ]
+        }
+      ],
+      "decisionFingerprint": "8e956c2d7a3e20681e8502e4c05bd14219a378a75f7fd2ee7dd49f38fd4fed93"
+    },
+    {
+      "id": "implementation-proprietary",
+      "tags": [
+        "implementation",
+        "high-reasoning",
+        "multi-file",
+        "high-risk",
+        "medium-repository",
+        "near-limit-prompt",
+        "proprietary",
+        "redaction-required",
+        "logging-restricted",
+        "retention-restricted",
+        "prefer-cost"
+      ],
+      "requestFingerprint": "d390f08381d12f644e9481524f228655a0cc6816595ac34c5bd2d344deffe58c",
+      "profileFingerprint": "8de80c495dde904edde24743555699d0654ecf31877ac71ea2f5865476893bd6",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "routed",
+      "primaryCandidateId": "implementation",
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [
+        "implementation"
+      ],
+      "rejections": [],
+      "decisionFingerprint": "a4032a590240d8941b3bc0ecb2f60d370f8ead11eec8185bf801449a3b4b4fd7"
+    },
+    {
+      "id": "refactor-personal-local",
+      "tags": [
+        "refactor",
+        "medium-reasoning",
+        "single-file",
+        "medium-risk",
+        "personal",
+        "local-only",
+        "prefer-local",
+        "local-capacity"
+      ],
+      "requestFingerprint": "46d00087856dda95db43d9cd0538ec73aeff8d3382b2e8788a5ee3cd19895673",
+      "profileFingerprint": "d14678f981591e90b36b0bba45b2d01c55d414c4cda85579595cd4bd32ff0ebb",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "routed",
+      "primaryCandidateId": "refactor-local",
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [
+        "refactor-local"
+      ],
+      "rejections": [],
+      "decisionFingerprint": "aee7ec31a10819c21a5e6cfa48dcb377e0f3eed0fcbeb34e9f1c2f63bc4b1172"
+    },
+    {
+      "id": "debug-secret-local",
+      "tags": [
+        "debug",
+        "high-reasoning",
+        "multi-file",
+        "high-risk",
+        "secret",
+        "local-only",
+        "local-memory-exhausted",
+        "no-route"
+      ],
+      "requestFingerprint": "b2955dcfc24f60e2823500c421333590ab40e01d26e36089d9f6179de98278cb",
+      "profileFingerprint": "c97db7ae2fddda7487f41dda60bff30470dd738e0876064cb42d4c03d131e3e4",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "no-route",
+      "primaryCandidateId": null,
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [],
+      "rejections": [
+        {
+          "candidateId": "debug-local",
+          "codes": [
+            "CAPACITY_INSUFFICIENT"
+          ]
+        }
+      ],
+      "decisionFingerprint": "b53db9a8d560f3f915daf1050bccbd124e2697a5fac9097121fac0512e1d70ec"
+    },
+    {
+      "id": "review-hard-filter",
+      "tags": [
+        "review",
+        "incapable-model",
+        "capable-model",
+        "prefer-cloud",
+        "no-route"
+      ],
+      "requestFingerprint": "49ca9ab8311db4c2d670ec4f631031696013c2bf99aa26342c70af4300e32c5b",
+      "profileFingerprint": "104187a36f409cff582dfb033511fb42a8fee70c9648b7820545d60f6af98550",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "no-route",
+      "primaryCandidateId": null,
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [],
+      "rejections": [
+        {
+          "candidateId": "review-incapable",
+          "codes": [
+            "REASONING_RATING_INSUFFICIENT"
+          ]
+        },
+        {
+          "candidateId": "review-denied-fast",
+          "codes": [
+            "POLICY_DENIED"
+          ]
+        }
+      ],
+      "decisionFingerprint": "f1d7179fbcc382d6b7c3de48dfca6cfa37b1d35c22102e37729a64e793cb2d42"
+    },
+    {
+      "id": "test-limit-exhausted-quota",
+      "tags": [
+        "test",
+        "limit-exhausted-repository",
+        "exhausted-quota",
+        "unknown-reset",
+        "protected-reserve",
+        "no-route"
+      ],
+      "requestFingerprint": "247fe08ba3581649bd910d729b3385e6de169a81d8867300c87fd57aa2ac75c3",
+      "profileFingerprint": "5839269dcfd94828ffed9355ae2f5baf8f77aefe39e5364fc11bd5d9c5ebae63",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "no-route",
+      "primaryCandidateId": null,
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [],
+      "rejections": [
+        {
+          "candidateId": "test-quota",
+          "codes": [
+            "CONFIDENCE_BELOW_MINIMUM",
+            "QUOTA_EXHAUSTED",
+            "QUOTA_INSUFFICIENT"
+          ]
+        }
+      ],
+      "decisionFingerprint": "9f80300cc9e504e865526afc433c7a91a0567b2517b32405494d1cfeb9746991"
+    },
+    {
+      "id": "documentation-unknown-cost",
+      "tags": [
+        "documentation",
+        "unknown-cost",
+        "unknown-model",
+        "not-free",
+        "no-route"
+      ],
+      "requestFingerprint": "41c51cee804063cc14762a7ee08f0f7ccb164a887efcdde44e4e3e13df26b179",
+      "profileFingerprint": "3a02581c7f14f082a9f3085d4597467818d7a29f14500261a8863d34b0bc5bae",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "no-route",
+      "primaryCandidateId": null,
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [],
+      "rejections": [
+        {
+          "candidateId": "docs-unknown-cost",
+          "codes": [
+            "COST_UNKNOWN"
+          ]
+        }
+      ],
+      "decisionFingerprint": "d43123e4045c00ed2bf1f813e78fb213ec57bd184809c059c90536793282abf0"
+    },
+    {
+      "id": "explanation-quota-evidence",
+      "tags": [
+        "explanation",
+        "stale-quota",
+        "partial-quota",
+        "unknown-quota",
+        "limited-quota",
+        "unknown-reset",
+        "no-route"
+      ],
+      "requestFingerprint": "ddacd5d9bedaa4106752f65c881cfe0969dafadbebb59ceeb7718e1e97c77cee",
+      "profileFingerprint": "8d4415ebcbb8efa4a25088fe5a7c8009d3d766bd1c66528abec808754a254646",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "no-route",
+      "primaryCandidateId": null,
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [],
+      "rejections": [
+        {
+          "candidateId": "quota-stale",
+          "codes": [
+            "QUOTA_STALE"
+          ]
+        },
+        {
+          "candidateId": "quota-unknown",
+          "codes": [
+            "CONFIDENCE_BELOW_MINIMUM",
+            "QUOTA_PARTIAL",
+            "QUOTA_UNKNOWN"
+          ]
+        },
+        {
+          "candidateId": "quota-partial",
+          "codes": [
+            "CONFIDENCE_BELOW_MINIMUM",
+            "QUOTA_PARTIAL"
+          ]
+        }
+      ],
+      "decisionFingerprint": "233c631534451eae23e9a3010bb8121302151afd260254d8e8258bbb5ed22111"
+    },
+    {
+      "id": "vision-context-limits",
+      "tags": [
+        "vision",
+        "near-limit-prompt",
+        "near-limit-output",
+        "unknown-model",
+        "no-route"
+      ],
+      "requestFingerprint": "c59ae3f05f5b4c8aa6f4bdfd634cfd0f33ffe468f7d42823e8afdc8fe209f745",
+      "profileFingerprint": "539cf5d3dfb6cd66dd6c5ec13bb213fa4078804db6f77a64dd667366494632fb",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "no-route",
+      "primaryCandidateId": null,
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [],
+      "rejections": [
+        {
+          "candidateId": "vision-context",
+          "codes": [
+            "CONTEXT_LIMIT_EXCEEDED"
+          ]
+        },
+        {
+          "candidateId": "vision-output",
+          "codes": [
+            "OUTPUT_LIMIT_UNKNOWN"
+          ]
+        }
+      ],
+      "decisionFingerprint": "1098b14713728caa1a58c5402b828ee47f6a8325dd8f18d7db00fbed9d30587e"
+    },
+    {
+      "id": "free-catalog-evidence",
+      "tags": [
+        "unknown-free",
+        "not-free",
+        "ineligible",
+        "expired-catalog",
+        "verified-free",
+        "prefer-free"
+      ],
+      "requestFingerprint": "ac6605bbc288494f9ba6713166cc7f81ea690e90deedcd44c95abd06920f31c7",
+      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "routed",
+      "primaryCandidateId": "free-verified",
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [
+        "free-verified"
+      ],
+      "rejections": [
+        {
+          "candidateId": "free-unknown",
+          "codes": [
+            "FREE_TIER_NOT_VERIFIED"
+          ]
+        },
+        {
+          "candidateId": "free-expired",
+          "codes": [
+            "CATALOG_EXPIRED"
+          ]
+        },
+        {
+          "candidateId": "free-paid",
+          "codes": [
+            "FREE_TIER_NOT_VERIFIED"
+          ]
+        },
+        {
+          "candidateId": "free-ineligible",
+          "codes": [
+            "FREE_TIER_NOT_VERIFIED"
+          ]
+        }
+      ],
+      "decisionFingerprint": "a4ddd80af4d32545fa479ef5082735053112fd76da75a82306f946a34ab098a7"
+    },
+    {
+      "id": "health-matrix",
+      "tags": [
+        "healthy",
+        "degraded",
+        "unavailable",
+        "closed"
+      ],
+      "requestFingerprint": "6cce8dc1275722bc883e87b3dca4e4ef17835f3b6eced16f6f36161904c78c1d",
+      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "routed",
+      "primaryCandidateId": "health-ready",
+      "fallbackCandidateIds": [
+        "health-degraded"
+      ],
+      "feasibleCandidateIds": [
+        "health-ready",
+        "health-degraded"
+      ],
+      "rejections": [
+        {
+          "candidateId": "health-unavailable",
+          "codes": [
+            "PROVIDER_UNAVAILABLE"
+          ]
+        },
+        {
+          "candidateId": "health-closed",
+          "codes": [
+            "PROVIDER_CLOSED"
+          ]
+        }
+      ],
+      "decisionFingerprint": "6c117641e301d609c0c199c6571cedb674ff349e4706f0780b4abbc3ca38f344"
+    },
+    {
+      "id": "local-capacity-matrix",
+      "tags": [
+        "local-capacity",
+        "local-concurrency-exhausted",
+        "local-memory-exhausted",
+        "prefer-local"
+      ],
+      "requestFingerprint": "208971916d91a8c79ca8534c6e9ec87ff3ffa3e5a8db1e62beaab27348e6de32",
+      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "routed",
+      "primaryCandidateId": "local-ready",
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [
+        "local-ready"
+      ],
+      "rejections": [
+        {
+          "candidateId": "local-busy",
+          "codes": [
+            "CAPACITY_INSUFFICIENT"
+          ]
+        },
+        {
+          "candidateId": "local-memory",
+          "codes": [
+            "CAPACITY_INSUFFICIENT"
+          ]
+        }
+      ],
+      "decisionFingerprint": "3e6d3a95d51de69a1766d5f62ffc82959a5307bfe922fd128a078df3b905d8f9"
+    },
+    {
+      "id": "explicit-primary",
+      "tags": [
+        "explicit-primary",
+        "bounded-fallback"
+      ],
+      "requestFingerprint": "60efd504e1dee1e9bf348cfcbe7489f4147b34a1848fe9bc13aa2a6423cdbc45",
+      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "routed",
+      "primaryCandidateId": "primary",
+      "fallbackCandidateIds": [
+        "alternate"
+      ],
+      "feasibleCandidateIds": [
+        "primary",
+        "alternate"
+      ],
+      "rejections": [],
+      "decisionFingerprint": "81cc647bef0f352ce1173a145ececac6b117f03d9eb5a662f8f281b496ffdf54"
+    },
+    {
+      "id": "explicit-alternate-strict",
+      "tags": [
+        "explicit-alternate",
+        "strict-no-fallback"
+      ],
+      "requestFingerprint": "61f7868ea51e85a85349b0df9a80a1dbc56a3a1b335532b5356e6e5b7be520c2",
+      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "routed",
+      "primaryCandidateId": "alternate",
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [
+        "alternate"
+      ],
+      "rejections": [
+        {
+          "candidateId": "primary",
+          "codes": [
+            "EXPLICIT_ALIAS_MISMATCH"
+          ]
+        }
+      ],
+      "decisionFingerprint": "5a34a625e0a08bdd12e7714ee6d574c1d8d2915c718b1b378123bd15ab0b9839"
+    },
+    {
+      "id": "budget-currency-exceeded",
+      "tags": [
+        "known-budget",
+        "exceeded-budget",
+        "currency-mismatch",
+        "no-route"
+      ],
+      "requestFingerprint": "2075a9e435a36454f00f773049d3a277b94687016bdca941e2b28b9d6dfe1219",
+      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "no-route",
+      "primaryCandidateId": null,
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [],
+      "rejections": [
+        {
+          "candidateId": "currency",
+          "codes": [
+            "CURRENCY_MISMATCH"
+          ]
+        }
+      ],
+      "decisionFingerprint": "69361e530da991eb27e737c75ded3ce0ea5009b244ea31828834ade9f4f56ce6"
+    },
+    {
+      "id": "heuristic-estimator",
+      "tags": [
+        "heuristic-estimate",
+        "exact-estimate",
+        "upper-bound-estimate",
+        "no-route"
+      ],
+      "requestFingerprint": "d7ea592a6fe76a55766964b836f54b8c0d45f53792550c98992702d28eb5a9f2",
+      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
+      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "outcome": "no-route",
+      "primaryCandidateId": null,
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [],
+      "rejections": [
+        {
+          "candidateId": "heuristic",
+          "codes": [
+            "ESTIMATOR_ACCURACY_INSUFFICIENT"
+          ]
+        }
+      ],
+      "decisionFingerprint": "1e2f8d44e47971eb673804fac49dccb60c3dba141da90b80098c1dfdecf693cf"
+    },
+    {
+      "id": "tie-and-permutation",
+      "tags": [
+        "equal-score-tie",
+        "permuted-input"
+      ],
+      "requestFingerprint": "ca4017f6844d4fb8e023eb90829e95b61673b33a587483a17e13a39a5a6b8c57",
+      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
+      "routerConfigurationFingerprint": "3566069923b0bf1a814d4e31af397fb8f083fe12e832970de48bbb00216ede13",
+      "outcome": "routed",
+      "primaryCandidateId": "tie-b",
+      "fallbackCandidateIds": [
+        "tie-a"
+      ],
+      "feasibleCandidateIds": [
+        "tie-b",
+        "tie-a"
+      ],
+      "rejections": [],
+      "decisionFingerprint": "375a422e8fce286069de3253f34cebc8114bafdc36c63e9b9a29598a1bf2180a"
+    },
+    {
+      "id": "circuit-open",
+      "tags": [
+        "open-circuit",
+        "no-route"
+      ],
+      "requestFingerprint": "ac973e35f491e21b66695b191d4cd1c902972cd89832dd2ab86f485973511373",
+      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
+      "routerConfigurationFingerprint": "7180a1e4c65ebf630136bdf6eebb5cc2b5daa0b0a3e91b12704795f78242b5da",
+      "outcome": "no-route",
+      "primaryCandidateId": null,
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [],
+      "rejections": [
+        {
+          "candidateId": "circuit-open",
+          "codes": [
+            "CIRCUIT_OPEN"
+          ]
+        }
+      ],
+      "decisionFingerprint": "b1dacc5a90d265d86c3d6223405fa77c4021524ccf496c169a7286f8197286dd"
+    },
+    {
+      "id": "circuit-half-open",
+      "tags": [
+        "half-open-circuit"
+      ],
+      "requestFingerprint": "c0a9d5a22ec50996d612939d5c617bdda9d48b6bbe968c690c054de11fa70022",
+      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
+      "routerConfigurationFingerprint": "7180a1e4c65ebf630136bdf6eebb5cc2b5daa0b0a3e91b12704795f78242b5da",
+      "outcome": "routed",
+      "primaryCandidateId": "circuit-half",
+      "fallbackCandidateIds": [],
+      "feasibleCandidateIds": [
+        "circuit-half"
+      ],
+      "rejections": [],
+      "decisionFingerprint": "a8a6dbc102ade27a64e0fa30185b2f17a23c12a254036d374f9ef1841004f4c9"
+    }
+  ]
+}
