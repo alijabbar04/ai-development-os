@@ -129,6 +129,7 @@ export interface CandidateFixtureSpec {
   readonly inputLoggingAllowed?: boolean;
   readonly outputLoggingAllowed?: boolean;
   readonly retentionAllowed?: boolean;
+  readonly secureVerifiedAt?: string;
 }
 
 function evidenceClaim() {
@@ -523,7 +524,7 @@ export async function routingCandidateFixture(input: {
     secureExecution: createSecureExecutionEvidence({
       level: spec.secureExecution ?? "none",
       sourceFingerprint: fixtureDigest(`secure-execution-${spec.candidateId}`),
-      verifiedAt: "2026-08-05T09:59:00.000Z"
+      verifiedAt: spec.secureVerifiedAt ?? "2026-08-05T09:59:00.000Z"
     }),
     expectedLatencyMs: spec.expectedLatencyMs === undefined ? 500 : spec.expectedLatencyMs,
     evidenceObservedAt: "2026-08-05T09:59:00.000Z"

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseTokenEstimate, tokenEstimateFingerprint } from "@ai-dev-os/profiler";
 import {
   DEFAULT_ROUTER_CONFIGURATION,
   candidatePolicyEvidenceFingerprint,
@@ -136,6 +137,50 @@ describe("evidence validation and substitution resistance", () => {
       candidates: [recreateCandidate(candidate, { costEstimate: invented })]
     });
     expect(route(changed).rejections[0]?.codes).toContain("COST_EVIDENCE_MISMATCH");
+  });
+
+  it("contains arithmetic overflow to one candidate instead of aborting the route", async () => {
+    const request = await routingRequestFixture({
+      specs: [
+        { candidateId: "overflowing", alias: "overflowing" },
+        { candidateId: "healthy", alias: "healthy" }
+      ]
+    });
+    const overflowing = request.candidates.find((item) => item.candidateId === "overflowing")!;
+    const estimateUnsigned = Object.freeze({
+      ...overflowing.tokenEstimate,
+      inputTokens: Number.MAX_SAFE_INTEGER,
+      cachedInputTokens: null,
+      outputAllowanceTokens: 0,
+      reasoningAllowanceTokens: 0,
+      totalTokens: Number.MAX_SAFE_INTEGER,
+      contextContributionTokens: Number.MAX_SAFE_INTEGER,
+      breakdown: Object.freeze({
+        messages: Number.MAX_SAFE_INTEGER,
+        schema: 0,
+        tools: 0,
+        images: 0,
+        artifacts: 0,
+        fixedFraming: 0,
+        safetyMargin: 0
+      })
+    });
+    const { fingerprint: _oldFingerprint, ...estimateWithoutFingerprint } = estimateUnsigned;
+    const hugeEstimate = parseTokenEstimate({
+      ...estimateWithoutFingerprint,
+      fingerprint: tokenEstimateFingerprint(estimateWithoutFingerprint)
+    });
+    const changed = recreateRequest(request, {
+      candidates: request.candidates.map((candidate) =>
+        candidate.candidateId === "overflowing"
+          ? recreateCandidate(candidate, { tokenEstimate: hugeEstimate })
+          : candidate
+      )
+    });
+    const decision = route(changed);
+    expect(decision.primary?.candidateId).toBe("healthy");
+    expect(decision.rejections.find((item) => item.candidateId === "overflowing")?.codes)
+      .toContain("ARITHMETIC_BOUND_EXCEEDED");
   });
 
   it("rejects health-fingerprint substitution and duplicate candidate identities", async () => {

@@ -37,7 +37,7 @@ import {
   parseCircuitBreakerState,
   type CircuitBreakerState
 } from "./circuit.js";
-import { HEX_64, SAFE_ID, SAFE_KIND, compareText, digest } from "./shared.js";
+import { HEX_64, SAFE_ID, compareText, digest } from "./shared.js";
 
 const {
   ensureArray,

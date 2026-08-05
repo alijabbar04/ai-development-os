@@ -367,6 +367,48 @@ describe("hard feasibility filters", () => {
     expect(decision.primary?.confidence).toBeLessThan(1_000);
   });
 
+  it("applies reservation safety margin to hard quota proof", async () => {
+    const decision = await one({
+      candidateId: "quota-margin",
+      alias: "quota-margin",
+      tokensRemaining: 9_500
+    });
+    expect(decision.rejections[0]?.codes).toContain("QUOTA_INSUFFICIENT");
+  });
+
+  it("prefers preserving configured request/token reserves without making them a hard gate", async () => {
+    const decision = decide(await routingRequestFixture({
+      specs: [
+        { candidateId: "reserve-low", alias: "reserve-low", requestsRemaining: 1 },
+        { candidateId: "reserve-safe", alias: "reserve-safe", requestsRemaining: 100 }
+      ]
+    }));
+    expect(decision.primary?.candidateId).toBe("reserve-safe");
+    expect(decision.feasible).toHaveLength(2);
+    const sole = await one({
+      candidateId: "reserve-only",
+      alias: "reserve-only",
+      requestsRemaining: 1
+    });
+    expect(sole.outcome).toBe("routed");
+    expect(sole.primary?.scoreComponents.find((item) => item.term === "protected-reserve")?.value)
+      .toBe(-1_000);
+  });
+
+  it("honors the locked minimum estimator accuracy policy", async () => {
+    const configuration = createRouterConfiguration({
+      hardEvidence: Object.freeze({
+        ...DEFAULT_ROUTER_CONFIGURATION.hardEvidence,
+        minimumEstimatorAccuracy: "exact"
+      })
+    });
+    const decision = await one(
+      { candidateId: "upper-only", alias: "upper-only" },
+      { configuration }
+    );
+    expect(rejectionCodes(decision)).toContain("ESTIMATOR_ACCURACY_INSUFFICIENT");
+  });
+
   it("uses fresh reset evidence only within its exact quota scope", async () => {
     const withReset = await one({ candidateId: "reset", alias: "reset" });
     const withoutReset = await one({
@@ -402,6 +444,19 @@ describe("hard feasibility filters", () => {
       secureExecution: "secure-enforcing"
     });
     expect(rejectionCodes(wrongSurface)).toContain("WRONG_PROVIDER_KIND");
+    for (const [candidateId, secureVerifiedAt] of [
+      ["agent-stale", "2026-08-05T09:50:00.000Z"],
+      ["agent-future", "2026-08-05T10:01:00.000Z"]
+    ] as const) {
+      const stale = await one({
+        candidateId,
+        alias: candidateId,
+        providerKind: "coding-agent",
+        secureExecution: "secure-enforcing",
+        secureVerifiedAt
+      }, { surface: "task-execution" });
+      expect(rejectionCodes(stale)).toContain("SECURE_EXECUTION_STALE");
+    }
   });
 
   it("rejects open and unadmitted half-open circuit states", async () => {

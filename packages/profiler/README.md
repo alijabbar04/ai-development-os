@@ -38,7 +38,7 @@ Estimates account separately for message bytes, structured-output schema, tools,
 
 ## Configuration and public API
 
-Profiler schema, profile algorithm, provenance, estimator contract, and token-estimate schema versions are all `1`. Configuration is immutable, bounded, fingerprinted, and conservative. It controls classifier enablement/confidence, repository/context/proposal bounds, maximum estimator input bytes, heuristic safety margin, and minimum hard-fit accuracy.
+Profiler schema, profile algorithm, provenance, estimator contract, and token-estimate schema versions are all `1`. Configuration is immutable, bounded, fingerprinted, and conservative. It controls classifier enablement/confidence, repository/context/proposal bounds, maximum estimator input bytes, and heuristic safety margin. The router's separately locked configuration sets the minimum estimator accuracy permitted for hard context proof.
 
 `parseProfilerConfigurationExtension` accepts the Stage 6 `profiler` extension only from a system layer whose provider field is locked. Lower-priority layers cannot weaken profiling semantics.
 

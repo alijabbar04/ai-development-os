@@ -24,7 +24,7 @@
     "README.md"
   ],
   "scripts": {
-    "prebuild": "npm --prefix ../config run build && npm --prefix ../policy run build && npm --prefix ../provider-catalog run build && npm --prefix ../provider-gateway run build && npm --prefix ../telemetry-ledger run build && npm --prefix ../profiler run build",
+    "prebuild": "npm --prefix ../config run build && npm --prefix ../provider-catalog run build && npm --prefix ../provider-gateway run build && npm --prefix ../telemetry-ledger run build && npm --prefix ../profiler run build",
     "build": "tsc -p tsconfig.json",
     "pretest": "npm run prebuild",
     "test": "vitest run",
@@ -37,7 +37,6 @@
   "dependencies": {
     "@ai-dev-os/config": "^0.1.0",
     "@ai-dev-os/domain": "^0.1.0",
-    "@ai-dev-os/policy": "^0.1.0",
     "@ai-dev-os/profiler": "^0.1.0",
     "@ai-dev-os/provider-catalog": "^0.1.0",
     "@ai-dev-os/provider-gateway": "^0.1.0",

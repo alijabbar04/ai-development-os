@@ -118,9 +118,9 @@
         "upper-bound-estimate",
         "capable-model"
       ],
-      "requestFingerprint": "264cc53d9bb67b5b89374181ef0f72c1c7633ee41aef78bca8f140d66b60945c",
-      "profileFingerprint": "00b92c1329c46d541cffdd267be85bb6e35ae758411bfa414868f62a5dfeaaab",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "6dd4a3d51ba4c3540b1b115bbd7757a3b5f45bd140a39bf0bf19391598c8d071",
+      "profileFingerprint": "c8ce76b6fa7293b67a1b5026e5a554fe4b9f1013d79b72d739ab487b28baf940",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "no-route",
       "primaryCandidateId": null,
       "fallbackCandidateIds": [],
@@ -139,7 +139,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "8795938c03cda030b8ec41393004d697ead1555f7a3b1955626ed66ed8c78d2d"
+      "decisionFingerprint": "717250a1a2818bf5a95e07661c2a0adc4125daaa6e42c8a7dfec6aab4c93ee54"
     },
     {
       "id": "architecture-critical-large",
@@ -155,9 +155,9 @@
         "capable-model",
         "prefer-latency"
       ],
-      "requestFingerprint": "23c6c720b434a49853c54065778ab144bcc5c6dd2b30c5321ce61e98b629f1ed",
-      "profileFingerprint": "cb5817c7bcb9c36f1c9b3949877d673fb7d0402d752ad169ef2cf99c722d3a16",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "051adf1be162ba1c0d725351ca432594bd81ddf16e0ee3431812394913857a14",
+      "profileFingerprint": "374411ba0147e0591af9bfdad2756fba2d58a3f9522ac52a5035eeec2dd9d43b",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "no-route",
       "primaryCandidateId": null,
       "fallbackCandidateIds": [],
@@ -170,7 +170,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "8e956c2d7a3e20681e8502e4c05bd14219a378a75f7fd2ee7dd49f38fd4fed93"
+      "decisionFingerprint": "50815314c350d1909f7b8b45a9216bca6d4ce33ebae0f33b33c57d2154c1e1b6"
     },
     {
       "id": "implementation-proprietary",
@@ -187,9 +187,9 @@
         "retention-restricted",
         "prefer-cost"
       ],
-      "requestFingerprint": "d390f08381d12f644e9481524f228655a0cc6816595ac34c5bd2d344deffe58c",
-      "profileFingerprint": "8de80c495dde904edde24743555699d0654ecf31877ac71ea2f5865476893bd6",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "46f9d17c6347a326e13256f6220e2dc029c8ac38bd21829bdafae9e69e8cbe77",
+      "profileFingerprint": "a8c771c5044932a637b2cc4a5d34bf87855c7d118ce390da629f53879a4c0154",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "routed",
       "primaryCandidateId": "implementation",
       "fallbackCandidateIds": [],
@@ -197,7 +197,7 @@
         "implementation"
       ],
       "rejections": [],
-      "decisionFingerprint": "a4032a590240d8941b3bc0ecb2f60d370f8ead11eec8185bf801449a3b4b4fd7"
+      "decisionFingerprint": "d3fa95f5d21612517002f21f7b1472f79a9129d6ca21b6cb7200a7dd84a0223f"
     },
     {
       "id": "refactor-personal-local",
@@ -211,9 +211,9 @@
         "prefer-local",
         "local-capacity"
       ],
-      "requestFingerprint": "46d00087856dda95db43d9cd0538ec73aeff8d3382b2e8788a5ee3cd19895673",
-      "profileFingerprint": "d14678f981591e90b36b0bba45b2d01c55d414c4cda85579595cd4bd32ff0ebb",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "9207605806f94a62e4d3424208e3b448c78b0ad53ce416856fef499ca10f3f7b",
+      "profileFingerprint": "e2b12377f4e681f32bbbeabfd30ef39a3c168728d76ac8abed5d1f5d544f35a9",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "routed",
       "primaryCandidateId": "refactor-local",
       "fallbackCandidateIds": [],
@@ -221,7 +221,7 @@
         "refactor-local"
       ],
       "rejections": [],
-      "decisionFingerprint": "aee7ec31a10819c21a5e6cfa48dcb377e0f3eed0fcbeb34e9f1c2f63bc4b1172"
+      "decisionFingerprint": "05a8ca9b41a39b1d5b4b01d32dae14b0103101e6908c83c9d3501d31201db31d"
     },
     {
       "id": "debug-secret-local",
@@ -235,9 +235,9 @@
         "local-memory-exhausted",
         "no-route"
       ],
-      "requestFingerprint": "b2955dcfc24f60e2823500c421333590ab40e01d26e36089d9f6179de98278cb",
-      "profileFingerprint": "c97db7ae2fddda7487f41dda60bff30470dd738e0876064cb42d4c03d131e3e4",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "47d54a35cf31afd5b90d8541baf0a8360e610bdea7e9ca69ae73ab8fd8d71ab8",
+      "profileFingerprint": "c2241edf8a71360ccd5c77e4aa54240b2bad4a2a1f6ea876ef9d9fe6b9937ac3",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "no-route",
       "primaryCandidateId": null,
       "fallbackCandidateIds": [],
@@ -250,7 +250,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "b53db9a8d560f3f915daf1050bccbd124e2697a5fac9097121fac0512e1d70ec"
+      "decisionFingerprint": "024cb70bdf2af583b6938daa4d779f213130dc0ccd18faee4a67d1f26beb39ab"
     },
     {
       "id": "review-hard-filter",
@@ -261,9 +261,9 @@
         "prefer-cloud",
         "no-route"
       ],
-      "requestFingerprint": "49ca9ab8311db4c2d670ec4f631031696013c2bf99aa26342c70af4300e32c5b",
-      "profileFingerprint": "104187a36f409cff582dfb033511fb42a8fee70c9648b7820545d60f6af98550",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "08dc5ba590e4aa2109066143758e05fab628f3891db03b3e3674a6b3c5eb90b4",
+      "profileFingerprint": "d8452c3b536222e408f0ee5f2fc70d05a0020c0c7626c1aa47c40d8fc5a6f3d2",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "no-route",
       "primaryCandidateId": null,
       "fallbackCandidateIds": [],
@@ -282,7 +282,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "f1d7179fbcc382d6b7c3de48dfca6cfa37b1d35c22102e37729a64e793cb2d42"
+      "decisionFingerprint": "e5829b4144c31f70e1f6d9c56d3743aa972cdcf47deed991d091a94cc1fa13b3"
     },
     {
       "id": "test-limit-exhausted-quota",
@@ -294,9 +294,9 @@
         "protected-reserve",
         "no-route"
       ],
-      "requestFingerprint": "247fe08ba3581649bd910d729b3385e6de169a81d8867300c87fd57aa2ac75c3",
-      "profileFingerprint": "5839269dcfd94828ffed9355ae2f5baf8f77aefe39e5364fc11bd5d9c5ebae63",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "7075f11e2f1068fc89e71711169f5ae24c908580d3409ec547db5e1e941dd74d",
+      "profileFingerprint": "33de252f0f287b17b15d93b3e905d515da439883b7cf8e95f7ffa6d2d9a7f916",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "no-route",
       "primaryCandidateId": null,
       "fallbackCandidateIds": [],
@@ -311,7 +311,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "9f80300cc9e504e865526afc433c7a91a0567b2517b32405494d1cfeb9746991"
+      "decisionFingerprint": "045e54913d7ee328a761d8186b1f6e31dafef40784b1e1694939ffbc0d31dcc0"
     },
     {
       "id": "documentation-unknown-cost",
@@ -322,9 +322,9 @@
         "not-free",
         "no-route"
       ],
-      "requestFingerprint": "41c51cee804063cc14762a7ee08f0f7ccb164a887efcdde44e4e3e13df26b179",
-      "profileFingerprint": "3a02581c7f14f082a9f3085d4597467818d7a29f14500261a8863d34b0bc5bae",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "80fb491fc3a85ac56f3d7bf6b1b5a4165befc8a977400cc4cc25258f104d6972",
+      "profileFingerprint": "638d3e1fb33ea6b6a723829cd7c238827fa9c1d9ec9b1938cf0f5e5e15932915",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "no-route",
       "primaryCandidateId": null,
       "fallbackCandidateIds": [],
@@ -337,7 +337,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "d43123e4045c00ed2bf1f813e78fb213ec57bd184809c059c90536793282abf0"
+      "decisionFingerprint": "11cf04a02a40f2f100465955e01ad33bd3d7e8f0bd056e97470604d856a95f5b"
     },
     {
       "id": "explanation-quota-evidence",
@@ -350,9 +350,9 @@
         "unknown-reset",
         "no-route"
       ],
-      "requestFingerprint": "ddacd5d9bedaa4106752f65c881cfe0969dafadbebb59ceeb7718e1e97c77cee",
-      "profileFingerprint": "8d4415ebcbb8efa4a25088fe5a7c8009d3d766bd1c66528abec808754a254646",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "6f3b82413c06468712e60c4ebaddd5de7bf21862c49862e7874ca638af58fe12",
+      "profileFingerprint": "6fd4dda0918a5a317a874344c6fc175844ca9c093dba9cd6c6d9e36b82b003a0",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "no-route",
       "primaryCandidateId": null,
       "fallbackCandidateIds": [],
@@ -380,7 +380,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "233c631534451eae23e9a3010bb8121302151afd260254d8e8258bbb5ed22111"
+      "decisionFingerprint": "76021158fad0c1e5bfcdf5a81f29f4a574a93f20ff3316a492cdf1ccf1c1d1f4"
     },
     {
       "id": "vision-context-limits",
@@ -391,9 +391,9 @@
         "unknown-model",
         "no-route"
       ],
-      "requestFingerprint": "c59ae3f05f5b4c8aa6f4bdfd634cfd0f33ffe468f7d42823e8afdc8fe209f745",
-      "profileFingerprint": "539cf5d3dfb6cd66dd6c5ec13bb213fa4078804db6f77a64dd667366494632fb",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "0627e9ec9c20184dc561e1054b3d0a3a03b158dadeb5623af1b255ef627764ab",
+      "profileFingerprint": "3c69a3532c27ee683d4e68d8de54a76f75cc418ece38aaecdfd968061d0b525f",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "no-route",
       "primaryCandidateId": null,
       "fallbackCandidateIds": [],
@@ -412,7 +412,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "1098b14713728caa1a58c5402b828ee47f6a8325dd8f18d7db00fbed9d30587e"
+      "decisionFingerprint": "94f75baa0b9f37c4c059d551caf6bc0c71cc585c9ee9252d85c52ee1aaa3d4fd"
     },
     {
       "id": "free-catalog-evidence",
@@ -424,9 +424,9 @@
         "verified-free",
         "prefer-free"
       ],
-      "requestFingerprint": "ac6605bbc288494f9ba6713166cc7f81ea690e90deedcd44c95abd06920f31c7",
-      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "00e62b6608b849e1ea9db00ed365700ab79f6f84d3c51be315f941510500348b",
+      "profileFingerprint": "e9792b0889b3e3af4dc130d48a3ccd58630677346a16b698c1d822191820f454",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "routed",
       "primaryCandidateId": "free-verified",
       "fallbackCandidateIds": [],
@@ -459,7 +459,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "a4ddd80af4d32545fa479ef5082735053112fd76da75a82306f946a34ab098a7"
+      "decisionFingerprint": "5e1ed786d19382fb8e3109432c84645eb54ac28b08dd376c26936cb1df567aae"
     },
     {
       "id": "health-matrix",
@@ -469,9 +469,9 @@
         "unavailable",
         "closed"
       ],
-      "requestFingerprint": "6cce8dc1275722bc883e87b3dca4e4ef17835f3b6eced16f6f36161904c78c1d",
-      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "976436cab0d95744ec787880ab467b4a1fbbe68848ec6e82ea877a843ccb9663",
+      "profileFingerprint": "e9792b0889b3e3af4dc130d48a3ccd58630677346a16b698c1d822191820f454",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "routed",
       "primaryCandidateId": "health-ready",
       "fallbackCandidateIds": [
@@ -495,7 +495,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "6c117641e301d609c0c199c6571cedb674ff349e4706f0780b4abbc3ca38f344"
+      "decisionFingerprint": "0a52c359080c26350b065e45682810c76898f2aa6909b7f486dabfe22ac1ea2b"
     },
     {
       "id": "local-capacity-matrix",
@@ -505,9 +505,9 @@
         "local-memory-exhausted",
         "prefer-local"
       ],
-      "requestFingerprint": "208971916d91a8c79ca8534c6e9ec87ff3ffa3e5a8db1e62beaab27348e6de32",
-      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "b7935b83404c09c29b8fde73166497387341e9852d740c937b579cb4c6b5903c",
+      "profileFingerprint": "e9792b0889b3e3af4dc130d48a3ccd58630677346a16b698c1d822191820f454",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "routed",
       "primaryCandidateId": "local-ready",
       "fallbackCandidateIds": [],
@@ -528,7 +528,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "3e6d3a95d51de69a1766d5f62ffc82959a5307bfe922fd128a078df3b905d8f9"
+      "decisionFingerprint": "e3d7456d80ecec280098fa1f7c9be63b0bd584c0a3844916bfeb0cd42fd2484b"
     },
     {
       "id": "explicit-primary",
@@ -536,9 +536,9 @@
         "explicit-primary",
         "bounded-fallback"
       ],
-      "requestFingerprint": "60efd504e1dee1e9bf348cfcbe7489f4147b34a1848fe9bc13aa2a6423cdbc45",
-      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "3c67ede44f1c3b7ef3c407f802ed67b0163aadcb1dc51e34e85822e65f4f5279",
+      "profileFingerprint": "e9792b0889b3e3af4dc130d48a3ccd58630677346a16b698c1d822191820f454",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "routed",
       "primaryCandidateId": "primary",
       "fallbackCandidateIds": [
@@ -549,7 +549,7 @@
         "alternate"
       ],
       "rejections": [],
-      "decisionFingerprint": "81cc647bef0f352ce1173a145ececac6b117f03d9eb5a662f8f281b496ffdf54"
+      "decisionFingerprint": "de74b299cf99bb4917b22f618aeb62c4b2b3c913ab94bd9999651bfab7bf67ce"
     },
     {
       "id": "explicit-alternate-strict",
@@ -557,9 +557,9 @@
         "explicit-alternate",
         "strict-no-fallback"
       ],
-      "requestFingerprint": "61f7868ea51e85a85349b0df9a80a1dbc56a3a1b335532b5356e6e5b7be520c2",
-      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "1a8bd69a1271da1f44b04a5259bf249dcc60b13283fdd5c74f7d1d33ef7fca23",
+      "profileFingerprint": "e9792b0889b3e3af4dc130d48a3ccd58630677346a16b698c1d822191820f454",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "routed",
       "primaryCandidateId": "alternate",
       "fallbackCandidateIds": [],
@@ -574,7 +574,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "5a34a625e0a08bdd12e7714ee6d574c1d8d2915c718b1b378123bd15ab0b9839"
+      "decisionFingerprint": "f786bfe5fc96d86c6657f9d92d209b3b589f5f8ff08b1cfd42cf8ba58799cf68"
     },
     {
       "id": "budget-currency-exceeded",
@@ -584,9 +584,9 @@
         "currency-mismatch",
         "no-route"
       ],
-      "requestFingerprint": "2075a9e435a36454f00f773049d3a277b94687016bdca941e2b28b9d6dfe1219",
-      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "7e96e81ff8ced97399c60c6e38de4ce53bec71aedc789c9c3f9d9eb231ded86e",
+      "profileFingerprint": "e9792b0889b3e3af4dc130d48a3ccd58630677346a16b698c1d822191820f454",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "no-route",
       "primaryCandidateId": null,
       "fallbackCandidateIds": [],
@@ -599,7 +599,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "69361e530da991eb27e737c75ded3ce0ea5009b244ea31828834ade9f4f56ce6"
+      "decisionFingerprint": "dc9d3717c47d69035cfbcaec2a49dec43879b6331a1eab06fe7c83fad424067c"
     },
     {
       "id": "heuristic-estimator",
@@ -609,9 +609,9 @@
         "upper-bound-estimate",
         "no-route"
       ],
-      "requestFingerprint": "d7ea592a6fe76a55766964b836f54b8c0d45f53792550c98992702d28eb5a9f2",
-      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
-      "routerConfigurationFingerprint": "b418a78a13a78ccd72e3017181ed645a5e69924ef0c0491c23522ffe19c81b19",
+      "requestFingerprint": "bbbd786eeeb7f0f0ccc0850f3a84ac56f62d9f5f88f58af8288cff2c8fc2f473",
+      "profileFingerprint": "e9792b0889b3e3af4dc130d48a3ccd58630677346a16b698c1d822191820f454",
+      "routerConfigurationFingerprint": "c0e16d1839a3a26360f37be26243b01802cd41fe6d85bd8dfb5775660265579b",
       "outcome": "no-route",
       "primaryCandidateId": null,
       "fallbackCandidateIds": [],
@@ -624,7 +624,7 @@
           ]
         }
       ],
-      "decisionFingerprint": "1e2f8d44e47971eb673804fac49dccb60c3dba141da90b80098c1dfdecf693cf"
+      "decisionFingerprint": "2b53d14e5061b6b3e2ea6c92d6eeb89d3fe9e4fa4e010e05bfe1694f686d09df"
     },
     {
       "id": "tie-and-permutation",
@@ -632,9 +632,9 @@
         "equal-score-tie",
         "permuted-input"
       ],
-      "requestFingerprint": "ca4017f6844d4fb8e023eb90829e95b61673b33a587483a17e13a39a5a6b8c57",
-      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
-      "routerConfigurationFingerprint": "3566069923b0bf1a814d4e31af397fb8f083fe12e832970de48bbb00216ede13",
+      "requestFingerprint": "f336316584e345f3e1c1636c2086a5885351eeb767f394ce7c5b02ae3335036a",
+      "profileFingerprint": "e9792b0889b3e3af4dc130d48a3ccd58630677346a16b698c1d822191820f454",
+      "routerConfigurationFingerprint": "653c4beb705fc59ba64fc96620b8ae4e9f7e912d408dc34e2c659af16caa2b1c",
       "outcome": "routed",
       "primaryCandidateId": "tie-b",
       "fallbackCandidateIds": [
@@ -645,7 +645,7 @@
         "tie-a"
       ],
       "rejections": [],
-      "decisionFingerprint": "375a422e8fce286069de3253f34cebc8114bafdc36c63e9b9a29598a1bf2180a"
+      "decisionFingerprint": "45d321d2e8ed4fa89746edcac5937a7b20a6e7f31f5a9860c8e43ca3b945b924"
     },
     {
       "id": "circuit-open",
@@ -653,9 +653,9 @@
         "open-circuit",
         "no-route"
       ],
-      "requestFingerprint": "ac973e35f491e21b66695b191d4cd1c902972cd89832dd2ab86f485973511373",
-      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
-      "routerConfigurationFingerprint": "7180a1e4c65ebf630136bdf6eebb5cc2b5daa0b0a3e91b12704795f78242b5da",
+      "requestFingerprint": "a4299721dbcebaffd47b4ab2c8e2c568d993b970e623fa6a27f9aa80885e2991",
+      "profileFingerprint": "e9792b0889b3e3af4dc130d48a3ccd58630677346a16b698c1d822191820f454",
+      "routerConfigurationFingerprint": "4649688b733e73243dde900324ef7b00e101bad314795b13bdc911c105ae8236",
       "outcome": "no-route",
       "primaryCandidateId": null,
       "fallbackCandidateIds": [],
@@ -668,16 +668,16 @@
           ]
         }
       ],
-      "decisionFingerprint": "b1dacc5a90d265d86c3d6223405fa77c4021524ccf496c169a7286f8197286dd"
+      "decisionFingerprint": "0d6d9da0e4dad6002bcad56b2298ef7611c64873ba374f6c301d8f32016e11e0"
     },
     {
       "id": "circuit-half-open",
       "tags": [
         "half-open-circuit"
       ],
-      "requestFingerprint": "c0a9d5a22ec50996d612939d5c617bdda9d48b6bbe968c690c054de11fa70022",
-      "profileFingerprint": "9ef829697cabce18d2f5fe2dcc47e8eb5708d187326d7618a29beab128a26bb8",
-      "routerConfigurationFingerprint": "7180a1e4c65ebf630136bdf6eebb5cc2b5daa0b0a3e91b12704795f78242b5da",
+      "requestFingerprint": "969c2b5c6ed99afc8825b542dd7015abb174fc195f29673c035cbbd9aea67f08",
+      "profileFingerprint": "e9792b0889b3e3af4dc130d48a3ccd58630677346a16b698c1d822191820f454",
+      "routerConfigurationFingerprint": "4649688b733e73243dde900324ef7b00e101bad314795b13bdc911c105ae8236",
       "outcome": "routed",
       "primaryCandidateId": "circuit-half",
       "fallbackCandidateIds": [],
@@ -685,7 +685,7 @@
         "circuit-half"
       ],
       "rejections": [],
-      "decisionFingerprint": "a8a6dbc102ade27a64e0fa30185b2f17a23c12a254036d374f9ef1841004f4c9"
+      "decisionFingerprint": "f9fa6457db2b384a4b011a0c6ce45bcab0e1c2f0b03a48f83001f8156cde5f07"
     }
   ]
 }

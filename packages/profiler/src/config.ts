@@ -4,7 +4,6 @@ import { digest } from "./shared.js";
 
 const {
   ensureBoolean,
-  ensureEnum,
   ensureExactKeys,
   ensureRecord,
   ensureSafeInteger,
@@ -29,7 +28,6 @@ export interface ProfilerConfiguration {
   readonly maximumProposalTasks: number;
   readonly maximumEstimatorInputBytes: number;
   readonly heuristicSafetyMarginBps: number;
-  readonly minimumHardFitAccuracy: Exclude<EstimatorAccuracyClass, "heuristic">;
   readonly fingerprint: string;
 }
 
@@ -41,8 +39,7 @@ const DEFAULT_UNSIGNED_PROFILER_CONFIGURATION = Object.freeze({
   maximumContextItems: 4_096,
   maximumProposalTasks: 256,
   maximumEstimatorInputBytes: 1_000_000_000,
-  heuristicSafetyMarginBps: 2_500,
-  minimumHardFitAccuracy: "proven-upper-bound" as const
+  heuristicSafetyMarginBps: 2_500
 });
 
 export function profilerConfigurationFingerprint(
@@ -67,7 +64,6 @@ export function parseProfilerConfiguration(
       "maximumProposalTasks",
       "maximumEstimatorInputBytes",
       "heuristicSafetyMarginBps",
-      "minimumHardFitAccuracy",
       "fingerprint"
     ],
     path
@@ -115,11 +111,6 @@ export function parseProfilerConfiguration(
       `${path}.heuristicSafetyMarginBps`,
       0,
       100_000
-    ),
-    minimumHardFitAccuracy: ensureEnum(
-      record["minimumHardFitAccuracy"],
-      `${path}.minimumHardFitAccuracy`,
-      ["exact", "proven-upper-bound"] as const
     )
   });
   const fingerprint = validation.ensureString(record["fingerprint"], `${path}.fingerprint`, {
@@ -176,7 +167,7 @@ export function inspectProfilerConfiguration(configuration: ProfilerConfiguratio
   return toCanonicalJson({
     schemaVersion: configuration.schemaVersion,
     classifierEnabled: configuration.classifierEnabled,
-    minimumHardFitAccuracy: configuration.minimumHardFitAccuracy,
+    heuristicSafetyMarginBps: configuration.heuristicSafetyMarginBps,
     fingerprint: configuration.fingerprint
   });
 }

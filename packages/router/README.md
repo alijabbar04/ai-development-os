@@ -20,9 +20,9 @@ For each candidate, the router first applies finite deterministic rejection code
 - policy outcome, classification, locality, retention, training, logging, network, and trusted handling restrictions;
 - catalog enablement/freshness and verified-free-only proof;
 - provider/catalog capabilities, coding/reasoning ratings, context/output proof, and estimator accuracy;
-- health, exact quota scope/completeness/freshness/remaining use, and local capacity safety reserves;
+- health, exact quota scope/completeness/freshness/remaining use (including reservation safety margin), and local capacity safety reserves;
 - circuit state and explicitly admitted half-open probes;
-- secure-enforcing coding-agent isolation evidence;
+- fresh secure-enforcing coding-agent isolation evidence;
 - exact cost consistency, currency, conservative budget fit, latency, deadline, and confidence.
 
 An excluded candidate is never scored and can never become a primary or fallback. Explicit aliases are strict pins unless that request explicitly permits fallback; an infeasible strict pin returns no route. Fallbacks come only from the same hard-feasible set and remain bounded by locked configuration.
@@ -31,7 +31,7 @@ An excluded candidate is never scored and can never become a primary or fallback
 
 The versioned score vector has thirteen fixed term IDs covering capability margin, quality evidence, cost, latency, locality, alias order, verified-free evidence, quota headroom/reset evidence, protected reserve, capacity, health, context headroom, and evidence confidence.
 
-Values are bounded integers in `[-1000, 1000]`; weights are bounded integers in `[0, 1000]`. BigInt intermediates protect weighted and total arithmetic. Stage 6 cost/latency/locality preferences scale only soft terms. Missing evidence receives documented conservative negative/zero values, never invented positive credit. Equal scores use the stable candidate fingerprint as the final total-order tie-break, and request creation canonicalizes candidate order before fingerprinting.
+Values are bounded integers in `[-1000, 1000]`; weights are bounded integers in `[0, 1000]`. BigInt intermediates protect weighted and total arithmetic. Stage 6 cost/latency/locality preferences scale only soft terms. Protected request/token reserves are intentionally a soft preference: the router preserves them when alternatives exist but can use the last feasible route rather than inventing a hard outage. Missing evidence receives documented conservative negative/zero values, never invented positive credit. Equal scores use the stable candidate fingerprint as the final total-order tie-break, and request creation canonicalizes candidate order before fingerprinting.
 
 Decision validity is the earliest applicable declared expiry or configured maximum-age boundary. Execution must revalidate catalog, configuration, policy, estimator, health, quota, capacity, circuit, and budget evidence.
 
@@ -45,7 +45,7 @@ The circuit breaker is a pure, identity-bound, versioned closed/open/half-open s
 
 ## Configuration and public API
 
-Router schema, routing algorithm, circuit algorithm, candidate/evidence, and configuration versions are all `1`. `RouterConfiguration` controls evidence freshness, hard known-evidence modes, protected reserves, score weights, fallback bounds, confidence, circuit thresholds, reservation margins, and structural bounds.
+Router schema, routing algorithm, circuit algorithm, candidate/evidence, and configuration versions are all `1`. `RouterConfiguration` controls catalog/health/quota/capacity/secure-execution freshness, hard known-evidence modes, minimum estimator accuracy, protected reserves, score weights, fallback bounds, confidence, circuit thresholds, reservation margins, and structural bounds.
 
 `parseRouterConfigurationExtension` accepts the Stage 6 `router` extension only from a system layer with the providers field locked. Application preferences remain configuration data; production code contains no built-in preferred commercial model.
 

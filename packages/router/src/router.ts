@@ -46,12 +46,13 @@ interface CandidateEvaluation {
   readonly selectedAlias: string | null;
   readonly explicitlyPinned: boolean;
   readonly codes: readonly RouteRejectionCode[];
-  readonly reservation: BudgetReservationPlan;
+  readonly reservation: BudgetReservationPlan | null;
   readonly confidence: RouteConfidence;
   readonly validUntil: string;
 }
 
-interface ScoredCandidate extends CandidateEvaluation {
+interface ScoredCandidate extends Omit<CandidateEvaluation, "reservation"> {
+  readonly reservation: BudgetReservationPlan;
   readonly components: readonly RouteScoreComponent[];
   readonly totalScore: number;
 }
@@ -92,6 +93,12 @@ function quotaDimension(
   dimension: "tokens" | "requests"
 ): { readonly remaining: number | null; readonly limit: number | null } | undefined {
   return candidate.quota.dimensions.find((item) => item.dimension === dimension);
+}
+
+function withSafetyMarginOrNull(value: number, basisPoints: number): number | null {
+  const amount = BigInt(value);
+  const result = amount + (amount * BigInt(basisPoints) + 9_999n) / 10_000n;
+  return result > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(result);
 }
 
 function aliasesForCandidate(
@@ -265,6 +272,7 @@ function catalogFailures(
 function contextFailures(
   request: RoutingRequest,
   candidate: RoutingCandidateSnapshot,
+  configuration: RouterConfiguration,
   codes: Set<RouteRejectionCode>
 ): void {
   const estimate = candidate.tokenEstimate;
@@ -276,7 +284,12 @@ function contextFailures(
   ) {
     addCode(codes, "ESTIMATOR_IDENTITY_MISMATCH");
   }
-  if (!estimate.canProveContextFit || estimate.accuracy === "heuristic") {
+  if (
+    !estimate.canProveContextFit ||
+    estimate.accuracy === "heuristic" ||
+    (configuration.hardEvidence.minimumEstimatorAccuracy === "exact" &&
+      estimate.accuracy !== "exact")
+  ) {
     addCode(codes, "ESTIMATOR_ACCURACY_INSUFFICIENT");
   }
   const descriptorContext = candidate.gateway.model.model.contextWindowTokens;
@@ -349,6 +362,13 @@ function runtimeFailures(
   if (candidate.quota.state === "exhausted") addCode(codes, "QUOTA_EXHAUSTED");
   const requestQuota = quotaDimension(candidate, "requests");
   const tokenQuota = quotaDimension(candidate, "tokens");
+  const requiredQuotaTokens = withSafetyMarginOrNull(
+    candidate.tokenEstimate.totalTokens,
+    configuration.reservation.tokenSafetyMarginBps
+  );
+  if (requiredQuotaTokens === null) {
+    addCode(codes, "ARITHMETIC_BOUND_EXCEEDED");
+  }
   if (
     requestQuota?.remaining !== null &&
     requestQuota?.remaining !== undefined &&
@@ -359,7 +379,8 @@ function runtimeFailures(
   if (
     tokenQuota?.remaining !== null &&
     tokenQuota?.remaining !== undefined &&
-    tokenQuota.remaining < candidate.tokenEstimate.totalTokens
+    requiredQuotaTokens !== null &&
+    tokenQuota.remaining < requiredQuotaTokens
   ) {
     addCode(codes, "QUOTA_INSUFFICIENT");
   }
@@ -418,6 +439,20 @@ function runtimeFailures(
     request.halfOpenProbeCandidateId !== candidate.candidateId
   ) {
     addCode(codes, "HALF_OPEN_PROBE_NOT_ADMITTED");
+  }
+  if (
+    candidate.gateway.descriptor.kind === "coding-agent" &&
+    !isFresh(
+      nowMs,
+      candidate.secureExecution.verifiedAt,
+      new Date(
+        milliseconds(candidate.secureExecution.verifiedAt) +
+          configuration.freshness.secureExecutionMs
+      ).toISOString(),
+      configuration.freshness.secureExecutionMs
+    )
+  ) {
+    addCode(codes, "SECURE_EXECUTION_STALE");
   }
 }
 
@@ -493,7 +528,7 @@ function evaluateCandidate(
   catalogFailures(request, candidate, nowMs, configuration, codes);
   if (candidate.gateway.model.availability === "unavailable") addCode(codes, "MODEL_UNAVAILABLE");
   providerCapabilityFailures(request, candidate, codes);
-  contextFailures(request, candidate, codes);
+  contextFailures(request, candidate, configuration, codes);
   runtimeFailures(request, candidate, nowMs, configuration, codes);
   if (candidate.gateway.descriptor.kind === "coding-agent") {
     if (candidate.secureExecution.level !== "secure-enforcing") {
@@ -514,15 +549,20 @@ function evaluateCandidate(
   ) {
     addCode(codes, "DEADLINE_INCOMPATIBLE");
   }
-  const reservation = planBudgetReservation({
-    account: request.budgetAccount,
-    reservationId: `route-${digest({ request: request.requestId, candidate: candidate.candidateId }).slice(0, 48)}`,
-    requestedAt: nowIso,
-    tokenEstimate: candidate.tokenEstimate,
-    costEstimate: candidate.costEstimate,
-    expectedDurationMs: request.expectedDurationMs,
-    configuration
-  });
+  let reservation: BudgetReservationPlan | null = null;
+  try {
+    reservation = planBudgetReservation({
+      account: request.budgetAccount,
+      reservationId: `route-${digest({ request: request.requestId, candidate: candidate.candidateId }).slice(0, 48)}`,
+      requestedAt: nowIso,
+      tokenEstimate: candidate.tokenEstimate,
+      costEstimate: candidate.costEstimate,
+      expectedDurationMs: request.expectedDurationMs,
+      configuration
+    });
+  } catch {
+    addCode(codes, "ARITHMETIC_BOUND_EXCEEDED");
+  }
   if (
     candidate.costEstimate.status === "known" &&
     (candidate.gateway.model.model.cost === null ||
@@ -533,23 +573,27 @@ function evaluateCandidate(
     candidate.gateway.model.model.cost !== null &&
     candidate.costEstimate.status === "known"
   ) {
-    const cached = candidate.tokenEstimate.cachedInputTokens ?? 0;
-    const exactCost = estimateModelCost(candidate.gateway.model.model, {
-      inputTokens: candidate.tokenEstimate.inputTokens - cached,
-      outputTokens: candidate.tokenEstimate.outputAllowanceTokens,
-      cachedInputTokens: cached,
-      reasoningTokens: candidate.tokenEstimate.reasoningAllowanceTokens
-    });
-    if (
-      exactCost.currency !== candidate.costEstimate.currency ||
-      exactCost.amountMicros !== candidate.costEstimate.amountMicros
-    ) {
-      addCode(codes, "COST_EVIDENCE_MISMATCH");
+    try {
+      const cached = candidate.tokenEstimate.cachedInputTokens ?? 0;
+      const exactCost = estimateModelCost(candidate.gateway.model.model, {
+        inputTokens: candidate.tokenEstimate.inputTokens - cached,
+        outputTokens: candidate.tokenEstimate.outputAllowanceTokens,
+        cachedInputTokens: cached,
+        reasoningTokens: candidate.tokenEstimate.reasoningAllowanceTokens
+      });
+      if (
+        exactCost.currency !== candidate.costEstimate.currency ||
+        exactCost.amountMicros !== candidate.costEstimate.amountMicros
+      ) {
+        addCode(codes, "COST_EVIDENCE_MISMATCH");
+      }
+    } catch {
+      addCode(codes, "ARITHMETIC_BOUND_EXCEEDED");
     }
   }
-  if (reservation.code === "COST_UNKNOWN") addCode(codes, "COST_UNKNOWN");
-  if (reservation.code === "CURRENCY_MISMATCH") addCode(codes, "CURRENCY_MISMATCH");
-  if (reservation.code === "BUDGET_EXCEEDED") addCode(codes, "BUDGET_INSUFFICIENT");
+  if (reservation?.code === "COST_UNKNOWN") addCode(codes, "COST_UNKNOWN");
+  if (reservation?.code === "CURRENCY_MISMATCH") addCode(codes, "CURRENCY_MISMATCH");
+  if (reservation?.code === "BUDGET_EXCEEDED") addCode(codes, "BUDGET_INSUFFICIENT");
   let confidenceScore = request.profile.confidence.score;
   const confidenceReasons: string[] = [...request.profile.confidence.reasonCodes];
   if (candidate.health.status === "degraded") {
@@ -604,6 +648,12 @@ function evaluateCandidate(
           candidate.capacity.staleAt,
           configuration.freshness.capacityMs
         )
+      : null,
+    candidate.gateway.descriptor.kind === "coding-agent"
+      ? new Date(
+          milliseconds(candidate.secureExecution.verifiedAt) +
+            configuration.freshness.secureExecutionMs
+        ).toISOString()
       : null,
     request.deadline
   ]);
@@ -662,6 +712,12 @@ function scoreCandidate(
   configuration: RouterConfiguration,
   nowIso: string
 ): ScoredCandidate {
+  if (evaluation.reservation === null) {
+    throw new RouterError(
+      "BUDGET_PLAN_FAILED",
+      "A feasible candidate must have a validated reservation plan."
+    );
+  }
   const candidate = evaluation.candidate;
   const model = candidate.gateway.model.model;
   const reasoningMinimum = REASONING_RATINGS[request.profile.effective.reasoning];
@@ -695,14 +751,26 @@ function scoreCandidate(
     tokenQuota?.remaining === null || tokenQuota?.remaining === undefined || tokenQuota.limit === null
       ? -1_000
       : ratioScore(tokenQuota.remaining, tokenQuota.limit);
+  const requiredQuotaTokens = withSafetyMarginOrNull(
+    candidate.tokenEstimate.totalTokens,
+    configuration.reservation.tokenSafetyMarginBps
+  );
   const remainingAfter =
-    tokenQuota?.remaining === null || tokenQuota?.remaining === undefined
+    tokenQuota?.remaining === null ||
+    tokenQuota?.remaining === undefined ||
+    requiredQuotaTokens === null
       ? null
-      : tokenQuota.remaining - candidate.tokenEstimate.totalTokens;
+      : tokenQuota.remaining - requiredQuotaTokens;
+  const requestQuota = quotaDimension(candidate, "requests");
+  const requestsRemainingAfter =
+    requestQuota?.remaining === null || requestQuota?.remaining === undefined
+      ? null
+      : requestQuota.remaining - 1;
   const reserveValue =
-    remainingAfter === null
+    remainingAfter === null || requestsRemainingAfter === null
       ? -1_000
-      : remainingAfter >= configuration.protectedReserve.tokens
+      : remainingAfter >= configuration.protectedReserve.tokens &&
+          requestsRemainingAfter >= configuration.protectedReserve.requests
         ? 1_000
         : -1_000;
   const capacityValue =
@@ -786,7 +854,7 @@ function scoreCandidate(
       configuration,
       resetFresh ? "fresh-quota-with-reset" : "fresh-quota-without-reset"
     ),
-    term("protected-reserve", reserveValue, configuration, "protected-token-reserve"),
+    term("protected-reserve", reserveValue, configuration, "protected-request-token-reserve"),
     term("capacity-headroom", capacityValue, configuration, "capacity-snapshot"),
     term("health-reliability", healthValue, configuration, "health-snapshot"),
     term("context-headroom", contextValue, configuration, "proven-context-headroom"),
@@ -801,7 +869,12 @@ function scoreCandidate(
     components.reduce((total, component) => total + BigInt(component.weightedValue), 0n),
     "total route score"
   );
-  return Object.freeze({ ...evaluation, components, totalScore });
+  return Object.freeze({
+    ...evaluation,
+    reservation: evaluation.reservation,
+    components,
+    totalScore
+  });
 }
 
 function choiceFrom(scored: ScoredCandidate, rank: number, lowerRankReason: string | null): RouteChoice {
@@ -1017,7 +1090,8 @@ export function routeTaskWithConfiguration(
       "estimator-revalidation",
       "health-revalidation",
       "policy-revalidation",
-      "quota-revalidation"
+      "quota-revalidation",
+      "secure-execution-revalidation"
     ]),
     restrictions,
     authority: "none" as const,

@@ -4,6 +4,7 @@ import { HEX_64, digest } from "./shared.js";
 
 const {
   ensureBoolean,
+  ensureEnum,
   ensureExactKeys,
   ensureRecord,
   ensureSafeInteger,
@@ -40,12 +41,14 @@ export interface RouterConfiguration {
     readonly healthMs: number;
     readonly quotaMs: number;
     readonly capacityMs: number;
+    readonly secureExecutionMs: number;
   };
   readonly hardEvidence: {
     readonly requireKnownQuota: boolean;
     readonly requireKnownCapacityForLocal: boolean;
     readonly requireKnownCostWhenBudgeted: boolean;
     readonly verifiedFreeOnly: boolean;
+    readonly minimumEstimatorAccuracy: "exact" | "proven-upper-bound";
   };
   readonly protectedReserve: {
     readonly requests: number;
@@ -97,13 +100,15 @@ const DEFAULT_UNSIGNED_ROUTER_CONFIGURATION = Object.freeze({
     catalogMs: 86_400_000,
     healthMs: 60_000,
     quotaMs: 60_000,
-    capacityMs: 30_000
+    capacityMs: 30_000,
+    secureExecutionMs: 300_000
   }),
   hardEvidence: Object.freeze({
     requireKnownQuota: true,
     requireKnownCapacityForLocal: true,
     requireKnownCostWhenBudgeted: true,
-    verifiedFreeOnly: false
+    verifiedFreeOnly: false,
+    minimumEstimatorAccuracy: "proven-upper-bound" as const
   }),
   protectedReserve: Object.freeze({
     requests: 1,
@@ -139,12 +144,22 @@ export function routerConfigurationFingerprint(
 
 function parseFreshness(value: unknown, path: string): RouterConfiguration["freshness"] {
   const record = ensureRecord(value, path);
-  ensureExactKeys(record, ["catalogMs", "healthMs", "quotaMs", "capacityMs"], path);
+  ensureExactKeys(
+    record,
+    ["catalogMs", "healthMs", "quotaMs", "capacityMs", "secureExecutionMs"],
+    path
+  );
   return Object.freeze({
     catalogMs: ensureSafeInteger(record["catalogMs"], `${path}.catalogMs`, 0, 31_536_000_000),
     healthMs: ensureSafeInteger(record["healthMs"], `${path}.healthMs`, 0, 31_536_000_000),
     quotaMs: ensureSafeInteger(record["quotaMs"], `${path}.quotaMs`, 0, 31_536_000_000),
-    capacityMs: ensureSafeInteger(record["capacityMs"], `${path}.capacityMs`, 0, 31_536_000_000)
+    capacityMs: ensureSafeInteger(record["capacityMs"], `${path}.capacityMs`, 0, 31_536_000_000),
+    secureExecutionMs: ensureSafeInteger(
+      record["secureExecutionMs"],
+      `${path}.secureExecutionMs`,
+      0,
+      31_536_000_000
+    )
   });
 }
 
@@ -156,7 +171,8 @@ function parseHardEvidence(value: unknown, path: string): RouterConfiguration["h
       "requireKnownQuota",
       "requireKnownCapacityForLocal",
       "requireKnownCostWhenBudgeted",
-      "verifiedFreeOnly"
+      "verifiedFreeOnly",
+      "minimumEstimatorAccuracy"
     ],
     path
   );
@@ -170,7 +186,12 @@ function parseHardEvidence(value: unknown, path: string): RouterConfiguration["h
       record["requireKnownCostWhenBudgeted"],
       `${path}.requireKnownCostWhenBudgeted`
     ),
-    verifiedFreeOnly: ensureBoolean(record["verifiedFreeOnly"], `${path}.verifiedFreeOnly`)
+    verifiedFreeOnly: ensureBoolean(record["verifiedFreeOnly"], `${path}.verifiedFreeOnly`),
+    minimumEstimatorAccuracy: ensureEnum(
+      record["minimumEstimatorAccuracy"],
+      `${path}.minimumEstimatorAccuracy`,
+      ["exact", "proven-upper-bound"] as const
+    )
   });
 }
 
