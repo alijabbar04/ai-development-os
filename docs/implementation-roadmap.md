@@ -1,7 +1,7 @@
 # AI Development OS Implementation Roadmap
 
 Status: Active  
-Last updated: 2026-08-03
+Last updated: 2026-08-04
 
 ## Delivery rule
 
@@ -436,21 +436,44 @@ Tests and gate (Windows NT 10.0.26200.0, Node 24.17.0, npm 11.13.0, Git 2.54.0.w
 
 Limitations and deferred work: tombstones and `observedAt` remain outside the repository content fingerprint and are covered separately; full/incremental equivalence is void only when the recorded global limit is exhausted; authorization remains a documented two-phase contract; there is no context-pack artifact sink; symbol extraction is bounded regex rather than parsing. Embeddings, vector search, learned ranking, language servers, AST evaluation, model calls, prompt compilation, routing, and provider-specific token estimation remain deferred. The in-memory memory adapter is not durable secure production storage. Production autonomous execution remains blocked until Stage 17 supplies real platform isolation backends.
 
-## Stage 15: Replaceable GPT/Claude Thinker and prompt compiler
+## Stage 15: Replaceable thinker and deterministic prompt compiler
 
-Status: Planned.
+Status: Complete.
 
-Packages: `@ai-dev-os/thinker`, `@ai-dev-os/prompt-compiler`
+Packages: `@ai-dev-os/prompt-compiler`, `@ai-dev-os/thinker`
 
-Deliverables:
+Release checkpoint:
 
-- A replaceable planning/reasoning component with a provider-neutral contract, so the reasoning model is a configuration choice rather than a hard-coded dependency.
-- A deterministic prompt compiler producing bounded, reproducible prompts from context packs, with explicit disclosure checks.
+- Exact base: annotated tag `v0.14.0-context-memory`, tag object `56bf74457911284941474987a4ec7beb912bae38`, peeled release commit `7537d5b12a980fc41f1b5f81425a0667a01ebce0`; the Stage 13 release is an ancestor.
+- Isolated release lane: `feat/stage-15-thinker-prompt-compiler` in `C:\Users\mrali\Projects\ai-dev-os-stage-15-thinker`. Focused commits add the public context-pack validator (`22d4752`), prompt compiler (`923d8d5`), thinker (`cbd209f`), and workspace/lock/documentation registration (`891a8cb`). The Stage 14 source worktree remained clean and unchanged.
+- Final completion record: the commit containing this entry, released by annotated tag `v0.15.0-thinker-prompt-compiler` (the tag is the immutable exact commit reference and can be resolved with `git rev-list -n 1 v0.15.0-thinker-prompt-compiler`).
 
-Tests and gate:
+Delivered:
 
-- Golden prompt corpus replays byte-identically for a fixed input.
-- No thinker output can widen a policy decision or authorize an action.
+- `@ai-dev-os/context` now exposes a complete strict `parseContextPack` public boundary. It reconstructs, freezes, and verifies externally supplied snapshots and their exact pack/request/item/omission/accounting relationships instead of trusting TypeScript assertions. Seven new regressions raise the package to 91 tests. Stage 14 documentation now assigns prompt compilation to Stage 15 while leaving provider-exact token estimation in Stage 16.
+- `@ai-dev-os/prompt-compiler` exposes strict configuration/request/authorization/compiled-prompt parsers, deterministic compilation and fingerprinting, body-free summaries, deny-all and policy-aware authorizers, a reusable contract suite, and Vitest-free fixtures. Authorization is two-step and fail-closed: only an exact, current, fully allowed decision bound to subject, scope, trace, classification, target, context/evidence digests, policy fingerprint, restrictions, and proven transformations can seal an authorization.
+- The compiler emits exactly three messages: fixed compiler-owned system instructions, deterministic trusted developer constraints, and the Stage 14 rendered context pack as explicitly untrusted user evidence. It emits `tools: []`, exact `toolChoice: { mode: "none" }`, and one finite strict structured-output schema. It never selects or invokes a provider, truncates trusted instructions, copies policy internals into the prompt, or calls ambient filesystem/network/process/environment/clock/random sources. Oversized inputs fail with `REPACK_REQUIRED`.
+- `@ai-dev-os/thinker` exposes strict configuration/request/proposal parsers, deterministic target resolution, the provider-gateway port, proposal validation/fingerprinting/summaries, one guarded thinker lifecycle, a reusable backend contract suite, and Vitest-free fixtures. It resolves the explicit override alias or the first configured `planning` alias, rejects missing/disabled/non-inference/coding-agent targets, and never advances to another alias.
+- Each think performs one compilation, one preflight, and exactly one guarded inference invocation. Request, gateway snapshot, provider instance/model, operation event, and result substitutions fail closed. Events and results are fully drained; reasoning/text/output bodies and warning bodies are discarded; tool events and non-stop finishes fail closed; close/cancel are idempotent and the post-invoke close race is covered. There is no retry, fallback, routing, quota/cost ranking, telemetry selection, second model call, task-graph mutation, execution, scheduling, or authority grant.
+- Proposals use a closed bounded schema and validate exact evidence identities/digests, unique IDs/edges, an acyclic DAG, capability/edit-scope ceilings, minimum risk, and non-lowered classification. Unknown, prototype-pollution, approval, grant, secret, command, tool, and runtime-state fields fail closed. Successful values are deeply immutable, have a semantic proposal fingerprint separate from operational receipt data, and carry the literal `authority: "none"`.
+- Dependencies remain public, narrow, and acyclic: prompt compiler -> context/domain/policy/providers; thinker -> config/domain/prompt-compiler/provider-gateway/providers. Neither production package imports concrete adapters, coding-agent providers, telemetry, scheduler, application, workspace, process broker, filesystem, network, credentials, or private package source. Model/provider IDs remain opaque configuration data. A concrete Claude model requires an eligible `InferenceProvider` registration; this repository still has no direct first-party Anthropic inference adapter, and Claude Code/Codex remain separate `CodingAgentProvider` surfaces blocked from production execution until Stage 17 isolation.
+- Prompt compiler schema, template, authorization schema, proposal-output schema, and prompt fingerprint algorithm are version 1. Thinker configuration/result schema, plan schema, thinker/result fingerprint algorithm, and semantic plan fingerprint algorithm are version 1. The reviewed golden prompt fingerprint is `8e9b5c3af2a61c054a0e8a9d2b21116979da7bdd6fd06b55abcd1e68871d3b83`; golden changes require the explicit review/update script.
+
+Tests and gate (Windows NT 10.0.26200.0, Node 24.17.0, npm 11.13.0, Git 2.54.0.windows.1):
+
+- Prompt compiler: typecheck, build, golden/contract/unit/adversarial/property suites, and 35 tests pass. Coverage is 95.49% statements (445/466), 87.54% branches (253/289), 100% functions (129/129), and 96.22% lines (433/450), above the unchanged 90/80/98/90 gates.
+- Thinker: the same public contract passes against two differently identified fake inference targets; typecheck, build, contract/unit/adversarial/property suites, and 69 tests pass. Coverage is 95.47% statements (591/619), 91.64% branches (406/443), 100% functions (118/118), and 96.21% lines (559/581).
+- Context: 91 tests pass after the seven strict-parser regressions. Coverage is 98.47% statements (710/721), 89.28% branches (375/420), 99.27% functions (136/137), and 98.57% lines (693/703).
+- Repository aggregate: 2,373 tests pass with the same 24 expected platform/live capability skips (2,397 total, 571 passing suites, zero failures), exactly reconciling Stage 14's 2,262 passes plus 111 new tests. Numerator-weighted coverage across all 30 workspace reports is 93.77% statements (17,785/18,967), 86.63% branches (11,667/13,467), 97.09% functions (3,505/3,610), and 94.91% lines (16,010/16,868).
+- A clean `npm ci` preserves lockfile SHA-256 `008397bd78e19b5d0d6f0858de7790a5594981d1e3b2a3ec19e80a7ea5221b24` and audits 171 packages with zero vulnerabilities. Full `npm run check` passes in 879.003 seconds, `npm run test:coverage` passes in 485.596 seconds, and `npm audit --audit-level=high` reports zero vulnerabilities. The repository still has no lint script; none was invented or claimed.
+- Package dry-runs contain only README, manifest, and intended compiled `dist` public artifacts: prompt compiler 34 files / 41,325 packed bytes / 196,731 unpacked bytes; thinker 38 / 39,767 / 185,891. No source tests, coverage, `node_modules`, tarball, journal, database, prompt capture, or credential is included.
+- A fresh exact GUID-named consumer installed 13 transitive internal tarballs with zero vulnerabilities. Before Vitest existed, it imported fixture entry points, reproduced the golden prompt, resolved default and explicit alternate aliases, returned an authority-free fake-target proposal, rejected widening/poisoned output, and proved errors/inspection exclude bodies (`packed-consumer-ok 8e9b5c3af2a61c054a0e8a9d2b21116979da7bdd6fd06b55abcd1e68871d3b83 5f4179e2a8b3d2e6e947541369bc96dff5b3dcceb1c6c2fbedc883541bf21dfb`). After Vitest installation, both public contract entry points passed 6/6 tests; the consumer audit remained clean and the exact verified temporary directory was removed.
+- Static scans find zero internal dependency cycles, undeclared Stage 15 imports, package-private imports, pre-existing reverse edges, orphan Stage 15 modules, tracked generated/temp/secret artifacts, workspace tarballs, conflict markers, disabled Stage 15 tests, production console/filesystem/network/process/environment/dynamic-code calls, ambient time/randomness/locale comparison, commercial model names, concrete-adapter imports, or credential signatures. The exact closed proposal and task schemas have no authority-bearing keys and set `additionalProperties: false`.
+- Adversarial coverage includes injection/fake role and frame markers; Unicode/control/zero-width/bidi and exact UTF-8 boundaries; denied/conditional/stale/unavailable/malformed/substituted authorization; target/context/policy/transformation substitution; no-tools/no-second-call enforcement; stream/result/request/model disagreement; refusal/filter/length/tool finishes; cancellation/deadline/close races; malformed/prototype-polluted proposals; DAG/evidence fabrication; authority widening/risk or classification lowering; observer failures; and body-free errors/inspection/serialization. Reproducible Stage 15 property seeds are `0x15c0ffee`, `0x15da600d`, and `0x15e22025`.
+- Independent audit used Claude Code CLI 2.1.201 with requested alias `opus`, High effort, plan-mode/read-only tools, and exact base/candidate SHAs. The JSON envelope reported the primary model `claude-opus-4-8` (plus auxiliary `claude-haiku-4-5-20251001` usage), 28 turns, and a $1.91774075 total. It traced all Stage 15 production boundaries and supporting released guards, found no release blocker, recorded only two non-blocking implementation observations, and returned `PASS`. No audit fix or post-fix pass was required; HEAD and clean status were identical before and after.
+- No product live canary or provider/model call was run. Product code sent no prompt, context, repository content, credential, or secret externally; only the explicitly required independent Claude audit received the audit request and repository read access. Linux, macOS, CI, a real inference adapter, and real enforcing isolation were not exercised. No remote is configured, so no push is performed.
+
+Limitations and deferred work: Stage 15 produces bounded proposals and safe receipts only. Provider-specific exact token estimators, task profiling, quota/capacity-aware ranking, cost scoring, fallback, and circuit breakers remain Stage 16; real secure platform isolation remains Stage 17; durable queues, leases, attempts, reservations, scheduling, and application lifecycle remain Stage 18; evaluators, disagreement handling, merging, and Git integration remain Stage 19. A first-party Anthropic inference adapter and later desktop/API/UI surfaces remain separate future work.
 
 ## Stage 16: Deterministic quota-aware routing engine
 
@@ -625,6 +648,6 @@ run, because Stage 17 is what makes containment real.
 
 ## Immediate next module after this delivery
 
-Stages 0 through 14 are complete. The next action is Stage 15: implement the replaceable GPT/Claude thinker and deterministic prompt compiler on the released, untrusted, bounded Stage 14 context-pack contract. Keep provider choice replaceable, make compiled prompts byte-reproducible for fixed inputs, and prove thinker output cannot widen policy or authorize actions.
+Stages 0 through 15 are complete. The next action is Stage 16: implement the deterministic quota-aware routing engine over explicit task profiles, provider-specific estimators, Stage 13 ledger evidence, and configured hard feasibility constraints. Keep selection reproducible and explainable; classifier output, scores, quota signals, and fallback policy must never override privacy, capability, context, budget, or availability constraints.
 
 One execution constraint also carries forward: no built-in sandbox backend is classified secure-enforcing, so production autonomous execution still refuses before any agent process starts. Shipping autonomous repository execution to users requires Stage 17 to deliver a real enforcing backend on each advertised platform first; until then, every coding-adapter result carries the uncontained-execution warning naming the backend and its security class.
