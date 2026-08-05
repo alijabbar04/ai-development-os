@@ -32,7 +32,7 @@ import {
   systemClock,
   systemScheduler,
 } from "../src/index.js";
-import { contractGrant } from "../src/testing/contract-suite.js";
+import { contractGrant, contractRequest } from "../src/testing/contract-suite.js";
 
 const roots: string[] = [];
 async function scratchRoot(): Promise<string> {
@@ -276,6 +276,16 @@ describe("grant helpers", () => {
     ).toThrow(/expire after/);
   });
 
+  it("sorts multiple granted tools deterministically", () => {
+    const grant = contractGrant({
+      tools: [
+        { toolId: "z-tool", digest: null, immutableReference: null },
+        { toolId: "a-tool", digest: null, immutableReference: null },
+      ],
+    });
+    expect(grant.tools.map((tool) => tool.toolId)).toEqual(["a-tool", "z-tool"]);
+  });
+
   it("rejects a lease that would outlive its grant", () => {
     const time = createManualTime();
     const grant = contractGrant({}, time);
@@ -303,6 +313,8 @@ describe("grant helpers", () => {
     const lease = createExecutionLease({ leaseId: "lease-z", grant: contractGrant({}, time), clock: time });
     lease.release();
     expect(() => lease.assertValid()).toThrow(/already released/);
+    const unsubscribe = lease.onInvalidated(() => undefined);
+    expect(unsubscribe()).toBeUndefined();
   });
 
   it("renews within the grant when renewal was allowed", () => {
@@ -337,6 +349,35 @@ describe("platform backend probes", () => {
       expect(availability.reason).toBe(expected);
       await backend.close();
     }
+  });
+
+  it("keeps the Windows lane unavailable at both probe and grant validation", async () => {
+    const backend = createWindowsSandboxBackend({ platform: "win32" });
+    const expectedDetail =
+      "authoritative-sandbox-schema-and-profile-lifecycle-unverified";
+
+    await expect(backend.probe()).resolves.toEqual({
+      available: false,
+      reason: "not-implemented",
+      detail: expectedDetail,
+    });
+    expect(backend.validateGrant(contractGrant({}, systemClock))).toEqual({
+      available: false,
+      reason: "not-implemented",
+      detail: expectedDetail,
+    });
+    expect(backend.describe()).toMatchObject({
+      backendId: "windows-restricted-job-object",
+      securityClass: "unavailable",
+      capabilities: {
+        filesystemIsolation: false,
+        processTreeControl: false,
+        networkBoundary: "unsupported",
+        identityIsolation: false,
+        profileIsolation: false,
+      },
+    });
+    await backend.close();
   });
 
   it("probes the Linux and macOS primitives without installing anything", async () => {
@@ -457,6 +498,58 @@ describe("unsafe development backend", () => {
     await backend.dispose(session);
     await backend.dispose(session);
     await backend.close();
+  });
+
+  it("closes a live process through the POSIX process-group fallback", async () => {
+    const root = await scratchRoot();
+    const backend = createUnsafeDevelopmentBackend({
+      sessionRoot: join(root, "sessions"),
+      platform: "linux",
+    });
+    const grant = contractGrant({}, systemClock);
+    const session = await backend.prepare({
+      projectId: grant.projectId,
+      workspaceId: grant.workspaceId,
+      snapshotId: grant.snapshotId,
+      attemptId: grant.attemptId,
+      leaseId: "lease-posix-fallback",
+      grant,
+      grantFingerprint: grantFingerprint(grant),
+      policyDecisionFingerprint: grant.policyFingerprint,
+      workspaceRoot: root,
+      expiresAt: grant.expiresAt,
+      nonce: "1".repeat(32),
+    });
+    const tool = createTrustedToolDescriptor({
+      toolId: "node-posix-fallback",
+      executablePath: process.execPath,
+      platform: process.platform as "win32" | "darwin" | "linux",
+      architecture: process.arch as "x64" | "arm64",
+      trustSource: "operator-pinned",
+    });
+    const script = "setInterval(() => {}, 1000)";
+    const child = await backend.spawn({
+      session,
+      request: contractRequest(tool, { args: ["-e", script] }),
+      tool: {
+        toolId: tool.toolId,
+        executablePath: tool.executablePath,
+        digest: tool.expectedDigest,
+        immutableReference: tool.immutableReference,
+      },
+      argv: [process.execPath, "-e", script],
+      environment: buildEnvironment({
+        bindings: [],
+        paths: { tempDir: session.tempDir, homeDir: session.homeDir, configDir: null, cacheDir: null },
+        platform: process.platform,
+        hostEnvironment: process.env,
+      }),
+      workingDirectory: root,
+    });
+    expect(child.pid).not.toBeNull();
+    await backend.close();
+    const exit = await child.wait();
+    expect(exit.exitCode === null || exit.exitCode !== 0).toBe(true);
   });
 });
 

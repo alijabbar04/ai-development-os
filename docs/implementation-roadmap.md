@@ -1,7 +1,7 @@
 # AI Development OS Implementation Roadmap
 
 Status: Active  
-Last updated: 2026-08-04
+Last updated: 2026-08-05
 
 ## Delivery rule
 
@@ -534,6 +534,8 @@ Gated checkpoint progress (2026-08-05; not a Stage 17 release):
 - An independent read-only audit requested Claude Opus at High effort and actually reported `claude-opus-4-8` (with `claude-haiku-4-5-20251001` used only by the CLI support path). It found one valid non-blocking medium future-soundness issue: registration did not pin the canonical corpus identity/count. Commit `11c0a41beb1f61bc7330d1e06f464cc8f1dfbb38` fixed it with regressions; a fresh focused Opus/High post-fix audit passed with no residual finding. HEAD and status were unchanged by both audits.
 - Static, dependency, secret, install-script, package, and consumer checks are recorded in `docs/release-evidence/stage-17-gated-checkpoint.md`. Fresh packed consumers proved the public root/testing imports, private issuer export boundary, opaque-forgery refusal, canonical corpus identity, unavailable platform selection, unsafe production refusal, body-free errors, and zero audit vulnerabilities.
 - Observed host: Windows 11 Pro 10.0.26200 build 26200, x64, Node 24.17.0, npm 11.13.0, Git 2.54.0.windows.1, .NET SDK 9.0.316; no C/C++ compiler/Windows SDK, WSL, container CLI, VM CLI, Linux/macOS runner, configured Git remote, or executable CI surface was available. Checked-in CI names Ubuntu and Windows only and cannot be treated as an execution result without a remote/run.
+- Windows continuation checkpoint: a warnings-as-errors, dependency-free .NET 9 read-only diagnostic loaded the exact System32 `processmodel.dll`, reproduced its SHA-256 `eff290093568efbe27f3918112f3b5f44e8980412d07addfcd69ca7a03f61049`, and confirmed both experimental sandbox exports plus the documented public AppContainer/Job/restricted-token export set. Two clean builds produced an identical framework-dependent no-apphost payload manifest. This is feasibility evidence only: no profile, ACL, Job, or process was created, the diagnostic is not packaged as a production helper, and Windows actual-native corpus evidence remains 0/40.
+- The experimental path is blocked because Microsoft documents schema `0.1.0` and FlatBuffer identifier `SBOX` but neither the installed host nor the published Microsoft documentation/source provides the authoritative `SandboxSpec.fbs` table layout or generated bindings. Field ordinals were not inferred and no unofficial dependency was copied. The preferred next experiment is the documented public Win32 AppContainer plus creation-time Job-list composition, but it requires a persistent per-user profile whose complete same-user deletion/residue lifecycle must be separately authorized and proved first. ADR 0015 and `docs/release-evidence/stage-17-windows-enforcement-checkpoint.md` record the decision and exact evidence.
 
 Release consequence: Windows native restricted-identity/Job/filesystem/network enforcement is not implemented or tested; Linux has no available actual host and no namespace/cgroup implementation or corpus result; macOS has no available actual host or supported tested containment foundation; controlled provider egress is unimplemented and untested. All three backends remain unavailable, production continues to refuse, Stage 17 remains gated, Stage 18 remains blocked, and `v0.17.0-secure-execution-backends` must not be created from this checkpoint.
 
@@ -687,6 +689,6 @@ run, because Stage 17 is what makes containment real.
 
 ## Immediate next module after this delivery
 
-Stages 0 through 16 are complete. The next action is Stage 17: implement and independently validate genuinely enforcing Windows, Linux, and macOS secure-execution backends, including filesystem, process-tree, credential, network/egress, and quota escape tests. Platform-specific primitives, privileges, and installation may be required and must be measured rather than assumed.
+Stages 0 through 16 are complete. Stage 17 remains gated. The smallest Windows action is an explicitly authorized, uniquely named test-only AppContainer profile lifecycle proof that creates no workload and verifies profile/folder/ACL removal with ordinary user rights. If that proof is clean, implement the reviewed public Win32 AppContainer plus creation-time Job-list helper and run the complete 40-vector actual-native corpus. Linux, macOS, and controlled service egress still require their own implementations and actual-platform evidence. Platform-specific primitives, privileges, and installation must be measured rather than assumed.
 
 One execution constraint also carries forward: no built-in sandbox backend is classified secure-enforcing, so production autonomous execution still refuses before any agent process starts. Shipping autonomous repository execution to users requires Stage 17 to deliver a real enforcing backend on each advertised platform first; until then, every coding-adapter result carries the uncontained-execution warning naming the backend and its security class.

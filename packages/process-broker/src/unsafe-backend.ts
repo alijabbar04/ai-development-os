@@ -165,7 +165,11 @@ export function createUnsafeDevelopmentBackend(options: UnsafeBackendOptions): S
       sessions.delete(session.sessionId);
       const root = join(options.sessionRoot, session.sessionId);
       // Bounded and specific: only this session's own generated directory.
-      await rm(root, { recursive: true, force: true }).catch(() => undefined);
+      try {
+        await rm(root, { recursive: true, force: true });
+      } catch {
+        // Cleanup remains best effort for this explicitly unsafe backend.
+      }
     },
 
     async close(): Promise<void> {
@@ -173,7 +177,11 @@ export function createUnsafeDevelopmentBackend(options: UnsafeBackendOptions): S
         return;
       }
       closed = true;
-      await Promise.allSettled([...live].map((entry) => entry.terminateTree(0)));
+      const terminations: Promise<BackendTermination>[] = [];
+      for (const entry of live) {
+        terminations.push(entry.terminateTree(0));
+      }
+      await Promise.allSettled(terminations);
       sessions.clear();
     },
   });

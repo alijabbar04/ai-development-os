@@ -6,14 +6,16 @@
     "tagObject": "9fbaf6e1d7cbae7e026b1dadae6109ac46a884e4",
     "peeledCommit": "c344b1e9264e5306fb648abaa7add6cebc17c3cc"
   },
-  "observedAt": "2026-08-05T14:18:22.0187471Z",
-  "evidenceExpiresAt": "2026-08-05T14:18:22.0187471Z",
+  "observedAt": "2026-08-05T20:46:00.8074265Z",
+  "evidenceExpiresAt": "2026-08-05T20:46:00.8074265Z",
   "releaseEligibility": {
     "eligible": false,
     "roadmapStatus": "gated-on-platform-primitives",
     "tagPermitted": false,
     "blockers": [
-      "windows-native-enforcement-not-implemented-or-tested",
+      "windows-native-enforcement-and-corpus-not-run",
+      "windows-authoritative-experimental-sandbox-schema-unavailable",
+      "windows-appcontainer-profile-lifecycle-not-authorized-or-proved",
       "linux-host-and-native-enforcement-unavailable",
       "macos-host-and-supported-enforcement-unavailable",
       "controlled-provider-egress-not-implemented-or-tested",
@@ -31,14 +33,45 @@
     "npm": "11.13.0",
     "git": "2.54.0.windows.1",
     "dotnetSdk": "9.0.316",
+    "dotnetRuntime": "Microsoft.NETCore.App 9.0.18",
     "nativeCompiler": null,
     "windowsSdk": null,
-    "wsl": "not-installed",
+    "wsl": "launcher-present-feature-not-installed",
     "containerCli": null,
     "vmCli": null,
     "configuredRemote": null,
     "executableCi": null,
     "checkedInCiOperatingSystems": ["ubuntu-latest", "windows-latest"]
+  },
+  "windowsFeasibilityProbe": {
+    "kind": "read-only-diagnostic-not-production-helper",
+    "protocolVersion": 1,
+    "targetFramework": "net9.0-windows",
+    "publishMode": "framework-dependent-no-apphost",
+    "sourceDigest": "45d65a2a19de6810b5dcba104cf2a7199a4c4997f1dd826bb421fc206f57973f",
+    "binaryDigest": "31fa2c9bc61bd692c30f5c521fc43e93094a348f7109df37629a8331d85029b3",
+    "buildDigest": "3886764cfa2a450cff1adfcad357d1d04c57cebc10e94dd192a74896f524b5ee",
+    "twoCleanBuildsByteIdentical": true,
+    "selfTest": "passed",
+    "probeExitCode": 2,
+    "probeStatus": "unavailable",
+    "probeReason": "authoritative-sandbox-schema-and-profile-lifecycle-unverified",
+    "currentProcessInJob": true,
+    "profileMutationAttempted": false,
+    "processCreationAttempted": false,
+    "packaged": false,
+    "processModel": {
+      "loadedFromSystem32": true,
+      "fileVersion": "10.0.26100.8737",
+      "length": 192512,
+      "sha256": "eff290093568efbe27f3918112f3b5f44e8980412d07addfcd69ca7a03f61049",
+      "createProcessInSandboxExport": true,
+      "createProcessAsUserInSandboxExport": true,
+      "requiredSandboxSpecVersion": "0.1.0",
+      "requiredFileIdentifier": "SBOX",
+      "authoritativeSchemaLayoutAvailable": false
+    },
+    "publicCompositionExportsPresent": true
   },
   "escapeCorpus": {
     "version": 1,
@@ -53,7 +86,7 @@
     "result": "not-run",
     "positiveControlsPassed": false,
     "actualEnforcementTestCount": 0,
-    "mockProtocolTestCount": 75,
+    "mockProtocolTestCount": 77,
     "mockProtocolTestsAreEnforcementEvidence": false
   },
   "providerControlPlaneEgress": {
@@ -79,12 +112,18 @@
       "helper": null,
       "protocolVersion": null,
       "artifactDigest": null,
+      "networkBoundary": "deny-all-only-unimplemented",
+      "controlledEgress": "unimplemented",
       "primitives": {
         "restrictedIdentity": "not-implemented",
         "raceFreeJobOwnership": "not-implemented",
         "filesystemBoundary": "not-implemented",
         "denyAllNetwork": "not-implemented",
-        "controlledEgress": "not-implemented"
+        "controlledEgress": "not-implemented",
+        "experimentalSandboxExports": "observed-present",
+        "authoritativeSandboxSpec": "unavailable",
+        "appContainerProfileLifecycle": "not-run-authorization-required",
+        "currentParentJob": "observed-present-nested-child-job-not-run"
       },
       "boundaries": {
         "filesystem": "unverified",
@@ -108,8 +147,18 @@
         "network": "unsupported"
       },
       "corpus": { "result": "not-run", "positiveControlsPassed": false, "testCount": 0 },
-      "limitations": ["native-toolchain-unavailable", "privileged-host-changes-not-performed"],
-      "requiredOperatorAction": ["provide-reviewed-native-toolchain", "provide-authorized-primitive-environment"]
+      "limitations": [
+        "native-enforcement-not-implemented",
+        "experimental-api-schema-unavailable",
+        "appcontainer-profile-lifecycle-not-authorized-or-proved",
+        "diagnostic-payload-not-packaged",
+        "privileged-host-changes-not-performed"
+      ],
+      "requiredOperatorAction": [
+        "authorize-ephemeral-appcontainer-profile-lifecycle-proof",
+        "implement-and-package-reviewed-windows-helper",
+        "run-40-vector-native-corpus"
+      ]
     },
     {
       "os": "linux",

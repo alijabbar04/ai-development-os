@@ -297,6 +297,36 @@ describe("Stage 17 endpoint policy contracts (non-enforcement)", () => {
     ).toThrow(/validity window/);
   });
 
+  it("sorts an exact multi-endpoint set deterministically", () => {
+    const base = endpointPolicy();
+    const { fingerprint: _fingerprint, ...unsigned } = base;
+    const canonical = createControlPlaneEndpointPolicy({
+      ...unsigned,
+      endpoints: [
+        {
+          scheme: "https",
+          host: "a.example.invalid",
+          port: 443,
+          purpose: "claude-code-control",
+        },
+        {
+          scheme: "https",
+          host: "z.example.invalid",
+          port: 443,
+          purpose: "codex-control",
+        },
+      ],
+    });
+    const policy = parseControlPlaneEndpointPolicy({
+      ...canonical,
+      endpoints: [...canonical.endpoints].reverse(),
+    });
+    expect(policy.endpoints.map((endpoint) => endpoint.host)).toEqual([
+      "a.example.invalid",
+      "z.example.invalid",
+    ]);
+  });
+
   it.each([
     "Example.invalid",
     "127.0.0.1",
@@ -1055,6 +1085,18 @@ describe("Stage 17 broker flow (mocked protocol, non-enforcement)", () => {
     const harness = await mockProductionHarness("valid", {
       approvalEvidenceRefs: ["approval-a"],
       policyApprovalEvidenceRefs: [],
+    });
+    await expect(harness.broker.execute(harness.input)).rejects.toMatchObject({
+      code: "INVALID_GRANT",
+    });
+    expect(harness.counts()).toEqual({ prepareCount: 0, spawnCount: 0, validateCount: 1 });
+    await harness.broker.close();
+  });
+
+  it("rejects duplicated policy approval evidence even when the count matches", async () => {
+    const harness = await mockProductionHarness("valid", {
+      approvalEvidenceRefs: ["approval-a", "approval-b"],
+      policyApprovalEvidenceRefs: ["approval-a", "approval-a"],
     });
     await expect(harness.broker.execute(harness.input)).rejects.toMatchObject({
       code: "INVALID_GRANT",

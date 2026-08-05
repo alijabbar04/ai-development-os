@@ -18,6 +18,10 @@ import {
   parseProcessRequest,
   resolveTrustedTool,
   systemClock,
+  type BackendExit,
+  type BackendOutputEvent,
+  type BackendProcess,
+  type BackendTermination,
   type ExecuteInput,
   type ExecutionLease,
   type ProcessRequest,
@@ -60,7 +64,180 @@ async function harness(backend: SandboxBackend, root: string) {
   return { broker, context, lease };
 }
 
+class ControlledProcess implements BackendProcess {
+  readonly pid = 4242;
+  readonly #waitPromise: Promise<BackendExit>;
+  readonly #writeFails: boolean;
+  readonly #closeStdinFails: boolean;
+  #resolveWait!: (exit: BackendExit) => void;
+  #rejectWait!: (error: Error) => void;
+  #settled = false;
+
+  constructor(options: {
+    readonly writeFails?: boolean;
+    readonly closeStdinFails?: boolean;
+    readonly immediateExit?: boolean;
+  } = {}) {
+    this.#writeFails = options.writeFails ?? false;
+    this.#closeStdinFails = options.closeStdinFails ?? false;
+    this.#waitPromise = new Promise<BackendExit>((resolve, reject) => {
+      this.#resolveWait = resolve;
+      this.#rejectWait = reject;
+    });
+    if (options.immediateExit === true) {
+      this.finish({ exitCode: 0, signal: null });
+    }
+  }
+
+  onOutput(_listener: (event: BackendOutputEvent) => void): void {}
+
+  wait(): Promise<BackendExit> {
+    return this.#waitPromise;
+  }
+
+  async terminateTree(_graceMs: number): Promise<BackendTermination> {
+    this.finish({ exitCode: null, signal: "terminated" });
+    return { outcome: "terminated", stoppedCount: 1 };
+  }
+
+  async writeStdin(_bytes: Uint8Array): Promise<void> {
+    if (this.#writeFails) throw new Error("synthetic-write-refusal");
+  }
+
+  async closeStdin(): Promise<void> {
+    if (this.#closeStdinFails) throw new Error("synthetic-close-refusal");
+  }
+
+  finish(exit: BackendExit = { exitCode: 0, signal: null }): void {
+    if (this.#settled) return;
+    this.#settled = true;
+    this.#resolveWait(exit);
+  }
+
+  fail(): void {
+    if (this.#settled) return;
+    this.#settled = true;
+    this.#rejectWait(new Error("synthetic-wait-refusal"));
+  }
+}
+
 describe("broker edge paths", () => {
+  it("contains backend stdin write and close failures without an unhandled rejection", async () => {
+    const root = await scratchRoot();
+    const inner = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "s") });
+    const controlled = new ControlledProcess({
+      writeFails: true,
+      closeStdinFails: true,
+      immediateExit: true,
+    });
+    const backend: SandboxBackend = { ...inner, spawn: async () => controlled };
+    const { broker, context, lease } = await harness(backend, root);
+    const effectiveLease = lease();
+    const result = await broker.execute(
+      context(
+        contractRequest(fixtureTool(), {
+          workspaceLeaseId: effectiveLease.leaseId,
+          args: ["--echo-stdin"],
+          stdin: { kind: "bytes", bytes: new TextEncoder().encode("bounded") },
+        }),
+        effectiveLease,
+      ),
+    );
+    expect(result.succeeded).toBe(true);
+    await broker.close();
+  });
+
+  it.each(["lease", "abort"] as const)(
+    "executes the active-process %s cancellation callback",
+    async (kind) => {
+      const root = await scratchRoot();
+      const inner = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "s") });
+      const controlled = new ControlledProcess();
+      let markSpawned!: () => void;
+      const spawned = new Promise<void>((resolve) => {
+        markSpawned = resolve;
+      });
+      const backend: SandboxBackend = {
+        ...inner,
+        spawn: async () => {
+          markSpawned();
+          return controlled;
+        },
+      };
+      const { broker, context, lease } = await harness(backend, root);
+      const effectiveLease = lease();
+      const controller = new AbortController();
+      const execution = broker.execute({
+        ...context(
+          contractRequest(fixtureTool(), {
+            workspaceLeaseId: effectiveLease.leaseId,
+            args: ["--sleep-forever"],
+          }),
+          effectiveLease,
+        ),
+        signal: controller.signal,
+      });
+      await spawned;
+      if (kind === "lease") effectiveLease.revoke();
+      else controller.abort();
+      const result = await execution;
+      expect(result.state).toBe(kind === "lease" ? "lease-expired" : "cancelled");
+      await broker.close();
+    },
+  );
+
+  it.each([false, true])(
+    "settles a controlled duplex write (reject=%s) and its wait callback",
+    async (writeFails) => {
+      const root = await scratchRoot();
+      const inner = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "s") });
+      const controlled = new ControlledProcess({ writeFails });
+      const backend: SandboxBackend = { ...inner, spawn: async () => controlled };
+      const { broker, context, lease } = await harness(backend, root);
+      const effectiveLease = lease();
+      const request = contractRequest(fixtureTool(), {
+        workspaceLeaseId: effectiveLease.leaseId,
+        args: ["--duplex-lines"],
+        environment: [{ kind: "literal", name: "CONTRACT_VALUE", value: "present" }],
+      });
+      const session = await broker.openDuplexSession(context(request, effectiveLease));
+      const write = session.write(new TextEncoder().encode("line\n"));
+      if (writeFails) {
+        await expect(write).rejects.toMatchObject({ code: "BACKEND_LOST" });
+      } else {
+        await write;
+        controlled.finish();
+      }
+      const result = await session.result;
+      expect(result.state).toBe(writeFails ? "backend-lost" : "succeeded");
+      await broker.close();
+    },
+  );
+
+  it("maps a rejected duplex backend wait to a body-free backend-lost result", async () => {
+    const root = await scratchRoot();
+    const inner = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "s") });
+    const controlled = new ControlledProcess();
+    const backend: SandboxBackend = { ...inner, spawn: async () => controlled };
+    const { broker, context, lease } = await harness(backend, root);
+    const effectiveLease = lease();
+    const session = await broker.openDuplexSession(
+      context(
+        contractRequest(fixtureTool(), {
+          workspaceLeaseId: effectiveLease.leaseId,
+          args: ["--duplex-lines"],
+        }),
+        effectiveLease,
+      ),
+    );
+    controlled.fail();
+    await expect(session.result).resolves.toMatchObject({
+      state: "backend-lost",
+      failure: { code: "BACKEND_LOST" },
+    });
+    await broker.close();
+  });
+
   it("reports a backend spawn failure as a structured error", async () => {
     const root = await scratchRoot();
     const inner = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "s") });

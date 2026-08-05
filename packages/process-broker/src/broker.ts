@@ -569,7 +569,6 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
 
     const stoppers: Array<() => void> = [];
     let terminationPromise: Promise<BackendTermination> | null = null;
-    const currentTermination = (): Promise<BackendTermination> | null => terminationPromise;
     const stopAll = (): void => {
       for (const stop of stoppers.splice(0)) {
         try {
@@ -720,7 +719,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       resolveResult(result);
     };
     void child.wait().then(
-      (exit) => finalize(exit),
+      finalize,
       () => finalize({ exitCode: null, signal: null }),
     );
 

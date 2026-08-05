@@ -112,6 +112,7 @@ interface ProbeOnly {
   readonly backendId: string;
   readonly kind: BackendKind;
   readonly platform: NodeJS.Platform;
+  readonly validationDetail?: string;
   probe(): Promise<BackendAvailability>;
 }
 
@@ -135,7 +136,7 @@ function probeOnlyBackend(spec: ProbeOnly): SandboxBackend {
       Object.freeze({
         available: false,
         reason: "not-implemented" as const,
-        detail: "enforcement-not-implemented",
+        detail: spec.validationDetail ?? "enforcement-not-implemented",
       }),
     prepare: async (): Promise<SandboxSession> => refuse(spec.backendId, await availability()),
     spawn: async (): Promise<BackendProcess> => refuse(spec.backendId, await availability()),
@@ -195,6 +196,8 @@ export function createWindowsSandboxBackend(
     backendId: WINDOWS_BACKEND_ID,
     kind: "windows-job-object",
     platform,
+    validationDetail:
+      "authoritative-sandbox-schema-and-profile-lifecycle-unverified",
     async probe(): Promise<BackendAvailability> {
       if (platform !== "win32") {
         return Object.freeze({
@@ -203,13 +206,17 @@ export function createWindowsSandboxBackend(
           detail: "requires-windows",
         });
       }
-      // Enforcing Job Objects and restricted tokens require native Win32
-      // calls. Adding a native dependency to obtain them is a decision for
-      // the packaging and security review, not something to do implicitly.
+      // The observed host exposes the documented Win32/AppContainer/Job APIs
+      // and the experimental processmodel exports, but export presence does
+      // not prove a production composition. The experimental route has no
+      // authoritative bundled FlatBuffer layout, while both documented routes
+      // require a reviewed, completely removable AppContainer profile and
+      // actual native corpus evidence. The read-only .NET feasibility probe
+      // records those facts without creating persistent host state.
       return Object.freeze({
         available: false,
         reason: "not-implemented" as const,
-        detail: "requires-native-job-object-and-restricted-token",
+        detail: "authoritative-sandbox-schema-and-profile-lifecycle-unverified",
       });
     },
   });

@@ -404,7 +404,11 @@ async function digestFile(
       cause: errorCategory(error),
     });
   } finally {
-    await handle.close().catch(() => undefined);
+    try {
+      await handle.close();
+    } catch {
+      // A close failure cannot change the digest result or replace the read error.
+    }
   }
   return hash.digest("hex");
 }

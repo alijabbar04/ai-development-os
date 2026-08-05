@@ -2,6 +2,8 @@ node_modules/
 dist/
 coverage/
 .vitest/
+**/bin/
+**/obj/
 *.tsbuildinfo
 *.log
 .env
