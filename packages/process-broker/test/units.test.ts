@@ -354,7 +354,7 @@ describe("platform backend probes", () => {
   it("keeps the Windows lane unavailable at both probe and grant validation", async () => {
     const backend = createWindowsSandboxBackend({ platform: "win32" });
     const expectedDetail =
-      "authoritative-sandbox-schema-and-profile-lifecycle-unverified";
+      "windows-native-process-composition-and-corpus-unverified";
 
     await expect(backend.probe()).resolves.toEqual({
       available: false,

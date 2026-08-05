@@ -68,22 +68,24 @@ in [`docs/release-evidence/stage-17-platform-truth-table.json`](../../docs/relea
 ### Windows native continuation
 
 The Windows continuation is an honest feasibility checkpoint, not a native
-enforcement result. A dependency-free `net9.0-windows` diagnostic under
+enforcement result. Dependency-free `net9.0-windows` evidence tooling under
 `native/windows-feasibility-probe` proved that the exact System32
 `processmodel.dll` and both experimental sandbox exports exist on the observed
 Windows 11 build. It also found the documented AppContainer, restricted-token,
-process-attribute, and Job Object exports. The diagnostic performs no profile,
-ACL, Job, or process mutation, cannot issue process-broker evidence, and is not
-included in the npm tarball.
+process-attribute, and Job Object exports. Its ordinary probe/self-test path is
+read-only, cannot issue process-broker evidence, and is not included in the npm
+tarball.
 
 Export presence is not a boundary. Microsoft's experimental API requires an
 exact `SandboxSpec.fbs` FlatBuffer layout; no installed or published
 authoritative layout was available, so field ordinals were not inferred and
-no unofficial schema was copied. The documented public Win32 alternative
-requires a persistent per-user AppContainer profile before it can launch a
-no-capability network-denied process. Its create/delete and residue behavior
-must be proved in a separately authorized ephemeral-profile experiment before
-implementation proceeds.
+no unofficial schema was copied. A separately authorized lifecycle proof then
+created exactly one uniquely named same-user AppContainer profile with zero
+capabilities and one task-owned ACL directory. It observed the profile folder,
+mapping/storage registry records, and explicit SID grant; restored the original
+DACL; freed the SID; deleted the profile and directory; and independently
+confirmed zero measured folder, registry, ACL, or directory residue. It
+launched no workload, created no Job, and is not native enforcement evidence.
 
 The only candidate production network shape is deny-all with no AppContainer
 network capability, proxy, allowlist, or loopback exemption. Controlled
@@ -91,7 +93,7 @@ service egress remains a separate unavailable boundary. All quota dimensions
 remain `unsupported` in the current Windows descriptor, all isolation
 capabilities remain false, and both `probe()` and `validateGrant()` refuse with
 stable detail
-`authoritative-sandbox-schema-and-profile-lifecycle-unverified`.
+`windows-native-process-composition-and-corpus-unverified`.
 
 ## Controlled service egress
 
@@ -229,16 +231,17 @@ rejects a different version, fingerprint, or platform count.
 
 | Platform | Shipped status | Actual escape tests | Native artifact | What remains |
 | --- | --- | ---: | --- | --- |
-| Windows 11 10.0.26200 x64 | unavailable | 0 | read-only diagnostic only; no production helper | authorize and prove ephemeral AppContainer profile cleanup, then implement/package the public Win32 composition and run all 40 positive-control vectors |
+| Windows 11 10.0.26200 x64 | unavailable | 0 | evidence tooling only; no production helper | implement/package the AppContainer plus creation-time Job composition, then run all 40 positive-control vectors |
 | Linux | unavailable/unverified | 0 | none | actual host, namespace/cgroup implementation and positive-control corpus |
 | macOS | unavailable/unverified | 0 | none | actual host, supported documented containment foundation and positive-control corpus |
 
 There is no production native helper to install or remove, no postinstall
-hook, and no runtime download. The read-only diagnostic builds with the
-already installed .NET 9 SDK and produces a framework-dependent DLL with no
-apphost; it is evidence tooling, not a shipped runtime prerequisite. No
-privileged operation, ACL/firewall/AppContainer change, virtualization
-enablement, signing, or external infrastructure change was performed.
+hook, and no runtime download. The evidence tool builds with the already
+installed .NET 9 SDK and produces a framework-dependent DLL with no apphost;
+it is not a shipped runtime prerequisite. The one explicitly authorized
+same-user profile/ACL proof was completely removed. No privileged operation,
+firewall/loopback/proxy change, virtualization enablement, signing, or external
+infrastructure change was performed.
 Recovery from a containment or cleanup failure is fail-closed: quarantine the
 backend registration, confirm task-owned resources are gone, then obtain fresh
 measured evidence; never retry through the unsafe backend.

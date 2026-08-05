@@ -6,8 +6,8 @@
     "tagObject": "9fbaf6e1d7cbae7e026b1dadae6109ac46a884e4",
     "peeledCommit": "c344b1e9264e5306fb648abaa7add6cebc17c3cc"
   },
-  "observedAt": "2026-08-05T20:46:00.8074265Z",
-  "evidenceExpiresAt": "2026-08-05T20:46:00.8074265Z",
+  "observedAt": "2026-08-05T22:40:33.6920650Z",
+  "evidenceExpiresAt": "2026-08-05T22:40:33.6920650Z",
   "releaseEligibility": {
     "eligible": false,
     "roadmapStatus": "gated-on-platform-primitives",
@@ -15,7 +15,7 @@
     "blockers": [
       "windows-native-enforcement-and-corpus-not-run",
       "windows-authoritative-experimental-sandbox-schema-unavailable",
-      "windows-appcontainer-profile-lifecycle-not-authorized-or-proved",
+      "windows-native-process-composition-unimplemented",
       "linux-host-and-native-enforcement-unavailable",
       "macos-host-and-supported-enforcement-unavailable",
       "controlled-provider-egress-not-implemented-or-tested",
@@ -44,18 +44,18 @@
     "checkedInCiOperatingSystems": ["ubuntu-latest", "windows-latest"]
   },
   "windowsFeasibilityProbe": {
-    "kind": "read-only-diagnostic-not-production-helper",
-    "protocolVersion": 1,
+    "kind": "evidence-tool-not-production-helper",
+    "protocolVersion": 2,
     "targetFramework": "net9.0-windows",
     "publishMode": "framework-dependent-no-apphost",
-    "sourceDigest": "45d65a2a19de6810b5dcba104cf2a7199a4c4997f1dd826bb421fc206f57973f",
-    "binaryDigest": "31fa2c9bc61bd692c30f5c521fc43e93094a348f7109df37629a8331d85029b3",
-    "buildDigest": "3886764cfa2a450cff1adfcad357d1d04c57cebc10e94dd192a74896f524b5ee",
+    "sourceDigest": "71d207377eba2bf66596ecf4de4b9eec1961e58366b7e0e2277ff28dfd753111",
+    "binaryDigest": "eb437744f8a09306d6d7caa11b47c5126d39dad109f5a77acdde77c6bc48d156",
+    "buildDigest": "e8df2a0e3c7e6c8b1c39c0e9035f335ec6e434de6f824d31c9978965114d6778",
     "twoCleanBuildsByteIdentical": true,
     "selfTest": "passed",
     "probeExitCode": 2,
     "probeStatus": "unavailable",
-    "probeReason": "authoritative-sandbox-schema-and-profile-lifecycle-unverified",
+    "probeReason": "windows-native-process-composition-and-corpus-unverified",
     "currentProcessInJob": true,
     "profileMutationAttempted": false,
     "processCreationAttempted": false,
@@ -72,6 +72,34 @@
       "authoritativeSchemaLayoutAvailable": false
     },
     "publicCompositionExportsPresent": true
+  },
+  "windowsProfileLifecycleProof": {
+    "kind": "authorized-single-profile-lifecycle-not-enforcement",
+    "protocolVersion": 2,
+    "executedSourceDigest": "d0c787690c09cde1644f40b80c1fa4d7da007340478228e3508f53722b72994f",
+    "executedBinaryDigest": "fc896403faeb582db681d170bf2c64b389bb0710ab49e2ec8ddc69d76d494f6b",
+    "executedBuildDigest": "679d085eb7b98fd754e4df3b0fdaae102d5aaf6748ca5c51eafa9fc3d5201348",
+    "profileNameFingerprint": "6f689cb9039963f534df1bbe6030bb20a78b68e909b9a3e04b3edf0a2c2004cc",
+    "profileSidFingerprint": "4b2c2d95c0307d2839f0b056c3e874bfb29463a0fc589e972449314b9673b18f",
+    "aclRootFingerprint": "4c06e3bdca6342ac3dc6fe37887a1acbf117907c6f8b3eee582823c766a85ed4",
+    "profileCreateCount": 1,
+    "capabilitiesRequested": false,
+    "processCreationAttempted": false,
+    "profileFolderObserved": true,
+    "mappingRegistryObserved": true,
+    "storageRegistryObserved": true,
+    "aclGrantObserved": true,
+    "aclRestored": true,
+    "aclDirectoryRemoved": true,
+    "sidFreed": true,
+    "deleteAttempts": 1,
+    "deleteSucceeded": true,
+    "profileFolderResidueAbsent": true,
+    "mappingRegistryResidueAbsent": true,
+    "storageRegistryResidueAbsent": true,
+    "independentResidueScanPassed": true,
+    "cleanupConfirmed": true,
+    "result": "passed"
   },
   "escapeCorpus": {
     "version": 1,
@@ -122,7 +150,7 @@
         "controlledEgress": "not-implemented",
         "experimentalSandboxExports": "observed-present",
         "authoritativeSandboxSpec": "unavailable",
-        "appContainerProfileLifecycle": "not-run-authorization-required",
+        "appContainerProfileLifecycle": "passed-single-profile-no-workload",
         "currentParentJob": "observed-present-nested-child-job-not-run"
       },
       "boundaries": {
@@ -150,12 +178,12 @@
       "limitations": [
         "native-enforcement-not-implemented",
         "experimental-api-schema-unavailable",
-        "appcontainer-profile-lifecycle-not-authorized-or-proved",
+        "profile-lifecycle-proof-is-not-enforcement",
+        "native-process-composition-unimplemented",
         "diagnostic-payload-not-packaged",
         "privileged-host-changes-not-performed"
       ],
       "requiredOperatorAction": [
-        "authorize-ephemeral-appcontainer-profile-lifecycle-proof",
         "implement-and-package-reviewed-windows-helper",
         "run-40-vector-native-corpus"
       ]

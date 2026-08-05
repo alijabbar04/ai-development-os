@@ -12,8 +12,9 @@ namespace AiDevOs.WindowsSandboxFeasibilityProbe;
 
 internal static partial class Program
 {
-    private const int ProbeProtocolVersion = 1;
+    private const int ProbeProtocolVersion = 2;
     private const int UnavailableExitCode = 2;
+    private const int LifecycleProofFailedExitCode = 3;
     private const int UsageExitCode = 64;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -25,24 +26,29 @@ internal static partial class Program
 
     public static int Main(string[] args)
     {
-        if (args.Length != 1)
-        {
-            WriteStableError("exactly-one-command-required");
-            return UsageExitCode;
-        }
-
         try
         {
-            return args[0] switch
+            if (args.Length == 1)
             {
-                "probe" => RunProbe(),
-                "self-test" => RunSelfTest(),
-                _ => RefuseUnknownCommand(),
-            };
+                return args[0] switch
+                {
+                    "probe" => RunProbe(),
+                    "self-test" => RunSelfTest(),
+                    _ => RefuseUnknownCommand(),
+                };
+            }
+
+            if (args.Length == 3 && args[0] == "profile-lifecycle-proof")
+            {
+                return RunProfileLifecycleProof(args[1], args[2]);
+            }
+
+            WriteStableError("invalid-command-shape");
+            return UsageExitCode;
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
-            WriteStableError("probe-failed");
+            WriteStableError("command-failed");
             return UnavailableExitCode;
         }
     }
@@ -88,6 +94,15 @@ internal static partial class Program
         return passed ? 0 : 1;
     }
 
+    private static int RunProfileLifecycleProof(string profileName, string aclRoot)
+    {
+        ProfileLifecycleProofResult result = AppContainerProfileLifecycleProof.Run(
+            profileName,
+            aclRoot);
+        Console.Out.WriteLine(Serialize(result));
+        return result.Status == "passed" ? 0 : LifecycleProofFailedExitCode;
+    }
+
     private static int RefuseUnknownCommand()
     {
         WriteStableError("unsupported-command");
@@ -116,7 +131,7 @@ internal static partial class Program
 
 internal static class WindowsFeasibilityProbe
 {
-    private const int ProbeProtocolVersion = 1;
+    private const int ProbeProtocolVersion = 2;
     private const uint LoadLibrarySearchSystem32 = 0x00000800;
 
     private static readonly string[] ProcessModelExports =
@@ -174,7 +189,7 @@ internal static class WindowsFeasibilityProbe
             Architecture: RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
             HostVersion: Environment.OSVersion.Version.ToString(),
             Status: "unavailable",
-            Reason: "authoritative-sandbox-schema-and-profile-lifecycle-unverified",
+            Reason: "windows-native-process-composition-and-corpus-unverified",
             CurrentProcessInJob: QueryCurrentProcessJobMembership(),
             ProcessModel: CreateIdentity(processModelPath, processModel.Loaded),
             ExperimentalComposition: processModel,

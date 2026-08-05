@@ -197,7 +197,7 @@ export function createWindowsSandboxBackend(
     kind: "windows-job-object",
     platform,
     validationDetail:
-      "authoritative-sandbox-schema-and-profile-lifecycle-unverified",
+      "windows-native-process-composition-and-corpus-unverified",
     async probe(): Promise<BackendAvailability> {
       if (platform !== "win32") {
         return Object.freeze({
@@ -210,13 +210,15 @@ export function createWindowsSandboxBackend(
       // and the experimental processmodel exports, but export presence does
       // not prove a production composition. The experimental route has no
       // authoritative bundled FlatBuffer layout, while both documented routes
-      // require a reviewed, completely removable AppContainer profile and
-      // actual native corpus evidence. The read-only .NET feasibility probe
-      // records those facts without creating persistent host state.
+      // require a reviewed process-creation composition and actual native
+      // corpus evidence. A separately authorized same-user proof confirmed
+      // that one uniquely named AppContainer profile and task-owned ACL grant
+      // could be created and removed without measured residue, but it launched
+      // no workload and does not establish an enforcement boundary.
       return Object.freeze({
         available: false,
         reason: "not-implemented" as const,
-        detail: "authoritative-sandbox-schema-and-profile-lifecycle-unverified",
+        detail: "windows-native-process-composition-and-corpus-unverified",
       });
     },
   });
