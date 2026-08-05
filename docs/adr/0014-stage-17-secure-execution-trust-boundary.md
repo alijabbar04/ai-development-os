@@ -78,7 +78,9 @@ replay protection; no package-embedded signing key will be used.
    available result.
 5. In production, verify an opaque first-party registration against backend
    object identity, descriptor fingerprint, platform, current time, helper and
-   protocol identities, endpoint policy, and complete per-boundary evidence.
+   protocol identities, endpoint policy, complete per-boundary evidence, and
+   the exact canonical escape-corpus version, fingerprint, and host-applicable
+   vector count.
 6. Prepare bounded isolation state without running repository-controlled code.
 7. Verify a single-use opaque preparation receipt against the exact execution
    binding and current registration.

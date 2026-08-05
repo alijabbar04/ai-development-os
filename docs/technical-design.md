@@ -624,6 +624,9 @@ spawn. A descriptor is only advisory: production requires an opaque
 first-party registration backed by fresh exact-platform/helper/corpus evidence,
 then a single-use receipt from secure preparation bound to the exact
 grant/request/policy/lease/workspace/tool/quota/endpoint configuration.
+Registration verification pins the canonical escape-corpus version,
+fingerprint, and exact host-applicable vector count; an attested shortened or
+substituted corpus fails closed.
 
 Serializable attestations and their router projection are body-free and
 non-authorizing. Raw attestations always project as advisory; only live opaque

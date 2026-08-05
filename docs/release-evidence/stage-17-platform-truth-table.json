@@ -43,10 +43,17 @@
   "escapeCorpus": {
     "version": 1,
     "seed": "stage-17-corpus-seed-0001",
+    "fingerprint": "125b809194d26cf1be518249b96727b78be80c25088826464ec94154a6fb3652",
+    "canonicalVectorCount": 42,
+    "applicableVectorCount": {
+      "win32": 40,
+      "linux": 41,
+      "darwin": 41
+    },
     "result": "not-run",
     "positiveControlsPassed": false,
     "actualEnforcementTestCount": 0,
-    "mockProtocolTestCount": 74,
+    "mockProtocolTestCount": 75,
     "mockProtocolTestsAreEnforcementEvidence": false
   },
   "providerControlPlaneEgress": {

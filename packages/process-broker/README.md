@@ -47,8 +47,9 @@ mock, or successful spawn is never enforcement evidence.
 Production composition additionally supplies an opaque
 `ProductionBackendRegistration`. The broker verifies its object identity,
 backend instance, descriptor fingerprint, exact host/architecture, helper
-source/binary/build identity, protocol, quota matrix, escape-corpus result,
-endpoint policy, and expiry. `prepare()` must return a package-private,
+source/binary/build identity, protocol, quota matrix, exact canonical
+escape-corpus version/fingerprint/host-applicable vector count, endpoint
+policy, and expiry. `prepare()` must return a package-private,
 single-use receipt bound to the exact execution fingerprint. The broker
 rechecks the lease, grant and endpoint expiry, executable identity, and receipt
 before any workload spawn. Unconfirmed tree termination or production cleanup
@@ -190,7 +191,11 @@ backend is released.
 adversarial suite requires an open positive control and an actual-native
 candidate result for every applicable filesystem, process, IPC, network,
 credential, quota, and cleanup vector. A mock harness is rejected and cannot
-be reported as enforcement evidence.
+be reported as enforcement evidence. Corpus v1 contains 42 canonical vectors
+with fingerprint
+`125b809194d26cf1be518249b96727b78be80c25088826464ec94154a6fb3652`;
+40 apply to Windows and 41 each to Linux and macOS. Production registration
+rejects a different version, fingerprint, or platform count.
 
 ## Platform and operational status
 
@@ -212,5 +217,7 @@ then obtain fresh measured evidence; never retry through the unsafe backend.
 The function-coverage threshold is 90 rather than 98 because process-tree
 termination is platform-split by construction: the POSIX process-group path
 cannot execute on Windows and the Windows `taskkill` path cannot execute on
-Linux. Each is covered on its own platform by the CI matrix. This follows the
-precedent set by `@ai-dev-os/provider-ollama`.
+Linux. Checked-in CI configuration is not execution evidence; no remote CI run
+was available for this checkpoint, and native enforcement coverage is zero.
+The retained threshold follows the precedent set by
+`@ai-dev-os/provider-ollama`.
