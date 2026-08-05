@@ -8,6 +8,14 @@ Stage 15 keeps every retrieved context body in the untrusted user layer, compile
 
 Stage 16 turns declared, measured, inferred, and optional classifier facts into an immutable task profile, binds exact or conservative token estimates to an opaque provider/profile/model/catalog identity, and selects only among candidates that pass every policy, capability, context, freshness, quota, capacity, circuit, security, cost, budget, latency, and deadline constraint. Scoring cannot revive an excluded candidate. Route, fallback, circuit, reservation, and reconciliation outputs are deterministic plans with no invocation or durable-mutation authority.
 
+Stage 17 is an active gated checkpoint, not a released stage. The process
+broker now treats backend descriptors as advisory, requires opaque measured
+registration plus a single-use pre-spawn receipt in production, validates
+request/grant/policy/lease monotonicity, and fails closed on unconfirmed
+termination or cleanup. No native Windows, Linux, or macOS enforcement backend
+or controlled provider-egress relay has been proven, so production autonomous
+execution remains refused and no Stage 17 release tag exists.
+
 ## Documents
 
 - [Technical design](docs/technical-design.md)
@@ -61,4 +69,8 @@ with that user's full filesystem, network, and credential access.
 Production mode therefore refuses to execute autonomously. That is the
 intended behaviour: running an agent against a hostile repository on a machine
 with no sandbox is the specific outcome this stage exists to prevent. Enabling
-it requires implementing a real enforcing backend for each advertised platform.
+it requires implementing and actually testing a real enforcing backend for
+each advertised platform. The current Stage 17 checkpoint strengthens this
+refusal against forged descriptors, IDs, summaries, mock sessions, widened
+grants, and cleanup races; it does not convert probes or mocks into platform
+proof.

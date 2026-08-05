@@ -616,6 +616,23 @@ Platform backends can use a hardened container, VM, or OS sandbox. A plain same-
 
 All egress passes through an enforcing proxy that validates DNS and redirects, blocks private and metadata ranges, and records destination and policy decision. Ollama remains loopback-only. Provider data classification is checked before routing quality or price.
 
+The preceding paragraphs describe the required production architecture, not
+the capability of the currently shipped backends. At the Stage 17 gated
+checkpoint all three platform factories remain unavailable probe seams and no
+controlled-egress relay ships. Production admission therefore refuses before
+spawn. A descriptor is only advisory: production requires an opaque
+first-party registration backed by fresh exact-platform/helper/corpus evidence,
+then a single-use receipt from secure preparation bound to the exact
+grant/request/policy/lease/workspace/tool/quota/endpoint configuration.
+
+Serializable attestations and their router projection are body-free and
+non-authorizing. Raw attestations always project as advisory; only live opaque
+registration verification can project `secure-enforcing`, and the broker still
+revalidates at execution. The exact current limitations are recorded in the
+Stage 17 ADR and machine-readable platform truth table. No Windows, Linux, or
+macOS enforcement result is inferred from compilation, workflow YAML, probes,
+or mocks.
+
 ### 20.4 Credentials and data
 
 Credentials live in the OS keychain for desktop or a secret manager for team mode. Workers receive a short-lived reference or process-specific injection only when required. Redaction occurs before prompts, logs, traces, events, memories, cache, and UI publication. Persistent sensitive artifacts are encrypted and support retention, export, and deletion workflows.

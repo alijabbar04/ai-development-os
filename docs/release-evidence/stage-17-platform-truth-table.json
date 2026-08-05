@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "stage-17-gated-platform-truth-table",
+  "stage16Base": {
+    "tag": "v0.16.0-quota-aware-routing",
+    "tagObject": "9fbaf6e1d7cbae7e026b1dadae6109ac46a884e4",
+    "peeledCommit": "c344b1e9264e5306fb648abaa7add6cebc17c3cc"
+  },
+  "observedAt": "2026-08-05T14:18:22.0187471Z",
+  "evidenceExpiresAt": "2026-08-05T14:18:22.0187471Z",
+  "releaseEligibility": {
+    "eligible": false,
+    "roadmapStatus": "gated-on-platform-primitives",
+    "tagPermitted": false,
+    "blockers": [
+      "windows-native-enforcement-not-implemented-or-tested",
+      "linux-host-and-native-enforcement-unavailable",
+      "macos-host-and-supported-enforcement-unavailable",
+      "controlled-provider-egress-not-implemented-or-tested",
+      "actual-positive-control-escape-corpora-not-run"
+    ]
+  },
+  "observationHost": {
+    "os": "win32",
+    "caption": "Microsoft Windows 11 Pro",
+    "version": "10.0.26200",
+    "build": "26200",
+    "architecture": "x64",
+    "processor": "12th Gen Intel(R) Core(TM) i7-12800H",
+    "node": "v24.17.0",
+    "npm": "11.13.0",
+    "git": "2.54.0.windows.1",
+    "dotnetSdk": "9.0.316",
+    "nativeCompiler": null,
+    "windowsSdk": null,
+    "wsl": "not-installed",
+    "containerCli": null,
+    "vmCli": null,
+    "configuredRemote": null,
+    "executableCi": null,
+    "checkedInCiOperatingSystems": ["ubuntu-latest", "windows-latest"]
+  },
+  "escapeCorpus": {
+    "version": 1,
+    "seed": "stage-17-corpus-seed-0001",
+    "result": "not-run",
+    "positiveControlsPassed": false,
+    "actualEnforcementTestCount": 0,
+    "mockProtocolTestCount": 74,
+    "mockProtocolTestsAreEnforcementEvidence": false
+  },
+  "providerControlPlaneEgress": {
+    "policySchemaVersion": 1,
+    "algorithmVersion": 1,
+    "exactClaudeEndpoints": null,
+    "exactCodexEndpoints": null,
+    "relayImplemented": false,
+    "hermeticNativeResult": "not-run",
+    "liveProviderCanary": "not-authorized-not-run",
+    "status": "unavailable"
+  },
+  "platforms": [
+    {
+      "os": "win32",
+      "version": "10.0.26200",
+      "buildOrKernel": "26200",
+      "distribution": "Microsoft Windows 11 Pro",
+      "architecture": "x64",
+      "backendId": "windows-restricted-job-object",
+      "backendKind": "windows-job-object",
+      "status": "unavailable",
+      "helper": null,
+      "protocolVersion": null,
+      "artifactDigest": null,
+      "primitives": {
+        "restrictedIdentity": "not-implemented",
+        "raceFreeJobOwnership": "not-implemented",
+        "filesystemBoundary": "not-implemented",
+        "denyAllNetwork": "not-implemented",
+        "controlledEgress": "not-implemented"
+      },
+      "boundaries": {
+        "filesystem": "unverified",
+        "processTree": "unverified",
+        "identity": "unverified",
+        "profile": "unverified",
+        "networkDenial": "unverified",
+        "controlledEgress": "unverified",
+        "credentials": "unverified",
+        "ipc": "unverified",
+        "cleanup": "unverified"
+      },
+      "quotas": {
+        "wallClock": "unsupported",
+        "cpuTime": "unsupported",
+        "memory": "unsupported",
+        "processCount": "unsupported",
+        "outputBytes": "unsupported",
+        "diskBytes": "unsupported",
+        "fileCount": "unsupported",
+        "network": "unsupported"
+      },
+      "corpus": { "result": "not-run", "positiveControlsPassed": false, "testCount": 0 },
+      "limitations": ["native-toolchain-unavailable", "privileged-host-changes-not-performed"],
+      "requiredOperatorAction": ["provide-reviewed-native-toolchain", "provide-authorized-primitive-environment"]
+    },
+    {
+      "os": "linux",
+      "version": null,
+      "buildOrKernel": null,
+      "distribution": null,
+      "architecture": null,
+      "backendId": "linux-namespace-cgroup",
+      "backendKind": "linux-namespace",
+      "status": "unavailable",
+      "helper": null,
+      "protocolVersion": null,
+      "artifactDigest": null,
+      "primitives": {
+        "userMountPidNetworkNamespaces": "not-observed",
+        "delegatedCgroupV2": "not-observed",
+        "minimalFilesystem": "not-observed",
+        "denyAllNetwork": "not-observed",
+        "controlledEgress": "not-observed"
+      },
+      "boundaries": {
+        "filesystem": "unverified",
+        "processTree": "unverified",
+        "identity": "unverified",
+        "profile": "unverified",
+        "networkDenial": "unverified",
+        "controlledEgress": "unverified",
+        "credentials": "unverified",
+        "ipc": "unverified",
+        "cleanup": "unverified"
+      },
+      "quotas": {
+        "wallClock": "unsupported",
+        "cpuTime": "unsupported",
+        "memory": "unsupported",
+        "processCount": "unsupported",
+        "outputBytes": "unsupported",
+        "diskBytes": "unsupported",
+        "fileCount": "unsupported",
+        "network": "unsupported"
+      },
+      "corpus": { "result": "not-run", "positiveControlsPassed": false, "testCount": 0 },
+      "limitations": ["wsl-not-installed", "linux-vm-container-or-remote-unavailable"],
+      "requiredOperatorAction": ["provide-actual-linux-host", "provide-authorized-cgroup-and-namespace-prerequisites"]
+    },
+    {
+      "os": "darwin",
+      "version": null,
+      "buildOrKernel": null,
+      "distribution": null,
+      "architecture": null,
+      "backendId": "macos-sandbox",
+      "backendKind": "macos-sandbox",
+      "status": "unavailable",
+      "helper": null,
+      "protocolVersion": null,
+      "artifactDigest": null,
+      "primitives": {
+        "supportedContainmentFoundation": "not-observed",
+        "isolatedFilesystemTransfer": "not-observed",
+        "guestProcessOwnership": "not-observed",
+        "denyAllNetwork": "not-observed",
+        "controlledEgress": "not-observed"
+      },
+      "boundaries": {
+        "filesystem": "unverified",
+        "processTree": "unverified",
+        "identity": "unverified",
+        "profile": "unverified",
+        "networkDenial": "unverified",
+        "controlledEgress": "unverified",
+        "credentials": "unverified",
+        "ipc": "unverified",
+        "cleanup": "unverified"
+      },
+      "quotas": {
+        "wallClock": "unsupported",
+        "cpuTime": "unsupported",
+        "memory": "unsupported",
+        "processCount": "unsupported",
+        "outputBytes": "unsupported",
+        "diskBytes": "unsupported",
+        "fileCount": "unsupported",
+        "network": "unsupported"
+      },
+      "corpus": { "result": "not-run", "positiveControlsPassed": false, "testCount": 0 },
+      "limitations": ["macos-host-or-runner-unavailable", "checked-in-ci-has-no-macos-job"],
+      "requiredOperatorAction": ["provide-actual-macos-host", "select-supported-documented-containment-foundation"]
+    }
+  ]
+}

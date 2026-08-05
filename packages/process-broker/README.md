@@ -16,8 +16,12 @@ provide isolation it cannot enforce.
 - Output captured within hard byte bounds, on separate streams.
 - A wall-clock deadline the broker enforces itself.
 - Exactly one terminal outcome per process, whatever races occur.
-- A production gate that refuses to run autonomously without an approved,
-  genuinely enforcing isolation backend.
+- A two-phase production gate that requires a trusted opaque backend
+  registration before preparation and a single-use, exact-bound session
+  receipt immediately before spawn.
+- Field-by-field request/grant/policy/lease containment, including tool
+  digest/immutable reference, environment names, credential references,
+  network mode, endpoint policy, quotas, output, and deadline.
 
 ## What it explicitly does not guarantee
 
@@ -31,6 +35,49 @@ primitive is missing and refuse to spawn. None of them is classified
 That refusal is the intended behaviour. Running autonomously against a hostile
 repository on a machine with no sandbox is the thing this stage exists to
 prevent.
+
+## Stage 17 gated checkpoint
+
+Stage 17 hardens the admission contract without claiming that a native
+sandbox now exists. `BackendDescriptor` schema 2 is advisory maximum
+capability only. Its network field distinguishes `unsupported`, `deny-all`,
+and `controlled-service-egress`; an ID, descriptor, approved-ID filter, probe,
+mock, or successful spawn is never enforcement evidence.
+
+Production composition additionally supplies an opaque
+`ProductionBackendRegistration`. The broker verifies its object identity,
+backend instance, descriptor fingerprint, exact host/architecture, helper
+source/binary/build identity, protocol, quota matrix, escape-corpus result,
+endpoint policy, and expiry. `prepare()` must return a package-private,
+single-use receipt bound to the exact execution fingerprint. The broker
+rechecks the lease, grant and endpoint expiry, executable identity, and receipt
+before any workload spawn. Unconfirmed tree termination or production cleanup
+invalidates the evidence and cannot become success.
+
+The public `EnforcementAttestation` is serializable and body-free but grants no
+authority. `projectEnforcementAttestation()` always returns advisory evidence;
+only `projectVerifiedProductionRegistration()` can emit a non-authorizing
+`secure-enforcing` routing projection after opaque evidence is revalidated.
+
+No exported platform factory can mint a production registration in this
+checkpoint. Windows, Linux, and macOS therefore remain unavailable and
+production execution still refuses. The measured machine-readable status is
+in [`docs/release-evidence/stage-17-platform-truth-table.json`](../../docs/release-evidence/stage-17-platform-truth-table.json).
+
+## Controlled service egress
+
+`ControlPlaneEndpointPolicy` schema 1 represents provider control traffic
+separately from workload network authority. It accepts a finite set of exact
+lowercase public DNS names over HTTPS port 443, rejects IP literals, local and
+internal suffixes, wildcards, IDNA/trailing-dot tricks and QUIC, caps redirects,
+binds provider/adapter/tool identity, and expires. It contains no built-in
+Claude or Codex domains.
+
+This checkpoint implements and tests that value contract only. It does not
+ship a relay and did not use a live provider or credential-bearing canary.
+Until exact locked provider endpoints and an enforcing, platform-tested relay
+exist, controlled service egress remains unavailable and cannot satisfy
+production admission.
 
 ## Shell execution
 
@@ -138,8 +185,27 @@ backend is released.
 
 `@ai-dev-os/process-broker/testing` exports
 `runProcessBrokerContractSuite`, `runDuplexProcessSessionContractSuite`, and
-`runSandboxBackendContractSuite`. Any future secure backend is held to the same
-behaviour as the unsafe development backend it replaces.
+`runSandboxBackendContractSuite`. It also exports the versioned
+`runSecureBackendAdversarialSuite` and its stable escape-vector inventory. The
+adversarial suite requires an open positive control and an actual-native
+candidate result for every applicable filesystem, process, IPC, network,
+credential, quota, and cleanup vector. A mock harness is rejected and cannot
+be reported as enforcement evidence.
+
+## Platform and operational status
+
+| Platform | Shipped status | Actual escape tests | Native artifact | What remains |
+| --- | --- | ---: | --- | --- |
+| Windows 11 10.0.26200 x64 | unavailable | 0 | none | reviewed restricted-token/Job Object/filesystem/network helper and actual positive-control corpus |
+| Linux | unavailable/unverified | 0 | none | actual host, namespace/cgroup implementation and positive-control corpus |
+| macOS | unavailable/unverified | 0 | none | actual host, supported documented containment foundation and positive-control corpus |
+
+There is no native helper to install or remove, no postinstall hook, and no
+runtime download. No privileged operation, ACL/firewall/AppContainer change,
+virtualization enablement, signing, or external infrastructure change was
+performed. Recovery from a containment or cleanup failure is fail-closed:
+quarantine the backend registration, confirm task-owned resources are gone,
+then obtain fresh measured evidence; never retry through the unsafe backend.
 
 ## Coverage note
 
