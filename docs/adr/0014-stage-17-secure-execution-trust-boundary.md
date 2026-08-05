@@ -1,6 +1,6 @@
 # ADR 0014: Stage 17 secure-execution trust boundary
 
-Status: Accepted for the gated Stage 17 implementation checkpoint  
+Status: Accepted for the gated Stage 17 implementation checkpoint
 Date: 2026-08-05
 
 ## Decision
