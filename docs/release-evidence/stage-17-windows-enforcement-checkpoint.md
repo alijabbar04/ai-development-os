@@ -11,6 +11,16 @@ Windows actual-native evidence remains 0/40 with no positive control run.
 Production continues to refuse before `prepare`/`spawn`, Stage 17 remains
 gated, Stage 18 remains blocked, and no `v0.17*` tag or push is permitted.
 
+Follow-up: implementation candidate
+`69ff7a782f01655408b2e029895682a7756ab676` completed the separately
+authorized one-profile/one-ACL lifecycle proof with zero measured residue and
+no workload. See
+`docs/release-evidence/stage-17-windows-profile-lifecycle-proof.md`. The
+historical evidence below remains the exact record for checkpoint
+`4187682f7cef6cb64f79cfbb14c29229be977350`; its profile-authorization blocker
+is superseded by the new evidence, while native process composition and all 40
+Windows vectors remain blocked.
+
 ## Provenance and Git lane
 
 - Worktree:
