@@ -124,13 +124,13 @@ and compiled `dist` files:
 
 | Package | Files | Packed bytes | Unpacked bytes |
 | --- | ---: | ---: | ---: |
-| `@ai-dev-os/process-broker` | 102 | 120,952 | 576,772 |
+| `@ai-dev-os/process-broker` | 102 | 121,159 | 577,200 |
 | `@ai-dev-os/workspace` | 62 | 70,105 | 311,586 |
 | `@ai-dev-os/provider-claude-code` | 74 | 111,132 | 471,546 |
 | `@ai-dev-os/provider-codex` | 66 | 54,843 | 262,193 |
 
 Two fresh post-fix process-broker packs were byte-identical at SHA-256
-`bda871f6aa544308436a2eaacd601912ad711460fe7fa19587a336e67d6dd780`.
+`a9b213e00ff6ad52f1716f9b633b79b363d2bd78abdfe4b587e7c1a2d91fe4ca`.
 A repeated build produced byte-identical compiled output, and fresh processes
 reproduced the same corpus fingerprint.
 
