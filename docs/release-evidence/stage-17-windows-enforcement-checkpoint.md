@@ -18,8 +18,16 @@ no workload. See
 `docs/release-evidence/stage-17-windows-profile-lifecycle-proof.md`. The
 historical evidence below remains the exact record for checkpoint
 `4187682f7cef6cb64f79cfbb14c29229be977350`; its profile-authorization blocker
-is superseded by the new evidence, while native process composition and all 40
-Windows vectors remain blocked.
+is superseded by the new evidence; at that point native process composition
+and all 40 Windows vectors remained blocked.
+
+Second follow-up: implementation candidate
+`05e768bcc0cd94da430a4d58f9fcb7ed29e08426` completed the separately
+authorized single synthetic AppContainer plus creation-time private-Job proof
+with zero measured residue. See
+`docs/release-evidence/stage-17-windows-synthetic-process-proof.md`. This
+supersedes only the narrow identity/Job feasibility blocker; production helper,
+filesystem, network, quota, crash, packaging, and all 40 corpus blockers remain.
 
 ## Provenance and Git lane
 

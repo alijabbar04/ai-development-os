@@ -10,6 +10,14 @@ execution, CI execution, or release eligibility. Production autonomous
 execution still refuses before spawn, Stage 18 remains blocked, and
 `v0.17.0-secure-execution-backends` must not be created from this checkpoint.
 
+Follow-up evidence subsequently proved the same-user AppContainer profile
+lifecycle and one bounded suspended synthetic AppContainer plus creation-time
+private-Job composition with zero measured residue. See
+`stage-17-windows-profile-lifecycle-proof.md` and
+`stage-17-windows-synthetic-process-proof.md`. These observations do not alter
+this checkpoint's gated release outcome: no production helper or corpus vector
+has passed.
+
 ## Provenance and Git lane
 
 - Stage 16 tag type: annotated `tag`.

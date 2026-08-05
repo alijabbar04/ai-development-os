@@ -17,6 +17,14 @@ false, every quota is `unsupported`, actual-native evidence remains 0/40,
 Stage 17 remains gated, Stage 18 remains blocked, and no `v0.17*` tag or push
 is permitted.
 
+Follow-up: implementation commit
+`05e768bcc0cd94da430a4d58f9fcb7ed29e08426` completed the separately
+authorized synthetic process composition proof. See
+`docs/release-evidence/stage-17-windows-synthetic-process-proof.md`. The
+historical profile-only claims below remain exact for this command; its
+identity/Job next-action blocker is superseded by the narrower follow-up
+evidence, while production enforcement and all 40 vectors remain blocked.
+
 ## Authorization and Git boundary
 
 The incoming checkpoint explicitly required user authorization before any
@@ -234,9 +242,8 @@ only. It does not prove:
 - controlled Claude/Codex service egress; or
 - Linux or macOS enforcement.
 
-The smallest next task is a separately scoped, synthetic, no-provider process
-creation proof using the documented public Win32 composition: no-capability
-AppContainer/LPAC identity, task-owned staging, narrow inherited handles, and
-creation-time Job assignment through one `STARTUPINFOEX` attribute list. The
-backend must remain unavailable until the complete native composition and
-corpus are proved.
+The synthetic no-provider process proof identified here was subsequently
+completed. Its next bounded task is a structured fixture for allowed staged
+access, denied ungranted filesystem access, no-capability network denial, and
+rapid child-creation behavior. The backend must remain unavailable until the
+complete native composition and corpus are proved.

@@ -1,23 +1,28 @@
 # ADR 0015: Stage 17 Windows native enforcement feasibility
 
-Status: Accepted for an honest Windows gated checkpoint with profile lifecycle proof
+Status: Accepted for an honest Windows gated checkpoint with bounded profile and synthetic-process proofs
 Date: 2026-08-05
 
 ## Decision
 
 The Windows first-party backend remains `unavailable`. This continuation ends
-at Outcome B: it records and tests the smallest safe feasibility slice but does
-not create a production sandbox, production registration, preparation receipt,
-Job Object, or child process. One explicitly authorized, uniquely named,
-same-user test profile and one task-owned ACL grant were created and completely
-removed without measured residue. They launched no workload and minted no
-authority.
+at Outcome B: it records and tests bounded feasibility slices but does not
+create a production sandbox, production registration, preparation receipt, or
+production helper. Explicitly authorized commands proved profile cleanup and
+then launched only a fixed synthetic `cmd.exe` built-in marker. The synthetic
+target began suspended as the expected zero-capability AppContainer and inside
+a private kill-on-close, no-breakaway, one-process Job before its first
+instruction. Every created process, handle, ACL, file, directory, profile, and
+measured registry record was removed. No provider or repository workload ran,
+and no authority was minted.
 
 The preferred implementation direction is the documented public Win32
-composition using an
-AppContainer or LPAC identity, a task-owned filesystem staging root, and
-creation-time Job Object assignment through one `STARTUPINFOEX` attribute
-list. The experimental `processmodel.dll` API is rejected for implementation
+composition using an AppContainer or LPAC identity, a task-owned filesystem
+staging root, and creation-time Job Object assignment through one
+`STARTUPINFOEX` attribute list. One synthetic instance of that composition is
+now observed, but filesystem/network denial, executable immutability, quotas,
+crash recovery, packaging, and the native corpus remain unproved. The
+experimental `processmodel.dll` API is rejected for implementation
 at this checkpoint because its exact required FlatBuffer schema layout is not
 available from an installed or published authoritative Microsoft artifact.
 
@@ -26,10 +31,12 @@ A dependency-free .NET 9 evidence tool is retained as reviewed source at
 System32 DLL paths, checks documented export names, hashes
 `processmodel.dll`, queries whether the current process is already in a Job,
 and emits a finite body-free result. Its ordinary probe and self-test never
-invoke a mutating export. Its separately authorized protocol-v2 lifecycle
-command invokes only profile create/derive/folder/delete and task-owned ACL
-operations. The tool is deliberately not a sandbox helper and always reports
-the production composition unavailable.
+invoke a mutating export. Its original separately authorized protocol-v2
+lifecycle command invoked only profile create/derive/folder/delete and
+task-owned ACL operations. Protocol version 3 retains that command and adds
+the separately authorized synthetic process command described above. The tool
+is deliberately not a sandbox helper and always reports the production
+composition unavailable.
 
 ## Observed host and evidence boundary
 
@@ -53,10 +60,12 @@ and process-attribute exports checked by the probe are also present. Presence
 does not establish semantics, containment, packaging, lifecycle, or release
 eligibility.
 
-No native process was launched and no actual-native corpus vector ran. The
-probe observed `currentProcessInJob: true` for the current Codex host process;
-that is diagnostic only. Creation of a nested child Job and its behavior remain
-untested. The one authorized profile lifecycle command observed profile folder,
+No provider, repository, or production workload was launched and no
+actual-native corpus vector ran. The probe observed `currentProcessInJob: true`
+for the current Codex host process. The authorized synthetic command then
+proved that one newly created private child Job could contain its suspended
+AppContainer target on this host; this does not generalize to production or
+adversarial process trees. The profile commands observed profile folder,
 mapping registry, storage registry, and task-owned ACL state before restoring
 and deleting all of it.
 
@@ -156,9 +165,10 @@ An earlier command attempt resolved the deterministic SID but failed before
 empty task directory, and left no measured residue. It is not counted as a
 profile creation. Exactly one profile was created in the authorized proof.
 
-This proves only the lifecycle on this exact host. It does not prove process
-identity, filesystem denial, network denial, Job membership, quotas, crash
-cleanup, or any escape-corpus vector.
+The lifecycle-only command proves only lifecycle on this exact host. The later
+synthetic command separately proved one process identity and creation-time Job
+membership instance. Neither proves filesystem denial, network denial, quotas,
+crash cleanup, or any escape-corpus vector.
 
 ### Race-free Job ownership and handles
 
@@ -167,9 +177,13 @@ The candidate would create a private Job Object before process creation, set
 supported finite limits, and place its handle in
 `PROC_THREAD_ATTRIBUTE_JOB_LIST`. The same `STARTUPINFOEX` list would carry
 `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`, the narrow handle list, and
-compatible mitigations. This is intended to place the initial process in the
-Job and AppContainer before its first instruction, but it remains a hypothesis
-until the actual helper proves membership and adversarial rapid-spawn behavior.
+compatible mitigations. The synthetic proof used those first three attributes
+in one list, created the target suspended, and observed the expected
+AppContainer token, zero capabilities, and exactly one private-Job process
+before `ResumeThread` returned a previous suspend count of one. The Job used
+kill-on-close plus an active-process limit of one and omitted both breakaway
+flags. This proves the narrow API composition on one host, not helper crash
+semantics or adversarial rapid-spawn behavior.
 
 Only explicitly duplicated stdin/stdout/stderr pipe handles would be eligible
 for inheritance. Broker/helper tokens, Job handles, files, sockets, registry
@@ -212,10 +226,10 @@ remain unavailable until exact boundary and quota results exist.
 The retained feasibility probe targets `net9.0-windows`, uses no NuGet
 dependency or apphost, enables nullable analysis, SDK analyzers, warnings as
 errors, checked arithmetic, and deterministic/CI build settings, and disables
-unsafe code and debug-symbol path material. Protocol version 2 has read-only
-`probe` and `self-test` commands plus the explicitly authorized
-`profile-lifecycle-proof` command; unknown commands and invalid shapes are
-stable refusals.
+unsafe code and debug-symbol path material. Protocol version 3 has read-only
+`probe` and `self-test` commands plus the separately authorized
+`profile-lifecycle-proof` and `synthetic-process-proof` commands; unknown
+commands and invalid shapes are stable refusals.
 
 Two clean task-owned builds are required to have identical DLL, deps, and
 runtime-configuration manifests before their digest is recorded. This proves
@@ -256,6 +270,11 @@ This checkpoint is falsified if any of the following occurs:
 - the one authorized lifecycle command requests a capability, launches a
   process, fails to observe the created folder/registry/ACL state, fails to
   restore the original DACL, or leaves any measured residue;
+- the authorized synthetic command inherits an ambient user environment or a
+  handle outside its two-entry list, requests a capability, starts the target
+  before identity/Job observation, observes a different profile SID, permits
+  breakaway, exceeds one private-Job process, runs a provider/repository
+  workload, or leaves process/profile/ACL/file/directory/registry residue;
 - an unknown command is accepted;
 - the TypeScript Windows factory reports available, secure-enforcing, or a
   non-unsupported quota;
@@ -283,10 +302,11 @@ checkpoint. Windows actual-native count remains 0/40, positive controls remain
 unrun, production remains closed, Stage 17 remains gated, Stage 18 remains
 blocked, and no Stage 17 tag or push is permitted.
 
-The smallest next action is a separately scoped implementation and test of the
-documented public Win32 process-creation composition: no-capability
-AppContainer/LPAC identity, task-owned staging, narrow inherited handles, and
-creation-time Job assignment in one `STARTUPINFOEX` list. It must start with a
-synthetic non-provider workload, keep production unavailable, and prove the
-process begins inside the identity and Job boundary before broader filesystem,
-network, quota, crash, packaging, and 40-vector work proceeds.
+The smallest next action is a separately scoped structured boundary fixture
+that can attempt allowed and denied operations without shell parsing. It should
+first prove read/execute access to admitted staged bytes and denial of
+ungranted same-user files, then prove no-capability denial across the bounded
+Windows network slice and exercise rapid child creation against the private
+Job. Production must remain unavailable until executable immutability, full
+filesystem/network/process-tree/credential/IPC/quota/crash cleanup, packaging,
+and all 40 Windows-applicable positive-control vectors pass.

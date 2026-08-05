@@ -84,8 +84,19 @@ created exactly one uniquely named same-user AppContainer profile with zero
 capabilities and one task-owned ACL directory. It observed the profile folder,
 mapping/storage registry records, and explicit SID grant; restored the original
 DACL; freed the SID; deleted the profile and directory; and independently
-confirmed zero measured folder, registry, ACL, or directory residue. It
-launched no workload, created no Job, and is not native enforcement evidence.
+confirmed zero measured folder, registry, ACL, or directory residue.
+
+A later separately authorized synthetic proof exercised the preferred public
+composition on the same host. It staged a byte-matched copy of the exact
+System32 `cmd.exe`, created it suspended as the expected zero-capability
+AppContainer, and supplied security capabilities, a private Job list, and an
+explicit two-handle list in one `STARTUPINFOEX` attribute list. Before resume,
+the token matched the profile SID, its capability count was zero, and the
+kill-on-close/no-breakaway/one-process Job contained exactly the target. The
+fixed built-in marker then exited zero. All process, Job, ACL, staged-file,
+directory, profile-folder, and registry cleanup checks passed, followed by an
+independent zero-residue scan. No provider or repository workload ran. This is
+a narrow feasibility result, not native enforcement evidence.
 
 The only candidate production network shape is deny-all with no AppContainer
 network capability, proxy, allowlist, or loopback exemption. Controlled
@@ -231,17 +242,17 @@ rejects a different version, fingerprint, or platform count.
 
 | Platform | Shipped status | Actual escape tests | Native artifact | What remains |
 | --- | --- | ---: | --- | --- |
-| Windows 11 10.0.26200 x64 | unavailable | 0 | evidence tooling only; no production helper | implement/package the AppContainer plus creation-time Job composition, then run all 40 positive-control vectors |
+| Windows 11 10.0.26200 x64 | unavailable | 0 | profile and suspended synthetic-process evidence tooling only; no production helper | implement/package the full helper, prove filesystem/network/quota/crash boundaries, then run all 40 positive-control vectors |
 | Linux | unavailable/unverified | 0 | none | actual host, namespace/cgroup implementation and positive-control corpus |
 | macOS | unavailable/unverified | 0 | none | actual host, supported documented containment foundation and positive-control corpus |
 
 There is no production native helper to install or remove, no postinstall
 hook, and no runtime download. The evidence tool builds with the already
 installed .NET 9 SDK and produces a framework-dependent DLL with no apphost;
-it is not a shipped runtime prerequisite. The one explicitly authorized
-same-user profile/ACL proof was completely removed. No privileged operation,
-firewall/loopback/proxy change, virtualization enablement, signing, or external
-infrastructure change was performed.
+it is not a shipped runtime prerequisite. The explicitly authorized profile
+and synthetic-process host-state resources were completely removed. No
+privileged operation, firewall/loopback/proxy change, virtualization
+enablement, signing, or external infrastructure change was performed.
 Recovery from a containment or cleanup failure is fail-closed: quarantine the
 backend registration, confirm task-owned resources are gone, then obtain fresh
 measured evidence; never retry through the unsafe backend.
