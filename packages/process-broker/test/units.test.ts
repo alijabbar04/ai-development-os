@@ -264,7 +264,12 @@ describe("grant helpers", () => {
   it("rejects an empty operation set, duplicate tools, and a bad window", () => {
     expect(() => contractGrant({ operations: [] })).toThrow();
     expect(() =>
-      contractGrant({ tools: [{ toolId: "echo", digest: null }, { toolId: "echo", digest: null }] }),
+      contractGrant({
+        tools: [
+          { toolId: "echo", digest: null, immutableReference: null },
+          { toolId: "echo", digest: null, immutableReference: null },
+        ],
+      }),
     ).toThrow(/same tool/);
     expect(() =>
       contractGrant({ issuedAt: "2026-08-02T01:00:00.000Z", expiresAt: "2026-08-02T00:00:00.000Z" }),
@@ -371,7 +376,13 @@ describe("platform backend probes", () => {
     await expect(
       backend.spawn({} as unknown as Parameters<typeof backend.spawn>[0]),
     ).rejects.toMatchObject({ code: "BACKEND_UNAVAILABLE" });
-    await backend.dispose({ sessionId: "s", backendId: "b", tempDir: "t", homeDir: null });
+    await backend.dispose({
+      sessionId: "s",
+      backendId: "b",
+      tempDir: "t",
+      homeDir: null,
+      productionReceipt: null,
+    });
     await backend.close();
   });
 

@@ -27,6 +27,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ProcessBrokerError, errorCategory } from "./errors.js";
 import {
+  BACKEND_DESCRIPTOR_SCHEMA_VERSION,
   noQuotaSupport,
   parseBackendDescriptor,
   type BackendAvailability,
@@ -66,6 +67,7 @@ export interface UnsafeBackendOptions {
 
 function descriptorFor(platform: NodeJS.Platform): BackendDescriptor {
   return parseBackendDescriptor({
+    schemaVersion: BACKEND_DESCRIPTOR_SCHEMA_VERSION,
     backendId: UNSAFE_BACKEND_ID,
     kind: "same-user-subprocess",
     platform,
@@ -73,7 +75,7 @@ function descriptorFor(platform: NodeJS.Platform): BackendDescriptor {
     capabilities: {
       filesystemIsolation: false,
       processTreeControl: false,
-      networkDenial: false,
+      networkBoundary: "unsupported",
       identityIsolation: false,
       profileIsolation: false,
       // The broker measures output and wall-clock itself, so those are
@@ -145,6 +147,7 @@ export function createUnsafeDevelopmentBackend(options: UnsafeBackendOptions): S
         backendId: UNSAFE_BACKEND_ID,
         tempDir,
         homeDir,
+        productionReceipt: null,
       });
       sessions.set(sessionId, session);
       return session;

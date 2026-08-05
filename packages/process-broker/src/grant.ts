@@ -21,7 +21,7 @@ import { parseNetworkPolicy, parseProcessQuotas, type NetworkPolicy, type Proces
 
 const { ensureArray, ensureExactKeys, ensureRecord, ensureString, ensureTimestamp } = validation;
 
-export const GRANT_SCHEMA_VERSION = 1 as const;
+export const GRANT_SCHEMA_VERSION = 2 as const;
 
 export const GRANT_OPERATIONS = Object.freeze([
   "workspace-read",
@@ -36,6 +36,8 @@ export type GrantOperation = (typeof GRANT_OPERATIONS)[number];
 
 export const MAX_PATH_PREFIXES = 64;
 export const MAX_GRANT_TOOLS = 32;
+export const MAX_GRANTED_ENVIRONMENT_NAMES = 256;
+export const MAX_GRANTED_CREDENTIAL_REFS = 256;
 
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const NONCE_PATTERN = /^[a-f0-9]{32}$/;
@@ -84,6 +86,7 @@ function ensurePrefixList(value: unknown, path: string): readonly string[] {
 export interface GrantedTool {
   readonly toolId: string;
   readonly digest: string | null;
+  readonly immutableReference: string | null;
 }
 
 export interface CapabilityGrant {
@@ -99,6 +102,12 @@ export interface CapabilityGrant {
   readonly readablePrefixes: readonly string[];
   readonly writablePrefixes: readonly string[];
   readonly tools: readonly GrantedTool[];
+  /** Exact child-environment names this grant permits policy to authorize. */
+  readonly environmentNames: readonly string[];
+  /** Fingerprints of secret references that may be resolved for this grant. */
+  readonly credentialRefFingerprints: readonly string[];
+  /** Exact trusted service-egress policy, separate from workload networking. */
+  readonly controlPlaneEndpointPolicyFingerprint: string | null;
   readonly network: NetworkPolicy;
   readonly quotas: ProcessQuotas;
   readonly issuedAt: string;
@@ -121,6 +130,9 @@ const GRANT_KEYS = [
   "readablePrefixes",
   "writablePrefixes",
   "tools",
+  "environmentNames",
+  "credentialRefFingerprints",
+  "controlPlaneEndpointPolicyFingerprint",
   "network",
   "quotas",
   "issuedAt",
@@ -148,8 +160,13 @@ export function parseCapabilityGrant(value: unknown, path = "grant"): Capability
   const rawTools = ensureArray(record["tools"], `${path}.tools`, MAX_GRANT_TOOLS);
   const tools = rawTools.map((entry, index) => {
     const toolRecord = ensureRecord(entry, `${path}.tools[${index}]`);
-    ensureExactKeys(toolRecord, ["toolId", "digest"], `${path}.tools[${index}]`);
+    ensureExactKeys(
+      toolRecord,
+      ["toolId", "digest", "immutableReference"],
+      `${path}.tools[${index}]`,
+    );
     const digest = toolRecord["digest"];
+    const immutableReference = toolRecord["immutableReference"];
     return Object.freeze({
       toolId: ensureString(toolRecord["toolId"], `${path}.tools[${index}].toolId`, {
         maxLength: 64,
@@ -165,6 +182,14 @@ export function parseCapabilityGrant(value: unknown, path = "grant"): Capability
               pattern: DIGEST_PATTERN,
               patternName: "sha-256 digest",
             }),
+      immutableReference:
+        immutableReference === undefined || immutableReference === null
+          ? null
+          : ensureString(
+              immutableReference,
+              `${path}.tools[${index}].immutableReference`,
+              { maxLength: 512 },
+            ),
     });
   });
   const toolIds = tools.map((tool) => tool.toolId);
@@ -179,6 +204,31 @@ export function parseCapabilityGrant(value: unknown, path = "grant"): Capability
   }
 
   const evidenceRefs = ensureArray(record["approvalEvidenceRefs"], `${path}.approvalEvidenceRefs`, 32);
+  const environmentNames = ensureArray(
+    record["environmentNames"],
+    `${path}.environmentNames`,
+    MAX_GRANTED_ENVIRONMENT_NAMES,
+  ).map((entry, index) =>
+    ensureString(entry, `${path}.environmentNames[${index}]`, {
+      maxLength: 256,
+      pattern: /^[A-Za-z_][A-Za-z0-9_]{0,255}$/,
+      patternName: "environment name",
+    }),
+  );
+  const credentialRefFingerprints = ensureArray(
+    record["credentialRefFingerprints"],
+    `${path}.credentialRefFingerprints`,
+    MAX_GRANTED_CREDENTIAL_REFS,
+  ).map((entry, index) =>
+    ensureString(entry, `${path}.credentialRefFingerprints[${index}]`, {
+      minLength: 64,
+      maxLength: 64,
+      pattern: DIGEST_PATTERN,
+      patternName: "credential reference fingerprint",
+    }),
+  );
+  const controlPlaneEndpointPolicyFingerprint =
+    record["controlPlaneEndpointPolicyFingerprint"];
 
   return Object.freeze({
     schemaVersion: GRANT_SCHEMA_VERSION,
@@ -193,6 +243,24 @@ export function parseCapabilityGrant(value: unknown, path = "grant"): Capability
     readablePrefixes: ensurePrefixList(record["readablePrefixes"], `${path}.readablePrefixes`),
     writablePrefixes: ensurePrefixList(record["writablePrefixes"], `${path}.writablePrefixes`),
     tools: Object.freeze([...tools].sort((a, b) => (a.toolId < b.toolId ? -1 : 1))),
+    environmentNames: Object.freeze([...new Set(environmentNames)].sort()),
+    credentialRefFingerprints: Object.freeze(
+      [...new Set(credentialRefFingerprints)].sort(),
+    ),
+    controlPlaneEndpointPolicyFingerprint:
+      controlPlaneEndpointPolicyFingerprint === undefined ||
+      controlPlaneEndpointPolicyFingerprint === null
+        ? null
+        : ensureString(
+            controlPlaneEndpointPolicyFingerprint,
+            `${path}.controlPlaneEndpointPolicyFingerprint`,
+            {
+              minLength: 64,
+              maxLength: 64,
+              pattern: DIGEST_PATTERN,
+              patternName: "control-plane endpoint policy fingerprint",
+            },
+          ),
     network: parseNetworkPolicy(record["network"], `${path}.network`),
     quotas: parseProcessQuotas(record["quotas"], `${path}.quotas`),
     issuedAt,
@@ -243,15 +311,20 @@ export function prefixCovers(prefixes: readonly string[], relativePath: string):
   return false;
 }
 
-export function grantAllowsTool(grant: CapabilityGrant, toolId: string, digest: string | null): boolean {
+export function grantAllowsTool(
+  grant: CapabilityGrant,
+  toolId: string,
+  digest: string | null,
+  immutableReference: string | null = null,
+): boolean {
   const entry = grant.tools.find((tool) => tool.toolId === toolId);
   if (entry === undefined) {
     return false;
   }
-  if (entry.digest === null) {
-    return true;
+  if (entry.digest !== null && entry.digest !== digest) {
+    return false;
   }
-  return entry.digest === digest;
+  return entry.immutableReference === null || entry.immutableReference === immutableReference;
 }
 
 // -- leases -----------------------------------------------------------------

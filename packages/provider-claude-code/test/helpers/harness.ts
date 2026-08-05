@@ -281,7 +281,7 @@ export async function createClaudeHarness(options: HarnessOptions): Promise<Clau
   const toolId = options.toolIdOverride ?? "claude-code";
 
   const grant = parseCapabilityGrant({
-    schemaVersion: 1,
+    schemaVersion: 2,
     grantId: "grant-claude",
     projectId: PROJECT_ID,
     runId: null,
@@ -297,10 +297,15 @@ export async function createClaudeHarness(options: HarnessOptions): Promise<Clau
     ],
     readablePrefixes: [""],
     writablePrefixes: options.writablePrefixes ?? [""],
-    tools: [{ toolId, digest: null }],
+    tools: [{ toolId, digest: null, immutableReference: null }],
+    environmentNames: [],
+    credentialRefFingerprints: [],
+    controlPlaneEndpointPolicyFingerprint: null,
     network: { mode: "denied", egressDomains: [] },
     quotas: {
-      wallClockMs: 120_000,
+      // Match the adapter's default 15-minute process ceiling. Stage 17
+      // rejects a request whose quota is wider than its grant.
+      wallClockMs: 900_000,
       cpuTimeMs: null,
       memoryBytes: null,
       processCount: null,

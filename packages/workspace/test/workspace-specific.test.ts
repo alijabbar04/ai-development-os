@@ -118,7 +118,7 @@ async function workspaceFor(
 function grantFor(overrides: Partial<CapabilityGrant> = {}): CapabilityGrant {
   const now = Date.now();
   return parseCapabilityGrant({
-    schemaVersion: 1,
+    schemaVersion: 2,
     grantId: "grant-ws",
     projectId: "proj",
     runId: null,
@@ -130,6 +130,9 @@ function grantFor(overrides: Partial<CapabilityGrant> = {}): CapabilityGrant {
     readablePrefixes: [""],
     writablePrefixes: ["out"],
     tools: [],
+    environmentNames: [],
+    credentialRefFingerprints: [],
+    controlPlaneEndpointPolicyFingerprint: null,
     network: { mode: "denied", egressDomains: [] },
     quotas: {
       wallClockMs: 30_000,

@@ -1,19 +1,16 @@
 /**
  * The sandbox backend contract.
  *
- * A backend is the thing that actually creates processes. It declares, in a
- * validated and immutable descriptor, what it can and cannot enforce. The
- * trusted composition layer — not the backend, and not a configuration file
- * the backend reads — decides which backends are acceptable in production.
- *
- * A backend cannot promote its own security classification. `describe()` is
- * called through `parseBackendDescriptor`, which pins the classification to
- * the value the backend's own code returns, and the production gate compares
- * that against an allowlist held by the composition layer.
+ * A backend is the thing that actually creates processes. Its validated
+ * descriptor is advisory maximum capability, not enforcement proof. A
+ * production broker additionally requires opaque first-party registration and
+ * exact session evidence; a backend ID, descriptor, probe, or allowlist can
+ * never mint that evidence.
  */
 
 import { validation } from "@ai-dev-os/domain";
 import { invalidConfiguration } from "./errors.js";
+import { fingerprintOf } from "./fingerprint.js";
 import type { BuiltEnvironment } from "./environment.js";
 import type { CapabilityGrant } from "./grant.js";
 import type { OutputStreamName } from "./output.js";
@@ -23,6 +20,8 @@ import { QUOTA_DIMENSIONS, QUOTA_SUPPORT_LEVELS } from "./quota.js";
 import type { ResolvedTool } from "./tool.js";
 
 const { ensureBoolean, ensureEnum, ensureExactKeys, ensureRecord, ensureString } = validation;
+
+export const BACKEND_DESCRIPTOR_SCHEMA_VERSION = 2 as const;
 
 /**
  * How much isolation a backend actually provides.
@@ -58,8 +57,11 @@ export interface BackendCapabilities {
   readonly filesystemIsolation: boolean;
   /** The backend can terminate the entire process tree with certainty. */
   readonly processTreeControl: boolean;
-  /** The backend can deny all network egress. */
-  readonly networkDenial: boolean;
+  /** Exact network boundary the backend may be able to enforce. */
+  readonly networkBoundary:
+    | "unsupported"
+    | "deny-all"
+    | "controlled-service-egress";
   /** The backend runs the workload under a separate, lower-privileged identity. */
   readonly identityIsolation: boolean;
   /** The backend prevents the workload reading the invoking user's profile. */
@@ -68,6 +70,7 @@ export interface BackendCapabilities {
 }
 
 export interface BackendDescriptor {
+  readonly schemaVersion: typeof BACKEND_DESCRIPTOR_SCHEMA_VERSION;
   readonly backendId: string;
   readonly kind: BackendKind;
   readonly platform: NodeJS.Platform;
@@ -79,13 +82,14 @@ export interface BackendDescriptor {
 const CAPABILITY_KEYS = [
   "filesystemIsolation",
   "processTreeControl",
-  "networkDenial",
+  "networkBoundary",
   "identityIsolation",
   "profileIsolation",
   "quotas",
 ] as const;
 
 const DESCRIPTOR_KEYS = [
+  "schemaVersion",
   "backendId",
   "kind",
   "platform",
@@ -111,6 +115,11 @@ function parseQuotaMatrix(value: unknown, path: string): QuotaSupportMatrix {
 export function parseBackendDescriptor(value: unknown, path = "backend"): BackendDescriptor {
   const record = ensureRecord(value, path);
   ensureExactKeys(record, DESCRIPTOR_KEYS, path);
+  validation.ensureSchemaVersion(
+    record["schemaVersion"],
+    `${path}.schemaVersion`,
+    BACKEND_DESCRIPTOR_SCHEMA_VERSION,
+  );
   const capabilityRecord = ensureRecord(record["capabilities"], `${path}.capabilities`);
   ensureExactKeys(capabilityRecord, CAPABILITY_KEYS, `${path}.capabilities`);
   const versionEvidence = record["versionEvidence"];
@@ -128,9 +137,10 @@ export function parseBackendDescriptor(value: unknown, path = "backend"): Backen
       capabilityRecord["processTreeControl"],
       `${path}.capabilities.processTreeControl`,
     ),
-    networkDenial: ensureBoolean(
-      capabilityRecord["networkDenial"],
-      `${path}.capabilities.networkDenial`,
+    networkBoundary: ensureEnum(
+      capabilityRecord["networkBoundary"],
+      `${path}.capabilities.networkBoundary`,
+      ["unsupported", "deny-all", "controlled-service-egress"] as const,
     ),
     identityIsolation: ensureBoolean(
       capabilityRecord["identityIsolation"],
@@ -157,6 +167,7 @@ export function parseBackendDescriptor(value: unknown, path = "backend"): Backen
   }
 
   return Object.freeze({
+    schemaVersion: BACKEND_DESCRIPTOR_SCHEMA_VERSION,
     backendId: ensureString(record["backendId"], `${path}.backendId`, {
       maxLength: 64,
       pattern: /^[a-z][a-z0-9-]{0,63}$/,
@@ -177,6 +188,10 @@ export function parseBackendDescriptor(value: unknown, path = "backend"): Backen
   });
 }
 
+export function backendDescriptorFingerprint(descriptor: BackendDescriptor): string {
+  return fingerprintOf(descriptor);
+}
+
 export interface BackendAvailability {
   readonly available: boolean;
   /** Stable reason code. Never a raw platform error string. */
@@ -190,6 +205,39 @@ export interface BackendAvailability {
   readonly detail: string | null;
 }
 
+export function parseBackendAvailability(
+  value: unknown,
+  path = "availability",
+): BackendAvailability {
+  const record = ensureRecord(value, path);
+  ensureExactKeys(record, ["available", "reason", "detail"], path);
+  const available = ensureBoolean(record["available"], `${path}.available`);
+  const reason = ensureEnum(record["reason"], `${path}.reason`, [
+    "available",
+    "unsupported-platform",
+    "missing-privilege",
+    "missing-tooling",
+    "version-unsupported",
+    "not-implemented",
+  ] as const);
+  const detailValue = record["detail"];
+  const detail =
+    detailValue === undefined || detailValue === null
+      ? null
+      : ensureString(detailValue, `${path}.detail`, {
+          maxLength: 128,
+          pattern: /^[a-z][a-z0-9-]{0,127}$/,
+          patternName: "stable backend detail code",
+        });
+  if (available !== (reason === "available")) {
+    throw invalidConfiguration(
+      "Backend availability and reason contradict each other.",
+      { reason },
+    );
+  }
+  return Object.freeze({ available, reason, detail });
+}
+
 /** Everything a backend needs to prepare an isolated execution context. */
 export interface SandboxBinding {
   readonly projectId: string;
@@ -200,8 +248,29 @@ export interface SandboxBinding {
   readonly grant: CapabilityGrant;
   readonly grantFingerprint: string;
   readonly policyDecisionFingerprint: string;
+  /** Body-free digest of the exact policy command subject. */
+  readonly subjectFingerprint: string;
+  /** Exact grant/request/lease/workspace/tool/attestation preparation binding. */
+  readonly executionBindingFingerprint: string;
+  readonly attestationFingerprint: string | null;
   /** Absolute path the workload may treat as its root. */
   readonly workspaceRoot: string;
+  readonly expiresAt: string;
+  readonly nonce: string;
+}
+
+/**
+ * Serializable face of an opaque preparation receipt. These fields are safe
+ * to audit but are not sufficient to forge a receipt: production verification
+ * also requires module-private object identity.
+ */
+export interface ProductionSessionReceipt {
+  readonly schemaVersion: 1;
+  readonly registrationFingerprint: string;
+  readonly executionBindingFingerprint: string;
+  /** Body-free binding to the concrete prepared session returned by the backend. */
+  readonly sandboxSessionFingerprint: string;
+  readonly issuedAt: string;
   readonly expiresAt: string;
   readonly nonce: string;
 }
@@ -212,6 +281,7 @@ export interface SandboxSession {
   /** Workspace-scoped directories the environment builder should advertise. */
   readonly tempDir: string;
   readonly homeDir: string | null;
+  readonly productionReceipt: ProductionSessionReceipt | null;
 }
 
 export interface BackendSpawnInput {

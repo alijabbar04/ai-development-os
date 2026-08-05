@@ -11,9 +11,11 @@ import {
   ProcessBrokerError,
   UNSAFE_BACKEND_ID,
   UNSAFE_BACKEND_LIMITATIONS,
+  backendDescriptorFingerprint,
   buildEnvironment,
   commandSubjectDigest,
   createExecutionLease,
+  createEnforcementAttestation,
   createDuplexSessionLimits,
   createManualTime,
   createProcessBroker,
@@ -26,6 +28,7 @@ import {
   decodeSafeText,
   evaluateAdmission,
   grantAllowsTool,
+  grantFingerprint,
   noQuotaSupport,
   parseBackendDescriptor,
   parseCapabilityGrant,
@@ -45,7 +48,9 @@ import {
   type PolicyGateway,
   type ProcessAuditRecord,
   type ProcessRequest,
+  type SandboxBackend,
 } from "../src/index.js";
+import { issueProductionBackendRegistration } from "../src/trusted-evidence.js";
 import { contractGrant, contractRequest } from "../src/testing/contract-suite.js";
 import { FIXTURE, allowAllPolicy, fixtureTool } from "./contract.test.js";
 
@@ -90,7 +95,10 @@ async function brokerHarness(options: {
     ...(options.secrets === undefined ? {} : { secrets: options.secrets }),
   });
   const context = (request: ProcessRequest, lease: ExecutionLease): ExecuteInput => ({
-    request,
+    request:
+      request.workspaceLeaseId === lease.leaseId
+        ? request
+        : parseProcessRequest({ ...request, workspaceLeaseId: lease.leaseId }),
     grant: lease.grant,
     lease,
     workspaceRoot: root,
@@ -407,7 +415,9 @@ describe("grants and leases", () => {
   });
 
   it("binds a tool digest when the grant pins one", () => {
-    const grant = contractGrant({ tools: [{ toolId: "echo", digest: "c".repeat(64) }] });
+    const grant = contractGrant({
+      tools: [{ toolId: "echo", digest: "c".repeat(64), immutableReference: null }],
+    });
     expect(grantAllowsTool(grant, "echo", "c".repeat(64))).toBe(true);
     expect(grantAllowsTool(grant, "echo", "d".repeat(64))).toBe(false);
     expect(grantAllowsTool(grant, "other", null)).toBe(false);
@@ -496,6 +506,7 @@ describe("backend descriptors", () => {
   it("refuses a descriptor that claims enforcement it does not have", () => {
     expect(() =>
       parseBackendDescriptor({
+        schemaVersion: 2,
         backendId: "liar",
         kind: "same-user-subprocess",
         platform: "linux",
@@ -503,7 +514,7 @@ describe("backend descriptors", () => {
         capabilities: {
           filesystemIsolation: false,
           processTreeControl: false,
-          networkDenial: false,
+          networkBoundary: "unsupported",
           identityIsolation: false,
           profileIsolation: false,
           quotas: noQuotaSupport(),
@@ -548,36 +559,118 @@ describe("production gate", () => {
   const baseline = (overrides: Record<string, unknown> = {}): Parameters<typeof evaluateAdmission>[0] => {
     const grant = contractGrant({}, systemClock);
     const request = contractRequest(tool(), { args: ["ok"] });
+    const descriptor = parseBackendDescriptor({
+      schemaVersion: 2,
+      backendId: "secure-test",
+      kind: "container",
+      platform: process.platform,
+      securityClass: "secure-enforcing",
+      capabilities: {
+        filesystemIsolation: true,
+        processTreeControl: true,
+        networkBoundary: "deny-all",
+        identityIsolation: true,
+        profileIsolation: true,
+        quotas: noQuotaSupport({
+          "wall-clock": "enforced",
+          "output-bytes": "enforced",
+          network: "enforced",
+        }),
+      },
+      versionEvidence: "1.0.0",
+    });
+    const backend: SandboxBackend = {
+      describe: () => descriptor,
+      probe: async () => ({ available: true, reason: "available", detail: null }),
+      validateGrant: () => ({ available: true, reason: "available", detail: null }),
+      prepare: async () => {
+        throw new Error("not used");
+      },
+      spawn: async () => {
+        throw new Error("not used");
+      },
+      dispose: async () => undefined,
+      close: async () => undefined,
+    };
+    const now = systemClock.now().valueOf();
+    const attestation = createEnforcementAttestation({
+      schemaVersion: 1,
+      algorithmVersion: 1,
+      backendId: descriptor.backendId,
+      backendFactoryId: "test-secure-v1",
+      enforcementProfile: "test-complete-v1",
+      descriptorFingerprint: backendDescriptorFingerprint(descriptor),
+      platform: {
+        os: process.platform as "win32" | "linux" | "darwin",
+        version: "test-1",
+        kernel: "test-1",
+        architecture: process.arch as "x64" | "arm64",
+        distribution: null,
+      },
+      helper: {
+        protocolVersion: 1,
+        sourceDigest: "1".repeat(64),
+        binaryDigest: "2".repeat(64),
+        buildDigest: "3".repeat(64),
+      },
+      boundaries: {
+        filesystem: "enforced",
+        "process-tree": "enforced",
+        identity: "enforced",
+        profile: "enforced",
+        "network-denial": "enforced",
+        "controlled-egress": "unverified",
+        credentials: "enforced",
+        ipc: "enforced",
+        cleanup: "enforced",
+      },
+      quotas: descriptor.capabilities.quotas,
+      endpointPolicyFingerprint: null,
+      escapeCorpus: {
+        version: 1,
+        fingerprint: "4".repeat(64),
+        result: "passed",
+        positiveControlsPassed: true,
+        testCount: 10,
+      },
+      observedAt: new Date(now - 1_000).toISOString(),
+      expiresAt: new Date(now + 60_000).toISOString(),
+      limitations: [],
+    });
+    const registration = issueProductionBackendRegistration({
+      backend,
+      descriptor,
+      attestation,
+      purpose: "production",
+    });
     return {
       mode: "production",
-      descriptor: parseBackendDescriptor({
-        backendId: "secure-test",
-        kind: "container",
-        platform: process.platform,
-        securityClass: "secure-enforcing",
-        capabilities: {
-          filesystemIsolation: true,
-          processTreeControl: true,
-          networkDenial: true,
-          identityIsolation: true,
-          profileIsolation: true,
-          quotas: noQuotaSupport({
-            "wall-clock": "enforced",
-            "output-bytes": "enforced",
-            network: "enforced",
-          }),
-        },
-        versionEvidence: "1.0.0",
-      }),
+      backend,
+      descriptor,
       availability: { available: true, reason: "available", detail: null },
+      grantValidation: { available: true, reason: "available", detail: null },
       approvedBackendIds: ["secure-test"],
+      productionRegistration: registration,
+      controlPlaneEndpointPolicy: null,
       grant,
+      grantFingerprint: grantFingerprint(grant),
       request,
+      lease: {
+        leaseId: request.workspaceLeaseId,
+        grantId: grant.grantId,
+        grantFingerprint: grantFingerprint(grant),
+        workspaceId: grant.workspaceId,
+        attemptId: grant.attemptId,
+        state: "active",
+        expiresAt: grant.expiresAt,
+        version: 1,
+      },
       clock: systemClock,
       policyOutcome: "allowed",
       policyFingerprint: request.policyDecisionFingerprint,
-      resolvedExecutableDigest: null,
-      workspaceLeaseValid: true,
+      policyApprovalEvidenceRefs: [],
+      resolvedExecutableDigest: "a".repeat(64),
+      resolvedImmutableReference: null,
       workspacePathTrusted: true,
       ...overrides,
     } as Parameters<typeof evaluateAdmission>[0];
@@ -634,9 +727,13 @@ describe("production gate", () => {
     expect(evaluateAdmission(baseline({ policyFingerprint: "f".repeat(64) })).reasons).toContain(
       "policy-fingerprint-mismatch",
     );
-    expect(evaluateAdmission(baseline({ workspaceLeaseValid: false })).reasons).toContain(
-      "workspace-lease-invalid",
-    );
+    const base = baseline();
+    expect(
+      evaluateAdmission({
+        ...base,
+        lease: { ...base.lease, state: "revoked" },
+      }).reasons,
+    ).toContain("workspace-lease-invalid");
     expect(evaluateAdmission(baseline({ workspacePathTrusted: false })).reasons).toContain(
       "workspace-path-untrusted",
     );
@@ -651,7 +748,7 @@ describe("production gate", () => {
   it("refuses network denial the backend cannot provide", () => {
     const descriptor = parseBackendDescriptor({
       ...baseline().descriptor,
-      capabilities: { ...baseline().descriptor.capabilities, networkDenial: false },
+      capabilities: { ...baseline().descriptor.capabilities, networkBoundary: "unsupported" },
     });
     expect(evaluateAdmission(baseline({ descriptor })).reasons).toContain(
       "network-denial-unavailable",
@@ -681,7 +778,10 @@ describe("broker behaviour", () => {
     const broker = createProcessBroker({ backend, mode: "development", policy: allowAllPolicy, clock: systemClock });
     const grant = contractGrant({}, systemClock);
     const lease = createExecutionLease({ leaseId: "duplex-cancellation-race", grant, clock: systemClock });
-    const request = contractRequest(tool(), { args: ["--sleep-forever"] });
+    const request = contractRequest(tool(), {
+      args: ["--sleep-forever"],
+      workspaceLeaseId: lease.leaseId,
+    });
     const session = await broker.openDuplexSession({
       request,
       grant,
@@ -707,7 +807,10 @@ describe("broker behaviour", () => {
     });
     const grant = contractGrant({}, systemClock);
     const lease = createExecutionLease({ leaseId: "duplex-production", grant, clock: systemClock });
-    const request = contractRequest(tool(), { args: ["--armed-marker", marker] });
+    const request = contractRequest(tool(), {
+      args: ["--armed-marker", marker],
+      workspaceLeaseId: lease.leaseId,
+    });
     const input: ExecuteInput = {
       request,
       grant,
@@ -776,7 +879,7 @@ describe("broker behaviour", () => {
     const lease = createExecutionLease({ leaseId: "l", grant: contractGrant({}, systemClock), clock: systemClock });
     await expect(
       broker.execute({
-        request: contractRequest(tool(), { args: ["ok"] }),
+        request: contractRequest(tool(), { args: ["ok"], workspaceLeaseId: lease.leaseId }),
         grant: lease.grant,
         lease,
         workspaceRoot: root,
@@ -880,8 +983,10 @@ describe("normalized command subject", () => {
     snapshotId: "snapshot-1",
     networkMode: "denied",
     egressDomains: [] as readonly string[],
+    controlPlaneEndpointPolicyFingerprint: null,
     quotas: { wallClockMs: 1_000, outputBytes: 1_024 },
     environmentNames: ["A", "B"],
+    environmentBindingsFingerprint: "d".repeat(64),
     stdinDigest: null,
   };
 

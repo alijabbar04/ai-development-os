@@ -156,8 +156,8 @@ export async function createCodexHarness(options: HarnessOptions): Promise<Codex
     ...options.configuration,
   });
   const grant = parseCapabilityGrant({
-    schemaVersion: 1, grantId: `grant-codex-${harnessSequence}`, projectId: PROJECT_ID, runId: null, taskId: null, attemptId: record.attemptId, snapshotId: snapshot.snapshotId, workspaceId: WORKSPACE_ID,
-    operations: options.operations ?? ["workspace-read", "workspace-write", "command-execution", "git-commit"], readablePrefixes: [""], writablePrefixes: options.writablePrefixes ?? [""], tools: [{ toolId: "codex", digest: null }], network: { mode: "denied", egressDomains: [] },
+    schemaVersion: 2, grantId: `grant-codex-${harnessSequence}`, projectId: PROJECT_ID, runId: null, taskId: null, attemptId: record.attemptId, snapshotId: snapshot.snapshotId, workspaceId: WORKSPACE_ID,
+    operations: options.operations ?? ["workspace-read", "workspace-write", "command-execution", "git-commit"], readablePrefixes: [""], writablePrefixes: options.writablePrefixes ?? [""], tools: [{ toolId: "codex", digest: null, immutableReference: null }], environmentNames: [], credentialRefFingerprints: [], controlPlaneEndpointPolicyFingerprint: null, network: { mode: "denied", egressDomains: [] },
     quotas: { wallClockMs: 120_000, cpuTimeMs: null, memoryBytes: null, processCount: null, outputBytes: 8_388_608, diskBytes: null, fileCount: null },
     issuedAt: "2026-08-03T11:59:00.000Z", expiresAt: "2026-08-04T12:00:00.000Z", nonce: "b".repeat(32), policyFingerprint: POLICY_FINGERPRINT, approvalEvidenceRefs: [],
   });

@@ -16,6 +16,8 @@
 
 import { validation } from "@ai-dev-os/domain";
 import { ProcessBrokerError, invalidRequest } from "./errors.js";
+import { fingerprintOf } from "./fingerprint.js";
+import { parseWorkspaceRelativePath } from "./paths.js";
 
 const { ensureExactKeys, ensureRecord, ensureString } = validation;
 
@@ -152,6 +154,30 @@ export type EnvironmentBinding =
   | { readonly kind: "workspace-path"; readonly name: string; readonly value: string }
   | { readonly kind: "secret"; readonly name: string; readonly secretRefFingerprint: string };
 
+/**
+ * Body-free digest over every security-relevant environment binding field.
+ *
+ * Names alone are insufficient: changing a literal value or swapping a secret
+ * reference changes the command authority even when the variable name stays
+ * the same. The digest, never the values, is carried into policy/session
+ * evidence.
+ */
+export function environmentBindingsFingerprint(
+  bindings: readonly EnvironmentBinding[],
+): string {
+  return fingerprintOf(
+    bindings.map((binding) =>
+      binding.kind === "secret"
+        ? {
+            kind: binding.kind,
+            name: binding.name,
+            secretRefFingerprint: binding.secretRefFingerprint,
+          }
+        : { kind: binding.kind, name: binding.name, value: binding.value },
+    ),
+  );
+}
+
 function ensureName(value: unknown, path: string): string {
   const name = ensureString(value, path, { maxLength: MAX_ENVIRONMENT_NAME_LENGTH });
   if (!NAME_PATTERN.test(name)) {
@@ -192,7 +218,10 @@ export function parseEnvironmentBinding(value: unknown, path = "binding"): Envir
   return Object.freeze({
     kind,
     name: ensureName(record["name"], `${path}.name`),
-    value: ensureValue(record["value"], `${path}.value`),
+    value:
+      kind === "workspace-path"
+        ? parseWorkspaceRelativePath(record["value"], `${path}.value`)
+        : ensureValue(record["value"], `${path}.value`),
   });
 }
 

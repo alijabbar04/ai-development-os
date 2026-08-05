@@ -15,6 +15,7 @@ import {
   parseCapabilityGrant,
   parseEnvironmentBinding,
   parseEnvironmentBindings,
+  parseProcessRequest,
   resolveTrustedTool,
   systemClock,
   type ExecuteInput,
@@ -44,7 +45,10 @@ async function harness(backend: SandboxBackend, root: string) {
     terminationGraceMs: 100,
   });
   const context = (request: ProcessRequest, lease: ExecutionLease): ExecuteInput => ({
-    request,
+    request:
+      request.workspaceLeaseId === lease.leaseId
+        ? request
+        : parseProcessRequest({ ...request, workspaceLeaseId: lease.leaseId }),
     grant: lease.grant,
     lease,
     workspaceRoot: root,
@@ -99,7 +103,7 @@ describe("broker edge paths", () => {
       context(
         contractRequest(fixtureTool(), {
           args: ["--sleep-forever"],
-          quotas: createProcessQuotas({ wallClockMs: 60_000, outputBytes: 65_536 }),
+          quotas: createProcessQuotas({ wallClockMs: 30_000, outputBytes: 65_536 }),
           deadline: new Date(Date.now() + 600).toISOString(),
         }),
         lease(),
@@ -283,7 +287,9 @@ describe("grant and binding parsing edges", () => {
   });
 
   it("treats a null tool digest as unpinned", () => {
-    const grant = contractGrant({ tools: [{ toolId: "echo", digest: null }] });
+    const grant = contractGrant({
+      tools: [{ toolId: "echo", digest: null, immutableReference: null }],
+    });
     expect(grantAllowsTool(grant, "echo", null)).toBe(true);
     expect(grantAllowsTool(grant, "echo", "a".repeat(64))).toBe(true);
   });
@@ -298,13 +304,19 @@ describe("grant and binding parsing edges", () => {
   it("validates each environment binding variant", () => {
     expect(parseEnvironmentBinding({ kind: "literal", name: "A", value: "1" }).name).toBe("A");
     expect(
-      parseEnvironmentBinding({ kind: "workspace-path", name: "W", value: "/w" }).kind,
+      parseEnvironmentBinding({ kind: "workspace-path", name: "W", value: "w" }).kind,
     ).toBe("workspace-path");
     expect(
       parseEnvironmentBinding({ kind: "secret", name: "S", secretRefFingerprint: "a".repeat(64) }).kind,
     ).toBe("secret");
     expect(() => parseEnvironmentBinding({ kind: "secret", name: "S", secretRefFingerprint: "x" })).toThrow();
     expect(() => parseEnvironmentBinding({ kind: "literal", name: "1BAD", value: "x" })).toThrow();
+    expect(() =>
+      parseEnvironmentBinding({ kind: "workspace-path", name: "W", value: "../outside" }),
+    ).toThrow();
+    expect(() =>
+      parseEnvironmentBinding({ kind: "workspace-path", name: "W", value: "/outside" }),
+    ).toThrow();
     expect(() => parseEnvironmentBinding({ kind: "unknown", name: "A", value: "1" })).toThrow();
   });
 

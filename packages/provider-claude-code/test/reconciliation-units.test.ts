@@ -16,7 +16,7 @@ const NOW = "2026-08-02T12:00:00.000Z";
 
 function grantWith(writablePrefixes: readonly string[]): CapabilityGrant {
   return parseCapabilityGrant({
-    schemaVersion: 1,
+    schemaVersion: 2,
     grantId: "grant-unit",
     projectId: "proj",
     runId: null,
@@ -28,6 +28,9 @@ function grantWith(writablePrefixes: readonly string[]): CapabilityGrant {
     readablePrefixes: [""],
     writablePrefixes,
     tools: [],
+    environmentNames: [],
+    credentialRefFingerprints: [],
+    controlPlaneEndpointPolicyFingerprint: null,
     network: { mode: "denied", egressDomains: [] },
     quotas: {
       wallClockMs: 30_000,

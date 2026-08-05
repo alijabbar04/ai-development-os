@@ -34,8 +34,10 @@ export interface CommandSubject {
   readonly snapshotId: string | null;
   readonly networkMode: string;
   readonly egressDomains: readonly string[];
+  readonly controlPlaneEndpointPolicyFingerprint: string | null;
   readonly quotas: Readonly<Record<string, number | null>>;
   readonly environmentNames: readonly string[];
+  readonly environmentBindingsFingerprint: string;
   readonly stdinDigest: string | null;
 }
 
@@ -52,8 +54,11 @@ export function commandSubjectDigest(subject: CommandSubject): string {
     snapshotId: subject.snapshotId,
     networkMode: subject.networkMode,
     egressDomains: [...subject.egressDomains].sort(),
+    controlPlaneEndpointPolicyFingerprint:
+      subject.controlPlaneEndpointPolicyFingerprint,
     quotas: subject.quotas,
     environmentNames: [...subject.environmentNames].sort(),
+    environmentBindingsFingerprint: subject.environmentBindingsFingerprint,
     stdinDigest: subject.stdinDigest,
   });
 }

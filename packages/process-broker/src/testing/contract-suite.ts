@@ -57,7 +57,7 @@ export function contractGrant(
 ): CapabilityGrant {
   const now = clock.now().valueOf();
   return parseCapabilityGrant({
-    schemaVersion: 1,
+    schemaVersion: 2,
     grantId: "grant-contract",
     projectId: "project-contract",
     runId: "run-contract",
@@ -68,7 +68,10 @@ export function contractGrant(
     operations: ["command-execution", "workspace-read"],
     readablePrefixes: [""],
     writablePrefixes: ["out"],
-    tools: [{ toolId: "echo", digest: null }],
+    tools: [{ toolId: "echo", digest: null, immutableReference: null }],
+    environmentNames: ["CANARY", "CONTRACT_VALUE", "INJECTED"],
+    credentialRefFingerprints: ["a".repeat(64)],
+    controlPlaneEndpointPolicyFingerprint: null,
     network: DENY_ALL_NETWORK,
     quotas: {
       wallClockMs: 30_000,
@@ -689,6 +692,9 @@ export function runSandboxBackendContractSuite(factory: SandboxBackendContractFa
           grant: contractGrant(),
           grantFingerprint: SUBJECT_FINGERPRINT,
           policyDecisionFingerprint: SUBJECT_FINGERPRINT,
+          subjectFingerprint: SUBJECT_FINGERPRINT,
+          executionBindingFingerprint: SUBJECT_FINGERPRINT,
+          attestationFingerprint: null,
           workspaceRoot: process.cwd(),
           expiresAt: "2026-08-02T01:00:00.000Z",
           nonce: "0".repeat(32),
@@ -709,6 +715,9 @@ export function runSandboxBackendContractSuite(factory: SandboxBackendContractFa
           grant: contractGrant(),
           grantFingerprint: SUBJECT_FINGERPRINT,
           policyDecisionFingerprint: SUBJECT_FINGERPRINT,
+          subjectFingerprint: SUBJECT_FINGERPRINT,
+          executionBindingFingerprint: SUBJECT_FINGERPRINT,
+          attestationFingerprint: null,
           workspaceRoot: process.cwd(),
           expiresAt: "2026-08-02T01:00:00.000Z",
           nonce: "0".repeat(32),
@@ -723,3 +732,4 @@ export function runSandboxBackendContractSuite(factory: SandboxBackendContractFa
 }
 
 export { systemClock };
+export * from "./secure-backend-adversarial-suite.js";

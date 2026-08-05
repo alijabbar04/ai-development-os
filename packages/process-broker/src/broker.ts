@@ -7,12 +7,21 @@
  * started process releases the sandbox and the lease.
  */
 
+import { realpath } from "node:fs/promises";
+import { isAbsolute, relative, sep } from "node:path";
+
 import { createAuditRecord, notifyObserver, type ProcessObserver } from "./audit.js";
 import type {
   BackendProcess,
+  BackendTermination,
   SandboxBackend,
   SandboxBinding,
   SandboxSession,
+} from "./backend.js";
+import {
+  backendDescriptorFingerprint,
+  parseBackendAvailability,
+  parseBackendDescriptor,
 } from "./backend.js";
 import { ProcessBrokerError, errorCategory } from "./errors.js";
 import {
@@ -24,26 +33,38 @@ import {
 } from "./duplex.js";
 import {
   buildEnvironment,
+  environmentBindingsFingerprint,
   type BuiltEnvironment,
   type WorkspaceEnvironmentPaths,
 } from "./environment.js";
-import { commandSubjectDigest, digestBytes } from "./fingerprint.js";
+import type { ControlPlaneEndpointPolicy } from "./endpoint-policy.js";
+import { parseControlPlaneEndpointPolicy } from "./endpoint-policy.js";
+import { commandSubjectDigest, digestBytes, fingerprintOf } from "./fingerprint.js";
 import {
   grantAllowsOperation,
   grantFingerprint,
   type CapabilityGrant,
   type ExecutionLease,
 } from "./grant.js";
+import type { LeaseAuthoritySnapshot } from "./grant-containment.js";
 import { BoundedOutputCollector, type OutputCapture } from "./output.js";
+import { parseWorkspaceRelativePath } from "./paths.js";
 import {
   assertAdmitted,
+  assertFinalAdmitted,
   evaluateAdmission,
+  evaluateFinalAdmission,
   type AdmissionDecision,
   type ExecutionMode,
 } from "./production-gate.js";
 import { isSuccessExit, type ProcessRequest } from "./request.js";
 import { applyArgumentPolicy, resolveTrustedTool } from "./tool.js";
 import { systemClock, systemScheduler, type Clock, type Scheduler } from "./time.js";
+import {
+  invalidateProductionBackendRegistration,
+  sandboxSessionFingerprint,
+  type ProductionBackendRegistration,
+} from "./trusted-evidence.js";
 
 export const PROCESS_STATES = Object.freeze([
   "created",
@@ -125,6 +146,10 @@ export interface ProcessBrokerOptions {
   readonly mode: ExecutionMode;
   /** Backends the trusted composition layer permits in production. */
   readonly approvedBackendIds?: readonly string[];
+  /** Opaque first-party evidence. Required in production; never parsed from configuration. */
+  readonly productionRegistration?: ProductionBackendRegistration | null;
+  /** Trusted locked provider control-plane destinations, separate from workload network. */
+  readonly controlPlaneEndpointPolicy?: ControlPlaneEndpointPolicy | null;
   readonly policy: PolicyGateway;
   readonly clock?: Clock;
   readonly scheduler?: Scheduler;
@@ -186,9 +211,29 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
   const scheduler = options.scheduler ?? systemScheduler;
   const graceMs = options.terminationGraceMs ?? 2_000;
   const approved = Object.freeze([...(options.approvedBackendIds ?? [])]);
+  const productionRegistration = options.productionRegistration ?? null;
+  const controlPlaneEndpointPolicy =
+    options.controlPlaneEndpointPolicy === undefined ||
+    options.controlPlaneEndpointPolicy === null
+      ? null
+      : parseControlPlaneEndpointPolicy(options.controlPlaneEndpointPolicy);
   const inflight = new Set<Promise<unknown>>();
   const sessions = new Set<DuplexProcessSession>();
   let closed = false;
+
+  async function disposeSandbox(session: SandboxSession): Promise<ProcessBrokerError | null> {
+    try {
+      await options.backend.dispose(session);
+      return null;
+    } catch (error) {
+      invalidateProductionBackendRegistration(productionRegistration);
+      return new ProcessBrokerError(
+        "SANDBOX_DISPOSAL_FAILED",
+        "Sandbox cleanup could not be confirmed.",
+        { backendId: session.backendId, cause: errorCategory(error) },
+      );
+    }
+  }
 
   async function execute(input: ExecuteInput): Promise<ProcessResult> {
     if (closed) {
@@ -230,7 +275,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
   ): Promise<DuplexProcessSession> {
     const { request, grant, lease } = input;
     const startedAt = clock.now();
-    const descriptor = options.backend.describe();
+    const descriptor = parseBackendDescriptor(options.backend.describe());
     const limits = parseDuplexSessionLimits(
       input.limits ?? createDuplexSessionLimits(),
       "input.limits",
@@ -259,6 +304,11 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       });
     }
 
+    const workspaceBinding = await resolveWorkspaceBinding(
+      input.workspaceRoot,
+      input.workingDirectory,
+    );
+
     const resolved = await resolveTrustedTool(request.tool);
     const argv = applyArgumentPolicy(request.tool, request.args);
     const subjectDigest = commandSubjectDigest({
@@ -266,11 +316,13 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       executableDigest: resolved.digest?.hex ?? null,
       immutableReference: resolved.immutableReference,
       arguments: argv,
-      workingDirectory: request.workingSubdirectory,
+      workingDirectory: workspaceBinding.actualWorkingSubdirectory,
       workspaceId: request.workspaceId,
       snapshotId: grant.snapshotId,
       networkMode: request.network.mode,
       egressDomains: request.network.egressDomains,
+      controlPlaneEndpointPolicyFingerprint:
+        controlPlaneEndpointPolicy?.fingerprint ?? null,
       quotas: {
         wallClockMs: request.quotas.wallClockMs,
         outputBytes: request.quotas.outputBytes,
@@ -281,24 +333,43 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         fileCount: request.quotas.fileCount,
       },
       environmentNames: request.environment.map((binding) => binding.name),
+      environmentBindingsFingerprint: environmentBindingsFingerprint(request.environment),
       stdinDigest: null,
     });
 
     const evaluation = await options.policy.evaluateCommand({ request, grant, subjectDigest });
-    const availability = await options.backend.probe();
+    const availability = parseBackendAvailability(
+      await options.backend.probe(),
+      "backend.probe",
+    );
+    const grantValidation = parseBackendAvailability(
+      options.backend.validateGrant(grant),
+      "backend.validateGrant",
+    );
+    const currentGrantFingerprint = grantFingerprint(grant);
+    const leaseSnapshot = leaseAuthoritySnapshot(lease);
     const decision = evaluateAdmission({
       mode: options.mode,
+      backend: options.backend,
       descriptor,
       availability,
+      grantValidation,
       approvedBackendIds: approved,
+      productionRegistration,
+      controlPlaneEndpointPolicy,
       grant,
+      grantFingerprint: currentGrantFingerprint,
       request,
+      actualWorkingSubdirectory: workspaceBinding.actualWorkingSubdirectory,
+      lease: leaseSnapshot,
       clock,
       policyOutcome: evaluation.outcome,
       policyFingerprint: evaluation.fingerprint,
+      policyApprovalEvidenceRefs: evaluation.approvalsToConsume,
       resolvedExecutableDigest: resolved.digest?.hex ?? null,
-      workspaceLeaseValid: lease.isValid(),
-      workspacePathTrusted: input.workspacePathTrusted ?? true,
+      resolvedImmutableReference: resolved.immutableReference,
+      workspacePathTrusted:
+        workspaceBinding.trusted && (input.workspacePathTrusted ?? true),
     });
     emit(decision.admitted ? "admission" : "production-refusal", {
       request,
@@ -310,6 +381,20 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     });
     assertAdmitted(decision);
 
+    const executionBindingFingerprint = createExecutionBindingFingerprint({
+      descriptorFingerprint: backendDescriptorFingerprint(descriptor),
+      attestationFingerprint: decision.attestationFingerprint,
+      grantValidationFingerprint: fingerprintOf(grantValidation),
+      subjectFingerprint: subjectDigest,
+      grantFingerprint: currentGrantFingerprint,
+      lease: leaseSnapshot,
+      workspaceRoot: workspaceBinding.workspaceRoot,
+      workingDirectory: workspaceBinding.workingDirectory,
+      executablePath: resolved.executablePath,
+      executableDigest: resolved.digest?.hex ?? null,
+      immutableReference: resolved.immutableReference,
+      endpointPolicyFingerprint: controlPlaneEndpointPolicy?.fingerprint ?? null,
+    });
     const binding: SandboxBinding = Object.freeze({
       projectId: request.projectId,
       workspaceId: request.workspaceId,
@@ -317,13 +402,24 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       attemptId: request.attemptId,
       leaseId: lease.leaseId,
       grant,
-      grantFingerprint: grantFingerprint(grant),
+      grantFingerprint: currentGrantFingerprint,
       policyDecisionFingerprint: evaluation.fingerprint,
-      workspaceRoot: input.workspaceRoot,
+      subjectFingerprint: subjectDigest,
+      executionBindingFingerprint,
+      attestationFingerprint: decision.attestationFingerprint,
+      workspaceRoot: workspaceBinding.workspaceRoot,
       expiresAt: grant.expiresAt,
       nonce: grant.nonce,
     });
     const sandbox = await options.backend.prepare(binding);
+    if (sandbox.backendId !== descriptor.backendId) {
+      const disposalFailure = await disposeSandbox(sandbox);
+      throw disposalFailure ?? new ProcessBrokerError(
+        "BACKEND_INSECURE",
+        "The prepared sandbox identity does not match the admitted backend.",
+        { backendId: descriptor.backendId },
+      );
+    }
     emit("sandbox-prepared", {
       request,
       grant,
@@ -340,19 +436,24 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         resolvedPath: resolved.executablePath,
         combinedArgs: argv,
         decision,
+        executionBindingFingerprint,
+        workingDirectory: workspaceBinding.workingDirectory,
         limits,
         startedAt,
       });
     } catch (error) {
-      await options.backend.dispose(sandbox).catch(() => undefined);
+      const disposalFailure = await disposeSandbox(sandbox);
       emit("sandbox-disposed", {
         request,
         grant,
         decision,
-        outcome: "disposed",
+        outcome: disposalFailure === null ? "disposed" : "disposal-failed",
         occurredAt: clock.now().toISOString(),
         environmentNameCount: request.environment.length,
       });
+      if (options.mode === "production" && disposalFailure !== null) {
+        throw disposalFailure;
+      }
       throw error;
     }
   }
@@ -363,6 +464,8 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     readonly resolvedPath: string;
     readonly combinedArgs: readonly string[];
     readonly decision: AdmissionDecision;
+    readonly executionBindingFingerprint: string;
+    readonly workingDirectory: string;
     readonly limits: DuplexSessionLimits;
     readonly startedAt: Date;
   }): Promise<DuplexProcessSession> {
@@ -374,12 +477,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     try {
       environment = buildEnvironment({
         bindings: request.environment,
-        paths: {
-          tempDir: sandbox.tempDir,
-          homeDir: input.workspacePaths.homeDir ?? sandbox.homeDir,
-          configDir: input.workspacePaths.configDir,
-          cacheDir: input.workspacePaths.cacheDir,
-        },
+        paths: environmentPathsForSession(options.mode, sandbox, input.workspacePaths),
         secretValues,
       });
     } catch (error) {
@@ -413,6 +511,26 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       return true;
     };
 
+    // Consume preparation evidence only after every asynchronous setup step,
+    // then re-resolve the image immediately before the backend spawn call.
+    const currentTool = await resolveTrustedTool(request.tool);
+    const finalDecision = evaluateFinalAdmission({
+      mode: options.mode,
+      registration: productionRegistration,
+      receipt: sandbox.productionReceipt,
+      executionBindingFingerprint: context.executionBindingFingerprint,
+      sandboxSessionFingerprint: sandboxSessionFingerprint(sandbox),
+      leaseValid: lease.isValid(),
+      grantExpiresAt: grant.expiresAt,
+      endpointPolicyExpiresAt: controlPlaneEndpointPolicy?.expiresAt ?? null,
+      executableUnchanged:
+        currentTool.executablePath === context.resolvedPath &&
+        (currentTool.digest?.hex ?? null) === (request.tool.expectedDigest?.hex ?? null) &&
+        currentTool.immutableReference === request.tool.immutableReference,
+      clock,
+    });
+    assertFinalAdmitted(finalDecision);
+
     let child: BackendProcess;
     try {
       child = await options.backend.spawn({
@@ -426,7 +544,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         },
         argv: [context.resolvedPath, ...context.combinedArgs],
         environment,
-        workingDirectory: input.workingDirectory,
+        workingDirectory: context.workingDirectory,
       });
     } catch (error) {
       const wrapped =
@@ -450,6 +568,8 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     });
 
     const stoppers: Array<() => void> = [];
+    let terminationPromise: Promise<BackendTermination> | null = null;
+    const currentTermination = (): Promise<BackendTermination> | null => terminationPromise;
     const stopAll = (): void => {
       for (const stop of stoppers.splice(0)) {
         try {
@@ -461,7 +581,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     };
     const terminateWith = (next: ProcessState, error: ProcessBrokerError): void => {
       if (settle(next, error)) {
-        void child.terminateTree(graceMs).catch(() => undefined);
+        terminationPromise = child.terminateTree(graceMs);
       }
     };
 
@@ -543,9 +663,36 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
           settle(isSuccessExit(request, exit.exitCode) ? "succeeded" : "failed", null);
         }
       }
+      if (terminationPromise !== null) {
+        try {
+          const termination = await terminationPromise;
+          if (termination.outcome === "termination-unconfirmed") {
+            state = "backend-lost";
+            failure = new ProcessBrokerError(
+              "PROCESS_TREE_TERMINATION_FAILED",
+              "Process-tree termination could not be confirmed.",
+              { backendId: decision.backendId, outcome: termination.outcome },
+            );
+            invalidateProductionBackendRegistration(productionRegistration);
+          }
+        } catch (error) {
+          state = "backend-lost";
+          failure = new ProcessBrokerError(
+            "PROCESS_TREE_TERMINATION_FAILED",
+            "Process-tree termination could not be confirmed.",
+            { backendId: decision.backendId, cause: errorCategory(error) },
+          );
+          invalidateProductionBackendRegistration(productionRegistration);
+        }
+      }
       eventQueue.finish();
       const output = collector.finish();
       const endedAt = clock.now();
+      const disposalFailure = await disposeSandbox(sandbox);
+      if (options.mode === "production" && disposalFailure !== null) {
+        state = "backend-lost";
+        failure = disposalFailure;
+      }
       const finalState = currentState();
       const result: ProcessResult = Object.freeze({
         requestId: request.requestId,
@@ -562,12 +709,11 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         failure,
       });
       emitTerminal(finalState, failure, exit.exitCode, result.durationMs, startedAt, output, context);
-      await options.backend.dispose(sandbox).catch(() => undefined);
       emit("sandbox-disposed", {
         request,
         grant,
         decision,
-        outcome: "disposed",
+        outcome: disposalFailure === null ? "disposed" : "disposal-failed",
         occurredAt: clock.now().toISOString(),
         environmentNameCount: request.environment.length,
       });
@@ -693,7 +839,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
   async function runExecution(input: ExecuteInput): Promise<ProcessResult> {
     const { request, grant, lease } = input;
     const startedAt = clock.now();
-    const descriptor = options.backend.describe();
+    const descriptor = parseBackendDescriptor(options.backend.describe());
 
     // 1. Authority that does not depend on the filesystem or the backend.
     if (!grantAllowsOperation(grant, "command-execution")) {
@@ -710,6 +856,11 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       });
     }
 
+    const workspaceBinding = await resolveWorkspaceBinding(
+      input.workspaceRoot,
+      input.workingDirectory,
+    );
+
     // 2. The exact image, verified now rather than earlier.
     const resolved = await resolveTrustedTool(request.tool);
     const argv = applyArgumentPolicy(request.tool, request.args);
@@ -720,11 +871,13 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       executableDigest: resolved.digest?.hex ?? null,
       immutableReference: resolved.immutableReference,
       arguments: argv,
-      workingDirectory: request.workingSubdirectory,
+      workingDirectory: workspaceBinding.actualWorkingSubdirectory,
       workspaceId: request.workspaceId,
       snapshotId: grant.snapshotId,
       networkMode: request.network.mode,
       egressDomains: request.network.egressDomains,
+      controlPlaneEndpointPolicyFingerprint:
+        controlPlaneEndpointPolicy?.fingerprint ?? null,
       quotas: {
         wallClockMs: request.quotas.wallClockMs,
         outputBytes: request.quotas.outputBytes,
@@ -735,26 +888,45 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         fileCount: request.quotas.fileCount,
       },
       environmentNames: request.environment.map((binding) => binding.name),
+      environmentBindingsFingerprint: environmentBindingsFingerprint(request.environment),
       stdinDigest: request.stdin.kind === "bytes" ? digestBytes(request.stdin.bytes) : null,
     });
 
     const evaluation = await options.policy.evaluateCommand({ request, grant, subjectDigest });
-    const availability = await options.backend.probe();
+    const availability = parseBackendAvailability(
+      await options.backend.probe(),
+      "backend.probe",
+    );
+    const grantValidation = parseBackendAvailability(
+      options.backend.validateGrant(grant),
+      "backend.validateGrant",
+    );
+    const currentGrantFingerprint = grantFingerprint(grant);
+    const leaseSnapshot = leaseAuthoritySnapshot(lease);
 
     // 4. Admission. Nothing has been created yet; a refusal here is clean.
     const decision = evaluateAdmission({
       mode: options.mode,
+      backend: options.backend,
       descriptor,
       availability,
+      grantValidation,
       approvedBackendIds: approved,
+      productionRegistration,
+      controlPlaneEndpointPolicy,
       grant,
+      grantFingerprint: currentGrantFingerprint,
       request,
+      actualWorkingSubdirectory: workspaceBinding.actualWorkingSubdirectory,
+      lease: leaseSnapshot,
       clock,
       policyOutcome: evaluation.outcome,
       policyFingerprint: evaluation.fingerprint,
+      policyApprovalEvidenceRefs: evaluation.approvalsToConsume,
       resolvedExecutableDigest: resolved.digest?.hex ?? null,
-      workspaceLeaseValid: lease.isValid(),
-      workspacePathTrusted: input.workspacePathTrusted ?? true,
+      resolvedImmutableReference: resolved.immutableReference,
+      workspacePathTrusted:
+        workspaceBinding.trusted && (input.workspacePathTrusted ?? true),
     });
     emit(decision.admitted ? "admission" : "production-refusal", {
       request,
@@ -767,6 +939,20 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     assertAdmitted(decision);
 
     // 5. Prepare the sandbox only after admission succeeded.
+    const executionBindingFingerprint = createExecutionBindingFingerprint({
+      descriptorFingerprint: backendDescriptorFingerprint(descriptor),
+      attestationFingerprint: decision.attestationFingerprint,
+      grantValidationFingerprint: fingerprintOf(grantValidation),
+      subjectFingerprint: subjectDigest,
+      grantFingerprint: currentGrantFingerprint,
+      lease: leaseSnapshot,
+      workspaceRoot: workspaceBinding.workspaceRoot,
+      workingDirectory: workspaceBinding.workingDirectory,
+      executablePath: resolved.executablePath,
+      executableDigest: resolved.digest?.hex ?? null,
+      immutableReference: resolved.immutableReference,
+      endpointPolicyFingerprint: controlPlaneEndpointPolicy?.fingerprint ?? null,
+    });
     const binding: SandboxBinding = Object.freeze({
       projectId: request.projectId,
       workspaceId: request.workspaceId,
@@ -774,13 +960,24 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       attemptId: request.attemptId,
       leaseId: lease.leaseId,
       grant,
-      grantFingerprint: grantFingerprint(grant),
+      grantFingerprint: currentGrantFingerprint,
       policyDecisionFingerprint: evaluation.fingerprint,
-      workspaceRoot: input.workspaceRoot,
+      subjectFingerprint: subjectDigest,
+      executionBindingFingerprint,
+      attestationFingerprint: decision.attestationFingerprint,
+      workspaceRoot: workspaceBinding.workspaceRoot,
       expiresAt: grant.expiresAt,
       nonce: grant.nonce,
     });
     const session = await options.backend.prepare(binding);
+    if (session.backendId !== descriptor.backendId) {
+      const disposalFailure = await disposeSandbox(session);
+      throw disposalFailure ?? new ProcessBrokerError(
+        "BACKEND_INSECURE",
+        "The prepared sandbox identity does not match the admitted backend.",
+        { backendId: descriptor.backendId },
+      );
+    }
     emit("sandbox-prepared", {
       request,
       grant,
@@ -790,27 +987,42 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       environmentNameCount: request.environment.length,
     });
 
+    let result: ProcessResult | null = null;
+    let executionFailure: unknown = null;
     try {
-      return await runProcess({
+      result = await runProcess({
         input,
         session,
         resolvedPath: resolved.executablePath,
         combinedArgs: argv,
         decision,
         evaluation,
+        executionBindingFingerprint,
+        workingDirectory: workspaceBinding.workingDirectory,
         startedAt,
       });
-    } finally {
-      await options.backend.dispose(session).catch(() => undefined);
-      emit("sandbox-disposed", {
-        request,
-        grant,
-        decision,
-        outcome: "disposed",
-        occurredAt: clock.now().toISOString(),
-        environmentNameCount: request.environment.length,
-      });
+    } catch (error) {
+      executionFailure = error;
     }
+    const disposalFailure = await disposeSandbox(session);
+    emit("sandbox-disposed", {
+      request,
+      grant,
+      decision,
+      outcome: disposalFailure === null ? "disposed" : "disposal-failed",
+      occurredAt: clock.now().toISOString(),
+      environmentNameCount: request.environment.length,
+    });
+    if (options.mode === "production" && disposalFailure !== null) {
+      throw disposalFailure;
+    }
+    if (executionFailure !== null) {
+      throw executionFailure;
+    }
+    if (result === null) {
+      throw new ProcessBrokerError("BACKEND_LOST", "Execution did not produce a result.");
+    }
+    return result;
   }
 
   async function runProcess(context: {
@@ -820,6 +1032,8 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     readonly combinedArgs: readonly string[];
     readonly decision: AdmissionDecision;
     readonly evaluation: PolicyEvaluation;
+    readonly executionBindingFingerprint: string;
+    readonly workingDirectory: string;
     readonly startedAt: Date;
   }): Promise<ProcessResult> {
     const { input, session, decision, startedAt } = context;
@@ -833,12 +1047,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     try {
       environment = buildEnvironment({
         bindings: request.environment,
-        paths: {
-          tempDir: session.tempDir,
-          homeDir: input.workspacePaths.homeDir ?? session.homeDir,
-          configDir: input.workspacePaths.configDir,
-          cacheDir: input.workspacePaths.cacheDir,
-        },
+        paths: environmentPathsForSession(options.mode, session, input.workspacePaths),
         secretValues,
       });
     } catch (error) {
@@ -858,14 +1067,35 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     const currentState = (): ProcessState => state;
 
     /** First terminal outcome wins; later ones are ignored entirely. */
-    const settle = (next: ProcessState, error: ProcessBrokerError | null): void => {
+    const settle = (next: ProcessState, error: ProcessBrokerError | null): boolean => {
       if (settled) {
-        return;
+        return false;
       }
       settled = true;
       state = next;
       failure = error;
+      return true;
     };
+
+    // Consume preparation evidence only after every asynchronous setup step,
+    // then re-resolve the image immediately before the backend spawn call.
+    const currentTool = await resolveTrustedTool(request.tool);
+    const finalDecision = evaluateFinalAdmission({
+      mode: options.mode,
+      registration: productionRegistration,
+      receipt: session.productionReceipt,
+      executionBindingFingerprint: context.executionBindingFingerprint,
+      sandboxSessionFingerprint: sandboxSessionFingerprint(session),
+      leaseValid: lease.isValid(),
+      grantExpiresAt: grant.expiresAt,
+      endpointPolicyExpiresAt: controlPlaneEndpointPolicy?.expiresAt ?? null,
+      executableUnchanged:
+        currentTool.executablePath === context.resolvedPath &&
+        (currentTool.digest?.hex ?? null) === (request.tool.expectedDigest?.hex ?? null) &&
+        currentTool.immutableReference === request.tool.immutableReference,
+      clock,
+    });
+    assertFinalAdmitted(finalDecision);
 
     let child: BackendProcess;
     try {
@@ -880,7 +1110,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         },
         argv: [context.resolvedPath, ...context.combinedArgs],
         environment,
-        workingDirectory: input.workingDirectory,
+        workingDirectory: context.workingDirectory,
       });
     } catch (error) {
       const wrapped =
@@ -906,6 +1136,8 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     // Every asynchronous stopper below funnels into one termination path so a
     // process can never be left running by a race between them.
     const stoppers: Array<() => void> = [];
+    let terminationPromise: Promise<BackendTermination> | null = null;
+    const currentTermination = (): Promise<BackendTermination> | null => terminationPromise;
     const stopAll = (): void => {
       for (const stop of stoppers.splice(0)) {
         try {
@@ -919,8 +1151,9 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     // `settle` records the terminal outcome; the tree stop that follows must
     // not overwrite it, or the reason the process ended would be lost.
     const terminate = (next: ProcessState, error: ProcessBrokerError): void => {
-      settle(next, error);
-      void child.terminateTree(graceMs).catch(() => undefined);
+      if (settle(next, error)) {
+        terminationPromise = child.terminateTree(graceMs);
+      }
     };
 
     child.onOutput((event) => {
@@ -989,6 +1222,30 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
 
     const exit = await child.wait();
     stopAll();
+
+    const pendingTermination = currentTermination();
+    if (pendingTermination !== null) {
+      try {
+        const termination = await pendingTermination;
+        if (termination.outcome === "termination-unconfirmed") {
+          state = "backend-lost";
+          failure = new ProcessBrokerError(
+            "PROCESS_TREE_TERMINATION_FAILED",
+            "Process-tree termination could not be confirmed.",
+            { backendId: decision.backendId, outcome: termination.outcome },
+          );
+          invalidateProductionBackendRegistration(productionRegistration);
+        }
+      } catch (error) {
+        state = "backend-lost";
+        failure = new ProcessBrokerError(
+          "PROCESS_TREE_TERMINATION_FAILED",
+          "Process-tree termination could not be confirmed.",
+          { backendId: decision.backendId, cause: errorCategory(error) },
+        );
+        invalidateProductionBackendRegistration(productionRegistration);
+      }
+    }
 
     const output = collector.finish();
     const endedAt = clock.now();
@@ -1111,8 +1368,85 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       closed = true;
       await Promise.allSettled([...sessions].map((session) => session.close()));
       await Promise.allSettled([...inflight]);
-      await options.backend.close().catch(() => undefined);
+      try {
+        await options.backend.close();
+      } catch (error) {
+        invalidateProductionBackendRegistration(productionRegistration);
+        if (options.mode === "production") {
+          throw new ProcessBrokerError(
+            "SANDBOX_DISPOSAL_FAILED",
+            "Backend shutdown cleanup could not be confirmed.",
+            { cause: errorCategory(error) },
+          );
+        }
+      }
     },
+  });
+}
+
+interface ResolvedWorkspaceBinding {
+  readonly trusted: boolean;
+  readonly workspaceRoot: string;
+  readonly workingDirectory: string;
+  readonly actualWorkingSubdirectory: string;
+}
+
+/** Resolve the actual paths and reject traversal, cross-volume, and link escape. */
+async function resolveWorkspaceBinding(
+  workspaceRoot: string,
+  workingDirectory: string,
+): Promise<ResolvedWorkspaceBinding> {
+  const refused = (): ResolvedWorkspaceBinding => Object.freeze({
+    trusted: false,
+    workspaceRoot,
+    workingDirectory,
+    actualWorkingSubdirectory: "",
+  });
+  if (!isAbsolute(workspaceRoot) || !isAbsolute(workingDirectory)) return refused();
+  try {
+    const canonicalRoot = await realpath(workspaceRoot);
+    const canonicalWorkingDirectory = await realpath(workingDirectory);
+    const platformRelative = relative(canonicalRoot, canonicalWorkingDirectory);
+    if (
+      isAbsolute(platformRelative) ||
+      platformRelative === ".." ||
+      platformRelative.startsWith(`..${sep}`)
+    ) {
+      return refused();
+    }
+    const actualWorkingSubdirectory =
+      platformRelative.length === 0
+        ? ""
+        : parseWorkspaceRelativePath(platformRelative.split(sep).join("/"));
+    return Object.freeze({
+      trusted: true,
+      workspaceRoot: canonicalRoot,
+      workingDirectory: canonicalWorkingDirectory,
+      actualWorkingSubdirectory,
+    });
+  } catch {
+    return refused();
+  }
+}
+
+function environmentPathsForSession(
+  mode: ExecutionMode,
+  session: SandboxSession,
+  requested: WorkspaceEnvironmentPaths,
+): WorkspaceEnvironmentPaths {
+  if (mode === "production") {
+    return Object.freeze({
+      tempDir: session.tempDir,
+      homeDir: session.homeDir,
+      configDir: null,
+      cacheDir: null,
+    });
+  }
+  return Object.freeze({
+    tempDir: session.tempDir,
+    homeDir: requested.homeDir ?? session.homeDir,
+    configDir: requested.configDir,
+    cacheDir: requested.cacheDir,
   });
 }
 
@@ -1123,4 +1457,49 @@ function resolveDeadlineMs(request: ProcessRequest, clock: Clock): number | null
   }
   const remaining = new Date(request.deadline).valueOf() - clock.now().valueOf();
   return Math.max(0, Math.min(fromQuota, remaining));
+}
+
+function leaseAuthoritySnapshot(lease: ExecutionLease): LeaseAuthoritySnapshot {
+  const record = lease.record();
+  return Object.freeze({
+    leaseId: lease.leaseId,
+    grantId: record.grantId,
+    grantFingerprint: grantFingerprint(lease.grant),
+    workspaceId: record.workspaceId,
+    attemptId: record.attemptId,
+    state: record.state,
+    expiresAt: record.expiresAt,
+    version: record.version,
+  });
+}
+
+function createExecutionBindingFingerprint(input: {
+  readonly descriptorFingerprint: string;
+  readonly attestationFingerprint: string | null;
+  readonly grantValidationFingerprint: string;
+  readonly subjectFingerprint: string;
+  readonly grantFingerprint: string;
+  readonly lease: LeaseAuthoritySnapshot;
+  readonly workspaceRoot: string;
+  readonly workingDirectory: string;
+  readonly executablePath: string;
+  readonly executableDigest: string | null;
+  readonly immutableReference: string | null;
+  readonly endpointPolicyFingerprint: string | null;
+}): string {
+  return fingerprintOf({
+    version: 1,
+    descriptorFingerprint: input.descriptorFingerprint,
+    attestationFingerprint: input.attestationFingerprint,
+    grantValidationFingerprint: input.grantValidationFingerprint,
+    subjectFingerprint: input.subjectFingerprint,
+    grantFingerprint: input.grantFingerprint,
+    lease: input.lease,
+    workspaceRootFingerprint: fingerprintOf(input.workspaceRoot),
+    workingDirectoryFingerprint: fingerprintOf(input.workingDirectory),
+    executablePathFingerprint: fingerprintOf(input.executablePath),
+    executableDigest: input.executableDigest,
+    immutableReference: input.immutableReference,
+    endpointPolicyFingerprint: input.endpointPolicyFingerprint,
+  });
 }

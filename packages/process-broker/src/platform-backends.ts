@@ -20,6 +20,7 @@ import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { ProcessBrokerError } from "./errors.js";
 import {
+  BACKEND_DESCRIPTOR_SCHEMA_VERSION,
   noQuotaSupport,
   parseBackendDescriptor,
   type BackendAvailability,
@@ -82,6 +83,7 @@ function unavailableDescriptor(
   platform: NodeJS.Platform,
 ): BackendDescriptor {
   return parseBackendDescriptor({
+    schemaVersion: BACKEND_DESCRIPTOR_SCHEMA_VERSION,
     backendId,
     kind,
     platform,
@@ -89,7 +91,7 @@ function unavailableDescriptor(
     capabilities: {
       filesystemIsolation: false,
       processTreeControl: false,
-      networkDenial: false,
+      networkBoundary: "unsupported",
       identityIsolation: false,
       profileIsolation: false,
       quotas: noQuotaSupport(),

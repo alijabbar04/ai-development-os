@@ -716,7 +716,7 @@ describe("access helpers", () => {
     });
     const now = Date.now();
     const grant = parseCapabilityGrant({
-      schemaVersion: 1,
+      schemaVersion: 2,
       grantId: "g",
       projectId: "proj",
       runId: null,
@@ -728,6 +728,9 @@ describe("access helpers", () => {
       readablePrefixes: [""],
       writablePrefixes: [""],
       tools: [],
+      environmentNames: [],
+      credentialRefFingerprints: [],
+      controlPlaneEndpointPolicyFingerprint: null,
       network: { mode: "denied", egressDomains: [] },
       quotas: {
         wallClockMs: 1_000,
