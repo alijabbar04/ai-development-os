@@ -23,6 +23,11 @@ import {
 import { fingerprintOf } from "./fingerprint.js";
 import { invalidConfiguration } from "./errors.js";
 import { QUOTA_DIMENSIONS } from "./quota.js";
+import {
+  SECURE_BACKEND_ESCAPE_CORPUS_FINGERPRINT,
+  SECURE_BACKEND_ESCAPE_CORPUS_VERSION,
+  secureBackendEscapeVectorCount,
+} from "./escape-corpus.js";
 
 declare const registrationBrand: unique symbol;
 
@@ -45,6 +50,7 @@ export type ProductionEvidenceRefusal =
   | "attestation-architecture-mismatch"
   | "attestation-stale"
   | "attestation-corpus-incomplete"
+  | "attestation-corpus-mismatch"
   | "attestation-boundary-incomplete"
   | "attestation-helper-unbound"
   | "attestation-quota-mismatch"
@@ -167,6 +173,14 @@ export function verifyProductionBackendRegistration(
     attestation.escapeCorpus.testCount === 0
   ) {
     return refused("attestation-corpus-incomplete");
+  }
+  if (
+    attestation.escapeCorpus.version !== SECURE_BACKEND_ESCAPE_CORPUS_VERSION ||
+    attestation.escapeCorpus.fingerprint !== SECURE_BACKEND_ESCAPE_CORPUS_FINGERPRINT ||
+    attestation.escapeCorpus.testCount !==
+      secureBackendEscapeVectorCount(attestation.platform.os)
+  ) {
+    return refused("attestation-corpus-mismatch");
   }
   const requiredBoundaries = ENFORCEMENT_BOUNDARIES.filter(
     (boundary) =>

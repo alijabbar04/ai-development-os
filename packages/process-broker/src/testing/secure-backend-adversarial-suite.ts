@@ -8,64 +8,23 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { fingerprintOf } from "../fingerprint.js";
+import {
+  SECURE_BACKEND_ESCAPE_VECTORS,
+  type SecureBackendEscapeVector,
+} from "../escape-corpus.js";
 
-export const SECURE_BACKEND_ESCAPE_CORPUS_VERSION = 1 as const;
-export const SECURE_BACKEND_ESCAPE_CORPUS_SEED = "stage-17-corpus-seed-0001";
-
-export const SECURE_BACKEND_ESCAPE_VECTORS = Object.freeze([
-  { id: "fs-outside-read", category: "filesystem", platforms: ["win32", "linux", "darwin"] },
-  { id: "fs-outside-write-delete-rename", category: "filesystem", platforms: ["win32", "linux", "darwin"] },
-  { id: "fs-relative-absolute-normalization", category: "filesystem", platforms: ["win32", "linux", "darwin"] },
-  { id: "fs-link-and-rename-race", category: "filesystem", platforms: ["win32", "linux", "darwin"] },
-  { id: "fs-inherited-handle", category: "filesystem", platforms: ["win32", "linux", "darwin"] },
-  { id: "fs-profile-temp-cache", category: "filesystem", platforms: ["win32", "linux", "darwin"] },
-  { id: "fs-executable-substitution", category: "filesystem", platforms: ["win32", "linux", "darwin"] },
-  { id: "fs-cross-session", category: "filesystem", platforms: ["win32", "linux", "darwin"] },
-  { id: "fs-windows-device-unc-ads-reparse", category: "filesystem", platforms: ["win32"] },
-  { id: "fs-posix-mount-proc-device", category: "filesystem", platforms: ["linux", "darwin"] },
-  { id: "process-child-grandchild", category: "process-tree", platforms: ["win32", "linux", "darwin"] },
-  { id: "process-detach-reparent-breakaway", category: "process-tree", platforms: ["win32", "linux", "darwin"] },
-  { id: "process-rapid-spawn-race", category: "process-tree", platforms: ["win32", "linux", "darwin"] },
-  { id: "process-signal-ignore", category: "process-tree", platforms: ["linux", "darwin"] },
-  { id: "process-debug-inspection", category: "process-tree", platforms: ["win32", "linux", "darwin"] },
-  { id: "ipc-inherited-pipe-socket", category: "ipc", platforms: ["win32", "linux", "darwin"] },
-  { id: "ipc-host-service", category: "ipc", platforms: ["win32", "linux", "darwin"] },
-  { id: "lifecycle-helper-parent-crash", category: "cleanup", platforms: ["win32", "linux", "darwin"] },
-  { id: "lifecycle-cancellation-races", category: "cleanup", platforms: ["win32", "linux", "darwin"] },
-  { id: "network-approved-fake-service", category: "network", platforms: ["win32", "linux", "darwin"] },
-  { id: "network-direct-dns-tcp-udp-quic-raw", category: "network", platforms: ["win32", "linux", "darwin"] },
-  { id: "network-address-range-bypass", category: "network", platforms: ["win32", "linux", "darwin"] },
-  { id: "network-redirect-dns-rebinding", category: "network", platforms: ["win32", "linux", "darwin"] },
-  { id: "network-sni-host-connect", category: "network", platforms: ["win32", "linux", "darwin"] },
-  { id: "network-proxy-resolver-override", category: "network", platforms: ["win32", "linux", "darwin"] },
-  { id: "network-channel-reuse-inheritance", category: "network", platforms: ["win32", "linux", "darwin"] },
-  { id: "network-relay-drift-crash-cleanup", category: "network", platforms: ["win32", "linux", "darwin"] },
-  { id: "credential-ambient-environment", category: "credentials", platforms: ["win32", "linux", "darwin"] },
-  { id: "credential-profile-config-stores", category: "credentials", platforms: ["win32", "linux", "darwin"] },
-  { id: "credential-helper-agent-socket", category: "credentials", platforms: ["win32", "linux", "darwin"] },
-  { id: "credential-process-inspection", category: "credentials", platforms: ["win32", "linux", "darwin"] },
-  { id: "credential-metadata-canary", category: "credentials", platforms: ["win32", "linux", "darwin"] },
-  { id: "credential-evidence-leakage", category: "credentials", platforms: ["win32", "linux", "darwin"] },
-  { id: "quota-wall-clock", category: "quota", platforms: ["win32", "linux", "darwin"] },
-  { id: "quota-total-cpu", category: "quota", platforms: ["win32", "linux", "darwin"] },
-  { id: "quota-memory-process-tree", category: "quota", platforms: ["win32", "linux", "darwin"] },
-  { id: "quota-process-count", category: "quota", platforms: ["win32", "linux", "darwin"] },
-  { id: "quota-output-stdin-duplex", category: "quota", platforms: ["win32", "linux", "darwin"] },
-  { id: "quota-disk-file-count", category: "quota", platforms: ["win32", "linux", "darwin"] },
-  { id: "quota-network", category: "quota", platforms: ["win32", "linux", "darwin"] },
-  { id: "quota-boundary-concurrency-overflow", category: "quota", platforms: ["win32", "linux", "darwin"] },
-  { id: "cleanup-repeated-session-residue", category: "cleanup", platforms: ["win32", "linux", "darwin"] },
-] as const);
-
-export type SecureBackendEscapeVector = (typeof SECURE_BACKEND_ESCAPE_VECTORS)[number];
-export type SecureBackendEscapeVectorId = SecureBackendEscapeVector["id"];
-
-export const SECURE_BACKEND_ESCAPE_CORPUS_FINGERPRINT = fingerprintOf({
-  version: SECURE_BACKEND_ESCAPE_CORPUS_VERSION,
-  seed: SECURE_BACKEND_ESCAPE_CORPUS_SEED,
-  vectors: SECURE_BACKEND_ESCAPE_VECTORS,
-});
+export {
+  SECURE_BACKEND_ESCAPE_CORPUS_FINGERPRINT,
+  SECURE_BACKEND_ESCAPE_CORPUS_SEED,
+  SECURE_BACKEND_ESCAPE_CORPUS_VERSION,
+  SECURE_BACKEND_ESCAPE_VECTORS,
+  secureBackendEscapeVectorCount,
+} from "../escape-corpus.js";
+export type {
+  SecureBackendEscapeVector,
+  SecureBackendEscapeVectorId,
+  SecureBackendPlatform,
+} from "../escape-corpus.js";
 
 export interface EscapeAttemptObservation {
   /** Proves the fixture itself began rather than being skipped. */

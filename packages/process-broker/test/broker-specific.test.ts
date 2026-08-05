@@ -51,6 +51,11 @@ import {
   type SandboxBackend,
 } from "../src/index.js";
 import { issueProductionBackendRegistration } from "../src/trusted-evidence.js";
+import {
+  SECURE_BACKEND_ESCAPE_CORPUS_FINGERPRINT,
+  SECURE_BACKEND_ESCAPE_CORPUS_VERSION,
+  secureBackendEscapeVectorCount,
+} from "../src/escape-corpus.js";
 import { contractGrant, contractRequest } from "../src/testing/contract-suite.js";
 import { FIXTURE, allowAllPolicy, fixtureTool } from "./contract.test.js";
 
@@ -627,11 +632,13 @@ describe("production gate", () => {
       quotas: descriptor.capabilities.quotas,
       endpointPolicyFingerprint: null,
       escapeCorpus: {
-        version: 1,
-        fingerprint: "4".repeat(64),
+        version: SECURE_BACKEND_ESCAPE_CORPUS_VERSION,
+        fingerprint: SECURE_BACKEND_ESCAPE_CORPUS_FINGERPRINT,
         result: "passed",
         positiveControlsPassed: true,
-        testCount: 10,
+        testCount: secureBackendEscapeVectorCount(
+          process.platform as "win32" | "linux" | "darwin",
+        ),
       },
       observedAt: new Date(now - 1_000).toISOString(),
       expiresAt: new Date(now + 60_000).toISOString(),

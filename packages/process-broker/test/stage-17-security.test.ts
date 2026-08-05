@@ -34,6 +34,12 @@ import {
   verifyProductionBackendRegistration,
   type ProductionBackendRegistration,
 } from "../src/trusted-evidence.js";
+import {
+  SECURE_BACKEND_ESCAPE_CORPUS_FINGERPRINT,
+  SECURE_BACKEND_ESCAPE_CORPUS_VERSION,
+  SECURE_BACKEND_ESCAPE_VECTORS,
+  secureBackendEscapeVectorCount,
+} from "../src/escape-corpus.js";
 import { contractGrant, contractRequest } from "../src/testing/contract-suite.js";
 import { allowAllPolicy, fixtureTool } from "./contract.test.js";
 
@@ -93,6 +99,9 @@ function attestationFor(
     readonly corpusResult?: "passed" | "failed" | "not-run";
     readonly controlledEgress?: "enforced" | "unverified";
     readonly endpointPolicyFingerprint?: string | null;
+    readonly corpusVersion?: number;
+    readonly corpusFingerprint?: string;
+    readonly corpusTestCount?: number;
   } = {},
 ): EnforcementAttestation {
   const now = systemClock.now().valueOf();
@@ -132,11 +141,18 @@ function attestationFor(
     quotas: descriptor.capabilities.quotas,
     endpointPolicyFingerprint: options.endpointPolicyFingerprint ?? null,
     escapeCorpus: {
-      version: 1,
-      fingerprint: corpusResult === "not-run" ? null : "4".repeat(64),
+      version: options.corpusVersion ?? SECURE_BACKEND_ESCAPE_CORPUS_VERSION,
+      fingerprint:
+        corpusResult === "not-run"
+          ? null
+          : (options.corpusFingerprint ?? SECURE_BACKEND_ESCAPE_CORPUS_FINGERPRINT),
       result: corpusResult,
       positiveControlsPassed: corpusResult === "passed",
-      testCount: corpusResult === "not-run" ? 0 : 20,
+      testCount:
+        corpusResult === "not-run"
+          ? 0
+          : (options.corpusTestCount ??
+            secureBackendEscapeVectorCount(process.platform as "win32" | "linux" | "darwin")),
     },
     observedAt: options.observedAt ?? new Date(now - 1_000).toISOString(),
     expiresAt: options.expiresAt ?? new Date(now + 60_000).toISOString(),
@@ -176,6 +192,11 @@ describe("Stage 17 body-free attestation contracts (non-enforcement)", () => {
     expect(attestation.fingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(Object.isFrozen(attestation)).toBe(true);
     expect(Object.isFrozen(attestation.boundaries)).toBe(true);
+    expect(Object.isFrozen(SECURE_BACKEND_ESCAPE_VECTORS)).toBe(true);
+    expect(SECURE_BACKEND_ESCAPE_VECTORS.every((vector) => Object.isFrozen(vector))).toBe(true);
+    expect(
+      SECURE_BACKEND_ESCAPE_VECTORS.every((vector) => Object.isFrozen(vector.platforms)),
+    ).toBe(true);
     expect(parseEnforcementAttestation(attestation)).toEqual(attestation);
   });
 
@@ -604,6 +625,54 @@ describe("Stage 17 opaque production evidence (non-enforcement)", () => {
         }).reason,
       ).toBe(item.reason);
     }
+  });
+
+  it("pins production registration to the exact canonical platform corpus", () => {
+    const descriptor = secureDescriptor();
+    const backend = backendFor(descriptor);
+    const expectedCount = secureBackendEscapeVectorCount(
+      process.platform as "win32" | "linux" | "darwin",
+    );
+    const cases = [
+      attestationFor(descriptor, {
+        corpusVersion: SECURE_BACKEND_ESCAPE_CORPUS_VERSION + 1,
+      }),
+      attestationFor(descriptor, { corpusFingerprint: "9".repeat(64) }),
+      attestationFor(descriptor, { corpusTestCount: expectedCount - 1 }),
+    ];
+    for (const attestation of cases) {
+      const registration = issueProductionBackendRegistration({
+        backend,
+        descriptor,
+        attestation,
+        purpose: "production",
+      });
+      expect(
+        verifyProductionBackendRegistration({
+          registration,
+          backend,
+          descriptor,
+          now: systemClock.now(),
+          expectedEndpointPolicyFingerprint: null,
+        }),
+      ).toMatchObject({ verified: false, reason: "attestation-corpus-mismatch" });
+    }
+
+    const registration = issueProductionBackendRegistration({
+      backend,
+      descriptor,
+      attestation: attestationFor(descriptor),
+      purpose: "production",
+    });
+    expect(
+      verifyProductionBackendRegistration({
+        registration,
+        backend,
+        descriptor,
+        now: systemClock.now(),
+        expectedEndpointPolicyFingerprint: null,
+      }),
+    ).toMatchObject({ verified: true, reason: null });
   });
 
   it("binds, consumes once, and rejects forged, mismatched, and stale receipts", () => {
