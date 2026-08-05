@@ -1,0 +1,51 @@
+{
+  "name": "@ai-dev-os/profiler",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deterministic repository-aware task profiling and evidence-bound token estimation.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/contract-suite.d.ts",
+      "import": "./dist/testing/contract-suite.js"
+    },
+    "./testing/fixtures": {
+      "types": "./dist/testing/fixtures.d.ts",
+      "import": "./dist/testing/fixtures.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../config run build && npm --prefix ../context run build && npm --prefix ../repository-index run build && npm --prefix ../prompt-compiler run build && npm --prefix ../thinker run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm run prebuild",
+    "test": "vitest run",
+    "pretest:coverage": "npm run prebuild",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm run prebuild",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/config": "^0.1.0",
+    "@ai-dev-os/context": "^0.1.0",
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/prompt-compiler": "^0.1.0",
+    "@ai-dev-os/repository-index": "^0.1.0",
+    "@ai-dev-os/thinker": "^0.1.0"
+  },
+  "peerDependencies": {
+    "vitest": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  }
+}
