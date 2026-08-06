@@ -25,6 +25,12 @@ historical profile-only claims below remain exact for this command; its
 identity/Job next-action blocker is superseded by the narrower follow-up
 evidence, while production enforcement and all 40 vectors remain blocked.
 
+Second follow-up: implementation commit
+`e35ff4f5eaf8faa64f1eb3dd79f22200150b4fce` completed the later structured
+boundary-fixture proof. See
+`docs/release-evidence/stage-17-windows-structured-boundary-proof.md`. It does
+not change this document's historical profile-only result or release gate.
+
 ## Authorization and Git boundary
 
 The incoming checkpoint explicitly required user authorization before any

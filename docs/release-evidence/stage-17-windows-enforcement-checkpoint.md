@@ -29,6 +29,16 @@ with zero measured residue. See
 supersedes only the narrow identity/Job feasibility blocker; production helper,
 filesystem, network, quota, crash, packaging, and all 40 corpus blockers remain.
 
+Third follow-up: implementation candidate
+`e35ff4f5eaf8faa64f1eb3dd79f22200150b4fce` completed the separately
+authorized structured boundary-fixture proof with zero measured residue. See
+`docs/release-evidence/stage-17-windows-structured-boundary-proof.md`. It
+proved only the bounded allowed/denied filesystem slice, absence of transfer
+to live parent TCP/UDP loopback receivers, and native denial of eight normal
+plus eight breakaway child attempts. Bind/listen and UDP `SendTo` returned
+success, so blanket socket denial is not claimed. Production helper, crash,
+quota, packaging, general boundary, and all 40 corpus blockers remain.
+
 ## Provenance and Git lane
 
 - Worktree:

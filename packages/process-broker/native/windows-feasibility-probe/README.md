@@ -7,7 +7,7 @@ relevant to the Stage 17 Windows architecture decision. Neither command
 creates an AppContainer profile, changes an ACL, creates a Job Object, launches
 a process, or mints process-broker registration/session evidence.
 
-Protocol version 3 also contains `profile-lifecycle-proof`, a deliberately
+Protocol version 4 also contains `profile-lifecycle-proof`, a deliberately
 stateful command that may be run only after explicit authorization. It accepts
 one strictly named test profile and a matching direct child of the current
 user's temporary directory. It creates the profile with zero capabilities,
@@ -16,7 +16,7 @@ task-owned directory, restores the original DACL, deletes the empty directory,
 frees every returned SID, calls `DeleteAppContainerProfile`, and verifies the
 folder and exact registry records are absent. It never launches a workload.
 
-Protocol version 3 additionally contains `synthetic-process-proof`. This
+Protocol version 4 additionally contains `synthetic-process-proof`. This
 separately authorized command creates a fresh zero-capability AppContainer
 profile and task-owned staging directory, copies and hashes the exact System32
 `cmd.exe` image into that directory, and launches only a fixed built-in `echo`
@@ -30,6 +30,17 @@ validates its fixed marker and zero exit, drains the Job, restores the original
 DACL, deletes the staged image/directory/profile, and verifies measured residue
 is absent. It passes only a fixed eight-entry environment block and inherits no
 user environment.
+
+Protocol version 4 adds `structured-boundary-proof`, which remains separately
+authorized evidence tooling. It launches a digest-pinned, shell-free,
+self-contained fixture in the same zero-capability AppContainer and
+creation-time one-process Job. The fixture checks a fixed allowed staged read,
+denied staged write and protected same-user canary access, local loopback
+transfer against live parent TCP/UDP controls, and eight normal plus eight
+breakaway child attempts. The result preserves the observed distinction that
+TCP connection was denied while bind/listen and UDP `SendTo` returned success;
+neither a TCP connection nor UDP datagram reached the parent. The proof then
+restores/removes its task resources and verifies profile/registry absence.
 
 The probe intentionally reports `unavailable` even when every export is
 present. Export presence is not enforcement proof. The experimental
@@ -89,3 +100,22 @@ AppContainer identity and private-Job membership. It is not a production
 helper, does not exercise a provider or repository workload, and does not
 prove filesystem denial, network denial, quotas, crash recovery, packaging,
 or the Windows escape corpus.
+
+The structured boundary command is likewise excluded from routine validation
+and requires fresh explicit authorization:
+
+```powershell
+dotnet <output-directory>\AI.DevOS.WindowsSandboxFeasibilityProbe.dll `
+  structured-boundary-proof `
+  AiDevOs.Stage17.BoundaryProof.<32-lowercase-hex> `
+  "$env:TEMP\ai-dev-os-stage17-boundary-proof-<same-hex>" `
+  "$env:TEMP\ai-dev-os-stage17-boundary-canary-<same-hex>" `
+  <absolute-path>\AI.DevOS.WindowsBoundaryFixture.exe `
+  <exact-lowercase-fixture-sha256>
+```
+
+A passing result is a bounded one-host observation only. In particular, the
+socket-creation results are not blanket network denial, the 16 child attempts
+are not the process-tree corpus, and normal cleanup is not crash cleanup. The
+fixture source is sibling evidence tooling under `windows-boundary-fixture`;
+neither its source nor its published binary is included in the npm package.

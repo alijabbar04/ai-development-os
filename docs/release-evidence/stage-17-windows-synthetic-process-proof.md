@@ -12,6 +12,14 @@ false, every quota remains unsupported, Windows actual-native corpus evidence
 remains 0/40, Stage 17 remains gated, Stage 18 remains blocked, and no
 `v0.17*` tag or push is permitted.
 
+Follow-up: implementation commit
+`e35ff4f5eaf8faa64f1eb3dd79f22200150b4fce` completed the structured fixture
+identified below. See
+`docs/release-evidence/stage-17-windows-structured-boundary-proof.md`. The
+historical single-marker observations in this document remain exact; its next
+bounded action is superseded, while production helper, crash, quota,
+packaging, general-boundary, and all 40 corpus blockers remain.
+
 Implementation commit:
 `05e768bcc0cd94da430a4d58f9fcb7ed29e08426`.
 
@@ -241,7 +249,7 @@ It does not prove:
   quota semantics beyond the proof Job's single-process limit; or
 - any of the 40 Windows-applicable positive-control corpus vectors.
 
-## Next bounded action
+## Historical next bounded action
 
 The next task requires separate authorization. Replace the shell-based marker
 with a reviewed structured fixture that can report operation results without
@@ -249,7 +257,10 @@ parsing a command line. Use it first to prove allowed staged reads and denied
 ungranted same-user filesystem access, then a bounded no-capability network
 denial slice and rapid child-creation behavior. Keep the production backend
 unavailable until the full helper lifecycle, packaging, crash cleanup, quotas,
-and all 40 Windows vectors pass.
+and all 40 Windows vectors pass. This action was subsequently completed within
+the exact limits recorded in
+`stage-17-windows-structured-boundary-proof.md`; that result remains a bounded
+feasibility proof rather than production enforcement.
 
 ## Official references
 

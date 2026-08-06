@@ -1,7 +1,7 @@
 # ADR 0015: Stage 17 Windows native enforcement feasibility
 
-Status: Accepted for an honest Windows gated checkpoint with bounded profile and synthetic-process proofs
-Date: 2026-08-05
+Status: Accepted for an honest Windows gated checkpoint with bounded profile, synthetic-process, and structured-boundary proofs
+Date: 2026-08-06
 
 ## Decision
 
@@ -16,12 +16,25 @@ instruction. Every created process, handle, ACL, file, directory, profile, and
 measured registry record was removed. No provider or repository workload ran,
 and no authority was minted.
 
+A third explicitly authorized command replaced the shell marker with a
+digest-pinned structured fixture. The staged read succeeded, a staged write
+and protected same-user canary read/write were denied, and a creation-time
+one-process/no-breakaway Job natively denied eight normal and eight explicit
+breakaway child attempts. Live parent TCP/UDP loopback controls passed; the
+AppContainer TCP connection timed out and no TCP connection or UDP datagram
+crossed to the parent. Bind/listen and UDP `SendTo` returned success, so the
+result is deliberately recorded as bounded transfer denial rather than a
+blanket socket-syscall denial. Normal cleanup and a generic residue scan
+passed.
+
 The preferred implementation direction is the documented public Win32
 composition using an AppContainer or LPAC identity, a task-owned filesystem
 staging root, and creation-time Job Object assignment through one
-`STARTUPINFOEX` attribute list. One synthetic instance of that composition is
-now observed, but filesystem/network denial, executable immutability, quotas,
-crash recovery, packaging, and the native corpus remain unproved. The
+`STARTUPINFOEX` attribute list. Bounded instances of that composition are now
+observed, including the narrow filesystem, loopback-transfer, and
+process-count slices above, but general filesystem/network denial, executable
+immutability, quotas, crash recovery, packaging, and the native corpus remain
+unproved. The
 experimental `processmodel.dll` API is rejected for implementation
 at this checkpoint because its exact required FlatBuffer schema layout is not
 available from an installed or published authoritative Microsoft artifact.
@@ -33,8 +46,9 @@ System32 DLL paths, checks documented export names, hashes
 and emits a finite body-free result. Its ordinary probe and self-test never
 invoke a mutating export. Its original separately authorized protocol-v2
 lifecycle command invoked only profile create/derive/folder/delete and
-task-owned ACL operations. Protocol version 3 retains that command and adds
-the separately authorized synthetic process command described above. The tool
+task-owned ACL operations. Protocol version 4 retains that command and the
+synthetic process command, and adds the separately authorized structured
+boundary command described above. The tool
 is deliberately not a sandbox helper and always reports the production
 composition unavailable.
 
@@ -226,10 +240,13 @@ remain unavailable until exact boundary and quota results exist.
 The retained feasibility probe targets `net9.0-windows`, uses no NuGet
 dependency or apphost, enables nullable analysis, SDK analyzers, warnings as
 errors, checked arithmetic, and deterministic/CI build settings, and disables
-unsafe code and debug-symbol path material. Protocol version 3 has read-only
+unsafe code and debug-symbol path material. Protocol version 4 has read-only
 `probe` and `self-test` commands plus the separately authorized
-`profile-lifecycle-proof` and `synthetic-process-proof` commands; unknown
-commands and invalid shapes are stable refusals.
+`profile-lifecycle-proof`, `synthetic-process-proof`, and
+`structured-boundary-proof` commands; unknown commands and invalid shapes are
+stable refusals. The structured fixture is a separate offline-restored,
+self-contained, single-file `win-x64` evidence payload and is also excluded
+from the npm package.
 
 Two clean task-owned builds are required to have identical DLL, deps, and
 runtime-configuration manifests before their digest is recorded. This proves
@@ -275,6 +292,12 @@ This checkpoint is falsified if any of the following occurs:
   before identity/Job observation, observes a different profile SID, permits
   breakaway, exceeds one private-Job process, runs a provider/repository
   workload, or leaves process/profile/ACL/file/directory/registry residue;
+- the authorized structured command reads or writes the protected canary,
+  creates the forbidden staged file, transfers a TCP connection or UDP
+  datagram to the live parent receivers, permits a normal or breakaway child
+  marker, reports more than one total private-Job process, hides successful
+  socket syscalls as denied, runs a public-network/provider/repository action,
+  or leaves task/profile/registry residue;
 - an unknown command is accepted;
 - the TypeScript Windows factory reports available, secure-enforcing, or a
   non-unsupported quota;
@@ -293,20 +316,22 @@ Future enforcement claims require the actual helper/integration tests plus all
 - [DeleteAppContainerProfile](https://learn.microsoft.com/en-us/windows/win32/api/userenv/nf-userenv-deleteappcontainerprofile)
 - [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
 - [UpdateProcThreadAttribute](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)
+- [Networking basics](https://learn.microsoft.com/en-us/windows/uwp/networking/networking-basics)
+- [.NET single-file deployment](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)
 - [.NET P/Invoke source generation](https://learn.microsoft.com/en-us/dotnet/standard/native-interop/pinvoke-source-generation)
 
 ## Consequence and next action
 
 This is an honest Windows gated checkpoint, not a verified enforcement
-checkpoint. Windows actual-native count remains 0/40, positive controls remain
-unrun, production remains closed, Stage 17 remains gated, Stage 18 remains
-blocked, and no Stage 17 tag or push is permitted.
+checkpoint. Windows actual-native count remains 0/40, corpus positive controls
+remain unrun, production remains closed, Stage 17 remains gated, Stage 18
+remains blocked, and no Stage 17 tag or push is permitted.
 
-The smallest next action is a separately scoped structured boundary fixture
-that can attempt allowed and denied operations without shell parsing. It should
-first prove read/execute access to admitted staged bytes and denial of
-ungranted same-user files, then prove no-capability denial across the bounded
-Windows network slice and exercise rapid child creation against the private
-Job. Production must remain unavailable until executable immutability, full
-filesystem/network/process-tree/credential/IPC/quota/crash cleanup, packaging,
-and all 40 Windows-applicable positive-control vectors pass.
+The structured boundary fixture described above completed that earlier
+bounded action. The smallest next action requires separate authorization: put
+the reviewed composition behind a finite test-only helper protocol, force
+client/helper failure at controlled lifecycle points, and independently prove
+Job/process/handle/staging/ACL/profile/registry cleanup. Production must remain
+unavailable until executable immutability, full filesystem/network/process-
+tree/credential/IPC/quota/crash cleanup, packaging, and all 40
+Windows-applicable positive-control vectors pass.

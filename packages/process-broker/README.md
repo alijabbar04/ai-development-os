@@ -98,6 +98,17 @@ directory, profile-folder, and registry cleanup checks passed, followed by an
 independent zero-residue scan. No provider or repository workload ran. This is
 a narrow feasibility result, not native enforcement evidence.
 
+A third separately authorized proof replaced the shell marker with a
+digest-pinned structured fixture. On the same host it read only the explicitly
+granted staged file, was denied a staged write and protected same-user canary
+read/write, and had all eight normal plus eight breakaway child attempts
+natively denied by the creation-time one-process Job. Parent TCP/UDP loopback
+controls passed; the AppContainer TCP connect timed out and neither a TCP
+connection nor UDP datagram reached the parent. Bind/listen and UDP `SendTo`
+did return success, so this is a bounded transfer-denial observation, not a
+claim that every socket syscall is denied. Normal-path cleanup and an
+independent generic residue scan passed. Production remains unavailable.
+
 The only candidate production network shape is deny-all with no AppContainer
 network capability, proxy, allowlist, or loopback exemption. Controlled
 service egress remains a separate unavailable boundary. All quota dimensions
@@ -242,16 +253,17 @@ rejects a different version, fingerprint, or platform count.
 
 | Platform | Shipped status | Actual escape tests | Native artifact | What remains |
 | --- | --- | ---: | --- | --- |
-| Windows 11 10.0.26200 x64 | unavailable | 0 | profile and suspended synthetic-process evidence tooling only; no production helper | implement/package the full helper, prove filesystem/network/quota/crash boundaries, then run all 40 positive-control vectors |
+| Windows 11 10.0.26200 x64 | unavailable | 0 | bounded profile, suspended-process, and structured boundary evidence tooling only; no production helper | implement/package the helper, prove crash/quota/general filesystem-network-IPC boundaries, then run all 40 positive-control vectors |
 | Linux | unavailable/unverified | 0 | none | actual host, namespace/cgroup implementation and positive-control corpus |
 | macOS | unavailable/unverified | 0 | none | actual host, supported documented containment foundation and positive-control corpus |
 
 There is no production native helper to install or remove, no postinstall
 hook, and no runtime download. The evidence tool builds with the already
 installed .NET 9 SDK and produces a framework-dependent DLL with no apphost;
-it is not a shipped runtime prerequisite. The explicitly authorized profile
-and synthetic-process host-state resources were completely removed. No
-privileged operation, firewall/loopback/proxy change, virtualization
+it is not a shipped runtime prerequisite. The explicitly authorized profile,
+synthetic-process, and structured-boundary host-state resources were
+completely removed. No privileged operation, firewall/loopback/proxy change,
+virtualization
 enablement, signing, or external infrastructure change was performed.
 Recovery from a containment or cleanup failure is fail-closed: quarantine the
 backend registration, confirm task-owned resources are gone, then obtain fresh
