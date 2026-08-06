@@ -131,6 +131,108 @@ export function discoverWindowsArtifactBundle(options: {
   /* c8 ignore stop */
 }
 
+/**
+ * The only build flavour a production path may admit (ADR 0018 section 4).
+ *
+ * A reviewed-proof binary reports `reviewed-proof-mode` from both
+ * `describe-artifact` and `self-test`. It is a different set of bytes with a
+ * different closure fingerprint, and a lifecycle result obtained from it does
+ * not promote the sealed artifact. Production discovery therefore refuses it
+ * outright rather than treating the flavour as metadata.
+ */
+export const PRODUCTION_ELIGIBLE_BUILD_FLAVOR = "sealed" as const;
+
+/**
+ * Components that exist only to support a bounded proof and must never be
+ * discovered by a production path, whatever flavour they were built with.
+ */
+export const PROOF_ONLY_COMPONENTS: readonly string[] = Object.freeze([
+  "windows-proof-installer",
+]);
+
+export interface ObservedArtifactGate {
+  /** The component name the binary reports for itself. */
+  readonly component: string;
+  /** `buildFlavor` as reported by `describe-artifact`. */
+  readonly describeBuildFlavor: unknown;
+  /** `buildFlavor` as reported by `self-test`. */
+  readonly selfTestBuildFlavor: unknown;
+  readonly describeProofModeCompiledIn: unknown;
+  readonly selfTestProofModeCompiledIn: unknown;
+}
+
+export type WindowsArtifactAdmission =
+  | { readonly admitted: true; readonly component: string; readonly buildFlavor: "sealed" }
+  | { readonly admitted: false; readonly component: string; readonly code: string };
+
+/**
+ * Decides whether an observed binary's self-reported gate may be admitted by a
+ * production path.
+ *
+ * The check is deliberately paranoid about SHAPE before it is about VALUE. A
+ * binary that does not report the fields at all has an unobservable gate, and
+ * an unobservable property is not an enforceable one; treating a missing field
+ * as "probably sealed" is how the check stops existing. A binary whose two
+ * read-only commands disagree is worse than either answer, because one of them
+ * is lying and there is no way to tell which.
+ *
+ * This function admits nothing today: the pinned fingerprint table is empty, so
+ * `discoverWindowsArtifactBundle` refuses before this is ever consulted. It
+ * exists so the ordering of the checks is reviewable now rather than invented
+ * at release time, and so the "production discovery refuses a proof binary"
+ * requirement is testable without promoting anything.
+ */
+export function admitWindowsArtifactBuildFlavor(
+  observed: ObservedArtifactGate,
+): WindowsArtifactAdmission {
+  const component = typeof observed.component === "string" ? observed.component : "";
+
+  if (component.length === 0) {
+    return Object.freeze({ admitted: false as const, component, code: "artifact-gate-unobservable" });
+  }
+
+  if (PROOF_ONLY_COMPONENTS.includes(component)) {
+    return Object.freeze({
+      admitted: false as const,
+      component,
+      code: "artifact-component-is-proof-only",
+    });
+  }
+
+  if (
+    typeof observed.describeBuildFlavor !== "string" ||
+    typeof observed.selfTestBuildFlavor !== "string" ||
+    typeof observed.describeProofModeCompiledIn !== "boolean" ||
+    typeof observed.selfTestProofModeCompiledIn !== "boolean"
+  ) {
+    return Object.freeze({ admitted: false as const, component, code: "artifact-gate-unobservable" });
+  }
+
+  if (
+    observed.describeBuildFlavor !== observed.selfTestBuildFlavor ||
+    observed.describeProofModeCompiledIn !== observed.selfTestProofModeCompiledIn
+  ) {
+    return Object.freeze({ admitted: false as const, component, code: "artifact-gate-inconsistent" });
+  }
+
+  if (
+    observed.describeBuildFlavor !== PRODUCTION_ELIGIBLE_BUILD_FLAVOR ||
+    observed.describeProofModeCompiledIn
+  ) {
+    return Object.freeze({
+      admitted: false as const,
+      component,
+      code: "artifact-build-flavor-not-sealed",
+    });
+  }
+
+  return Object.freeze({
+    admitted: true as const,
+    component,
+    buildFlavor: PRODUCTION_ELIGIBLE_BUILD_FLAVOR,
+  });
+}
+
 export interface WindowsArtifactSeamStatus {
   readonly seamVersion: 1;
   readonly protocolVersion: typeof WINDOWS_PRODUCTION_PROTOCOL_VERSION;

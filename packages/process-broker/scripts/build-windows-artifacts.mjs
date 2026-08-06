@@ -63,18 +63,51 @@ const PLATFORM = "win32";
 const ARCHITECTURE = "x64";
 const MANIFEST_FILE_NAME = "artifact-manifest.json";
 
+/**
+ * ADR 0018 section 4: the reviewed-proof build constant.
+ *
+ * Passing it produces a binary that reports `reviewed-proof-mode` from both
+ * read-only commands, has a different conformance digest, and is a different
+ * set of bytes. It is never the default and it can never be produced by
+ * accident: the packaging pipeline requires `--flavor reviewed-proof` on the
+ * command line and refuses to emit a production-shaped manifest for it.
+ */
+const REVIEWED_PROOF_CONSTANT = "AIDEVOS_STAGE17_REVIEWED_PROOF_MODE";
+const SEALED_FLAVOR = "sealed";
+const PROOF_FLAVOR = "reviewed-proof-mode";
+
 const COMPONENTS = [
   {
     component: "windows-supervisor",
     directory: join(nativeRoot, "windows-supervisor"),
     project: join(nativeRoot, "windows-supervisor", "AI.DevOS.WindowsSupervisor.csproj"),
     executable: "AI.DevOS.WindowsSupervisor.exe",
+    productionShaped: true,
   },
   {
     component: "windows-helper",
     directory: join(nativeRoot, "windows-helper"),
     project: join(nativeRoot, "windows-helper", "AI.DevOS.WindowsHelper.csproj"),
     executable: "AI.DevOS.WindowsHelper.exe",
+    productionShaped: true,
+  },
+];
+
+/**
+ * Proof-only components (ADR 0018 section 2). They are built, measured, and
+ * self-tested exactly like the production-shaped ones, and they are excluded
+ * from the pinned conformance comparison, from the install simulation, and from
+ * any manifest that could be mistaken for a production one. They are absent
+ * from the npm package for a structural reason rather than a remembered one:
+ * `files` is `dist` + `README.md`, so nothing under `native/` is packed.
+ */
+const PROOF_ONLY_COMPONENTS = [
+  {
+    component: "windows-proof-installer",
+    directory: join(nativeRoot, "windows-proof-installer"),
+    project: join(nativeRoot, "windows-proof-installer", "AI.DevOS.WindowsProofInstaller.csproj"),
+    executable: "AI.DevOS.WindowsProofInstaller.exe",
+    productionShaped: false,
   },
 ];
 
@@ -138,6 +171,8 @@ function fail(message) {
 function parseArguments(argv) {
   let out = null;
   let skipSimulation = false;
+  let flavor = "sealed";
+  let includeProofOnly = false;
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--out") {
@@ -149,15 +184,27 @@ function parseArguments(argv) {
       skipSimulation = true;
       continue;
     }
+    if (value === "--flavor") {
+      index += 1;
+      flavor = argv[index] ?? "";
+      continue;
+    }
+    if (value === "--include-proof-only") {
+      includeProofOnly = true;
+      continue;
+    }
     fail(`unknown argument: ${value}`);
   }
   if (out === null) fail("--out <absolute-task-owned-directory> is required");
+  if (flavor !== "sealed" && flavor !== "reviewed-proof") {
+    fail("--flavor must be exactly 'sealed' (default) or 'reviewed-proof'");
+  }
   const resolved = resolve(out);
   if (resolved !== out) fail("--out must already be an absolute normalized path");
   if (resolved === repoRoot || resolved.startsWith(repoRoot + sep)) {
     fail("--out must be outside the repository so no generated binary can be tracked");
   }
-  return { out: resolved, skipSimulation };
+  return { out: resolved, skipSimulation, flavor, includeProofOnly };
 }
 
 function sha256File(path) {
@@ -220,7 +267,7 @@ function sharedCoreParity() {
 
 // ------------------------------------------------------------------- publish
 
-function publishOnce(entry, out, buildIndex) {
+function publishOnce(entry, out, buildIndex, flavor) {
   const outputDir = join(out, `build-${String(buildIndex)}`, entry.component);
   const intermediate = join(out, `obj-${String(buildIndex)}`, entry.component) + sep;
   const baseOutput = join(out, `bin-${String(buildIndex)}`, entry.component) + sep;
@@ -230,6 +277,13 @@ function publishOnce(entry, out, buildIndex) {
     `-p:BaseIntermediateOutputPath=${intermediate}`,
     `-p:BaseOutputPath=${baseOutput}`,
   ];
+  if (flavor === "reviewed-proof") {
+    // The ONLY way the constant is ever defined. It is not in any csproj, not
+    // in any Directory.Build.props, and not derivable from the environment, so
+    // a proof-flavoured binary can only be produced by a command line that says
+    // so.
+    properties.push(`-p:DefineConstants=${REVIEWED_PROOF_CONSTANT}`);
+  }
 
   const restore = run("dotnet", ["restore", entry.project, "--nologo", ...properties]);
   if (restore.status !== 0) {
@@ -464,10 +518,139 @@ function buildRecipeFingerprint(sdkVersion, runtimePackVersion) {
   );
 }
 
+/**
+ * Requires a binary's self-reported gate to match the recipe that was asked
+ * for, in BOTH read-only commands (ADR 0018 section 4).
+ *
+ * Both directions are enforced, and that is the point. Refusing to package a
+ * proof binary as sealed is the obvious half. Refusing to accept a SEALED
+ * binary when the reviewed-proof recipe was requested is the half that stops a
+ * proof run being conducted, in good faith, against a binary that cannot
+ * perform it — which would produce a clean run that proved nothing.
+ */
+function assertGateMatchesRecipe(entry, mutationGate, flavor) {
+  const expected = flavor === "sealed" ? SEALED_FLAVOR : PROOF_FLAVOR;
+  const expectedProofMode = flavor !== "sealed";
+  for (const [command, reported, proofMode] of [
+    ["self-test", mutationGate.selfTestBuildFlavor, mutationGate.selfTestProofModeCompiledIn],
+    ["describe-artifact", mutationGate.describeBuildFlavor, mutationGate.describeProofModeCompiledIn],
+  ]) {
+    if (typeof reported !== "string" || typeof proofMode !== "boolean") {
+      fail(
+        `${entry.component} ${command} does not report buildFlavor and proofModeCompiledIn; ` +
+          `the mutation gate is unobservable in this binary`,
+      );
+    }
+    if (reported !== expected || proofMode !== expectedProofMode) {
+      fail(
+        `${entry.component} ${command} reports buildFlavor=${JSON.stringify(reported)} ` +
+          `proofModeCompiledIn=${JSON.stringify(proofMode)}, but the ${flavor} recipe requires ` +
+          `${JSON.stringify(expected)}/${String(expectedProofMode)}`,
+      );
+    }
+  }
+  if (!mutationGate.commandsAgree) {
+    fail(`${entry.component}: self-test and describe-artifact disagree about the mutation gate`);
+  }
+}
+
+/**
+ * Builds, measures, and read-only self-tests a proof-only component.
+ *
+ * It is deliberately NOT given a production-shaped artifact manifest, is not
+ * compared against the pinned conformance table, and is not offered to the
+ * install simulation. A proof component that acquired any of those would be one
+ * step from being discovered by a production path.
+ */
+function buildProofOnlyComponent(entry, out, flavor) {
+  const firstDir = publishOnce(entry, out, 1, flavor);
+  const secondDir = publishOnce(entry, out, 2, flavor);
+  const first = enumerateClosure(firstDir);
+  const second = enumerateClosure(secondDir);
+  if (first.rejected.length > 0 || second.rejected.length > 0) {
+    fail(
+      `${entry.component} closure contains rejected entries: ` +
+        JSON.stringify([...first.rejected, ...second.rejected], null, 2),
+    );
+  }
+
+  const differing = compareClosures(first.files, second.files);
+  const executable = join(firstDir, entry.executable);
+  const selfTest = run(executable, ["self-test"], { cwd: firstDir });
+  const describe = run(executable, ["describe-artifact"], { cwd: firstDir });
+  const unknown = run(executable, ["definitely-not-a-command"], { cwd: firstDir });
+  const selfTestJson = JSON.parse(selfTest.stdout.trim());
+  const describeJson = JSON.parse(describe.stdout.trim());
+  const unknownJson = JSON.parse(unknown.stdout.trim());
+
+  const mutationGate = {
+    selfTestBuildFlavor: selfTestJson.buildFlavor,
+    selfTestProofModeCompiledIn: selfTestJson.proofModeCompiledIn,
+    describeBuildFlavor: describeJson.buildFlavor,
+    describeProofModeCompiledIn: describeJson.proofModeCompiledIn,
+    commandsAgree:
+      selfTestJson.buildFlavor === describeJson.buildFlavor &&
+      selfTestJson.proofModeCompiledIn === describeJson.proofModeCompiledIn,
+  };
+  assertGateMatchesRecipe(entry, mutationGate, flavor);
+
+  if (selfTest.status !== 0 || selfTestJson.status !== "passed") {
+    fail(`${entry.component} self-test failed`);
+  }
+  if (unknown.status === 0 || unknownJson.code !== "unknown-command") {
+    fail(`${entry.component} accepted an unknown command`);
+  }
+  if (describeJson.productionEligible !== false) {
+    fail(`${entry.component} describe-artifact does not report productionEligible: false`);
+  }
+  if (selfTestJson.installableCandidateCount !== 0) {
+    fail(
+      `${entry.component} reports ${String(selfTestJson.installableCandidateCount)} installable ` +
+        `candidates; the reviewed table is empty by decision (ADR 0018 section 2.4)`,
+    );
+  }
+  if (selfTestJson.hostStateCreated !== false) {
+    fail(`${entry.component} self-test reports host state was created`);
+  }
+
+  const envelope = sourceEnvelope(entry);
+  const runtimePackVersion = measureRuntimePackVersion(entry, firstDir, first.files);
+  return {
+    proofOnly: true,
+    productionEligible: false,
+    mutationGate,
+    fileCount: first.files.length,
+    totalBytes: first.files.reduce((sum, file) => sum + file.size, 0),
+    sourceEnvelopeFingerprint: envelope.fingerprint,
+    sourceFileCount: envelope.files.length,
+    runtimePackVersion,
+    byteIdenticalAcrossTwoBuilds: differing.length === 0,
+    differingFiles: differing,
+    selfTest: {
+      exitCode: selfTest.status,
+      status: selfTestJson.status,
+      suite: selfTestJson.suite,
+      vectorCount: selfTestJson.vectorCount,
+      failedVectorCount: selfTestJson.failedVectorCount,
+      conformanceDigest: selfTestJson.conformanceDigest,
+      installableCandidateCount: selfTestJson.installableCandidateCount,
+      hostStateCreated: selfTestJson.hostStateCreated,
+      nativeFileSystemInstantiated: selfTestJson.nativeFileSystemInstantiated,
+    },
+    describeArtifact: { exitCode: describe.status, ...describeJson },
+    unknownCommand: { exitCode: unknown.status, code: unknownJson.code },
+    largestFiles: [...first.files]
+      .sort((a, b) => b.size - a.size)
+      .slice(0, 5)
+      .map((file) => ({ name: file.name, size: file.size })),
+  };
+}
+
+
 // ---------------------------------------------------------------------- main
 
 async function main() {
-  const { out, skipSimulation } = parseArguments(process.argv.slice(2));
+  const { out, skipSimulation, flavor, includeProofOnly } = parseArguments(process.argv.slice(2));
   mkdirSync(out, { recursive: true });
 
   const distIndex = join(packageRoot, "dist", "index.js");
@@ -499,6 +682,9 @@ async function main() {
     dotnetSdkVersion: sdkVersion,
     buildRecipeVersion: BUILD_RECIPE_VERSION,
     sharedCoreParity: parity,
+    buildFlavor: flavor,
+    expectedBuildFlavorName: flavor === "sealed" ? SEALED_FLAVOR : PROOF_FLAVOR,
+    proofOnlyComponentsIncluded: includeProofOnly,
     components: {},
     deterministic: null,
     installSimulation: null,
@@ -520,8 +706,8 @@ async function main() {
   const allDifferences = [];
 
   for (const entry of COMPONENTS) {
-    const firstDir = publishOnce(entry, out, 1);
-    const secondDir = publishOnce(entry, out, 2);
+    const firstDir = publishOnce(entry, out, 1, flavor);
+    const secondDir = publishOnce(entry, out, 2, flavor);
     const first = enumerateClosure(firstDir);
     const second = enumerateClosure(secondDir);
 
@@ -673,24 +859,7 @@ async function main() {
     if (selfTest.status !== 0 || selfTestJson.status !== "passed") {
       fail(`${entry.component} self-test failed`);
     }
-    for (const [command, flavor, proofMode] of [
-      ["self-test", mutationGate.selfTestBuildFlavor, mutationGate.selfTestProofModeCompiledIn],
-      ["describe-artifact", mutationGate.describeBuildFlavor, mutationGate.describeProofModeCompiledIn],
-    ]) {
-      if (typeof flavor !== "string" || typeof proofMode !== "boolean") {
-        fail(
-          `${entry.component} ${command} does not report buildFlavor and proofModeCompiledIn; ` +
-            `the mutation gate is unobservable in this binary`,
-        );
-      }
-      if (flavor !== "sealed" || proofMode !== false) {
-        fail(
-          `${entry.component} ${command} reports a non-sealed mutation gate ` +
-            `(buildFlavor=${JSON.stringify(flavor)}, proofModeCompiledIn=${JSON.stringify(proofMode)}); ` +
-            `refusing to package a proof-mode binary`,
-        );
-      }
-    }
+    assertGateMatchesRecipe(entry, mutationGate, flavor);
     if (!mutationGate.commandsAgree) {
       fail(`${entry.component}: self-test and describe-artifact disagree about the mutation gate`);
     }
@@ -699,6 +868,13 @@ async function main() {
     }
     if (unknown.status === 0 || unknownJson.code !== "unknown-command") {
       fail(`${entry.component} accepted an unknown command`);
+    }
+  }
+
+  if (includeProofOnly) {
+    report.proofOnlyComponents = {};
+    for (const entry of PROOF_ONLY_COMPONENTS) {
+      report.proofOnlyComponents[entry.component] = buildProofOnlyComponent(entry, out, flavor);
     }
   }
 
@@ -728,8 +904,19 @@ async function main() {
       "windows-helper": helper.selfTest,
     },
   };
-  if (!conformanceMatches) {
-    fail("the native self-test results do not match the pinned conformance table");
+  if (flavor === "sealed") {
+    if (!conformanceMatches) {
+      fail("the sealed self-test results do not match the pinned conformance table");
+    }
+  } else if (conformanceMatches) {
+    // ADR 0018 section 4 requires the two recipes to be verifiably distinct.
+    // A reviewed-proof build that reproduced the SEALED conformance digest
+    // would mean the gate vectors are not recipe-aware after all, and the only
+    // remaining difference between the flavours would be a label.
+    fail(
+      "the reviewed-proof self-test reproduced the pinned SEALED conformance digest; " +
+        "the two recipes are not verifiably distinct",
+    );
   }
 
   // Cross-language check: the C# and TypeScript implementations of canonical
@@ -759,8 +946,15 @@ async function main() {
     buildsPerComponent: 2,
   };
 
-  if (!skipSimulation) {
+  // The install simulation exercises the PRODUCTION install path. Offering it
+  // a reviewed-proof bundle would install proof-flavoured bytes through the
+  // seam whose whole purpose is to refuse them, so it is skipped rather than
+  // guarded: a code path that never sees a proof bundle cannot be tricked into
+  // accepting one.
+  if (!skipSimulation && flavor === "sealed") {
     report.installSimulation = await simulateInstall(out, artifactModule, installModule);
+  } else if (flavor !== "sealed") {
+    report.installSimulation = { skipped: "reviewed-proof-bundles-are-never-installed" };
   }
 
   writeFileSync(join(out, "packaging-result.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");

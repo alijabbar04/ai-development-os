@@ -1,0 +1,142 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ADR 0018 section 2: the native handle-relative proof installer and remover.
+
+    PROOF-ONLY COMPONENT. This project is deliberately excluded from the npm
+    package (`files` is `dist` + `README.md`), from the production pinned
+    fingerprint table, and from every production discovery path. It is not a
+    production candidate and no output of it may ever be promoted.
+
+    Build recipe (ADR 0018 section 4). Two recipes exist and they are not the
+    same bytes:
+
+      sealed          the default. `AIDEVOS_STAGE17_REVIEWED_PROOF_MODE` is NOT
+                      defined, so ReviewedProofModeAuthorization's only
+                      construction site is not compiled, no instance can exist,
+                      and every mutating entry point — which takes that type by
+                      signature — is unreachable. `install` and `remove` refuse
+                      structurally.
+
+      reviewed-proof  built with
+                      `-p:DefineConstants=AIDEVOS_STAGE17_REVIEWED_PROOF_MODE`.
+                      Compiles the single construction site and enables the
+                      mutating branch. Reports buildFlavor
+                      "reviewed-proof-mode" from BOTH `describe-artifact` and
+                      `self-test`, and produces different bytes and therefore a
+                      different closure fingerprint.
+
+    Self-contained, multi-file, matching ADR 0017 section 6.2: every runtime
+    file the process loads is app-local so it can be named, sized, and hashed
+    individually. PublishSingleFile is false, so there is no bundle extraction
+    into a same-user writable directory between verification and execution.
+
+    Zero NuGet dependencies; NuGet.Config clears every source, so the build
+    fails rather than reaching the network.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <RootNamespace>AiDevOs.WindowsProofInstaller</RootNamespace>
+    <AssemblyName>AI.DevOS.WindowsProofInstaller</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Language and analysis strictness. Zero warnings is a build gate. -->
+    <ImplicitUsings>false</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningLevel>9999</WarningLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-all</AnalysisLevel>
+    <AnalysisMode>All</AnalysisMode>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
+    <!--
+      No pointer syntax anywhere. Every native structure is blittable and is
+      composed through `Marshal` with `nint`/`nuint`, exactly as the reviewed
+      feasibility-probe composition does, so the interop cannot express an
+      unchecked pointer arithmetic mistake.
+    -->
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      Analyzer exceptions, each justified. These are the ONLY suppressions in
+      this project; there is no `#pragma warning disable` in any source file.
+
+      CA1707  Win32 constant names keep their documented SDK spelling
+              (FILE_CREATE, OBJ_DONT_REPARSE, ...). Renaming them to PascalCase
+              would make every call site unreviewable against the Windows
+              documentation it must be audited against, which is a worse
+              outcome than an underscore.
+      SYSLIB1054
+              "Use LibraryImport instead of DllImport". Deliberately declined:
+              LibraryImport is a source generator that emits the real DllImport
+              into obj/, where no reviewer and no allow-list test can see it.
+              ADR 0018 section 5 requires the interop to be visible in reviewed
+              source, so the explicit DllImport stays.
+      CA1031  The transaction boundary converts any non-fatal exception into a
+              stable body-free refusal. Catching a narrower set would let an
+              unexpected exception escape and print a message containing
+              caller-influenced text.
+    -->
+    <NoWarn>$(NoWarn);CA1707;SYSLIB1054;CA1031</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Deterministic, path-independent, symbol-free output. -->
+    <Deterministic>true</Deterministic>
+    <DeterministicSourcePaths>true</DeterministicSourcePaths>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <PathMap>$(MSBuildProjectDirectory)=/_/windows-proof-installer,$(BaseIntermediateOutputPath)=/_/windows-proof-installer-obj</PathMap>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Closure minimisation and runtime determinism. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+    <AutoreleasePoolSupport>false</AutoreleasePoolSupport>
+    <GenerateRuntimeConfigDevFile>false</GenerateRuntimeConfigDevFile>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Fixed identity recorded by `describe-artifact`. -->
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <Company>ai-dev-os</Company>
+    <Product>AI Development OS Stage 17 proof-only handle-relative installer</Product>
+    <NeutralLanguage>en</NeutralLanguage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Never compile anything under bin/ or obj/. The default globs exclude the
+      *current* $(BaseIntermediateOutputPath); redirecting that path for an
+      out-of-tree build would otherwise let a stale in-tree obj/ directory be
+      swept into the compilation.
+    -->
+    <Compile Remove="bin/**/*.cs" />
+    <Compile Remove="obj/**/*.cs" />
+    <None Remove="bin/**" />
+    <None Remove="obj/**" />
+  </ItemGroup>
+
+</Project>

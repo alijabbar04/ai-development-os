@@ -107,11 +107,17 @@ internal static class CoreConformance
         AddTokenVectors(vectors);
         AddRecoveryVectors(vectors);
         AddManifestVectors(vectors);
+        // The gate vectors live in ClosureConformance.AddGateVectors, which this
+        // call reaches. A `gate/mutating-operations-structurally-disabled`
+        // vector used to sit here asserting `MutatingOperationsPermitted ==
+        // false` unconditionally. That assertion was the ADR 0018 section 4
+        // contradiction written down as a test: it pinned the sealed answer
+        // into a suite that both recipes run, so a reviewed-proof build could
+        // never pass its own self-test. It is REPLACED, not removed, by
+        // `gate/mutating-permitted-couples-to-recipe`, which is strictly
+        // stronger in the sealed direction (it still fails if a sealed build
+        // enables mutation) and additionally covers the proof direction.
         ClosureConformance.AddVectors(vectors);
-        vectors.Add(new ConformanceVector(
-            "gate/mutating-operations-structurally-disabled",
-            "false",
-            MutationGate.MutatingOperationsPermitted ? "true" : "false"));
         return new ConformanceReport("windows-production-core-v1", vectors);
     }
 

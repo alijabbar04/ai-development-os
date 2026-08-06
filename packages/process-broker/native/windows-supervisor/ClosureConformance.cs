@@ -670,23 +670,62 @@ internal static class ClosureConformance
 
     private static void AddGateVectors(List<ConformanceVector> vectors)
     {
+        // ADR 0018 section 4: two recipes exist and their self-tests must be
+        // verifiably different. The expected values below are selected by the
+        // same preprocessor symbol that selects the recipe, so a sealed binary
+        // and a reviewed-proof binary do not merely report different flavours —
+        // they compute different conformance digests, which the packaging
+        // pipeline compares against the pinned sealed digest.
+#if AIDEVOS_STAGE17_REVIEWED_PROOF_MODE
+        const string expectedFlavor = "reviewed-proof-mode";
+        const string expectedProofModeCompiledIn = "true";
+        const string expectedCanonicalGateState =
+            "{\"buildFlavor\":\"reviewed-proof-mode\",\"mutatingOperationsPermitted\":true," +
+            "\"proofModeCompiledIn\":true," +
+            "\"unauthorizedRefusal\":\"mutating-operations-unauthorized\"}";
+#else
+        const string expectedFlavor = "sealed";
+        const string expectedProofModeCompiledIn = "false";
+        const string expectedCanonicalGateState =
+            "{\"buildFlavor\":\"sealed\",\"mutatingOperationsPermitted\":false," +
+            "\"proofModeCompiledIn\":false," +
+            "\"unauthorizedRefusal\":\"mutating-operations-unauthorized\"}";
+#endif
+
         vectors.Add(new ConformanceVector(
-            "gate/build-flavor-is-sealed",
-            "sealed",
+            "gate/build-flavor",
+            expectedFlavor,
             MutationGate.BuildFlavor));
         vectors.Add(new ConformanceVector(
-            "gate/proof-mode-not-compiled-in",
-            "false",
+            "gate/proof-mode-compiled-in",
+            expectedProofModeCompiledIn,
             MutationGate.ProofModeCompiledIn ? "true" : "false"));
+
+        // The invariant ADR 0018 section 4 exists to restore. At 093203c the
+        // proof-mode recipe compiled the authorization constructor while
+        // MutatingOperationsEnabled stayed unconditionally false, so no proof
+        // build could execute anything: the two halves of the gate had drifted
+        // apart and nothing observed it. This vector observes it. It fails if
+        // the mutating constant is enabled in a sealed build (a promotion of a
+        // proof capability into a production-shaped binary) and equally if it
+        // is disabled in a proof build (a gate that cannot be opened by the
+        // recipe that is supposed to open it). It cannot pass vacuously,
+        // because the two values it compares come from two separately declared
+        // constants rather than from one constant compared with itself.
+        vectors.Add(new ConformanceVector(
+            "gate/mutating-permitted-couples-to-recipe",
+            "coupled",
+            MutationGate.MutatingOperationsPermitted == MutationGate.ProofModeCompiledIn
+                ? "coupled"
+                : "decoupled"));
+
         vectors.Add(new ConformanceVector(
             "gate/unauthorized-caller-is-refused",
             "mutating-operations-unauthorized",
             ProtocolNames.Of(MutationGate.Authorize(null))));
         vectors.Add(new ConformanceVector(
             "gate/canonical-state",
-            "{\"buildFlavor\":\"sealed\",\"mutatingOperationsPermitted\":false," +
-            "\"proofModeCompiledIn\":false," +
-            "\"unauthorizedRefusal\":\"mutating-operations-unauthorized\"}",
+            expectedCanonicalGateState,
             CanonicalJson.SerializeToString(MutationGate.ToCanonical())));
     }
 }

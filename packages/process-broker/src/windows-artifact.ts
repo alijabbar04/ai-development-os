@@ -145,8 +145,24 @@ export const WINDOWS_COMPONENT_CONFORMANCE = Object.freeze({
   suiteVersion: 1,
   coreSuite: "windows-production-core-v1",
   coreVectorCount: 165,
+  /**
+   * The digest a SEALED build must report.
+   *
+   * It changed at this checkpoint because ADR 0018 section 4 replaced the core
+   * suite's `gate/mutating-operations-structurally-disabled` vector — which
+   * pinned the sealed answer into a suite both recipes run, so no
+   * reviewed-proof build could ever pass its own self-test — with the
+   * recipe-aware gate block in `ClosureConformance.AddGateVectors`.
+   *
+   * A reviewed-proof build reports a DIFFERENT core digest by construction: the
+   * gate vectors' expected values are selected by the same preprocessor symbol
+   * that selects the recipe. The packaging pipeline requires a sealed build to
+   * match this constant and requires a proof build not to, which is what makes
+   * the two flavours verifiably distinct rather than merely differently
+   * labelled.
+   */
   coreConformanceDigest:
-    "7cf06c2d2b85f19849239296d002251387c3ad98e29f11a1fb54ba963332ecd0",
+    "3b5ad6e8931cbe129dd5bda1fe8998853260466ea0525680d34276ad0bc77757",
   manifestFixtureFingerprint:
     "c39961a4a6946201758403a86fe25795c89e70f607a1c6e3642c292419663054",
   roles: Object.freeze({

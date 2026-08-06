@@ -79,6 +79,11 @@ export const WINDOWS_VERIFICATION_AUTHORITY = Object.freeze({
     "path/refuses-reparse-point-at-intermediate-component",
     "path/refuses-unc-root",
     "role/mutating-requires-authorization",
+    // ADR 0018 section 4. The vector that fails if the mutating constant and
+    // the build recipe ever drift apart again — enabled in a sealed build, or
+    // disabled in a proof build. Its deletion must break a test rather than
+    // pass quietly, which is why it is named here rather than only in C#.
+    "gate/mutating-permitted-couples-to-recipe",
   ] as const),
 } as const);
 

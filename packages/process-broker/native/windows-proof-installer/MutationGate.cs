@@ -1,4 +1,4 @@
-namespace AiDevOs.WindowsHelper;
+namespace AiDevOs.WindowsProofInstaller;
 
 /// <summary>
 /// Proof of a reviewed, separately authorized bounded proof run.

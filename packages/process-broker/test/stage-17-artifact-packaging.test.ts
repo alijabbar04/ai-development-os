@@ -28,6 +28,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   MAX_WINDOWS_ARTIFACT_FILE_COUNT,
   PINNED_WINDOWS_BUNDLE_FINGERPRINTS,
+  PROOF_ONLY_COMPONENTS,
+  admitWindowsArtifactBuildFlavor,
   WINDOWS_ARTIFACT_COMPONENTS,
   WINDOWS_ARTIFACT_LIMITATION_CODES,
   WINDOWS_ARTIFACT_MANIFEST_FILE_NAME,
@@ -1151,34 +1153,632 @@ describe("Stage 17 native component conformance pins (non-enforcement)", () => {
     expect(WINDOWS_PROTOCOL_LIMITS.operationTokenHexLength).toBe(32);
   });
 
-  it("keeps the two native components structurally read-only in source", async () => {
-    for (const component of ["windows-supervisor", "windows-helper"]) {
+  it("keeps the mutation gate's sealed branch present and recipe-coupled", async () => {
+    // ADR 0018 section 4. The sealed branch must still declare the constant
+    // false, and the proof branch must declare it true; the two are selected by
+    // the same preprocessor symbol that selects the build flavour. Before this
+    // checkpoint the constant was unconditionally false, so a reviewed-proof
+    // build compiled the authorization constructor and still could not execute
+    // anything — the gate was a wall with a door drawn on it.
+    for (const component of NATIVE_COMPONENTS) {
+      const gate = await readFile(join(packageRoot, "native", component, "MutationGate.cs"), "utf8");
+      expect(gate).toContain("#if AIDEVOS_STAGE17_REVIEWED_PROOF_MODE");
+      expect(gate).toContain("private const bool MutatingOperationsEnabled = true;");
+      expect(gate).toContain("private const bool MutatingOperationsEnabled = false;");
+      expect(gate).toContain('private const string BuildFlavorName = "sealed";');
+      expect(gate).toContain('private const string BuildFlavorName = "reviewed-proof-mode";');
+
+      // The true branch must be inside the proof-mode conditional and the false
+      // branch inside the #else. A file that declared both unconditionally
+      // would not compile, but one that swapped them would, and would produce a
+      // sealed binary that mutates.
+      const conditional = gate.indexOf("#if AIDEVOS_STAGE17_REVIEWED_PROOF_MODE");
+      const otherwise = gate.indexOf("#else", conditional);
+      const endOfConditional = gate.indexOf("#endif", otherwise);
+      expect(conditional).toBeGreaterThan(-1);
+      expect(otherwise).toBeGreaterThan(conditional);
+      expect(endOfConditional).toBeGreaterThan(otherwise);
+      const proofBranch = gate.slice(conditional, otherwise);
+      const sealedBranch = gate.slice(otherwise, endOfConditional);
+      expect(proofBranch).toContain("private const bool MutatingOperationsEnabled = true;");
+      expect(sealedBranch).toContain("private const bool MutatingOperationsEnabled = false;");
+      expect(proofBranch).toContain('BuildFlavorName = "reviewed-proof-mode"');
+      expect(sealedBranch).toContain('BuildFlavorName = "sealed"');
+    }
+  });
+});
+
+// ------------------------------------------------- ADR 0018 section 5: interop
+
+/**
+ * The reviewed interop allow-list.
+ *
+ * ADR 0017 section 9a required the eleven-string no-interop denylist to be
+ * REPLACED rather than deleted once real interop was written, and ADR 0018
+ * section 5 performs the replacement. The table below names the exact files
+ * permitted to contain each interop category. Every other `.cs` file in every
+ * reviewed native component must be free of all of them.
+ *
+ * **What this cannot prove, stated so nobody mistakes the test for the
+ * guarantee.** A text scan cannot decide reachability. It cannot see a
+ * `DllImport` that a source generator emitted into `obj/` — which is exactly
+ * why `LibraryImport` is declined project-wide and the explicit attribute is
+ * kept in reviewed source. It cannot follow a function pointer. It cannot
+ * distinguish a call site behind the mutation gate from one beside it. The
+ * allow-list is a containment boundary on WHERE interop may appear, not a proof
+ * of HOW it is reached. Reachability is discharged by the
+ * capability-by-signature requirement of ADR 0018 section 4, by the compiler
+ * and analyser output of a zero-warning build, by call-site review, and by
+ * independent audit.
+ */
+const INTEROP_ALLOW_LIST: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> =
+  Object.freeze({
+    "windows-supervisor": Object.freeze({}),
+    "windows-helper": Object.freeze({}),
+    "windows-proof-installer": Object.freeze({
+      "NativeFileSystem.cs": Object.freeze([
+        "dll-import",
+        "marshal",
+        "nt-create-file",
+        "security-descriptor",
+        "durability",
+      ]),
+    }),
+  });
+
+/** Every category, and the exact tokens that place a file in it. */
+const INTEROP_CATEGORIES: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  "dll-import": ["DllImport", "LibraryImport", "SuppressGCTransition"],
+  marshal: ["Marshal.", "StructLayout", "AllocHGlobal", "AllocCoTaskMem", "stackalloc", "fixed ("],
+  "nt-create-file": ["NtCreateFile", "NtSetInformationFile", "NtQueryInformationFile", "NtClose"],
+  "create-file-w": ["CreateFileW", "CreateFile2"],
+  "create-process-w": ["CreateProcessW", "CreateProcessAsUserW", "InitializeProcThreadAttributeList"],
+  job: ["CreateJobObjectW", "SetInformationJobObject", "QueryInformationJobObject", "TerminateJobObject"],
+  appcontainer: [
+    "CreateAppContainerProfile",
+    "DeleteAppContainerProfile",
+    "DeriveAppContainerSidFromAppContainerName",
+    "GetAppContainerFolderPath",
+  ],
+  "security-descriptor": [
+    "GetSecurityInfo",
+    "SetSecurityInfo",
+    "ConvertStringSecurityDescriptorToSecurityDescriptorW",
+    "AccessCheck",
+    "GetAce",
+    "GetAclInformation",
+    "ConvertSidToStringSidW",
+    "DuplicateTokenEx",
+    "OpenProcessToken",
+    "GetTokenInformation",
+  ],
+  durability: ["FlushFileBuffers", "MoveFileExW", "WriteFile", "ReadFile"],
+});
+
+/**
+ * Tokens that must appear in NO reviewed native source file, allow-listed or
+ * not. Dynamic binding and reflection-generated invocation would let interop
+ * exist without any of the categories above appearing anywhere, which is the
+ * hole ADR 0017 section 9a recorded in the old denylist.
+ */
+const FORBIDDEN_EVERYWHERE: readonly string[] = Object.freeze([
+  "NativeLibrary.Load",
+  "NativeLibrary.GetExport",
+  "GetDelegateForFunctionPointer",
+  "DynamicMethod",
+  "ILGenerator",
+  "Assembly.Load",
+  "Activator.CreateInstance",
+  "MethodInfo.Invoke",
+  "Process.Start",
+  "ProcessStartInfo",
+  "ShellExecute",
+  "WinExec",
+  "Registry",
+  "OpenSCManager",
+  "CreateServiceW",
+  "ITaskService",
+  "schtasks",
+  "netsh",
+  "HttpClient",
+  "WebClient",
+  "Socket(",
+  "WSAStartup",
+  "InternetOpen",
+  "Dns.",
+  "Environment.GetEnvironmentVariable",
+  "Directory.CreateDirectory",
+  "Directory.Delete",
+  "File.WriteAllText",
+  "File.Delete",
+  "File.Move",
+  "File.Create",
+  "Directory.CreateSymbolicLink",
+  "unsafe ",
+]);
+
+/** The exact libraries and entry points the allow-listed files may import. */
+const PERMITTED_IMPORTS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  "ntdll.dll": Object.freeze([
+    "NtClose",
+    "NtCreateFile",
+    "NtQueryInformationFile",
+    "NtSetInformationFile",
+  ]),
+  "kernel32.dll": Object.freeze([
+    "CloseHandle",
+    "FlushFileBuffers",
+    "GetCurrentProcess",
+    "GetFileInformationByHandleEx",
+    "GetFinalPathNameByHandleW",
+    "GetVolumeInformationByHandleW",
+    "LocalFree",
+    "ReadFile",
+    "WriteFile",
+  ]),
+  "advapi32.dll": Object.freeze([
+    "AccessCheck",
+    "ConvertSidToStringSidW",
+    "ConvertStringSecurityDescriptorToSecurityDescriptorW",
+    "DuplicateTokenEx",
+    "GetAce",
+    "GetAclInformation",
+    "GetSecurityDescriptorControl",
+    "GetSecurityInfo",
+    "GetTokenInformation",
+    "MapGenericMask",
+    "OpenProcessToken",
+  ]),
+  "shell32.dll": Object.freeze(["SHGetKnownFolderPath"]),
+  "ole32.dll": Object.freeze(["CoTaskMemFree"]),
+});
+
+/**
+ * The allow-list's own size, pinned.
+ *
+ * Growing the allow-list means changing this number in the same commit, which
+ * is the smallest mechanism that makes growth a deliberate, reviewable act
+ * rather than a line nobody notices. ADR 0018 section 5 requires no growth
+ * without an ADR change; this is what surfaces the growth.
+ */
+const ALLOW_LISTED_FILE_COUNT = 1;
+
+const NATIVE_COMPONENTS = Object.freeze([
+  "windows-supervisor",
+  "windows-helper",
+  "windows-proof-installer",
+] as const);
+
+/**
+ * Removes comments from C# source, keeping string and character literals.
+ *
+ * The scan below is about CALL SITES, and a call site is code. Scanning raw
+ * file text instead would make the allow-list unusable and, worse, dishonest:
+ * the reviewed sources discuss `CreateProcessW` and the retained feasibility
+ * probe at length in doc comments precisely because ADR 0017 and ADR 0018
+ * require them to explain what they do and do not do, and a test that flagged
+ * the explanation as the thing it forbids would pressure the next author to
+ * delete the explanation. That is a real cost with no security benefit.
+ *
+ * The cost of stripping is stated too: a call site commented out is invisible
+ * to this scan, which is correct, and a call site reached through a token this
+ * table does not list is invisible to it as well, which is the limit ADR 0018
+ * section 5 records.
+ *
+ * String literals are deliberately KEPT. A `DllImport` names its library and
+ * entry point as string literals, so stripping them would blind the scan to the
+ * one thing it most needs to see.
+ */
+function stripCSharpComments(source: string): string {
+  let out = "";
+  let index = 0;
+  while (index < source.length) {
+    const two = source.slice(index, index + 2);
+    if (two === "//") {
+      const end = source.indexOf("\n", index);
+      index = end < 0 ? source.length : end;
+      continue;
+    }
+    if (two === "/*") {
+      const end = source.indexOf("*/", index + 2);
+      index = end < 0 ? source.length : end + 2;
+      continue;
+    }
+    if (source.startsWith('@"', index)) {
+      let cursor = index + 2;
+      while (cursor < source.length) {
+        if (source[cursor] === '"') {
+          if (source[cursor + 1] === '"') {
+            cursor += 2;
+            continue;
+          }
+          cursor += 1;
+          break;
+        }
+        cursor += 1;
+      }
+      out += source.slice(index, cursor);
+      index = cursor;
+      continue;
+    }
+    const character = source[index] as string;
+    if (character === '"' || character === "'") {
+      let cursor = index + 1;
+      while (cursor < source.length) {
+        if (source[cursor] === "\\") {
+          cursor += 2;
+          continue;
+        }
+        if (source[cursor] === character) {
+          cursor += 1;
+          break;
+        }
+        cursor += 1;
+      }
+      out += source.slice(index, cursor);
+      index = cursor;
+      continue;
+    }
+    out += character;
+    index += 1;
+  }
+  return out;
+}
+
+async function readNativeCode(component: string, name: string): Promise<string> {
+  return stripCSharpComments(await readFile(join(packageRoot, "native", component, name), "utf8"));
+}
+
+/**
+ * Whole-identifier containment.
+ *
+ * Plain substring matching produced a false positive on the first run of this
+ * suite: the reviewed manifest parser has a private `TryReadFiles` helper, and
+ * `ReadFile` is a substring of it, so the durability category appeared in a
+ * file that contains no interop at all. A false positive here is not harmless —
+ * it is exactly the pressure that gets an allow-list widened until it permits
+ * the thing it was written to confine.
+ */
+function containsIdentifier(text: string, identifier: string): boolean {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const leading = /^[A-Za-z0-9_]/.test(identifier) ? "(?<![A-Za-z0-9_])" : "";
+  const trailing = /[A-Za-z0-9_]$/.test(identifier) ? "(?![A-Za-z0-9_])" : "";
+  return new RegExp(`${leading}${escaped}${trailing}`).test(text);
+}
+
+/**
+ * Whole-identifier containment where the identifier is APPLIED — a call or an
+ * attribute — rather than merely named.
+ *
+ * Second false positive of the first run: the supervisor's closed enumeration
+ * of the operations it would own has a member called `TerminateJobObject`, and
+ * naming an operation is not performing it. Requiring the identifier to be
+ * followed by an open parenthesis distinguishes `TerminateJobObject(handle)`
+ * from `SupervisorMutatingOperation.TerminateJobObject`, which is precisely the
+ * distinction the allow-list is about.
+ *
+ * Tokens that are not applied that way — a member prefix like `Marshal.`, the
+ * `stackalloc` keyword, the `fixed (` statement — are matched literally.
+ */
+function containsApplication(text: string, token: string): boolean {
+  if (token.includes("(") || token.endsWith(".") || token === "stackalloc") {
+    return containsIdentifier(text, token);
+  }
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![A-Za-z0-9_])${escaped}\\s*\\(`).test(text);
+}
+
+describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
+  it("matches whole identifiers, not substrings", () => {
+    expect(containsIdentifier("private static bool TryReadFiles(", "ReadFile")).toBe(false);
+    expect(containsIdentifier("NativeMethods.ReadFile(handle", "ReadFile")).toBe(true);
+    expect(containsIdentifier("MyCreateProcessWrapper()", "CreateProcessW")).toBe(false);
+    expect(containsIdentifier("NativeMethods.CreateProcessW(", "CreateProcessW")).toBe(true);
+    expect(containsIdentifier("Marshal.AllocHGlobal(4)", "Marshal.")).toBe(true);
+    expect(containsIdentifier("var x = 1;", "Marshal.")).toBe(false);
+  });
+
+  it("strips comments without losing string literals", () => {
+    // The stripper is itself security-relevant: if it removed string literals
+    // the import scan would see nothing and pass vacuously, and if it removed
+    // nothing the allow-list would flag every doc comment. Both failure modes
+    // are checked here rather than assumed.
+    const source = [
+      '// DllImport("evil.dll", EntryPoint = "Evil")',
+      '/* CreateProcessW in a block comment */',
+      '[DllImport("ntdll.dll", EntryPoint = "NtCreateFile")]',
+      'string slashes = "a//b";',
+      'string quoted = "he said \\" and // more";',
+      'char c = \'/\';',
+    ].join("\n");
+    const stripped = stripCSharpComments(source);
+    expect(stripped).not.toContain("evil.dll");
+    expect(stripped).not.toContain("CreateProcessW");
+    expect(stripped).toContain('[DllImport("ntdll.dll", EntryPoint = "NtCreateFile")]');
+    expect(stripped).toContain('"a//b"');
+    expect(stripped).toContain('"he said \\" and // more"');
+  });
+
+  it("pins the allow-list shape so growth cannot be silent", () => {
+    let count = 0;
+    for (const files of Object.values(INTEROP_ALLOW_LIST)) {
+      count += Object.keys(files).length;
+    }
+    expect(count).toBe(ALLOW_LISTED_FILE_COUNT);
+    expect(Object.keys(INTEROP_ALLOW_LIST).sort()).toEqual([...NATIVE_COMPONENTS].sort());
+
+    // Every category named in the allow-list is a category the scanner knows
+    // how to detect. A typo would otherwise silently permit nothing and forbid
+    // nothing.
+    for (const files of Object.values(INTEROP_ALLOW_LIST)) {
+      for (const categories of Object.values(files)) {
+        for (const category of categories) {
+          expect(Object.keys(INTEROP_CATEGORIES)).toContain(category);
+        }
+      }
+    }
+  });
+
+  it("confines every interop category to its allow-listed files", async () => {
+    const observed: { file: string; category: string }[] = [];
+    for (const component of NATIVE_COMPONENTS) {
+      const directory = join(packageRoot, "native", component);
+      const sources = (await readdir(directory)).filter((name) => name.endsWith(".cs"));
+      expect(sources.length).toBeGreaterThan(0);
+
+      for (const name of sources) {
+        const text = await readNativeCode(component, name);
+        const permitted = INTEROP_ALLOW_LIST[component]?.[name] ?? [];
+        for (const [category, tokens] of Object.entries(INTEROP_CATEGORIES)) {
+          const present = tokens.some((token) => containsApplication(text, token));
+          if (!present) continue;
+          observed.push({ file: `${component}/${name}`, category });
+          expect(
+            permitted,
+            `${component}/${name} contains ${category} interop but is not allow-listed for it`,
+          ).toContain(category);
+        }
+      }
+    }
+
+    // The allow-list is not merely permissive: the file it names must actually
+    // carry the categories it is allowed to carry. An entry for a file that
+    // stopped containing interop is stale, and a stale allow-list entry is a
+    // pre-authorization for interop nobody reviewed.
+    for (const [component, files] of Object.entries(INTEROP_ALLOW_LIST)) {
+      for (const [name, categories] of Object.entries(files)) {
+        for (const category of categories) {
+          expect(
+            observed,
+            `${component}/${name} is allow-listed for ${category} but does not contain it`,
+          ).toContainEqual({ file: `${component}/${name}`, category });
+        }
+      }
+    }
+  });
+
+  it("forbids dynamic binding, reflection invocation, process, shell, registry and network APIs everywhere", async () => {
+    for (const component of NATIVE_COMPONENTS) {
+      const directory = join(packageRoot, "native", component);
+      const sources = (await readdir(directory)).filter((name) => name.endsWith(".cs"));
+      for (const name of sources) {
+        const text = await readNativeCode(component, name);
+        for (const forbidden of FORBIDDEN_EVERYWHERE) {
+          expect(
+            containsIdentifier(text, forbidden),
+            `${component}/${name} contains ${forbidden}`,
+          ).toBe(false);
+        }
+      }
+
+      // No component may enable pointer syntax, so an interop mistake cannot be
+      // expressed as unchecked pointer arithmetic.
+      const projects = (await readdir(directory)).filter((name) => name.endsWith(".csproj"));
+      expect(projects.length).toBe(1);
+      const project = await readFile(join(directory, projects[0] as string), "utf8");
+      expect(project).toContain("<AllowUnsafeBlocks>false</AllowUnsafeBlocks>");
+      expect(project).toContain("<TreatWarningsAsErrors>true</TreatWarningsAsErrors>");
+    }
+  });
+
+  it("pins the exact imported libraries and entry points", async () => {
+    const imports = new Map<string, Set<string>>();
+    for (const [component, files] of Object.entries(INTEROP_ALLOW_LIST)) {
+      for (const name of Object.keys(files)) {
+        const text = await readNativeCode(component, name);
+        // Multi-line DllImport attributes are the normal shape here, so the
+        // scan is deliberately multi-line rather than per-line.
+        const pattern = /DllImport\(\s*"([^"]+)"[\s\S]*?EntryPoint\s*=\s*"([^"]+)"/g;
+        let match = pattern.exec(text);
+        while (match !== null) {
+          const library = (match[1] as string).toLowerCase();
+          if (!imports.has(library)) imports.set(library, new Set());
+          (imports.get(library) as Set<string>).add(match[2] as string);
+          match = pattern.exec(text);
+        }
+
+        // Every import must name its entry point explicitly. An import without
+        // one resolves by method name, which makes a rename silently change
+        // which native function is called.
+        const declarations = text.match(/DllImport\(/g)?.length ?? 0;
+        const withEntryPoints = text.match(/EntryPoint\s*=\s*"/g)?.length ?? 0;
+        expect(withEntryPoints).toBe(declarations);
+
+        // ExactSpelling stops the marshaller silently probing for an A/W
+        // suffixed variant of a name that does not exist.
+        const exactSpellings = text.match(/ExactSpelling\s*=\s*true/g)?.length ?? 0;
+        expect(exactSpellings).toBe(declarations);
+      }
+    }
+
+    const observed: Record<string, string[]> = {};
+    for (const [library, entries] of imports) {
+      observed[library] = [...entries].sort();
+    }
+    const expected: Record<string, string[]> = {};
+    for (const [library, entries] of Object.entries(PERMITTED_IMPORTS)) {
+      expected[library] = [...entries].sort();
+    }
+    expect(observed).toEqual(expected);
+  });
+
+  it("has no process-creation call site anywhere in the reviewed components", async () => {
+    // ADR 0018 section 3 introduces exactly three reviewed creation sites. None
+    // of them exists yet, and this test is what will notice the moment one
+    // appears without the allow-list being extended in the same change.
+    for (const component of NATIVE_COMPONENTS) {
+      const directory = join(packageRoot, "native", component);
+      const sources = (await readdir(directory)).filter((name) => name.endsWith(".cs"));
+      for (const name of sources) {
+        const text = await readNativeCode(component, name);
+        for (const token of INTEROP_CATEGORIES["create-process-w"] as readonly string[]) {
+          const permitted =
+            (INTEROP_ALLOW_LIST[component]?.[name] ?? []).includes("create-process-w");
+          if (!permitted) {
+            expect(
+              containsApplication(text, token),
+              `${component}/${name} contains ${token}`,
+            ).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
+  it("refuses a proof-mode binary at production discovery", () => {
+    const sealed = {
+      component: "windows-supervisor",
+      describeBuildFlavor: "sealed",
+      selfTestBuildFlavor: "sealed",
+      describeProofModeCompiledIn: false,
+      selfTestProofModeCompiledIn: false,
+    };
+    expect(admitWindowsArtifactBuildFlavor(sealed)).toMatchObject({
+      admitted: true,
+      buildFlavor: "sealed",
+    });
+
+    // The whole point of ADR 0018 section 4: a reviewed-proof binary is a
+    // different set of bytes, evidence about it is not evidence about the
+    // sealed artifact, and production must never accept it.
+    expect(
+      admitWindowsArtifactBuildFlavor({
+        ...sealed,
+        describeBuildFlavor: "reviewed-proof-mode",
+        selfTestBuildFlavor: "reviewed-proof-mode",
+        describeProofModeCompiledIn: true,
+        selfTestProofModeCompiledIn: true,
+      }),
+    ).toMatchObject({ admitted: false, code: "artifact-build-flavor-not-sealed" });
+
+    // A binary that reports "sealed" from one command and the truth from the
+    // other is worse than either answer on its own.
+    expect(
+      admitWindowsArtifactBuildFlavor({ ...sealed, selfTestBuildFlavor: "reviewed-proof-mode" }),
+    ).toMatchObject({ admitted: false, code: "artifact-gate-inconsistent" });
+    expect(
+      admitWindowsArtifactBuildFlavor({ ...sealed, selfTestProofModeCompiledIn: true }),
+    ).toMatchObject({ admitted: false, code: "artifact-gate-inconsistent" });
+
+    // A gate nobody downstream can read is not an enforceable gate.
+    expect(
+      admitWindowsArtifactBuildFlavor({ ...sealed, describeBuildFlavor: undefined }),
+    ).toMatchObject({ admitted: false, code: "artifact-gate-unobservable" });
+    expect(
+      admitWindowsArtifactBuildFlavor({ ...sealed, describeProofModeCompiledIn: "false" }),
+    ).toMatchObject({ admitted: false, code: "artifact-gate-unobservable" });
+    expect(admitWindowsArtifactBuildFlavor({ ...sealed, component: "" })).toMatchObject({
+      admitted: false,
+      code: "artifact-gate-unobservable",
+    });
+  });
+
+  it("refuses the proof installer at production discovery even when sealed", () => {
+    // A sealed proof-installer is still a proof component. Flavour and purpose
+    // are separate facts and both have to hold.
+    expect(
+      admitWindowsArtifactBuildFlavor({
+        component: "windows-proof-installer",
+        describeBuildFlavor: "sealed",
+        selfTestBuildFlavor: "sealed",
+        describeProofModeCompiledIn: false,
+        selfTestProofModeCompiledIn: false,
+      }),
+    ).toMatchObject({ admitted: false, code: "artifact-component-is-proof-only" });
+
+    expect([...PROOF_ONLY_COMPONENTS]).toEqual(["windows-proof-installer"]);
+    for (const component of PROOF_ONLY_COMPONENTS) {
+      expect([...WINDOWS_ARTIFACT_COMPONENTS]).not.toContain(component);
+    }
+  });
+
+  it("keeps the proof installer out of the pinned table and the npm inventory", async () => {
+    expect(PINNED_WINDOWS_BUNDLE_FINGERPRINTS.length).toBe(0);
+    for (const pinned of PINNED_WINDOWS_BUNDLE_FINGERPRINTS) {
+      expect(PROOF_ONLY_COMPONENTS).not.toContain((pinned as { component: string }).component);
+    }
+
+    const manifest = JSON.parse(
+      await readFile(join(packageRoot, "package.json"), "utf8"),
+    ) as { readonly files: readonly string[] };
+    // `files` is dist + README, so `native/` is not packed at all and no
+    // exclusion rule has to be remembered per component.
+    expect([...manifest.files].sort()).toEqual(["README.md", "dist"]);
+    expect(JSON.stringify(manifest)).not.toContain("windows-proof-installer");
+  });
+
+  it("keeps the retained evidence tooling off every reviewed component's path", async () => {
+    // ADR 0017 section 10.3: no reviewed component may DEPEND on the
+    // feasibility probe or the boundary fixture.
+    //
+    // "Depend on" is the claim and it is narrower than "mention". Both names
+    // appear as string literals in the conformance suites, where they are
+    // negative test data: a component name manifest verification must refuse,
+    // and a bundle directory path resolution must not accept. Forbidding the
+    // literal would forbid testing the refusal, which is the wrong trade. What
+    // is actually forbidden is a project reference, a namespace import, or a
+    // type from either assembly.
+    for (const component of NATIVE_COMPONENTS) {
       const directory = join(packageRoot, "native", component);
       const names = await readdir(directory);
-      const sources = names.filter((name) => name.endsWith(".cs"));
-      expect(sources.length).toBeGreaterThan(0);
-      let combined = "";
-      for (const name of sources) {
-        combined += await readFile(join(directory, name), "utf8");
+
+      for (const name of names.filter((entry) => entry.endsWith(".csproj"))) {
+        const project = await readFile(join(directory, name), "utf8");
+        expect(project).not.toContain("ProjectReference");
+        expect(project).not.toContain("windows-feasibility-probe");
+        expect(project).not.toContain("windows-boundary-fixture");
       }
-      // The mutation gate is a compile-time false constant, and nothing in the
-      // components starts a process, opens a shell, reads the environment, or
-      // downloads anything.
-      expect(combined).toContain("private const bool MutatingOperationsEnabled = false;");
-      for (const forbidden of [
-        "Process.Start",
-        "ProcessStartInfo",
-        "DllImport",
-        "Environment.GetEnvironmentVariable",
-        "Registry",
-        "HttpClient",
-        "WebClient",
-        "Directory.CreateDirectory",
-        "File.WriteAllText",
-        "File.Delete",
-        "Directory.Delete",
-      ]) {
-        expect(combined).not.toContain(forbidden);
+
+      for (const name of names.filter((entry) => entry.endsWith(".cs"))) {
+        const text = await readNativeCode(component, name);
+        expect(text).not.toContain("AiDevOs.WindowsSandboxFeasibilityProbe");
+        expect(text).not.toContain("AiDevOs.WindowsBoundaryFixture");
+        expect(text).not.toContain("AppContainerSyntheticProcessProof");
+        expect(text).not.toContain("AppContainerProfileLifecycleProof");
+
+        // Every namespace import must be a System.* one, so a reference to
+        // either assembly could not be written without the import being
+        // visible here first.
+        for (const line of text.split("\n")) {
+          const trimmed = line.trim();
+          // A namespace import is `using X.Y.Z;` and nothing else. A using
+          // DECLARATION (`using Type name = expr;`) and a using STATEMENT
+          // (`using (...)`) are scoped-disposal syntax, not imports, and
+          // treating them as imports made this assertion fire on ordinary code.
+          if (
+            !/^using [A-Za-z_][A-Za-z0-9_.]*;$/.test(trimmed) ||
+            trimmed.startsWith("using System")
+          ) {
+            continue;
+          }
+          // The only non-System namespace any reviewed component imports.
+          // `Microsoft.Win32.SafeHandles` is the BCL handle-wrapper namespace;
+          // `Microsoft.Win32` itself is NOT permitted, because that is where
+          // `Registry` lives and the two differ by one path segment.
+          expect(trimmed, `${component}/${name} imports a non-System namespace`).toBe(
+            "using Microsoft.Win32.SafeHandles;",
+          );
+        }
       }
     }
   });

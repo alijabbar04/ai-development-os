@@ -204,10 +204,20 @@ describe("Stage 17 native enforcing-side regressions are pinned from TypeScript"
     }
   });
 
-  it("pins the native conformance digest and vector count", () => {
+  it("pins the SEALED native conformance digest and vector count", () => {
+    // The digest moved at this checkpoint because ADR 0018 section 4 replaced
+    // the core suite's `gate/mutating-operations-structurally-disabled` vector,
+    // which pinned the sealed answer into a suite BOTH recipes run and so made
+    // a passing reviewed-proof self-test impossible. The replacement,
+    // `gate/mutating-permitted-couples-to-recipe`, is strictly stronger in the
+    // sealed direction and additionally covers the proof direction.
+    //
+    // A reviewed-proof build reports a different core digest by construction,
+    // and `scripts/build-windows-artifacts.mjs` fails if it ever reproduces
+    // this one.
     expect(WINDOWS_COMPONENT_CONFORMANCE.coreVectorCount).toBe(165);
     expect(WINDOWS_COMPONENT_CONFORMANCE.coreConformanceDigest).toBe(
-      "7cf06c2d2b85f19849239296d002251387c3ad98e29f11a1fb54ba963332ecd0",
+      "3b5ad6e8931cbe129dd5bda1fe8998853260466ea0525680d34276ad0bc77757",
     );
   });
 
@@ -266,13 +276,27 @@ describe("Stage 17 native enforcing-side regressions are pinned from TypeScript"
     expect(source).toContain('private const string BuildFlavorName = "sealed";');
   });
 
-  it("makes the packaging pipeline refuse a non-sealed binary", () => {
+  it("makes the packaging pipeline refuse a binary whose gate contradicts the recipe", () => {
     const script = readFileSync(join(packageRoot, "scripts", "build-windows-artifacts.mjs"), "utf8");
     // Both the presence check and the value check must survive.
     expect(script).toContain("the mutation gate is unobservable in this binary");
-    expect(script).toContain("refusing to package a proof-mode binary");
-    expect(script).toContain('flavor !== "sealed" || proofMode !== false');
     expect(script).toContain("mutationGate.commandsAgree");
+
+    // ADR 0018 section 4 turned the one-directional check into a
+    // two-directional one. Refusing to package a proof binary under the sealed
+    // recipe is the obvious half; refusing to accept a SEALED binary under the
+    // reviewed-proof recipe is the half that stops a proof run being conducted
+    // in good faith against a binary that cannot perform it.
+    expect(script).toContain("function assertGateMatchesRecipe(");
+    expect(script).toContain('const expected = flavor === "sealed" ? SEALED_FLAVOR : PROOF_FLAVOR;');
+    expect(script).toContain('const expectedProofMode = flavor !== "sealed";');
+    expect(script).toContain("if (reported !== expected || proofMode !== expectedProofMode)");
+
+    // Only the command line can define the proof constant, and a proof build
+    // must not reproduce the pinned sealed conformance digest.
+    expect(script).toContain('const REVIEWED_PROOF_CONSTANT = "AIDEVOS_STAGE17_REVIEWED_PROOF_MODE"');
+    expect(script).toContain("the two recipes are not verifiably distinct");
+    expect(script).toContain("reviewed-proof-bundles-are-never-installed");
   });
 
   it("keeps the native creation boundary free of any path-taking overload", () => {
