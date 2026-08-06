@@ -124,6 +124,68 @@ profiles, 9 helpers, 7 AppContainer fixtures, and 2 ordinary fixture controls
 (18 total helper/fixture processes), within the authorized 10/10/20 caps. This
 is evidence tooling, not a production helper or corpus result.
 
+### Windows production artifact candidate (packaged, unproved)
+
+Two new, separate `net9.0-windows` projects now exist under
+`native/windows-supervisor` and `native/windows-helper`. They share no code
+with the feasibility probe or the boundary fixture, and no production code path
+references either evidence tool. Both are dependency-free, restore offline,
+build with zero warnings under `latest-all` analysis, and publish
+self-contained with `PublishSingleFile=false` so every runtime file that will
+be loaded is named, sized, and hashed individually.
+
+They implement production protocol version 1 as reviewed source: four-byte
+little-endian framing with 8,192-byte frame, 262,144-byte connection, and
+32-frame bounds; strict UTF-8 JSON with exact property sets and refusal of
+unknown, duplicate, and `__proto__`/`constructor`/`prototype` properties; a
+linear monotonic state machine from `request-accepted` to `cleanup-complete`
+with token binding and body-free refusal codes; the recovery-record format with
+canonical serialization, a digest that covers the length prefix, truncation
+detection, and token-derived path recomputation; and the artifact-manifest
+reader and verifier.
+
+**Nothing mutating runs.** Every operation that would create an AppContainer
+profile, a Job Object, a process, an ACL change, a registry value, a recovery
+record, or a staged file or directory is represented in types and refused. Each
+sits behind a private compile-time `false` constant that no argument,
+environment variable, or configuration can reach, and no native implementation
+exists behind the gate. Each component exposes exactly two read-only commands —
+`self-test`, which runs 110 shared plus 27 (supervisor) or 53 (helper) in-memory
+conformance vectors, and `describe-artifact` — and refuses any other command
+with a stable body-free code and a distinct exit code. The shared vectors
+include a digest-source parity check, so the deny-write stream path and the
+in-memory path can never disagree about a file's SHA-256.
+
+`scripts/build-windows-artifacts.mjs` publishes each component twice into
+separate task-owned temporary intermediate and output directories, compares the
+whole closure byte for byte, rejects debug symbols, sources, caches, temporary
+files, unexpected files, reparse points and duplicate entries, cross-checks each
+binary's `describe-artifact` against its manifest, and emits a canonical
+manifest and fingerprint binding protocol, source and build identity, platform,
+RID, architecture, package version, the exact file closure, corpus version and
+fingerprint, the 40 Windows-applicable vectors, signer state, and stable
+limitation codes. The observed result on this host was two byte-identical
+builds per component, 188 files and roughly 78 MB per component.
+
+The trust root for an installed bundle is reviewed source, not the bundle. The
+control plane holds a compiled-in table of pinned bundle fingerprints and **that
+table is empty**, so `discoverWindowsArtifactBundle()` always refuses with
+`artifact-bundle-not-pinned` before any path is resolved. Discovery has no path
+parameter and consults no `PATH`, current directory, registry, environment
+variable, or model name.
+
+Two limitations are recorded rather than hidden. The TypeScript verifier cannot
+request Windows share modes, so it hashes through an ordinary read handle and
+does **not** close the content-substitution window that deny-write handles are
+meant to close; and path redirection still needs an administrator-only install
+root. Both remain production blockers.
+
+Everything produced is `unsigned-candidate` and never production eligible.
+Packaging, deterministic rebuilds, a fully verified closure, and a successful
+installed-package simulation change nothing: Windows stays `unavailable`, every
+isolation capability stays false, every quota stays `unsupported`, and Windows
+actual-native escape-corpus evidence stays 0/40 `not-run`.
+
 The only candidate production network shape is deny-all with no AppContainer
 network capability, proxy, allowlist, or loopback exemption. Controlled
 service egress remains a separate unavailable boundary. All quota dimensions
@@ -268,16 +330,19 @@ rejects a different version, fingerprint, or platform count.
 
 | Platform | Shipped status | Actual escape tests | Native artifact | What remains |
 | --- | --- | ---: | --- | --- |
-| Windows 11 10.0.26200 x64 | unavailable | 0 | bounded profile, suspended-process, structured-boundary, and test-helper lifecycle/crash evidence tooling only; no production helper | design/package an immutable production helper, prove quota/general filesystem-network-IPC-production-crash boundaries, then run all 40 positive-control vectors |
+| Windows 11 10.0.26200 x64 | unavailable | 0 | bounded evidence tooling, plus a deterministically packaged but never-executed `unsigned-candidate` supervisor/helper pair with no pinned fingerprint | run a separately authorized bounded stateful supervisor/helper proof, obtain release signing and a protected install root, then run all 40 positive-control vectors |
 | Linux | unavailable/unverified | 0 | none | actual host, namespace/cgroup implementation and positive-control corpus |
 | macOS | unavailable/unverified | 0 | none | actual host, supported documented containment foundation and positive-control corpus |
 
-There is no production native helper to install or remove, no postinstall
-hook, and no runtime download. The evidence tool builds with the already
-installed .NET 9 SDK and now produces a framework-dependent apphost plus its
-managed payload solely so the controller can create an exact helper image; the
-self-contained fixture is likewise evidence-only. Neither is a shipped runtime
-prerequisite or npm entry. The explicitly authorized profile,
+Nothing native is installed or removed by this package: there is no postinstall
+hook, no service, no scheduled task, and no runtime download. The evidence tool
+builds with the already installed .NET 9 SDK and produces a
+framework-dependent apphost plus its managed payload solely so the controller
+can create an exact helper image; the self-contained fixture is likewise
+evidence-only. The production supervisor and helper candidates build only into
+task-owned temporary directories and are likewise absent from the npm tarball,
+which contains `dist` and this README and nothing else. None of them is a
+shipped runtime prerequisite or npm entry. The explicitly authorized profile,
 synthetic-process, structured-boundary, and helper-lifecycle host-state
 resources were completely removed. No privileged operation,
 firewall/loopback/proxy change, virtualization

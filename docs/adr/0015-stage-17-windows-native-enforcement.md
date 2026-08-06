@@ -349,6 +349,59 @@ This checkpoint is falsified if any of the following occurs:
 Future enforcement claims require the actual helper/integration tests plus all
 40 Windows-applicable corpus vectors with armed open controls and no skips.
 
+## Continuation: packaged-but-unproved production candidate (ADR 0017)
+
+ADR 0017 was accepted and implemented as reviewed source. Two new, separate
+`net9.0-windows` projects exist at
+`packages/process-broker/native/windows-supervisor` and
+`packages/process-broker/native/windows-helper`. They share no code with the
+feasibility probe or the boundary fixture, and no production code path
+references either of those evidence tools.
+
+What the continuation added: production protocol version 1 framing, strict
+parsing, and the monotonic state machine; the recovery-record format with
+canonical serialization, a length-prefix-covering digest, truncation detection,
+and token-derived path recomputation; the artifact-manifest reader and
+verifier; deterministic self-contained multi-file packaging; and fail-closed
+TypeScript artifact-discovery and validation seams.
+
+What it did **not** add, and what remains true:
+
+- Every mutating operation — AppContainer profile, Job Object, process
+  creation, ACL change, registry write, recovery-record write, staged file or
+  directory — is represented in types and refused at run time. Each sits behind
+  a private compile-time `false` constant with no argument, environment
+  variable, or configuration that reaches it, and no native implementation
+  exists behind the gate.
+- Each component exposes exactly two read-only commands, `self-test` and
+  `describe-artifact`, both structurally incapable of creating host state. An
+  unknown command is a stable body-free refusal with a distinct exit code.
+- The pinned bundle-fingerprint table in the TypeScript control plane is
+  **empty**, so artifact discovery always fails closed with
+  `artifact-bundle-not-pinned` before any path is resolved.
+- The Windows backend descriptor is unchanged: `unavailable`, every isolation
+  capability false, every quota `unsupported`, and both `probe()` and
+  `validateGrant()` still report
+  `windows-native-process-composition-and-corpus-unverified`.
+- No production registration or preparation receipt can be issued, no
+  supervisor or helper has run beyond its in-memory self-test, no target has
+  been created, and the Windows actual-native corpus remains 0/40 `not-run`.
+
+Two additional honest limitations were recorded rather than papered over. The
+TypeScript verifier cannot request Windows share modes, so it hashes through an
+ordinary read handle and does **not** close the content-substitution window
+that ADR 0017 section 6.5 assigns to deny-write handles. And the command-line
+round-trip vectors compare the composer against a managed implementation of the
+documented `CommandLineToArgvW` rules, not against the Win32 function itself.
+
+Falsification list additions: this continuation is falsified if the two clean
+builds of either component are not byte-identical, if the two components report
+different shared-core conformance digests, if the C# and TypeScript canonical
+manifest fingerprints disagree, if the pinned bundle-fingerprint table is
+non-empty without a released signed bundle, if any generated binary becomes
+tracked, or if any packaging or simulation success changes availability,
+capability, quota, or corpus truth.
+
 ## Official references rechecked
 
 - [Create Process in Sandbox](https://learn.microsoft.com/en-us/windows/win32/secauthz/createprocessinsandbox)
