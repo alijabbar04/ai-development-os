@@ -116,6 +116,17 @@ reduces to "delete a directory we created", which is idempotent and needs no
 saved prior state. This removes an entire failure class present in the earlier
 bounded proofs.
 
+**The helper is not a member of the target Job.** This was implicit in the
+original ownership table and is now stated, because two properties depend on
+it. If the helper were in the Job, `TerminateJobObject` on the target Job would
+also kill the helper, destroying the very component that is supposed to observe
+and clean up after the target; and the Job's active-process limit would be
+consumed by the helper rather than bounding the workload. The helper therefore
+holds a duplicated Job handle purely to name the Job in
+`PROC_THREAD_ATTRIBUTE_JOB_LIST` at target creation, and is never assigned to
+it. The retained protocol-v5 evidence tooling already behaved this way; the
+requirement was simply never written down.
+
 ## 2. Failure semantics
 
 ### 2.1 Broker exits normally
@@ -473,6 +484,73 @@ packaging, and successful simulation cannot alter any of it:
 | Production registration non-bypass | Solved by existing design; requires regression tests |
 | Running the complete corpus later | Requires native stateful proof, then the 40-vector corpus |
 | Containment itself | **Requires native stateful proof and the 40-vector corpus** |
+
+## 9a. How the no-interop invariant must evolve
+
+`test/stage-17-artifact-packaging.test.ts` asserts that the combined source of
+both components contains none of `DllImport`, `Process.Start`,
+`ProcessStartInfo`, `Registry`, `Environment.GetEnvironmentVariable`,
+`HttpClient`, `WebClient`, `Directory.CreateDirectory`, `File.WriteAllText`,
+`File.Delete`, or `Directory.Delete`.
+
+That assertion is **true today and is deliberately retained**, but it must not
+be described as more than it is. An earlier draft of this section claimed it was
+"strictly stronger than any allow-list". That was wrong, and an independent
+audit corrected it. It is a **literal-substring denylist of eleven strings**, and
+it does not block:
+
+- `[LibraryImport]`, the .NET 7+ source-generated P/Invoke, whose generated
+  `DllImport` lands in `obj/` where the test never looks;
+- `NativeLibrary.GetExport` plus `Marshal.GetDelegateForFunctionPointer`, which
+  needs neither a banned string nor `AllowUnsafeBlocks`;
+- `File.OpenHandle`, `File.Create`, `File.Move`, `RegistryKey`, or
+  `Directory.CreateSymbolicLink`.
+
+The checkpoint that added `VerifiedClosure.cs` in fact added real
+filesystem-reading code — `File.OpenHandle` and
+`Directory.EnumerateFileSystemEntries` — that the "structurally read-only in
+source" assertion does not cover. None of the strings above appears in either
+component today, so extending the denylist costs nothing and should be done.
+
+It does block the native lifecycle implementation this design ultimately
+requires, so the evolution is specified here rather than improvised under time
+pressure. When the interop is written, the assertion must be **replaced, never
+deleted**, by a declaration-site allow-list that:
+
+- names the exact files permitted to contain interop;
+- asserts every other file in each component is still clean of the extended
+  string set (the current test builds its combined text **per component**, not
+  across both, and the replacement should keep that); and
+- asserts the allow-list has not grown without a corresponding ADR change.
+
+An earlier draft also required the allow-list to assert that "each permitted
+file's interop is reachable only behind the two-factor mutation gate". That
+instruction is **not expressible by the mechanism it prescribes**: reachability
+is a call-graph property and a file-scoped text test over `.cs` files cannot
+decide it. Requiring it as written would leave a future agent unable to comply,
+which is worse than requiring nothing. The reachability property is still
+wanted; it must be discharged either by a Roslyn analyser, by an explicit
+requirement that every interop call site take a
+`ReviewedProofModeAuthorization` and route through `MutationGate.Authorize` so
+the compiler enforces it, or by recorded human review — not by a grep.
+
+Deleting the assertion, or relaxing it to "these strings may appear anywhere",
+is a regression and must fail review. An implementation agent that finds itself
+needing to remove this assertion should stop and escalate instead — which is
+what happened when this checkpoint's implementation delegate reached it.
+
+## 9b. Known reproducibility defect in the source envelope
+
+`sourceEnvelopeFingerprint` hashes raw working-tree bytes. The repository has
+`core.autocrlf=true` and **no `.gitattributes`**, so the same commit checked out
+on a different machine can produce different source-envelope fingerprints purely
+from line-ending translation. The closure fingerprints are unaffected, because
+they hash build output rather than source.
+
+This is pre-existing and is not fixed in this checkpoint: adding `.gitattributes`
+would rewrite line endings across the tree and invalidate every fingerprint
+measured here. It must be fixed before any cross-machine reproducibility claim
+is made, and until then reproducibility is claimed for a single host only.
 
 ## 10. Reconciliation with the retained evidence tooling
 
