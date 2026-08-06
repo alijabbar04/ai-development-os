@@ -12,10 +12,11 @@ namespace AiDevOs.WindowsSandboxFeasibilityProbe;
 
 internal static partial class Program
 {
-    private const int ProbeProtocolVersion = 3;
+    private const int ProbeProtocolVersion = 4;
     private const int UnavailableExitCode = 2;
     private const int LifecycleProofFailedExitCode = 3;
     private const int ProcessProofFailedExitCode = 4;
+    private const int BoundaryProofFailedExitCode = 5;
     private const int UsageExitCode = 64;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -47,6 +48,16 @@ internal static partial class Program
             if (args.Length == 3 && args[0] == "synthetic-process-proof")
             {
                 return RunSyntheticProcessProof(args[1], args[2]);
+            }
+
+            if (args.Length == 6 && args[0] == "structured-boundary-proof")
+            {
+                return RunStructuredBoundaryProof(
+                    args[1],
+                    args[2],
+                    args[3],
+                    args[4],
+                    args[5]);
             }
 
             WriteStableError("invalid-command-shape");
@@ -118,6 +129,23 @@ internal static partial class Program
         return result.Status == "passed" ? 0 : ProcessProofFailedExitCode;
     }
 
+    private static int RunStructuredBoundaryProof(
+        string profileName,
+        string stagingRoot,
+        string canaryRoot,
+        string fixtureSource,
+        string expectedFixtureSha256)
+    {
+        StructuredBoundaryProofResult result = AppContainerSyntheticProcessProof.RunStructuredBoundary(
+            profileName,
+            stagingRoot,
+            canaryRoot,
+            fixtureSource,
+            expectedFixtureSha256);
+        Console.Out.WriteLine(Serialize(result));
+        return result.Status == "passed" ? 0 : BoundaryProofFailedExitCode;
+    }
+
     private static int RefuseUnknownCommand()
     {
         WriteStableError("unsupported-command");
@@ -146,7 +174,7 @@ internal static partial class Program
 
 internal static class WindowsFeasibilityProbe
 {
-    private const int ProbeProtocolVersion = 3;
+    private const int ProbeProtocolVersion = 4;
     private const uint LoadLibrarySearchSystem32 = 0x00000800;
 
     private static readonly string[] ProcessModelExports =
