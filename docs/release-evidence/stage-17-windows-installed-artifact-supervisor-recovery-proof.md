@@ -199,8 +199,11 @@ token.
 
 ## 12. Elevation package prepared but NOT executed
 
-Two reviewable scripts were written and are held **untracked** pending the
-decision in section 24.
+Two reviewable scripts were written and are **committed as reviewed source**,
+excluded from the npm package, and **not approved for execution** pending the
+decision in section 24. An earlier revision of this sentence said they were held
+untracked; that was stale by the time the commit landed, and a later audit
+caught it.
 
 | Script | Bytes | SHA-256 |
 | --- | ---: | --- |
@@ -347,14 +350,27 @@ cannot be executed even once in this checkpoint would become the least-verified,
 highest-risk code in the repository, and neither the deterministic-build
 evidence nor a read-only audit would say much about it.
 
-**Root-session decision: the blanket ban is retained unchanged.** It is true
-today and strictly stronger than an allow-list; weakening it in anticipation of
-code that does not exist would trade a real guarantee for a hypothetical one.
-ADR 0017 §9a specifies that a later checkpoint must **replace** it with a
-file-scoped allow-list — naming the exact files permitted to contain interop,
-asserting every other file clean, asserting the interop sits behind the
-two-factor gate, and asserting the allow-list has not grown without an ADR
-change — and that deleting the assertion must fail review.
+**Root-session decision: the blanket ban is retained unchanged for this
+checkpoint.** It is true today, and weakening it in anticipation of code that
+does not exist would trade a real guarantee for a hypothetical one.
+
+An earlier revision of this section additionally called it "strictly stronger
+than an allow-list" and summarised the required replacement as "asserting the
+interop sits behind the two-factor gate". Both were wrong, and both were the
+exact claims audit finding F12 was opened to retract — reasserted here in the
+same commit that recorded F12 as fixed. A later audit caught the contradiction.
+
+Corrected: the ban is a literal-substring denylist of eleven strings, not a
+stronger form of allow-list, and it misses `[LibraryImport]`,
+`NativeLibrary.GetExport`, `Marshal.GetDelegateForFunctionPointer`,
+`File.Create`, `File.Move`, and `Directory.CreateSymbolicLink`. ADR 0017 §9a
+specifies that a later checkpoint must **replace** it — never delete it — with a
+file-scoped allow-list naming the exact files permitted to contain interop,
+asserting every other file clean, and asserting the allow-list has not grown
+without an ADR change. The reachability property is **not** expressible by a
+text test over `.cs` files and is discharged instead by capability-by-signature,
+compiler and analyser output, and recorded review. That replacement is performed
+in ADR 0018 section 5.
 
 **Deviation 2 — the objective was not achieved.** Objectives 1 through 8 of the
 task are not met. Only preparatory work toward them exists.
@@ -476,7 +492,7 @@ before any fix was attempted.
 
 | ID | Sev | Finding | Disposition |
 | --- | --- | --- | --- |
-| F1 | HIGH | `VerifiedClosureLease` never retained the bundle root, and `TryAuthorize` took `root` as a separate parameter, so a caller could acquire handles under one root and authorize a path under another — the exact substitution window the lease exists to close, reachable by parameter. The doc comment and commit message both claimed it was "structurally impossible". The shipped self-test *demonstrated* the hole while asserting success. | **Confirmed by coordinator. Fixed**: the root now travels with the source and is recorded on the lease; `TryAuthorize` has no root parameter, so a decoupled root is unrepresentable rather than refused. |
+| F1 | HIGH | `VerifiedClosureLease` never retained the bundle root, and `TryAuthorize` took `root` as a separate parameter, so a caller could acquire handles under one root and authorize a path under another — the exact substitution window the lease exists to close, reachable by parameter. The doc comment and commit message both claimed it was "structurally impossible". The shipped self-test *demonstrated* the hole while asserting success. | **Confirmed by coordinator. Fixed**: the root now travels with the source and is recorded on the lease, and `TryAuthorize` has no root parameter, so there is no authorization-time way to supply one. **Qualification added after a later audit:** "unrepresentable" overstated it, repeating in miniature the very pattern F1 was about. An unbound lease is *refused* with `closure-root-not-bound`, and the internal test seams `InMemoryClosureSource.SimulatingBundleRoot` and `ResolvedBundleRoot.ForTesting` still let in-assembly code attach a filesystem root to handles that pin nothing — the conformance suite itself does this deliberately. The production entry point `AcquireFromInstalledBundle` couples root and handles structurally; the seams are named for what they are. |
 | F2 | MED | `manifest/digest-source-parity` compared `ArtifactManifest.Sha256Hex` against a path that internally called the same function — one function against itself, unable to fail — while the real second implementation (chunked `IncrementalHash` + a separately written `ToHex`) was compared against nothing, and `Sha256Hex(Stream)` had become dead. | **Fixed**: the chunk loop is extracted and driven by both paths over `2 × 65536 + 1` bytes so the short final chunk is exercised; dead method deleted. |
 | F3 | MED | The gate was described as two-factor, but `Authorize` was called only from `ToCanonical()` and one vector. The real dispatchers branched on the compile-time bool alone and took no authorization. | **Fixed**: `Execute`/`ExecutePlan` require `ReviewedProofModeAuthorization?` and route through `Authorize`, so the mutating branch is unreachable without both factors *by signature*. |
 | F4 | HIGH | Install script: the reparse check only inspected components that already existed, then created the parent with `-Force`, which silently returns an existing junction. TOCTOU between check and create. | **Fixed** (section 24). |
@@ -503,6 +519,66 @@ test layout, so removing the guard still failed for the mundane reason that the
 directory was absent. A green suite would have shipped both. The
 reintroduce-and-observe discipline is what caught them, which is the argument
 for requiring it rather than merely encouraging it.
+
+## 25a. Post-fix re-audit of the twelve findings
+
+A second fresh Fable 5 session (self-reported `claude-fable-5`), read-only,
+re-audited all twelve findings against `d53a125`/`093203c`. 51 tool uses. This
+is the fresh post-fix audit that `093203c` lacked; the earlier FAIL verdict in
+section 25 stands as recorded and is not rewritten.
+
+**VERDICT: FAIL** — but narrowly, and not on the code.
+
+Confirmed genuinely fixed and genuinely wired: **F1, F2, F3, F11** in C# source,
+and **F4, F5, F6, F7, F8, F9, F10** in the elevation scripts. **No critical or
+high finding remains open.**
+
+Both regressions that had originally returned NOT DETECTED were re-verified by
+tracing what guard removal would now produce:
+
+- Deleting the `MutationGate.Authorize` call from the dispatcher now falls
+  through to `MutatingOperationsStructurallyDisabled`, an observably different
+  string from the gate's `MutatingOperationsUnauthorized`, so every
+  `role/mutating-refused/*` vector fails. Removal is no longer invisible.
+- `LayoutUnder(root)` gives the hostile `\\?\`, `\\.\`, and UNC roots a
+  complete existing bundle layout, so with the root-class guard removed the
+  resolution now *succeeds* rather than failing for the mundane reason that the
+  directory was absent. The guard is the only thing producing the refusal.
+
+The auditor also swept the wider suite for the same weakness and found the
+remaining instances are redundancies rather than exposures (section 25b).
+
+The FAIL was caused by documentation the fix commit itself introduced:
+
+| ID | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| N-01 | MED | Evidence §20 reasserted "strictly stronger than an allow-list" and the unimplementable gate-assertion clause — the exact two claims F12 was opened to retract — in the same commit that recorded F12 as fixed. | **Confirmed. Fixed**: §20 now states the denylist's real form and points at ADR 0018 §5 for the replacement. |
+| N-02 | LOW | ADR §9a's corrected text said the denylist "does not block `RegistryKey`" (false — `"Registry"` is a substring, so it does) and "none of the strings above appears in either component today" (false — `File.OpenHandle` is at `VerifiedClosure.cs:311`, which the preceding sentence itself says). | **Confirmed. Fixed**: `RegistryKey` removed from the not-blocked list; the free-to-add set narrowed to the strings genuinely absent. |
+| N-03 | LOW | Evidence §12 said the scripts were "held untracked" while §4 and the commit itself show them added. | **Fixed.** |
+| N-04 | LOW | The F1 disposition and the `d53a125` commit message called a decoupled root "unrepresentable", but the internal test seams `SimulatingBundleRoot` and `ForTesting` still allow one in-assembly, and the conformance suite uses them. Repeats F1's own pattern in miniature. | **Fixed**: the F1 row is qualified. The commit message stands as written history. |
+| N-05 | LOW | Install-script final verification checks ACE *shape* — count, inheritance, owner, delete-class for the proof identity — but never which principals hold the two FullControl ACEs, nor that the proof ACE is exactly ReadAndExecute, nor write-class rights; `$versionDir`'s propagated DACL is not re-read. | Recorded. The scripts are rejected as security authority (ADR 0018 §1) and replaced by the native installer, so this is not carried forward as a fix to dead code. |
+| N-06 | LOW | The extra-entry scan uses `Get-ChildItem -File` on `$versionDir` only, missing a planted subdirectory or any entry directly under `$leaf`. Caught downstream by the native resolver, so containment holds. | Recorded; same disposition as N-05. |
+| N-07 | INFO | "Cover every failure path" is slightly broader than the code: an exception inside the assert helpers terminates without JSON. No partial leaf can survive at those points. | Recorded; same disposition. |
+| N-08 | INFO | Remaining same-refusal-code redundancies, swept broadly: a missing-file enumeration guard whose removal is masked by the open loop emitting the same code; the `\\`-prefix check subsumed by the drive-letter shape check; and plan-execution vectors pinning counts without refusal codes. All are redundancy, not exposure. | Recorded as a standing test-quality note. |
+| N-09 | INFO | Three unqualified present-tense comments about holding handles "across `CreateProcessW`" remain in source, though every doc, evidence section, and commit message qualifies it correctly. | Recorded; ADR 0018 §3 states the rule that no such claim may be made until a call actually runs. |
+| N-10 | INFO | ADR 0018 existed only as an untracked file carrying "Status: Accepted" while HEAD's evidence recorded the same decision as pending. | **Fixed**: committed. |
+| N-11 | INFO | CI is Node-only; the native conformance suites run only via the local packaging script. | Recorded as a later improvement. |
+| N-12 | INFO | An orphaned `<summary>` block and a stale `<see cref>` to a non-existent `TryAcquire`. | Recorded. |
+
+### 25b. The recurring failure mode, and what the sweep found
+
+The auditor was asked specifically to look for other vectors with the weakness
+that produced the two NOT DETECTED results — a guard whose removal still yields
+the same refusal code for an unrelated reason. It sampled broadly and found
+three, all redundancy rather than exposure: in each case a second mechanism
+produces the same refusal, so the net behaviour survives guard removal even
+though that particular vector stops discriminating.
+
+That is worth stating plainly because it is the failure mode most likely to
+recur, and because "the suite is green" and "the guard is doing the work" are
+different propositions. The distinguishing question — *if I delete this guard,
+does anything observably change?* — is now applied to every security-relevant
+regression in this checkpoint.
 
 ## 26. Smallest separately authorized next action
 

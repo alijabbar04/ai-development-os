@@ -485,6 +485,20 @@ packaging, and successful simulation cannot alter any of it:
 | Running the complete corpus later | Requires native stateful proof, then the 40-vector corpus |
 | Containment itself | **Requires native stateful proof and the 40-vector corpus** |
 
+## 9-note. Superseding decisions in ADR 0018
+
+Three parts of this ADR are extended or narrowed by
+[ADR 0018](0018-stage-17-native-handle-relative-installer-and-proof-builds.md):
+
+- Section 6.6's protected install root is now enforced by a **native
+  handle-relative installer**, not by a PowerShell script. The PowerShell
+  elevation package is rejected as security authority.
+- Section 9a's requirement to replace the no-interop denylist is **discharged**
+  by ADR 0018 section 5.
+- The sealed versus reviewed-proof build split, and the rule that proof-mode
+  lifecycle evidence does not promote the sealed artifact, are defined in
+  ADR 0018 section 4.
+
 ## 9a. How the no-interop invariant must evolve
 
 `test/stage-17-artifact-packaging.test.ts` asserts that the combined source of
@@ -503,14 +517,28 @@ it does not block:
   `DllImport` lands in `obj/` where the test never looks;
 - `NativeLibrary.GetExport` plus `Marshal.GetDelegateForFunctionPointer`, which
   needs neither a banned string nor `AllowUnsafeBlocks`;
-- `File.OpenHandle`, `File.Create`, `File.Move`, `RegistryKey`, or
+- `File.OpenHandle`, `File.Create`, `File.Move`, or
   `Directory.CreateSymbolicLink`.
 
+`RegistryKey` was listed here in an earlier draft and does **not** belong: the
+denylist entry `"Registry"` is a substring of it, so `toContain` already blocks
+it. A later audit caught that error.
+
 The checkpoint that added `VerifiedClosure.cs` in fact added real
-filesystem-reading code — `File.OpenHandle` and
-`Directory.EnumerateFileSystemEntries` — that the "structurally read-only in
-source" assertion does not cover. None of the strings above appears in either
-component today, so extending the denylist costs nothing and should be done.
+filesystem-reading code — `File.OpenHandle` (`VerifiedClosure.cs:311`) and
+`Directory.EnumerateFileSystemEntries` (`ArtifactPathResolution.cs:78`) — that
+the "structurally read-only in source" assertion does not cover.
+
+An earlier draft went on to say "none of the strings above appears in either
+component today, so extending the denylist costs nothing". That was also wrong,
+and self-contradictory with the sentence before it: `File.OpenHandle` **does**
+appear, so adding it to the denylist would break the suite immediately. Only the
+strings that are genuinely absent — `[LibraryImport]`,
+`NativeLibrary.GetExport`, `Marshal.GetDelegateForFunctionPointer`,
+`File.Create`, `File.Move`, `Directory.CreateSymbolicLink` — can be added for
+free, and the interop-bearing files are handled by the allow-list in
+[ADR 0018](0018-stage-17-native-handle-relative-installer-and-proof-builds.md)
+section 5 instead.
 
 It does block the native lifecycle implementation this design ultimately
 requires, so the evolution is specified here rather than improvised under time
