@@ -13,7 +13,7 @@ namespace AiDevOs.WindowsSandboxFeasibilityProbe;
 
 internal static partial class AppContainerProfileLifecycleProof
 {
-    private const int ProtocolVersion = 4;
+    private const int ProtocolVersion = 5;
     private const string ProfilePrefix = "AiDevOs.Stage17.ProfileProof.";
     private const string AclRootPrefix = "ai-dev-os-stage17-profile-proof-";
     private const string AppContainerRegistryRoot =

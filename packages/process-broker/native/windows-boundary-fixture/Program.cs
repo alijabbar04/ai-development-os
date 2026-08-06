@@ -18,6 +18,8 @@ internal static class Program
     private const uint WaitObject0 = 0;
     private const uint WaitTimeout = 258;
     private const uint ChildWaitMilliseconds = 2_000;
+    private const int MinimumLifecycleHoldMilliseconds = 1_000;
+    private const int MaximumLifecycleHoldMilliseconds = 10_000;
     private const int ErrorAccessDenied = 5;
     private const int ErrorNotEnoughQuota = 1_816;
     private static string CurrentStep = "dispatch";
@@ -46,6 +48,11 @@ internal static class Program
             if (args.Length == 6 && args[0] == "probe")
             {
                 return RunBoundaryProbe(args[1], args[2], args[3], args[4], args[5]);
+            }
+
+            if (args.Length == 3 && args[0] == "lifecycle-hold")
+            {
+                return RunLifecycleHold(args[1], args[2]);
             }
 
             Write(new FixtureError(1, "refused", "invalid-command-shape"));
@@ -93,6 +100,24 @@ internal static class Program
                 ChildMarkerRemoved: markerRemoved,
                 NativeErrorCode: attempt.NativeErrorCode));
         return passed ? 0 : 1;
+    }
+
+    private static int RunLifecycleHold(string markerPath, string holdMillisecondsText)
+    {
+        CurrentStep = "lifecycle-validate";
+        string canonicalMarker = ValidateMarkerPath(markerPath);
+        int holdMilliseconds = ParseBoundedInt(
+            holdMillisecondsText,
+            MinimumLifecycleHoldMilliseconds,
+            MaximumLifecycleHoldMilliseconds);
+        CurrentStep = "lifecycle-marker";
+        File.WriteAllText(canonicalMarker, "stage17-helper-lifecycle-ready-v1");
+        CurrentStep = "lifecycle-ready";
+        Write(new LifecycleReadyResult(1, "ready", "lifecycle-ready"));
+        Console.Out.Flush();
+        CurrentStep = "lifecycle-hold";
+        System.Threading.Thread.Sleep(holdMilliseconds);
+        return 0;
     }
 
     private static int RunBoundaryProbe(
@@ -338,21 +363,82 @@ internal static class Program
     private static string ValidateMarkerPath(string markerPath)
     {
         string canonical = Path.GetFullPath(markerPath);
-        string fixtureTemp = ValidateFixtureTemp();
-        if (
-            !string.Equals(
+        string fileName = Path.GetFileName(canonical);
+        bool validBoundaryMarker =
+            fileName.StartsWith("stage17-boundary-", StringComparison.Ordinal) &&
+            string.Equals(
                 Path.GetDirectoryName(canonical),
-                fixtureTemp,
-                StringComparison.OrdinalIgnoreCase) ||
-            !Path.GetFileName(canonical).StartsWith(
-                "stage17-boundary-",
-                StringComparison.Ordinal) ||
-            !string.Equals(Path.GetExtension(canonical), ".marker", StringComparison.Ordinal))
+                ValidateFixtureTemp(),
+                StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(Path.GetExtension(canonical), ".marker", StringComparison.Ordinal);
+        bool validLifecycleMarker = ValidateLifecycleMarkerFromExecutable(
+            canonical,
+            fileName);
+        if (!validBoundaryMarker && !validLifecycleMarker)
         {
             throw new ArgumentException("invalid-child-marker-path", nameof(markerPath));
         }
 
         return canonical;
+    }
+
+    private static bool ValidateLifecycleMarkerFromExecutable(
+        string canonicalMarker,
+        string markerFileName)
+    {
+        const string fixturePrefix = "stage17-helper-fixture-";
+        const string fixtureSuffix = ".exe";
+        const string markerPrefix = "stage17-helper-lifecycle-";
+        const string markerSuffix = ".marker";
+        string executable = Path.GetFullPath(
+            Environment.ProcessPath ?? string.Empty);
+        string executableFileName = Path.GetFileName(executable);
+        int expectedFixtureLength = checked(
+            fixturePrefix.Length + 32 + fixtureSuffix.Length);
+        if (
+            executableFileName.Length != expectedFixtureLength ||
+            !executableFileName.StartsWith(fixturePrefix, StringComparison.Ordinal) ||
+            !executableFileName.EndsWith(fixtureSuffix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string token = executableFileName.Substring(fixturePrefix.Length, 32);
+        if (!IsLowerHex(token))
+        {
+            return false;
+        }
+
+        string? stagingRoot = Path.GetDirectoryName(executable);
+        if (stagingRoot is null)
+        {
+            return false;
+        }
+
+        string expectedMarkerRoot = Path.GetFullPath(
+            Path.Combine(stagingRoot, "marker"));
+        return
+            string.Equals(
+                Path.GetDirectoryName(canonicalMarker),
+                expectedMarkerRoot,
+                StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(
+                markerFileName,
+                $"{markerPrefix}{token}{markerSuffix}",
+                StringComparison.Ordinal);
+    }
+
+    private static bool IsLowerHex(string value)
+    {
+        foreach (char character in value)
+        {
+            if (character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f'))
+            {
+                return false;
+            }
+        }
+
+        return value.Length > 0;
     }
 
     private static string ValidateFixtureTemp()
@@ -526,6 +612,8 @@ internal static class Program
 }
 
 internal sealed record FixtureError(int SchemaVersion, string Status, string Code);
+
+internal sealed record LifecycleReadyResult(int SchemaVersion, string Status, string Code);
 
 internal sealed record ChildPositiveControlResult(
     int SchemaVersion,

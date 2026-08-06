@@ -12,11 +12,12 @@ namespace AiDevOs.WindowsSandboxFeasibilityProbe;
 
 internal static partial class Program
 {
-    private const int ProbeProtocolVersion = 4;
+    private const int ProbeProtocolVersion = 5;
     private const int UnavailableExitCode = 2;
     private const int LifecycleProofFailedExitCode = 3;
     private const int ProcessProofFailedExitCode = 4;
     private const int BoundaryProofFailedExitCode = 5;
+    private const int HelperLifecycleProofFailedExitCode = 6;
     private const int UsageExitCode = 64;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -60,6 +61,28 @@ internal static partial class Program
                     args[5]);
             }
 
+            if (args.Length == 10 && args[0] == "helper-lifecycle-crash-proof")
+            {
+                return RunHelperLifecycleCrashProof(
+                    args[1],
+                    args[2],
+                    args[3],
+                    args[4],
+                    args[5],
+                    args[6],
+                    args[7],
+                    args[8],
+                    args[9]);
+            }
+
+            if (args.Length == 4 && args[0] == "helper-lifecycle-worker")
+            {
+                return AppContainerSyntheticProcessProof.RunLifecycleWorker(
+                    args[1],
+                    args[2],
+                    args[3]);
+            }
+
             WriteStableError("invalid-command-shape");
             return UsageExitCode;
         }
@@ -83,6 +106,8 @@ internal static partial class Program
         ProbeResult second = WindowsFeasibilityProbe.Run();
         string firstJson = Serialize(first);
         string secondJson = Serialize(second);
+        bool lifecycleProtocolSelfTestPassed =
+            AppContainerSyntheticProcessProof.RunLifecycleProtocolSelfTest();
         string systemDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
         bool bodyFree =
             !firstJson.Contains(systemDirectory, StringComparison.OrdinalIgnoreCase) &&
@@ -96,7 +121,8 @@ internal static partial class Program
             first.ProfileMutationAttempted is false &&
             first.ProcessCreationAttempted is false &&
             bodyFree &&
-            (first.ProcessModel.Sha256 is null || Sha256Pattern().IsMatch(first.ProcessModel.Sha256));
+            (first.ProcessModel.Sha256 is null || Sha256Pattern().IsMatch(first.ProcessModel.Sha256)) &&
+            lifecycleProtocolSelfTestPassed;
 
         Console.Out.WriteLine(
             Serialize(
@@ -106,6 +132,7 @@ internal static partial class Program
                     Status: passed ? "passed" : "failed",
                     DeterministicOutput: firstJson == secondJson,
                     BodyFreeOutput: bodyFree,
+                    LifecycleProtocolSelfTestPassed: lifecycleProtocolSelfTestPassed,
                     ProfileMutationAttempted: false,
                     ProcessCreationAttempted: false)));
         return passed ? 0 : 1;
@@ -146,6 +173,32 @@ internal static partial class Program
         return result.Status == "passed" ? 0 : BoundaryProofFailedExitCode;
     }
 
+    private static int RunHelperLifecycleCrashProof(
+        string helperSource,
+        string expectedHelperSha256,
+        string expectedHelperPayloadSha256,
+        string fixtureSource,
+        string expectedFixtureSha256,
+        string priorProfileCreateCount,
+        string priorHelperProcessCreateCount,
+        string priorFixtureProcessCreateCount,
+        string priorOtherTaskProcessCreateCount)
+    {
+        HelperLifecycleCrashProofResult result =
+            AppContainerSyntheticProcessProof.RunHelperLifecycleCrashProof(
+                helperSource,
+                expectedHelperSha256,
+                expectedHelperPayloadSha256,
+                fixtureSource,
+                expectedFixtureSha256,
+                priorProfileCreateCount,
+                priorHelperProcessCreateCount,
+                priorFixtureProcessCreateCount,
+                priorOtherTaskProcessCreateCount);
+        Console.Out.WriteLine(Serialize(result));
+        return result.Status == "passed" ? 0 : HelperLifecycleProofFailedExitCode;
+    }
+
     private static int RefuseUnknownCommand()
     {
         WriteStableError("unsupported-command");
@@ -174,7 +227,7 @@ internal static partial class Program
 
 internal static class WindowsFeasibilityProbe
 {
-    private const int ProbeProtocolVersion = 4;
+    private const int ProbeProtocolVersion = 5;
     private const uint LoadLibrarySearchSystem32 = 0x00000800;
 
     private static readonly string[] ProcessModelExports =
@@ -439,6 +492,7 @@ internal sealed record SelfTestResult(
     string Status,
     bool DeterministicOutput,
     bool BodyFreeOutput,
+    bool LifecycleProtocolSelfTestPassed,
     bool ProfileMutationAttempted,
     bool ProcessCreationAttempted);
 

@@ -14,7 +14,7 @@ namespace AiDevOs.WindowsSandboxFeasibilityProbe;
 
 internal static partial class AppContainerSyntheticProcessProof
 {
-    private const int ProtocolVersion = 4;
+    private const int ProtocolVersion = 5;
     private const string ProfilePrefix = "AiDevOs.Stage17.ProcessProof.";
     private const string StagingRootPrefix = "ai-dev-os-stage17-process-proof-";
     private const string FixtureMarker = "stage17-synthetic-fixture";
