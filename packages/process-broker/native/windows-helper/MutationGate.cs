@@ -108,9 +108,14 @@ internal static class MutationGate
     /// </summary>
     internal static RefusalCode Authorize(ReviewedProofModeAuthorization? authorization)
     {
+        // Factor 2 first, with its own code. If this returned the same code as
+        // the compile-time gate below, removing the whole Authorize call from a
+        // dispatcher would be invisible: the caller would see an identical
+        // refusal either way, and no vector could tell the gate was still on
+        // the operation path.
         if (authorization is null)
         {
-            return RefusalCode.MutatingOperationsStructurallyDisabled;
+            return RefusalCode.MutatingOperationsUnauthorized;
         }
 
         return ProofModeCompiledIn ? RefusalCode.None : RefusalCode.ProofModeNotAuthorized;

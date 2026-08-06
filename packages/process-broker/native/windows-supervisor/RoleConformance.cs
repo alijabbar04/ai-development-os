@@ -86,18 +86,28 @@ internal static class RoleConformance
     {
         foreach (SupervisorMutatingOperation operation in Enum.GetValues<SupervisorMutatingOperation>())
         {
-            MutatingOperationOutcome outcome = SupervisorOperations.Execute(operation, Token);
+            MutatingOperationOutcome outcome = SupervisorOperations.Execute(operation, Token, authorization: null);
             vectors.Add(new ConformanceVector(
                 string.Concat("role/mutating-refused/", operation.ToString().ToLowerInvariant()),
-                "false:mutating-operations-structurally-disabled",
+                "false:mutating-operations-unauthorized",
                 string.Concat(
                     outcome.Performed ? "true:" : "false:",
                     ProtocolNames.Of(outcome.Refusal))));
         }
 
+        // The gate is on the operation path, not merely beside it: an
+        // unauthorized caller is refused by MutationGate.Authorize itself.
+        vectors.Add(new ConformanceVector(
+            "role/mutating-requires-authorization",
+            "false:mutating-operations-unauthorized",
+            string.Concat(
+                SupervisorOperations.Execute(SupervisorMutatingOperation.CreatePrivateJobObject, Token, authorization: null).Performed ? "true:" : "false:",
+                ProtocolNames.Of(SupervisorOperations.Execute(SupervisorMutatingOperation.CreatePrivateJobObject, Token, authorization: null).Refusal))));
+
         MutatingOperationOutcome malformed = SupervisorOperations.Execute(
             SupervisorMutatingOperation.CreatePrivateJobObject,
-            "not-a-token");
+            "not-a-token",
+            authorization: null);
         vectors.Add(new ConformanceVector(
             "role/mutating-refuses-malformed-token-first",
             "false:token-malformed",
@@ -135,7 +145,7 @@ internal static class RoleConformance
             "false",
             RecoveryPlan.For("nope", partial, noLiveTokens).Actionable ? "true" : "false"));
 
-        IReadOnlyList<MutatingOperationOutcome> outcomes = SupervisorOperations.ExecutePlan(plan);
+        IReadOnlyList<MutatingOperationOutcome> outcomes = SupervisorOperations.ExecutePlan(plan, authorization: null);
         vectors.Add(new ConformanceVector(
             "role/recovery-plan-execution-performs-nothing",
             string.Concat("6:false"),

@@ -205,9 +205,9 @@ describe("Stage 17 native enforcing-side regressions are pinned from TypeScript"
   });
 
   it("pins the native conformance digest and vector count", () => {
-    expect(WINDOWS_COMPONENT_CONFORMANCE.coreVectorCount).toBe(161);
+    expect(WINDOWS_COMPONENT_CONFORMANCE.coreVectorCount).toBe(165);
     expect(WINDOWS_COMPONENT_CONFORMANCE.coreConformanceDigest).toBe(
-      "5c585417fc356b65b7d32d111ac864d766a942d650764a33314602412dfbdd61",
+      "7cf06c2d2b85f19849239296d002251387c3ad98e29f11a1fb54ba963332ecd0",
     );
   });
 

@@ -171,6 +171,49 @@ internal abstract class ClosureHandle : IDisposable
     /// </summary>
     protected static string Sha256HexOf(ReadOnlySpan<byte> content) => ArtifactManifest.Sha256Hex(content);
 
+    /// <summary>The chunk size every retained-handle measurement reads with.</summary>
+    internal const int MeasurementBufferBytes = 65_536;
+
+    /// <summary>
+    /// Reads up to <paramref name="count"/> bytes at <paramref name="offset"/>.
+    /// Returns the number actually read, or a non-positive value on failure.
+    /// </summary>
+    internal delegate int ReadChunk(byte[] buffer, long offset, int count);
+
+    /// <summary>
+    /// The single chunked digest loop used by every retained-handle
+    /// measurement.
+    ///
+    /// It is shared, and internal, so the read-only self-test can drive the
+    /// exact loop the Windows file handle uses over an in-memory buffer. When
+    /// the loop lived only inside the Win32 handle, no vector could reach it:
+    /// an off-by-one in the chunking, or a divergence between this class's
+    /// <see cref="ToHex"/> and the manifest's, would have corrupted the digest
+    /// of every genuine bundle with nothing to catch it.
+    /// </summary>
+    internal static bool TryChunkedSha256Hex(ReadChunk read, long length, out string sha256Hex)
+    {
+        sha256Hex = string.Empty;
+        byte[] buffer = new byte[MeasurementBufferBytes];
+        using IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        long offset = 0;
+        while (offset < length)
+        {
+            int want = (int)Math.Min(MeasurementBufferBytes, length - offset);
+            int taken = read(buffer, offset, want);
+            if (taken <= 0)
+            {
+                return false;
+            }
+
+            hasher.AppendData(buffer, 0, taken);
+            offset += taken;
+        }
+
+        sha256Hex = ToHex(hasher.GetHashAndReset());
+        return true;
+    }
+
     protected static string ToHex(ReadOnlySpan<byte> digest)
     {
         StringBuilder builder = new(digest.Length * 2);
@@ -235,7 +278,6 @@ internal sealed class InMemoryClosureHandle : ClosureHandle
 internal sealed class Win32FileClosureHandle : ClosureHandle
 {
     private const FileShare RequiredShare = FileShare.Read;
-    private const int MeasurementBufferBytes = 65_536;
 
     private readonly SafeFileHandle handle;
 
@@ -313,26 +355,19 @@ internal sealed class Win32FileClosureHandle : ClosureHandle
         try
         {
             long length = RandomAccess.GetLength(handle);
-            byte[] buffer = new byte[MeasurementBufferBytes];
-            using IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-            long offset = 0;
-            while (offset < length)
+            if (!TryChunkedSha256Hex(
+                (buffer, offset, count) => RandomAccess.Read(handle, buffer.AsSpan(0, count), offset),
+                length,
+                out string digest))
             {
-                int read = RandomAccess.Read(handle, buffer, offset);
-                if (read <= 0)
-                {
-                    // The file shrank under a handle that denies write. Treat
-                    // it as unreadable rather than hashing a short prefix.
-                    code = RefusalCode.ClosureHandleUnavailable;
-                    return false;
-                }
-
-                hasher.AppendData(buffer, 0, read);
-                offset += read;
+                // The file shrank under a handle that denies write. Treat it as
+                // unreadable rather than hashing a short prefix.
+                code = RefusalCode.ClosureHandleUnavailable;
+                return false;
             }
 
             size = length;
-            sha256Hex = ToHex(hasher.GetHashAndReset());
+            sha256Hex = digest;
             code = RefusalCode.None;
             return true;
         }
@@ -362,6 +397,17 @@ internal sealed class Win32FileClosureHandle : ClosureHandle
 /// <summary>Where a closure's retained handles come from.</summary>
 internal interface IVerifiedClosureSource
 {
+    /// <summary>
+    /// The bundle root these handles were opened under, or <see langword="null"/>
+    /// for a source that has no filesystem identity at all.
+    ///
+    /// The root travels with the source rather than being supplied separately
+    /// at authorization time. That is the whole point: a root passed as its own
+    /// parameter can name a directory that none of the held handles pin, which
+    /// reopens the substitution window the lease exists to close.
+    /// </summary>
+    ResolvedBundleRoot? BoundRoot { get; }
+
     IReadOnlyList<string> EnumerateFileNames();
 
     bool TryOpenRetained(string name, out ClosureHandle handle, out RefusalCode code);
@@ -383,6 +429,19 @@ internal sealed class InMemoryClosureSource : IVerifiedClosureSource
     {
         this.sharePosture = sharePosture;
         this.provenance = provenance;
+    }
+
+    /// <summary>
+    /// Null unless a test double is deliberately standing in for a source whose
+    /// handles came from a real bundle root. An ordinary in-memory source has
+    /// no root, so a lease over it cannot authorize any filesystem path.
+    /// </summary>
+    public ResolvedBundleRoot? BoundRoot { get; private set; }
+
+    internal InMemoryClosureSource SimulatingBundleRoot(ResolvedBundleRoot root)
+    {
+        BoundRoot = root;
+        return this;
     }
 
     internal InMemoryClosureSource Add(string name, byte[] content)
@@ -417,6 +476,8 @@ internal sealed class InstalledBundleClosureSource : IVerifiedClosureSource
     private readonly ResolvedBundleRoot root;
 
     internal InstalledBundleClosureSource(ResolvedBundleRoot root) => this.root = root;
+
+    public ResolvedBundleRoot? BoundRoot => root;
 
     public IReadOnlyList<string> EnumerateFileNames() => root.EnumeratedFileNames;
 
@@ -454,13 +515,25 @@ internal sealed class VerifiedClosureLease : IDisposable
     private readonly List<ClosureHandle> handles;
     private bool disposed;
 
-    private VerifiedClosureLease(ArtifactManifest manifest, List<ClosureHandle> handles)
+    private VerifiedClosureLease(
+        ArtifactManifest manifest,
+        List<ClosureHandle> handles,
+        ResolvedBundleRoot? boundRoot)
     {
         Manifest = manifest;
         this.handles = handles;
+        BoundRoot = boundRoot;
     }
 
     internal ArtifactManifest Manifest { get; }
+
+    /// <summary>
+    /// The bundle root the held handles were opened under, or
+    /// <see langword="null"/>. Set once, at acquisition, from the source that
+    /// opened the handles; there is no setter and no way for a caller to supply
+    /// a different one later.
+    /// </summary>
+    internal ResolvedBundleRoot? BoundRoot { get; }
 
     internal int HandleCount => handles.Count;
 
@@ -589,7 +662,7 @@ internal sealed class VerifiedClosureLease : IDisposable
                 }
             }
 
-            candidate = new VerifiedClosureLease(manifest, opened);
+            candidate = new VerifiedClosureLease(manifest, opened, source.BoundRoot);
             code = candidate.AssertUsable();
             if (code != RefusalCode.None)
             {
@@ -692,10 +765,18 @@ internal sealed class ClosureLeaseResult : IDisposable
 /// A reference to one closure member that has been verified <em>and</em> is
 /// still pinned by a live lease.
 ///
-/// Native process creation accepts only this type, never a string. That is what
-/// makes "an unverified path reached <c>CreateProcessW</c>" structurally
-/// impossible rather than merely discouraged: there is no overload that takes a
-/// path, so a caller cannot supply one.
+/// Native process creation accepts only this type, never a string, and the
+/// only way to obtain one is
+/// <see cref="ProcessCreationBoundary.TryAuthorize"/>, which composes the path
+/// from the bundle root recorded on the lease itself. A caller therefore
+/// cannot name a path, and cannot name a <em>root</em> either: both come from
+/// the single acquisition that opened the handles.
+///
+/// The precise guarantee, stated narrowly on purpose: the absolute path in a
+/// <see cref="VerifiedImageReference"/> is always a direct child of a
+/// directory whose closure is pinned open by this lease. It is not a claim
+/// that the wider filesystem is stable — ADR 0017 section 6.6 records path
+/// redirection above the approved root as an open production blocker.
 /// </summary>
 internal sealed class VerifiedImageReference
 {
@@ -762,12 +843,18 @@ internal static class ProcessCreationBoundary
     /// <summary>
     /// Authorizes one image for creation. Refuses unless the lease is still
     /// held, every handle in it is still open with deny-write and deny-delete
-    /// sharing, every measurement came through a held handle, and the requested
-    /// image is a member of the verified closure.
+    /// sharing, every measurement came through a held handle, the lease has a
+    /// bundle root bound to it, and the requested image is a member of the
+    /// verified closure.
+    ///
+    /// There is deliberately no root parameter. An earlier revision took the
+    /// root separately, so a lease acquired over one root could be authorized
+    /// against another and hand back a path that no held handle pinned — the
+    /// substitution window the lease exists to close, reachable through a
+    /// parameter instead of an overload.
     /// </summary>
     internal static bool TryAuthorize(
         VerifiedClosureLease lease,
-        ResolvedBundleRoot root,
         string imageFileName,
         out VerifiedImageReference image,
         out RefusalCode code)
@@ -777,6 +864,15 @@ internal static class ProcessCreationBoundary
         code = lease.AssertUsable();
         if (code != RefusalCode.None)
         {
+            return false;
+        }
+
+        // A lease whose handles have no filesystem identity cannot authorize a
+        // filesystem path at all, so an in-memory closure is structurally
+        // incapable of producing a VerifiedImageReference.
+        if (lease.BoundRoot is not { } root)
+        {
+            code = RefusalCode.ClosureRootNotBound;
             return false;
         }
 

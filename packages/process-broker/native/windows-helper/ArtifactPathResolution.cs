@@ -357,6 +357,30 @@ internal static class BundleRootResolver
             return false;
         }
 
+        // Only a plain local drive-letter root. This rejects two families that
+        // the checks above do not:
+        //
+        //   \?\C:\...  and  \.\C:\...  are by definition a second spelling of
+        //     the same directory, and the \?\ form additionally suppresses
+        //     Win32 path normalization, so the "normalization is a no-op" check
+        //     above stops meaning what it says; and
+        //   \server\share  is remote, which puts the installed bytes on a
+        //     machine and a transport this design has never reasoned about.
+        if (full.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            code = RefusalCode.ArtifactRootUnresolvable;
+            return false;
+        }
+
+        if (full.Length < 3 ||
+            !char.IsAsciiLetter(full[0]) ||
+            full[1] != ':' ||
+            full[2] != Path.DirectorySeparatorChar)
+        {
+            code = RefusalCode.ArtifactRootUnresolvable;
+            return false;
+        }
+
         root = full;
         code = RefusalCode.None;
         return true;

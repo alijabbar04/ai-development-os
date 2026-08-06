@@ -121,22 +121,42 @@ internal sealed class RecoveryPlan
 /// </summary>
 internal static class SupervisorOperations
 {
+    /// <summary>
+    /// Offers one mutating operation to the gate.
+    ///
+    /// <paramref name="authorization"/> is required, not optional, and the
+    /// decision is routed through <see cref="MutationGate.Authorize"/>. Both
+    /// factors must therefore hold before the mutating branch is reachable
+    /// <em>by signature</em>: a caller with no authorization value cannot
+    /// express a call that reaches it, and an authorization value cannot be
+    /// constructed unless the binary was built by the reviewed proof-mode
+    /// recipe. In this checkpoint every caller passes <see langword="null"/>
+    /// and every call refuses.
+    /// </summary>
     internal static MutatingOperationOutcome Execute(
         SupervisorMutatingOperation operation,
-        string operationToken)
+        string operationToken,
+        ReviewedProofModeAuthorization? authorization)
     {
         if (!TokenDerivation.IsValidOperationToken(operationToken))
         {
             return new MutatingOperationOutcome(operation, false, RefusalCode.TokenMalformed);
         }
 
+        RefusalCode gate = MutationGate.Authorize(authorization);
+        if (gate != RefusalCode.None)
+        {
+            return new MutatingOperationOutcome(operation, false, gate);
+        }
+
         if (MutationGate.MutatingOperationsPermitted)
         {
             // Structural gate. Unreachable in this checkpoint: the gate is a
-            // compile-time false constant and nothing configurable maps to it.
-            // A reviewed native implementation would be introduced here only
-            // after a separately authorized bounded stateful proof; until then
-            // the branch refuses rather than silently succeeding.
+            // compile-time false constant, nothing configurable maps to it, and
+            // no authorization value can exist to get this far. A reviewed
+            // native implementation would be introduced here only after a
+            // separately authorized bounded stateful proof; until then the
+            // branch refuses rather than silently succeeding.
             return new MutatingOperationOutcome(operation, false, RefusalCode.InternalRefusal);
         }
 
@@ -150,7 +170,9 @@ internal static class SupervisorOperations
     /// Executes a whole recovery plan. Also fully gated: a plan describes what
     /// would be removed, and describing is not doing.
     /// </summary>
-    internal static IReadOnlyList<MutatingOperationOutcome> ExecutePlan(RecoveryPlan plan)
+    internal static IReadOnlyList<MutatingOperationOutcome> ExecutePlan(
+        RecoveryPlan plan,
+        ReviewedProofModeAuthorization? authorization)
     {
         List<MutatingOperationOutcome> outcomes = [];
         if (!plan.Actionable)
@@ -170,7 +192,7 @@ internal static class SupervisorOperations
 
         foreach (SupervisorMutatingOperation step in steps)
         {
-            outcomes.Add(Execute(step, plan.OperationToken));
+            outcomes.Add(Execute(step, plan.OperationToken, authorization));
         }
 
         return outcomes;

@@ -127,6 +127,7 @@ internal enum RefusalCode
     ClosureShareModePermitsDelete,
     ClosureMeasurementNotThroughHandle,
     ClosureImageNotVerified,
+    ClosureRootNotBound,
     ChildIdentityMismatch,
 
     // Bundle path resolution (ADR 0017 section 6.5 step 1).
@@ -153,6 +154,7 @@ internal enum RefusalCode
 
     EnvironmentBlockInvalid,
     ProofModeNotAuthorized,
+    MutatingOperationsUnauthorized,
 
     ArgumentInvalid,
     UnknownCommand,
@@ -239,6 +241,7 @@ internal static class ProtocolNames
             [RefusalCode.ClosureMeasurementNotThroughHandle] =
                 "closure-measurement-not-through-handle",
             [RefusalCode.ClosureImageNotVerified] = "closure-image-not-verified",
+            [RefusalCode.ClosureRootNotBound] = "closure-root-not-bound",
             [RefusalCode.ChildIdentityMismatch] = "child-identity-mismatch",
             [RefusalCode.ArtifactPathReparsePoint] = "artifact-path-reparse-point",
             [RefusalCode.ArtifactPathEscape] = "artifact-path-escape",
@@ -260,6 +263,7 @@ internal static class ProtocolNames
                 "recovery-deletion-outside-derived-set",
             [RefusalCode.EnvironmentBlockInvalid] = "environment-block-invalid",
             [RefusalCode.ProofModeNotAuthorized] = "proof-mode-not-authorized",
+            [RefusalCode.MutatingOperationsUnauthorized] = "mutating-operations-unauthorized",
             [RefusalCode.ArgumentInvalid] = "argument-invalid",
             [RefusalCode.UnknownCommand] = "unknown-command",
             [RefusalCode.MutatingOperationsStructurallyDisabled] =

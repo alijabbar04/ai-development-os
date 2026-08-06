@@ -52,7 +52,16 @@ internal static class ClosureConformance
         return manifest;
     }
 
+    /// <summary>
+    /// A closure whose handles and bundle root come from one acquisition. The
+    /// root is bound to the source, so a lease over it can only ever authorize
+    /// paths under the directory its own handles were opened from.
+    /// </summary>
     private static InMemoryClosureSource GoodSource() =>
+        UnboundGoodSource().SimulatingBundleRoot(Root());
+
+    /// <summary>The same bytes with no filesystem identity at all.</summary>
+    private static InMemoryClosureSource UnboundGoodSource() =>
         new InMemoryClosureSource()
             .Add("alpha.dll", Utf8.GetBytes("123"))
             .Add("beta.exe", Utf8.GetBytes("1234"));
@@ -244,6 +253,8 @@ internal static class ClosureConformance
     {
         private readonly List<ClosureHandle> issued = [];
 
+        public ResolvedBundleRoot? BoundRoot => null;
+
         public IReadOnlyList<string> EnumerateFileNames() => ["alpha.dll", "beta.exe"];
 
         public bool TryOpenRetained(string name, out ClosureHandle handle, out RefusalCode code)
@@ -300,6 +311,14 @@ internal static class ClosureConformance
             "boundary/refuses-path-shaped-image-name",
             "refused:closure-image-not-verified",
             Authorize(@"..\..\windows\system32\cmd.exe", disposeLeaseFirst: false)));
+
+        // DEFECT DETECTED: the authorization root is not the root the handles
+        // were opened under. There is no root parameter any more, so a lease
+        // with no bound root cannot name a filesystem path at all.
+        vectors.Add(new ConformanceVector(
+            "boundary/refuses-root-not-bound-to-lease",
+            "refused:closure-root-not-bound",
+            AuthorizeUnbound("beta.exe")));
 
         // DEFECT DETECTED: the lease was disposed before the creation call.
         vectors.Add(new ConformanceVector(
@@ -366,7 +385,6 @@ internal static class ClosureConformance
 
             if (!ProcessCreationBoundary.TryAuthorize(
                 lease,
-                Root(),
                 imageName,
                 out VerifiedImageReference image,
                 out RefusalCode code))
@@ -378,6 +396,22 @@ internal static class ClosureConformance
         }
     }
 
+    private static string AuthorizeUnbound(string imageName)
+    {
+        using ClosureLeaseResult result = VerifiedClosureLease.Acquire(Manifest(), UnboundGoodSource());
+        if (result.Lease is not { } lease)
+        {
+            return "acquire-failed";
+        }
+
+        if (!ProcessCreationBoundary.TryAuthorize(lease, imageName, out _, out RefusalCode code))
+        {
+            return string.Concat("refused:", ProtocolNames.Of(code));
+        }
+
+        return "authorized";
+    }
+
     private static string AuthorizeThenDisposeThenCheck()
     {
         using ClosureLeaseResult result = VerifiedClosureLease.Acquire(Manifest(), GoodSource());
@@ -387,7 +421,7 @@ internal static class ClosureConformance
         }
 
         {
-            if (!ProcessCreationBoundary.TryAuthorize(lease, Root(), "beta.exe", out VerifiedImageReference image, out _))
+            if (!ProcessCreationBoundary.TryAuthorize(lease, "beta.exe", out VerifiedImageReference image, out _))
             {
                 return "authorize-failed";
             }
@@ -406,7 +440,7 @@ internal static class ClosureConformance
         }
 
         {
-            if (!ProcessCreationBoundary.TryAuthorize(lease, Root(), "beta.exe", out VerifiedImageReference image, out _))
+            if (!ProcessCreationBoundary.TryAuthorize(lease, "beta.exe", out VerifiedImageReference image, out _))
             {
                 return "authorize-failed";
             }
@@ -442,6 +476,30 @@ internal static class ClosureConformance
         facts.AddDirectory(string.Concat(InstallRoot, @"\", Component));
         facts.AddDirectory(string.Concat(InstallRoot, @"\", Component, @"\", BundleVersion));
         facts.AddEntries(BundlePath, "alpha.dll", "beta.exe");
+        return facts;
+    }
+
+    /// <summary>
+    /// A complete, existing bundle layout under an arbitrary root.
+    ///
+    /// The device-namespace and UNC vectors need this: if the hostile root were
+    /// simply absent from the layout, resolution would refuse with
+    /// `artifact-root-unresolvable` for the mundane reason that the directory
+    /// does not exist, and the vector would keep passing even with the
+    /// root-class guard deleted. Making the layout exist is what forces the
+    /// vector to be about the guard.
+    /// </summary>
+    private static InMemoryPathFacts LayoutUnder(string root)
+    {
+        const char sep = '\\';
+        InMemoryPathFacts facts = new();
+        facts.AddDirectory(root);
+        facts.AddDirectory(string.Concat(root, sep, Component));
+        facts.AddDirectory(string.Concat(root, sep, Component, sep, BundleVersion));
+        facts.AddEntries(
+            string.Concat(root, sep, Component, sep, BundleVersion, sep, BundleRootResolver.RidDirectoryName),
+            "alpha.dll",
+            "beta.exe");
         return facts;
     }
 
@@ -521,6 +579,18 @@ internal static class ClosureConformance
             "refused:artifact-root-unresolvable",
             Resolve(PlainLayout(), @"bundles", Component, BundleVersion)));
         vectors.Add(new ConformanceVector(
+            "path/refuses-extended-length-root",
+            "refused:artifact-root-unresolvable",
+            Resolve(LayoutUnder(@"\\?\C:\ProgramData\AI-Dev-OS\bundles"), @"\\?\C:\ProgramData\AI-Dev-OS\bundles", Component, BundleVersion)));
+        vectors.Add(new ConformanceVector(
+            "path/refuses-device-namespace-root",
+            "refused:artifact-root-unresolvable",
+            Resolve(LayoutUnder(@"\\.\C:\ProgramData\AI-Dev-OS\bundles"), @"\\.\C:\ProgramData\AI-Dev-OS\bundles", Component, BundleVersion)));
+        vectors.Add(new ConformanceVector(
+            "path/refuses-unc-root",
+            "refused:artifact-root-unresolvable",
+            Resolve(LayoutUnder(@"\\server\share\bundles"), @"\\server\share\bundles", Component, BundleVersion)));
+        vectors.Add(new ConformanceVector(
             "path/refuses-unknown-component",
             "refused:manifest-identity-mismatch",
             Resolve(PlainLayout(), InstallRoot, "windows-feasibility-probe", BundleVersion)));
@@ -567,7 +637,7 @@ internal static class ClosureConformance
         vectors.Add(new ConformanceVector(
             "path/inside-root-rejects-sibling-sharing-a-string-prefix",
             "false",
-            BundleRootResolver.IsPathInsideRoot(InstallRoot, InstallRoot + @"-evileta.exe") ? "true" : "false"));
+            BundleRootResolver.IsPathInsideRoot(InstallRoot, InstallRoot + @"-evil\beta.exe") ? "true" : "false"));
         vectors.Add(new ConformanceVector(
             "path/inside-root-rejects-unrelated-root",
             "false",
@@ -610,13 +680,13 @@ internal static class ClosureConformance
             MutationGate.ProofModeCompiledIn ? "true" : "false"));
         vectors.Add(new ConformanceVector(
             "gate/unauthorized-caller-is-refused",
-            "mutating-operations-structurally-disabled",
+            "mutating-operations-unauthorized",
             ProtocolNames.Of(MutationGate.Authorize(null))));
         vectors.Add(new ConformanceVector(
             "gate/canonical-state",
             "{\"buildFlavor\":\"sealed\",\"mutatingOperationsPermitted\":false," +
             "\"proofModeCompiledIn\":false," +
-            "\"unauthorizedRefusal\":\"mutating-operations-structurally-disabled\"}",
+            "\"unauthorizedRefusal\":\"mutating-operations-unauthorized\"}",
             CanonicalJson.SerializeToString(MutationGate.ToCanonical())));
     }
 }

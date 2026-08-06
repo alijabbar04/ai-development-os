@@ -87,18 +87,28 @@ internal static class RoleConformance
     {
         foreach (HelperMutatingOperation operation in Enum.GetValues<HelperMutatingOperation>())
         {
-            MutatingOperationOutcome outcome = HelperOperations.Execute(operation, Token);
+            MutatingOperationOutcome outcome = HelperOperations.Execute(operation, Token, authorization: null);
             vectors.Add(new ConformanceVector(
                 string.Concat("role/mutating-refused/", operation.ToString().ToLowerInvariant()),
-                "false:mutating-operations-structurally-disabled",
+                "false:mutating-operations-unauthorized",
                 string.Concat(
                     outcome.Performed ? "true:" : "false:",
                     ProtocolNames.Of(outcome.Refusal))));
         }
 
+        // The gate is on the operation path, not merely beside it: an
+        // unauthorized caller is refused by MutationGate.Authorize itself.
+        vectors.Add(new ConformanceVector(
+            "role/mutating-requires-authorization",
+            "false:mutating-operations-unauthorized",
+            string.Concat(
+                HelperOperations.Execute(HelperMutatingOperation.CreateAppContainerProfile, Token, authorization: null).Performed ? "true:" : "false:",
+                ProtocolNames.Of(HelperOperations.Execute(HelperMutatingOperation.CreateAppContainerProfile, Token, authorization: null).Refusal))));
+
         MutatingOperationOutcome malformed = HelperOperations.Execute(
             HelperMutatingOperation.CreateAppContainerProfile,
-            "not-a-token");
+            "not-a-token",
+            authorization: null);
         vectors.Add(new ConformanceVector(
             "role/mutating-refuses-malformed-token-first",
             "false:token-malformed",
@@ -122,7 +132,7 @@ internal static class RoleConformance
             "false",
             StagingPlan.For("nope").Valid ? "true" : "false"));
 
-        IReadOnlyList<MutatingOperationOutcome> outcomes = HelperOperations.ExecutePlan(plan);
+        IReadOnlyList<MutatingOperationOutcome> outcomes = HelperOperations.ExecutePlan(plan, authorization: null);
         vectors.Add(new ConformanceVector(
             "role/staging-plan-execution-performs-nothing",
             "12:false",

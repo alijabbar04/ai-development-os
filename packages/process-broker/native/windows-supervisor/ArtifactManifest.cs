@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -166,19 +165,6 @@ internal sealed class ArtifactManifest
 
     /// <summary>Lowercase hexadecimal SHA-256 of a byte range.</summary>
     internal static string Sha256Hex(ReadOnlySpan<byte> content) => ToHex(SHA256.HashData(content));
-
-    /// <summary>
-    /// Lowercase hexadecimal SHA-256 of a stream, hashed exactly once.
-    ///
-    /// The streaming path and the in-memory path must produce the same digest
-    /// for the same bytes. An earlier revision hashed the stream and then
-    /// hashed that digest again, which would have made every genuine file of
-    /// every genuine bundle fail verification. Both paths now end at
-    /// <see cref="ToHex"/> with a digest taken once, and the
-    /// `manifest/digest-source-parity` conformance vector fails if they ever
-    /// diverge again.
-    /// </summary>
-    internal static string Sha256Hex(Stream stream) => ToHex(SHA256.HashData(stream));
 
     private static string ToHex(byte[] digest)
     {

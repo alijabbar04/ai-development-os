@@ -968,29 +968,46 @@ internal static class CoreConformance
     }
 
     /// <summary>
-    /// Measures the same bytes through both file sources and compares.
+    /// Compares the two independent digest implementations over the same bytes.
     ///
-    /// The in-memory source and the deny-write stream path must agree exactly.
-    /// This vector exists because the previous suite exercised only the
-    /// in-memory source, so a double hash in the stream path — which would have
-    /// rejected every genuine file of every genuine bundle — was invisible to
-    /// 105 passing vectors. Nothing here opens a file.
+    /// <c>ArtifactManifest.Sha256Hex</c> hashes the whole buffer at once and
+    /// formats with the manifest's own hex writer;
+    /// <see cref="ClosureHandle.TryChunkedSha256Hex"/> is the exact loop every
+    /// retained handle measures with, and formats with a second, separately
+    /// written hex writer. A divergence between the two writers, or an
+    /// off-by-one in the chunk loop, would corrupt the digest of every genuine
+    /// bundle, so the two must be compared against each other.
+    ///
+    /// An earlier revision compared one function with itself and therefore
+    /// could not fail. The length below is deliberately not a multiple of the
+    /// measurement buffer, so the final short chunk is exercised. Nothing here
+    /// opens a file.
     /// </summary>
     private static string DigestSourceParity()
     {
-        byte[] content = Utf8.GetBytes("the same bytes measured two ways");
-        string wholeBuffer = ArtifactManifest.Sha256Hex(content);
-
-        using InMemoryClosureHandle handle = new("alpha.dll", content);
-        if (!handle.TryMeasure(out long size, out string handleDigest, out _))
+        byte[] content = new byte[(ClosureHandle.MeasurementBufferBytes * 2) + 1];
+        for (int index = 0; index < content.Length; index++)
         {
-            return "handle-measure-failed";
+            content[index] = (byte)((index * 31) & 0xFF);
         }
 
-        return size == content.LongLength &&
-            string.Equals(wholeBuffer, handleDigest, StringComparison.Ordinal)
+        string wholeBuffer = ArtifactManifest.Sha256Hex(content);
+
+        if (!ClosureHandle.TryChunkedSha256Hex(
+            (buffer, offset, count) =>
+            {
+                content.AsSpan((int)offset, count).CopyTo(buffer.AsSpan(0, count));
+                return count;
+            },
+            content.LongLength,
+            out string chunked))
+        {
+            return "chunked-measure-failed";
+        }
+
+        return string.Equals(wholeBuffer, chunked, StringComparison.Ordinal)
             ? "true"
-            : string.Concat("false:", wholeBuffer, ":", handleDigest);
+            : string.Concat("false:", wholeBuffer, ":", chunked);
     }
 
     private static InMemoryClosureSource ClosureSource() =>

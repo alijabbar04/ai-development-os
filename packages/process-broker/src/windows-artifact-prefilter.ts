@@ -65,6 +65,7 @@ export const WINDOWS_VERIFICATION_AUTHORITY = Object.freeze({
   requiredNativeVectors: Object.freeze([
     "boundary/refuses-child-reporting-other-component",
     "boundary/refuses-image-outside-verified-closure",
+    "boundary/refuses-root-not-bound-to-lease",
     "boundary/refuses-when-lease-already-disposed",
     "boundary/refuses-when-lease-disposed-after-authorization",
     "closure/lease-retains-handles-after-measurement",
@@ -73,8 +74,11 @@ export const WINDOWS_VERIFICATION_AUTHORITY = Object.freeze({
     "closure/refuses-share-mode-permitting-delete",
     "closure/refuses-share-mode-permitting-write",
     "closure/win32-handle-denies-write-and-delete",
+    "path/refuses-extended-length-root",
     "path/refuses-parent-escape-in-component",
     "path/refuses-reparse-point-at-intermediate-component",
+    "path/refuses-unc-root",
+    "role/mutating-requires-authorization",
   ] as const),
 } as const);
 

@@ -144,21 +144,21 @@ export const WINDOWS_PROTOCOL_LIMITS = Object.freeze({
 export const WINDOWS_COMPONENT_CONFORMANCE = Object.freeze({
   suiteVersion: 1,
   coreSuite: "windows-production-core-v1",
-  coreVectorCount: 161,
+  coreVectorCount: 165,
   coreConformanceDigest:
-    "5c585417fc356b65b7d32d111ac864d766a942d650764a33314602412dfbdd61",
+    "7cf06c2d2b85f19849239296d002251387c3ad98e29f11a1fb54ba963332ecd0",
   manifestFixtureFingerprint:
     "c39961a4a6946201758403a86fe25795c89e70f607a1c6e3642c292419663054",
   roles: Object.freeze({
     "windows-supervisor": Object.freeze({
       suite: "windows-supervisor-role-v1",
-      vectorCount: 27,
-      digest: "fd3b3fa5848d498fed339b492d193260d5086845f8d2fe28eca3b4147afd8611",
+      vectorCount: 28,
+      digest: "f32f48474e5cd5b51af555ca545aca5487d7fb6836db4145fdf23bfebcdb13e2",
     }),
     "windows-helper": Object.freeze({
       suite: "windows-helper-role-v1",
-      vectorCount: 53,
-      digest: "38ce1b893549f8da535afeca8b8979a2a79a62754a958a7b13eb727ff088ac1d",
+      vectorCount: 54,
+      digest: "0a7e32f9c453faf6a3ed34f1102a554ec65fa6c13816cd481889c41889ae8af0",
     }),
   }),
 } as const);
