@@ -117,6 +117,43 @@ internal enum RefusalCode
     ManifestFileDigestMismatch,
     ManifestFileNameInvalid,
     ManifestTooLarge,
+
+    // Ownership-bearing closure verification (ADR 0017 section 6.5 steps 3-5).
+    ClosureLeaseNotHeld,
+    ClosureLeaseIncomplete,
+    ClosureHandleClosed,
+    ClosureHandleUnavailable,
+    ClosureShareModePermitsWrite,
+    ClosureShareModePermitsDelete,
+    ClosureMeasurementNotThroughHandle,
+    ClosureImageNotVerified,
+    ChildIdentityMismatch,
+
+    // Bundle path resolution (ADR 0017 section 6.5 step 1).
+    ArtifactPathReparsePoint,
+    ArtifactPathEscape,
+    ArtifactPathNormalizationAmbiguous,
+    ArtifactRootUnresolvable,
+
+    // Stable Win32-error classes. The underlying numeric error is never
+    // echoed: a refusal carries a class, not an operating-system detail.
+    NativeAccessDenied,
+    NativeInvalidHandle,
+    NativeAlreadyExists,
+    NativeNotFound,
+    NativeResourceExhausted,
+    NativeNotSupported,
+    NativeUnexpectedFailure,
+
+    // Journal durability and exactness (ADR 0017 section 5).
+    RecoveryJournalAlreadyExists,
+    RecoveryJournalWriteFailed,
+    RecoveryJournalDurabilityUnavailable,
+    RecoveryDeletionOutsideDerivedSet,
+
+    EnvironmentBlockInvalid,
+    ProofModeNotAuthorized,
+
     ArgumentInvalid,
     UnknownCommand,
     MutatingOperationsStructurallyDisabled,
@@ -193,6 +230,36 @@ internal static class ProtocolNames
             [RefusalCode.ManifestFileDigestMismatch] = "manifest-file-digest-mismatch",
             [RefusalCode.ManifestFileNameInvalid] = "manifest-file-name-invalid",
             [RefusalCode.ManifestTooLarge] = "manifest-too-large",
+            [RefusalCode.ClosureLeaseNotHeld] = "closure-lease-not-held",
+            [RefusalCode.ClosureLeaseIncomplete] = "closure-lease-incomplete",
+            [RefusalCode.ClosureHandleClosed] = "closure-handle-closed",
+            [RefusalCode.ClosureHandleUnavailable] = "closure-handle-unavailable",
+            [RefusalCode.ClosureShareModePermitsWrite] = "closure-share-mode-permits-write",
+            [RefusalCode.ClosureShareModePermitsDelete] = "closure-share-mode-permits-delete",
+            [RefusalCode.ClosureMeasurementNotThroughHandle] =
+                "closure-measurement-not-through-handle",
+            [RefusalCode.ClosureImageNotVerified] = "closure-image-not-verified",
+            [RefusalCode.ChildIdentityMismatch] = "child-identity-mismatch",
+            [RefusalCode.ArtifactPathReparsePoint] = "artifact-path-reparse-point",
+            [RefusalCode.ArtifactPathEscape] = "artifact-path-escape",
+            [RefusalCode.ArtifactPathNormalizationAmbiguous] =
+                "artifact-path-normalization-ambiguous",
+            [RefusalCode.ArtifactRootUnresolvable] = "artifact-root-unresolvable",
+            [RefusalCode.NativeAccessDenied] = "native-access-denied",
+            [RefusalCode.NativeInvalidHandle] = "native-invalid-handle",
+            [RefusalCode.NativeAlreadyExists] = "native-already-exists",
+            [RefusalCode.NativeNotFound] = "native-not-found",
+            [RefusalCode.NativeResourceExhausted] = "native-resource-exhausted",
+            [RefusalCode.NativeNotSupported] = "native-not-supported",
+            [RefusalCode.NativeUnexpectedFailure] = "native-unexpected-failure",
+            [RefusalCode.RecoveryJournalAlreadyExists] = "recovery-journal-already-exists",
+            [RefusalCode.RecoveryJournalWriteFailed] = "recovery-journal-write-failed",
+            [RefusalCode.RecoveryJournalDurabilityUnavailable] =
+                "recovery-journal-durability-unavailable",
+            [RefusalCode.RecoveryDeletionOutsideDerivedSet] =
+                "recovery-deletion-outside-derived-set",
+            [RefusalCode.EnvironmentBlockInvalid] = "environment-block-invalid",
+            [RefusalCode.ProofModeNotAuthorized] = "proof-mode-not-authorized",
             [RefusalCode.ArgumentInvalid] = "argument-invalid",
             [RefusalCode.UnknownCommand] = "unknown-command",
             [RefusalCode.MutatingOperationsStructurallyDisabled] =

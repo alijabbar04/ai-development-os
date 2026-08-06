@@ -1133,7 +1133,7 @@ describe("Stage 17 Windows recovery-record format (pure, non-enforcement)", () =
 
 describe("Stage 17 native component conformance pins (non-enforcement)", () => {
   it("pins the shared core and role conformance the components must report", () => {
-    expect(WINDOWS_COMPONENT_CONFORMANCE.coreVectorCount).toBe(110);
+    expect(WINDOWS_COMPONENT_CONFORMANCE.coreVectorCount).toBe(161);
     expect(WINDOWS_COMPONENT_CONFORMANCE.coreConformanceDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(WINDOWS_COMPONENT_CONFORMANCE.roles["windows-supervisor"].vectorCount).toBe(27);
     expect(WINDOWS_COMPONENT_CONFORMANCE.roles["windows-helper"].vectorCount).toBe(53);

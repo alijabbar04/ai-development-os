@@ -144,9 +144,9 @@ export const WINDOWS_PROTOCOL_LIMITS = Object.freeze({
 export const WINDOWS_COMPONENT_CONFORMANCE = Object.freeze({
   suiteVersion: 1,
   coreSuite: "windows-production-core-v1",
-  coreVectorCount: 110,
+  coreVectorCount: 161,
   coreConformanceDigest:
-    "af25a90c021deee3d617db1c8bb3663457cc4e48bda9d42ccff6a597d9e284d8",
+    "5c585417fc356b65b7d32d111ac864d766a942d650764a33314602412dfbdd61",
   manifestFixtureFingerprint:
     "c39961a4a6946201758403a86fe25795c89e70f607a1c6e3642c292419663054",
   roles: Object.freeze({

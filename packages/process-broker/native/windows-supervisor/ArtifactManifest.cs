@@ -192,129 +192,6 @@ internal sealed class ArtifactManifest
     }
 }
 
-/// <summary>
-/// Where the closure's bytes come from. The self-test supplies memory; the
-/// production path would supply deny-write, deny-delete file handles held
-/// across process creation (ADR 0017 section 6.5). Both are read-only.
-/// </summary>
-internal interface IArtifactFileSource
-{
-    IReadOnlyList<string> EnumerateFileNames();
-
-    bool TryMeasure(string name, out long size, out string sha256Hex);
-}
-
-/// <summary>In-memory closure used only by the read-only self-test.</summary>
-internal sealed class InMemoryArtifactFileSource : IArtifactFileSource
-{
-    private readonly SortedDictionary<string, byte[]> files = new(StringComparer.Ordinal);
-
-    internal InMemoryArtifactFileSource Add(string name, byte[] content)
-    {
-        files[name] = content;
-        return this;
-    }
-
-    public IReadOnlyList<string> EnumerateFileNames() => new List<string>(files.Keys);
-
-    public bool TryMeasure(string name, out long size, out string sha256Hex)
-    {
-        if (!files.TryGetValue(name, out byte[]? content))
-        {
-            size = 0;
-            sha256Hex = string.Empty;
-            return false;
-        }
-
-        size = content.LongLength;
-        sha256Hex = ArtifactManifest.Sha256Hex(content);
-        return true;
-    }
-}
-
-/// <summary>
-/// Read-only closure over a real directory. Every file is opened with
-/// <see cref="FileShare.Read"/>, which denies write and delete for the lifetime
-/// of the handle, and is hashed through that handle. Nothing here creates,
-/// renames, or deletes anything.
-/// </summary>
-internal sealed class ReadOnlyDirectoryArtifactFileSource : IArtifactFileSource
-{
-    private readonly string root;
-
-    internal ReadOnlyDirectoryArtifactFileSource(string root) => this.root = root;
-
-    public IReadOnlyList<string> EnumerateFileNames()
-    {
-        List<string> names = [];
-        if (!Directory.Exists(root))
-        {
-            return names;
-        }
-
-        foreach (string path in Directory.EnumerateFileSystemEntries(root))
-        {
-            names.Add(Path.GetFileName(path));
-        }
-
-        names.Sort(StringComparer.Ordinal);
-        return names;
-    }
-
-    public bool TryMeasure(string name, out long size, out string sha256Hex)
-    {
-        size = 0;
-        sha256Hex = string.Empty;
-        if (!ArtifactManifestReader.IsAcceptableFileName(name))
-        {
-            return false;
-        }
-
-        string path = Path.Combine(root, name);
-        try
-        {
-            FileInfo info = new(path);
-            if (!info.Exists || info.LinkTarget is not null)
-            {
-                return false;
-            }
-
-            using FileStream stream = new(
-                path,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                bufferSize: 65_536,
-                FileOptions.SequentialScan);
-            return TryMeasureStream(stream, out size, out sha256Hex);
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// The single measurement routine behind the deny-write file handle.
-    ///
-    /// It is internal and static so the read-only self-test can drive the
-    /// exact code the file path uses, with an in-memory stream, and compare it
-    /// against the in-memory source without opening a file. Without that seam
-    /// the conformance suite could only ever exercise one of the two sources,
-    /// which is how a double hash survived review once already.
-    /// </summary>
-    internal static bool TryMeasureStream(Stream stream, out long size, out string sha256Hex)
-    {
-        size = stream.Length;
-        sha256Hex = ArtifactManifest.Sha256Hex(stream);
-        return true;
-    }
-}
-
 /// <summary>Strict manifest parsing and closure verification.</summary>
 internal static class ArtifactManifestReader
 {
@@ -654,60 +531,22 @@ internal static class ArtifactManifestVerifier
     }
 
     /// <summary>
-    /// Verifies a manifest against a real installed directory using read-only,
-    /// deny-write file handles.
+    /// Verifies a closure and immediately discards the ownership it acquired.
     ///
-    /// Nothing in this checkpoint calls it: the read-only <c>self-test</c> and
-    /// <c>describe-artifact</c> commands never touch the filesystem, and the
-    /// only caller in the finished design is the gated production path. It is
-    /// present because the manifest verifier is specified as pure logic plus
-    /// read-only file hashing, and because hashing through a deny-write handle
-    /// is the part that must be reviewed now rather than invented later.
+    /// This is a <em>diagnostic</em>, not the execution path, and the
+    /// distinction is the whole point of ADR 0017 section 6.5. It answers "was
+    /// this closure correct a moment ago", which is all a caller that does not
+    /// go on to create a process can honestly claim. Any path that then creates
+    /// a process must instead hold the lease from
+    /// <see cref="VerifiedClosureLease.TryAcquire"/> open across
+    /// <c>CreateProcessW</c>; using this method before creating a process would
+    /// reintroduce exactly the defect the lease replaced.
     /// </summary>
-    internal static RefusalCode VerifyInstalledClosure(ArtifactManifest manifest, string bundleRoot) =>
-        VerifyClosure(manifest, new ReadOnlyDirectoryArtifactFileSource(bundleRoot));
-
-    internal static RefusalCode VerifyClosure(ArtifactManifest manifest, IArtifactFileSource source)
+    internal static RefusalCode VerifyClosureWithoutRetainingOwnership(
+        ArtifactManifest manifest,
+        IVerifiedClosureSource source)
     {
-        IReadOnlyList<string> present = source.EnumerateFileNames();
-        HashSet<string> expected = new(StringComparer.Ordinal);
-        foreach (ArtifactFileEntry entry in manifest.Files)
-        {
-            expected.Add(entry.Name);
-        }
-
-        HashSet<string> seen = new(StringComparer.Ordinal);
-        foreach (string name in present)
-        {
-            if (!seen.Add(name))
-            {
-                return RefusalCode.ManifestFileDuplicate;
-            }
-
-            if (!expected.Contains(name))
-            {
-                return RefusalCode.ManifestFileUnexpected;
-            }
-        }
-
-        foreach (ArtifactFileEntry entry in manifest.Files)
-        {
-            if (!source.TryMeasure(entry.Name, out long size, out string digest))
-            {
-                return RefusalCode.ManifestFileMissing;
-            }
-
-            if (size != entry.Size)
-            {
-                return RefusalCode.ManifestFileSizeMismatch;
-            }
-
-            if (!string.Equals(digest, entry.Sha256, StringComparison.Ordinal))
-            {
-                return RefusalCode.ManifestFileDigestMismatch;
-            }
-        }
-
-        return RefusalCode.None;
+        using ClosureLeaseResult result = VerifiedClosureLease.Acquire(manifest, source);
+        return result.Code;
     }
 }

@@ -107,6 +107,7 @@ internal static class CoreConformance
         AddTokenVectors(vectors);
         AddRecoveryVectors(vectors);
         AddManifestVectors(vectors);
+        ClosureConformance.AddVectors(vectors);
         vectors.Add(new ConformanceVector(
             "gate/mutating-operations-structurally-disabled",
             "false",
@@ -947,7 +948,7 @@ internal static class CoreConformance
         vectors.Add(Vector(
             "manifest/closure-missing-file",
             "manifest-file-missing",
-            VerifyClosure(new InMemoryArtifactFileSource().Add("alpha.dll", Utf8.GetBytes("123")))));
+            VerifyClosure(new InMemoryClosureSource().Add("alpha.dll", Utf8.GetBytes("123")))));
         vectors.Add(Vector(
             "manifest/closure-unexpected-file",
             "manifest-file-unexpected",
@@ -955,13 +956,13 @@ internal static class CoreConformance
         vectors.Add(Vector(
             "manifest/closure-size-mismatch",
             "manifest-file-size-mismatch",
-            VerifyClosure(new InMemoryArtifactFileSource()
+            VerifyClosure(new InMemoryClosureSource()
                 .Add("alpha.dll", Utf8.GetBytes("1234"))
                 .Add("beta.exe", Utf8.GetBytes("1234")))));
         vectors.Add(Vector(
             "manifest/closure-digest-mismatch",
             "manifest-file-digest-mismatch",
-            VerifyClosure(new InMemoryArtifactFileSource()
+            VerifyClosure(new InMemoryClosureSource()
                 .Add("alpha.dll", Utf8.GetBytes("xyz"))
                 .Add("beta.exe", Utf8.GetBytes("1234")))));
     }
@@ -978,30 +979,22 @@ internal static class CoreConformance
     private static string DigestSourceParity()
     {
         byte[] content = Utf8.GetBytes("the same bytes measured two ways");
-        InMemoryArtifactFileSource memory = new InMemoryArtifactFileSource()
-            .Add("alpha.dll", content);
-        if (!memory.TryMeasure("alpha.dll", out long memorySize, out string memoryDigest))
+        string wholeBuffer = ArtifactManifest.Sha256Hex(content);
+
+        using InMemoryClosureHandle handle = new("alpha.dll", content);
+        if (!handle.TryMeasure(out long size, out string handleDigest, out _))
         {
-            return "in-memory-measure-failed";
+            return "handle-measure-failed";
         }
 
-        using MemoryStream stream = new(content, writable: false);
-        if (!ReadOnlyDirectoryArtifactFileSource.TryMeasureStream(
-            stream,
-            out long streamSize,
-            out string streamDigest))
-        {
-            return "stream-measure-failed";
-        }
-
-        return memorySize == streamSize &&
-            string.Equals(memoryDigest, streamDigest, StringComparison.Ordinal)
+        return size == content.LongLength &&
+            string.Equals(wholeBuffer, handleDigest, StringComparison.Ordinal)
             ? "true"
-            : string.Concat("false:", memoryDigest, ":", streamDigest);
+            : string.Concat("false:", wholeBuffer, ":", handleDigest);
     }
 
-    private static InMemoryArtifactFileSource ClosureSource() =>
-        new InMemoryArtifactFileSource()
+    private static InMemoryClosureSource ClosureSource() =>
+        new InMemoryClosureSource()
             .Add("alpha.dll", Utf8.GetBytes("123"))
             .Add("beta.exe", Utf8.GetBytes("1234"));
 
@@ -1027,14 +1020,14 @@ internal static class CoreConformance
         return string.Concat("ok:", manifest.Files.Count.ToString(CultureInfo.InvariantCulture));
     }
 
-    private static string VerifyClosure(IArtifactFileSource source)
+    private static string VerifyClosure(IVerifiedClosureSource source)
     {
         if (!ArtifactManifestReader.TryParse(Utf8.GetBytes(ManifestJson), out ArtifactManifest manifest, out RefusalCode code))
         {
             return string.Concat("parse:", ProtocolNames.Of(code));
         }
 
-        return ProtocolNames.Of(ArtifactManifestVerifier.VerifyClosure(manifest, source));
+        return ProtocolNames.Of(ArtifactManifestVerifier.VerifyClosureWithoutRetainingOwnership(manifest, source));
     }
 
     /// <summary>

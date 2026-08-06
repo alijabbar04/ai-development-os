@@ -85,7 +85,9 @@ const COMPONENTS = [
  */
 const SHARED_CORE_FILES = [
   "ArtifactManifest.cs",
+  "ArtifactPathResolution.cs",
   "CanonicalJson.cs",
+  "ClosureConformance.cs",
   "Conformance.cs",
   "FrameCodec.cs",
   "MutationGate.cs",
@@ -97,6 +99,7 @@ const SHARED_CORE_FILES = [
   "RecoveryRecord.cs",
   "StrictJson.cs",
   "TokenDerivation.cs",
+  "VerifiedClosure.cs",
 ];
 
 const ALLOWED_EXTENSIONS = new Set([".exe", ".dll", ".json"]);
@@ -374,6 +377,65 @@ function sourceEnvelope(entry) {
   return { files, fingerprint: sha256Text(canonicalJson(files)) };
 }
 
+/**
+ * Measures the runtime pack version from what the publish actually emitted.
+ *
+ * A self-contained publish writes `<assembly>.deps.json` into the closure, and
+ * that file names the exact runtime pack it resolved, for example
+ * `runtimepack.Microsoft.NETCore.App.Runtime.win-x64/9.0.18`. That string is a
+ * measurement of this build, and the file carrying it is itself enumerated,
+ * sized, and SHA-256'd as part of the closure, so the value is bound to bytes
+ * the manifest already covers.
+ *
+ * This replaces a hard-coded `"9.0.18"` literal that was emitted whenever
+ * `hostpolicy.dll` happened to be present. That literal was a guess wearing the
+ * costume of a measurement: it would have kept reporting 9.0.18 across a
+ * runtime servicing update, silently attesting to a runtime version the build
+ * did not use.
+ *
+ * There is no fallback and no `"unknown"`. If the value cannot be measured the
+ * build fails, because a build-identity fingerprint that quietly degrades to a
+ * placeholder is worse than no fingerprint at all.
+ */
+function measureRuntimePackVersion(entry, publishDirectory, closureFiles) {
+  const depsName = entry.executable.replace(/\.exe$/, ".deps.json");
+  if (!closureFiles.some((file) => file.name === depsName)) {
+    fail(`${entry.component}: ${depsName} is not in the enumerated closure; cannot measure runtimePackVersion`);
+  }
+
+  let deps;
+  try {
+    deps = JSON.parse(readFileSync(join(publishDirectory, depsName), "utf8"));
+  } catch (error) {
+    fail(`${entry.component}: ${depsName} is unreadable or not JSON: ${String(error)}`);
+  }
+
+  // Exact string prefix, deliberately not a regular expression: the dots in
+  // the pack name are literal, and an escaping slip in a template literal is
+  // an easy way to turn them into wildcards without anyone noticing.
+  const prefix = `runtimepack.Microsoft.NETCore.App.Runtime.${RID}/`;
+  const distinct = [
+    ...new Set(
+      Object.keys(deps.libraries ?? {})
+        .filter((key) => key.startsWith(prefix))
+        .map((key) => key.slice(prefix.length)),
+    ),
+  ];
+
+  if (distinct.length !== 1) {
+    fail(
+      `${entry.component}: expected exactly one runtimepack entry for ${RID} in ${depsName}, ` +
+        `found ${JSON.stringify(distinct)}`,
+    );
+  }
+
+  const version = distinct[0];
+  if (!/^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[0-9a-z.]{1,32})?$/.test(version)) {
+    fail(`${entry.component}: measured runtimePackVersion ${JSON.stringify(version)} is not a version`);
+  }
+  return version;
+}
+
 function buildRecipeFingerprint(sdkVersion, runtimePackVersion) {
   return sha256Text(
     canonicalJson({
@@ -484,8 +546,17 @@ async function main() {
       }
     }
 
-    const runtimePackVersion =
-      first.files.find((file) => file.name === "hostpolicy.dll") === undefined ? "unknown" : "9.0.18";
+    // Measured from each build's own output, then cross-checked: two clean
+    // builds that resolved different runtime packs are not reproducible, and
+    // that must fail rather than be papered over by reporting only the first.
+    const runtimePackVersion = measureRuntimePackVersion(entry, firstDir, first.files);
+    const secondRuntimePackVersion = measureRuntimePackVersion(entry, secondDir, second.files);
+    if (runtimePackVersion !== secondRuntimePackVersion) {
+      fail(
+        `${entry.component}: runtime pack differs between clean builds ` +
+          `(${runtimePackVersion} vs ${secondRuntimePackVersion})`,
+      );
+    }
     const envelope = sourceEnvelope(entry);
     const totalBytes = first.files.reduce((sum, file) => sum + file.size, 0);
 
@@ -546,13 +617,36 @@ async function main() {
       describeJson.signerState === manifest.signerState &&
       describeJson.productionEligible === false;
 
+    // The mutation gate's observable identity, taken from the binary's own
+    // output rather than from the source that built it. A binary compiled with
+    // AIDEVOS_STAGE17_REVIEWED_PROOF_MODE reports a different flavour, and it
+    // must never be able to flow through the normal packaging path unnoticed.
+    // Both read-only commands are required to report it, and to agree.
+    const mutationGate = {
+      selfTestBuildFlavor: selfTestJson.buildFlavor,
+      selfTestProofModeCompiledIn: selfTestJson.proofModeCompiledIn,
+      describeBuildFlavor: describeJson.buildFlavor,
+      describeProofModeCompiledIn: describeJson.proofModeCompiledIn,
+      commandsAgree:
+        selfTestJson.buildFlavor === describeJson.buildFlavor &&
+        selfTestJson.proofModeCompiledIn === describeJson.proofModeCompiledIn,
+      sealed:
+        selfTestJson.buildFlavor === "sealed" && selfTestJson.proofModeCompiledIn === false,
+    };
+
     report.components[entry.component] = {
+      mutationGate,
       fileCount: first.files.length,
       totalBytes,
       manifestFingerprint,
       sourceEnvelopeFingerprint: envelope.fingerprint,
       sourceFileCount: envelope.files.length,
       buildManifestFingerprint: manifest.buildManifestFingerprint,
+      // Recorded, not just fingerprinted. A value that only ever reaches a
+      // digest cannot be audited: a reviewer has no way to see what was
+      // measured or to notice it silently changing.
+      runtimePackVersion,
+      runtimePackVersionMeasuredFrom: entry.executable.replace(/\.exe$/, ".deps.json"),
       byteIdenticalAcrossTwoBuilds: differing.length === 0,
       differingFiles: differing,
       selfTest: {
@@ -578,6 +672,27 @@ async function main() {
 
     if (selfTest.status !== 0 || selfTestJson.status !== "passed") {
       fail(`${entry.component} self-test failed`);
+    }
+    for (const [command, flavor, proofMode] of [
+      ["self-test", mutationGate.selfTestBuildFlavor, mutationGate.selfTestProofModeCompiledIn],
+      ["describe-artifact", mutationGate.describeBuildFlavor, mutationGate.describeProofModeCompiledIn],
+    ]) {
+      if (typeof flavor !== "string" || typeof proofMode !== "boolean") {
+        fail(
+          `${entry.component} ${command} does not report buildFlavor and proofModeCompiledIn; ` +
+            `the mutation gate is unobservable in this binary`,
+        );
+      }
+      if (flavor !== "sealed" || proofMode !== false) {
+        fail(
+          `${entry.component} ${command} reports a non-sealed mutation gate ` +
+            `(buildFlavor=${JSON.stringify(flavor)}, proofModeCompiledIn=${JSON.stringify(proofMode)}); ` +
+            `refusing to package a proof-mode binary`,
+        );
+      }
+    }
+    if (!mutationGate.commandsAgree) {
+      fail(`${entry.component}: self-test and describe-artifact disagree about the mutation gate`);
     }
     if (describe.status !== 0 || !describeMatchesManifest) {
       fail(`${entry.component} describe-artifact disagrees with its manifest`);

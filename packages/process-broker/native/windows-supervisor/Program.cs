@@ -59,7 +59,7 @@ internal static class Program
         failed.AddRange(role.FailedNames);
         failed.Sort(StringComparer.Ordinal);
 
-        CanonicalObject result = new CanonicalObject()
+        CanonicalObject result = MutationGate.Describe(new CanonicalObject())
             .Set("component", ComponentIdentity.ComponentName)
             .Set("coreConformanceDigest", core.Digest)
             .Set("coreVectorCount", core.Count)
@@ -80,7 +80,7 @@ internal static class Program
 
     private static int DescribeArtifact()
     {
-        CanonicalObject result = new CanonicalObject()
+        CanonicalObject result = MutationGate.Describe(new CanonicalObject())
             .Set("architecture", ComponentIdentity.Architecture)
             .Set("buildRecipeVersion", ComponentIdentity.BuildRecipeVersion)
             .Set("component", ComponentIdentity.ComponentName)
