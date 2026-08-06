@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "manifestKind": "ai-dev-os-windows-production-artifact-manifest",
+  "component": "windows-supervisor",
+  "protocolVersion": 1,
+  "sourceVersion": "1.0.0",
+  "buildRecipeVersion": 1,
+  "platform": "win32",
+  "rid": "win-x64",
+  "architecture": "x64",
+  "packageVersion": "0.1.0",
+  "bundleVersion": "1.0.0",
+  "fileCount": 2,
+  "totalBytes": 7,
+  "files": [
+    {
+      "name": "alpha.dll",
+      "size": 3,
+      "sha256": "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3"
+    },
+    {
+      "name": "beta.exe",
+      "size": 4,
+      "sha256": "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4"
+    }
+  ],
+  "sourceEnvelopeFingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+  "buildManifestFingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+  "corpusVersion": 1,
+  "corpusFingerprint": "125b809194d26cf1be518249b96727b78be80c25088826464ec94154a6fb3652",
+  "windowsApplicableVectorCount": 40,
+  "signerState": "unsigned-candidate",
+  "productionEligible": false,
+  "limitations": ["artifact-never-executed", "unsigned-candidate"]
+}

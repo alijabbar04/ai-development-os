@@ -11,3 +11,14 @@ coverage/
 !.env.example
 .DS_Store
 Thumbs.db
+
+# Windows production artifact candidates (ADR 0017). Supervisor and helper
+# closures are built only into task-owned temporary directories, never into the
+# repository, and no generated binary, manifest, or packaging result is ever
+# tracked. These patterns exist so an accidental in-tree build stays untracked.
+publish/
+**/publish/
+artifact-manifest.json
+packaging-result.json
+*.nupkg
+*.pdb

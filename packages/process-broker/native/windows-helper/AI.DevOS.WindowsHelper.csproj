@@ -1,0 +1,90 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ADR 0017 section 6.2 build recipe for the Windows production helper
+    candidate. Self-contained, multi-file: every runtime file the process will
+    load is app-local so it can be named, sized, and hashed individually by the
+    artifact manifest. PublishSingleFile is deliberately false, because a
+    single-file bundle extracts native assets into a same-user writable
+    directory between verification and execution.
+
+    This project has zero NuGet dependencies and restores offline: NuGet.Config
+    clears every package source, so the build fails rather than reaching the
+    network.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <RootNamespace>AiDevOs.WindowsHelper</RootNamespace>
+    <AssemblyName>AI.DevOS.WindowsHelper</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Language and analysis strictness. Zero warnings is a build gate. -->
+    <ImplicitUsings>false</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningLevel>9999</WarningLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-all</AnalysisLevel>
+    <AnalysisMode>All</AnalysisMode>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Deterministic, path-independent, symbol-free output. -->
+    <Deterministic>true</Deterministic>
+    <DeterministicSourcePaths>true</DeterministicSourcePaths>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <PathMap>$(MSBuildProjectDirectory)=/_/windows-helper,$(BaseIntermediateOutputPath)=/_/windows-helper-obj</PathMap>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Closure minimisation and runtime determinism. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+    <AutoreleasePoolSupport>false</AutoreleasePoolSupport>
+    <GenerateRuntimeConfigDevFile>false</GenerateRuntimeConfigDevFile>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Fixed identity recorded by `describe-artifact` and the manifest. -->
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <Company>ai-dev-os</Company>
+    <Product>AI Development OS Windows production helper candidate</Product>
+    <NeutralLanguage>en</NeutralLanguage>
+  </PropertyGroup>
+  <ItemGroup>
+    <!--
+      Never compile anything under bin/ or obj/. The default globs exclude the
+      *current* $(BaseIntermediateOutputPath); redirecting that path for an
+      out-of-tree build would otherwise let a stale in-tree obj/ directory be
+      swept into the compilation. An artifact whose contents depend on leftover
+      state is not reproducible.
+    -->
+    <Compile Remove="bin/**/*.cs" />
+    <Compile Remove="obj/**/*.cs" />
+    <None Remove="bin/**" />
+    <None Remove="obj/**" />
+  </ItemGroup>
+
+</Project>
