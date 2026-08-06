@@ -323,8 +323,13 @@ package gates after the retained proof:
   (995/1,158), 98.32% functions (293/298), and 92.99% lines
   (1,539/1,655), above every configured threshold;
 - build: passed; and
-- npm pack dry-run with scripts ignored: 102 files, 122,983 package bytes,
-  581,955 unpacked bytes, and zero native entries.
+- npm pack dry-run with scripts ignored on the implementation candidate: 102
+  files, 122,983 package bytes, 581,955 unpacked bytes, and zero native entries;
+  after the package README evidence update in commit
+  `cacf2ed35fa7597ebdfab46f51882efaaee173d7`, the exact package inventory was
+  rerun at 102 files, 123,477 package bytes, 583,234 unpacked bytes, and still
+  zero native entries. This release-evidence-only reconciliation does not enter
+  that package, so the final inventory is unchanged.
 
 `packages/process-broker/src`, package manifests, the lockfile, install hooks,
 native packaging allowlists, and production registrations/issuers have no diff
