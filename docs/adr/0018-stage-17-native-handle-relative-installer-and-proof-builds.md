@@ -62,9 +62,21 @@ It must instead:
 - walk each subsequent component **relative to its already-open parent handle**,
   using `NtCreateFile` with `OBJECT_ATTRIBUTES.RootDirectory` set to that
   parent, or a demonstrably equivalent handle-relative primitive;
-- set `OBJ_DONT_REPARSE` so a reparse point in the chain fails the open rather
-  than redirecting it, and use `FILE_OPEN_REPARSE_POINT` where the intent is to
-  inspect a link rather than traverse it;
+- set `OBJ_DONT_REPARSE` on **every relative hop**, so a reparse point in the
+  chain fails the open rather than redirecting it, and use
+  `FILE_OPEN_REPARSE_POINT` where the intent is to inspect a link rather than
+  traverse it;
+
+  **Correction, found during implementation.** An earlier revision required
+  `OBJ_DONT_REPARSE` on *every* open including the initial absolute one. That
+  is unsatisfiable: `\GLOBAL??\C:` is itself an object-manager symbolic link, so
+  the flag makes the root open fail on every stock Windows host. The requirement
+  now applies to the relative hops, which is where traversal redirection is
+  possible. The single absolute root open instead uses `\GLOBAL??` rather than
+  `\??` together with `OBJ_IGNORE_IMPERSONATED_DEVICEMAP`, so a per-logon-session
+  device map — which an unelevated process in the same session **can** add
+  entries to — cannot supply the drive letter, and volume identity, filesystem
+  type, and final path are then verified through the returned handle.
 - request directory semantics explicitly (`FILE_DIRECTORY_FILE`) so a file
   masquerading as a directory component is refused;
 - retain every ancestor handle for the whole transaction, opened **without**
@@ -104,12 +116,28 @@ Root: `C:\ProgramData\AI-Dev-OS\Stage17-Proof\<32-lowercase-hex-run-token>`.
 
 `SYSTEM` and `BUILTIN\Administrators` may hold FullControl. The unelevated proof
 identity receives only the read and execute rights it needs. The result is
-verified by an `AccessCheck` against a standard token proving the proof identity
-lacks write, delete, rename, DACL-change, owner-change, and delete-child
-authority. Inherited and inherit-only ACE semantics must be evaluated correctly:
-an inherit-only ACE grants nothing on the object carrying it, and treating it as
-if it did would make the check refuse on stock Windows, which is a check nobody
-can satisfy and therefore a check everybody disables.
+verified by an `AccessCheck` against a **standard** token — obtained via
+`TokenLinkedToken` when the transaction is elevated, with no fallback to the
+elevated token — proving the proof identity lacks the rights it must not have.
+
+**Which mask applies to which object, corrected during implementation.** An
+earlier revision required proving the absence of write, delete, rename,
+DACL-change, owner-change, and delete-child authority without saying on which
+objects. Applied to `C:\ProgramData` that is unsatisfiable, because stock
+Windows grants `BUILTIN\Users` write-class rights there, and a check nobody can
+satisfy is a check everybody disables. The rule is therefore split:
+
+- on the three objects this transaction creates and owns — `AI-Dev-OS`,
+  `Stage17-Proof`, and the run leaf — the **full** forbidden mask applies:
+  write-data, append, write-EA, write-attributes, delete-child, `DELETE`,
+  `WRITE_DAC`, `WRITE_OWNER`;
+- on the shared pre-existing `C:\ProgramData` ancestor, only the
+  **delete-and-control** subset applies: `DELETE`, delete-child, `WRITE_DAC`,
+  `WRITE_OWNER`. Ordinary write access there cannot reach an existing leaf; the
+  rights that can are the ones checked.
+
+Inherited and inherit-only ACE semantics must be evaluated correctly: an
+inherit-only ACE grants nothing on the object carrying it.
 
 Mutable journals and staging data live **outside** the immutable installed
 closure.
@@ -140,11 +168,18 @@ chain through retained handles; validates run token, component identity,
 manifests, file identity, owner, DACL, and reparse status; deletes exactly the
 manifest-listed files by handle; deletes manifests last, so an interrupted
 removal is still recognizable; refuses unexpected entries rather than deleting
-them; removes directories only after proving them empty; and removes
-`Stage17-Proof` and `AI-Dev-OS` only if this transaction created them, their
-recorded identities still match, and they are empty. `C:\ProgramData` is never
-removed. No wildcard, recursive, prefix, or caller-supplied-path cleanup exists
-anywhere on the authority path.
+them; and removes directories only after proving them empty. `C:\ProgramData` is
+never removed — it is not in the component list at all, which is stronger than a
+check that could be deleted. No wildcard, recursive, prefix, or
+caller-supplied-path cleanup exists anywhere on the authority path.
+
+**Ambiguity resolved during implementation.** An earlier revision allowed
+removing `Stage17-Proof` and `AI-Dev-OS` "only if this transaction created
+them". Removal is a *different invocation* from install, so a removal
+transaction never created anything and the clause has no consistent reading.
+Resolved conservatively: the shared ancestors are **always retained**. An empty
+directory an operator can inspect and delete is a better outcome than a deletion
+the transaction cannot justify from its own records.
 
 An unrecognized object is a refusal requiring operator review, not something to
 clean up. That is deliberate: silently deleting an object you cannot explain is
@@ -206,7 +241,16 @@ This decision resolves it with two explicit recipes:
 - **Reviewed-proof** — a separate recipe that compiles the capability's single
   construction site and enables the mutating branch. Its output is visibly and
   verifiably distinct: a different build flavor reported by both
-  `describe-artifact` and `self-test`, and different artifact fingerprints.
+  `describe-artifact` and `self-test`, and different manifest and conformance
+  fingerprints.
+
+**Do not use the `.exe` hash as the flavour discriminator.** Implementation
+measurement showed the apphost is **byte-identical between flavours** — it is a
+copied template patched with the app name, and nothing flavour-specific reaches
+it. The difference lives in the sibling managed assembly, the manifest
+fingerprint, and the conformance digest. An earlier revision said "different
+artifact fingerprints" without qualification, which would invite exactly the
+wrong check.
 
 Every mutating entry point requires the capability **by signature**, so a sealed
 build cannot reach one even if a branch is mistakenly left enabled. No
@@ -271,6 +315,25 @@ Windows remains unavailable, production execution refuses, every isolation
 capability is false, every quota is unsupported, registration and receipts are
 unavailable, the Windows corpus remains 0/40 `not-run`, Stage 17 remains gated,
 and Stage 18 remains blocked.
+
+## 7a. The simulation boundary
+
+The installer's hostile-condition vectors run against an in-memory
+`SimulatedFileSystem`, not against the kernel. That is deliberate — it is the
+only way to exercise junction-at-each-ancestor, swap-between-checks,
+collision-during-create, and delete-sharing behaviour without creating OS state
+— but it bounds what the vectors prove.
+
+**Nothing in the native marshalling layer has ever executed.** The
+`DllImport` signatures, struct layouts, `UNICODE_STRING` and
+`OBJECT_ATTRIBUTES` construction, NTSTATUS mapping, and handle release in the
+real adapter are reviewed source and nothing more. A simulation of a syscall is
+not the syscall: field offsets, calling convention, `SizeOf` values, and
+allocation lifetimes are exactly the class of defect a simulation cannot catch.
+
+So the transaction logic is verified and the marshalling is not. Any statement
+that the installer "enforces" anything must carry that qualification until a
+later authorized run exercises the native path.
 
 ## 8. Remaining blockers
 
