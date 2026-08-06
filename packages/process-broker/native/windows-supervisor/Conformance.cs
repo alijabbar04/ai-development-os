@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Security.Cryptography;
+using System.IO;
 using System.Text;
 
 namespace AiDevOs.WindowsSupervisor;
@@ -618,13 +618,7 @@ internal static class CoreConformance
 
         vectors.Add(Vector(
             "recovery/canonical-record",
-            "{\"bundleVersion\":\"1.0.0\",\"component\":\"windows-supervisor\"," +
-            "\"operationToken\":\"" + Token + "\",\"phase\":\"request-accepted\"," +
-            "\"profileName\":\"AiDevOs.S17.5d1d2919a5bc7d29ae6c908688e74ca7\"," +
-            "\"recordVersion\":1,\"schemaVersion\":1,\"sequence\":1," +
-            "\"stagedFileNames\":[\"req-12ece52677716308770858ddb48c8b97.bin\"," +
-            "\"res-418567b7c99828864120f7bed2297b7a.bin\"]," +
-            "\"stagingRootLeaf\":\"aidevos-s17-8e0a428992e9cd87c83d99caff6b2e7c\"}",
+            ValidRecordCanonical,
             Utf8.GetString(RecoveryRecordCodec.SerializeCanonical(first))));
 
         vectors.Add(Vector(
@@ -667,6 +661,10 @@ internal static class CoreConformance
             "recovery/unknown-property",
             "refused:recovery-record-schema-invalid",
             ReadJournal(UnknownPropertyJournal(), Token)));
+        vectors.Add(Vector(
+            "recovery/unknown-component",
+            "refused:recovery-record-schema-invalid",
+            ReadJournal(UnknownComponentJournal(), Token)));
         vectors.Add(Vector(
             "recovery/oversized-declared-record",
             "refused:recovery-record-schema-invalid",
@@ -745,25 +743,32 @@ internal static class CoreConformance
         return [.. buffer];
     }
 
+    private const string ValidRecordCanonical =
+        "{\"bundleVersion\":\"1.0.0\",\"component\":\"windows-supervisor\"," +
+        "\"operationToken\":\"0123456789abcdef0123456789abcdef\",\"phase\":\"request-accepted\"," +
+        "\"profileName\":\"AiDevOs.S17.5d1d2919a5bc7d29ae6c908688e74ca7\"," +
+        "\"recordVersion\":1,\"schemaVersion\":1,\"sequence\":1," +
+        "\"stagedFileNames\":[\"req-12ece52677716308770858ddb48c8b97.bin\"," +
+        "\"res-418567b7c99828864120f7bed2297b7a.bin\"]," +
+        "\"stagingRootLeaf\":\"aidevos-s17-8e0a428992e9cd87c83d99caff6b2e7c\"}";
+
     private static byte[] SubstitutedPathJournal() =>
-        FramedCanonical(
-            "{\"bundleVersion\":\"1.0.0\",\"component\":\"windows-supervisor\"," +
-            "\"operationToken\":\"" + Token + "\",\"phase\":\"request-accepted\"," +
-            "\"profileName\":\"AiDevOs.S17.00000000000000000000000000000000\"," +
-            "\"recordVersion\":1,\"schemaVersion\":1,\"sequence\":1," +
-            "\"stagedFileNames\":[\"req-12ece52677716308770858ddb48c8b97.bin\"," +
-            "\"res-418567b7c99828864120f7bed2297b7a.bin\"]," +
-            "\"stagingRootLeaf\":\"aidevos-s17-8e0a428992e9cd87c83d99caff6b2e7c\"}");
+        FramedCanonical(ValidRecordCanonical.Replace(
+            "AiDevOs.S17.5d1d2919a5bc7d29ae6c908688e74ca7",
+            "AiDevOs.S17.00000000000000000000000000000000",
+            StringComparison.Ordinal));
 
     private static byte[] UnknownPropertyJournal() =>
-        FramedCanonical(
-            "{\"bundleVersion\":\"1.0.0\",\"component\":\"windows-supervisor\"," +
-            "\"extra\":1,\"operationToken\":\"" + Token + "\",\"phase\":\"request-accepted\"," +
-            "\"profileName\":\"AiDevOs.S17.5d1d2919a5bc7d29ae6c908688e74ca7\"," +
-            "\"recordVersion\":1,\"schemaVersion\":1,\"sequence\":1," +
-            "\"stagedFileNames\":[\"req-12ece52677716308770858ddb48c8b97.bin\"," +
-            "\"res-418567b7c99828864120f7bed2297b7a.bin\"]," +
-            "\"stagingRootLeaf\":\"aidevos-s17-8e0a428992e9cd87c83d99caff6b2e7c\"}");
+        FramedCanonical(ValidRecordCanonical.Replace(
+            "\"operationToken\"",
+            "\"extra\":1,\"operationToken\"",
+            StringComparison.Ordinal));
+
+    private static byte[] UnknownComponentJournal() =>
+        FramedCanonical(ValidRecordCanonical.Replace(
+            "\"component\":\"windows-supervisor\"",
+            "\"component\":\"windows-probe\"",
+            StringComparison.Ordinal));
 
     private static byte[] OversizedRecordJournal()
     {
@@ -808,16 +813,29 @@ internal static class CoreConformance
         "\"windowsApplicableVectorCount\":40," +
         "\"signerState\":\"unsigned-candidate\"," +
         "\"productionEligible\":false," +
-        "\"limitations\":[\"artifact-never-executed\",\"unsigned-candidate\"]}";
+        "\"limitations\":[\"artifact-never-executed-beyond-read-only-self-test\",\"unsigned-candidate\"]}";
+
+    /// <summary>
+    /// The reviewed constant the fixture must fingerprint to. The TypeScript
+    /// control plane pins the identical value in
+    /// <c>WINDOWS_COMPONENT_CONFORMANCE.manifestFixtureFingerprint</c>, and the
+    /// packaging pipeline compares the two. Neither side can drift alone.
+    /// </summary>
+    internal const string ManifestFixturePinnedFingerprint =
+        "c39961a4a6946201758403a86fe25795c89e70f607a1c6e3642c292419663054";
 
     internal static string ManifestFixtureJson => ManifestJson;
 
     private static void AddManifestVectors(List<ConformanceVector> vectors)
     {
         vectors.Add(Vector("manifest/parse-valid", "ok:2", ParseManifest(ManifestJson)));
+        // Pinned, not self-compared. An earlier revision compared this value
+        // against itself, so it could never fail and still inflated the
+        // advertised vector count. The literal below is the reviewed constant
+        // the TypeScript control plane also pins.
         vectors.Add(Vector(
-            "manifest/fingerprint-stable",
-            ManifestFixtureFingerprint(),
+            "manifest/fingerprint-pinned",
+            ManifestFixturePinnedFingerprint,
             ManifestFixtureFingerprint()));
         vectors.Add(Vector(
             "manifest/unknown-field",
@@ -897,8 +915,30 @@ internal static class CoreConformance
             "manifest/unsorted-limitations",
             "refused:manifest-schema-invalid",
             ParseManifest(ManifestJson.Replace(
-                "[\"artifact-never-executed\",\"unsigned-candidate\"]",
-                "[\"unsigned-candidate\",\"artifact-never-executed\"]",
+                "[\"artifact-never-executed-beyond-read-only-self-test\",\"unsigned-candidate\"]",
+                "[\"unsigned-candidate\",\"artifact-never-executed-beyond-read-only-self-test\"]",
+                StringComparison.Ordinal))));
+        vectors.Add(Vector(
+            "manifest/file-digest-known-vector",
+            "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+            ArtifactManifest.Sha256Hex(Utf8.GetBytes("123"))));
+        vectors.Add(Vector(
+            "manifest/digest-source-parity",
+            "true",
+            DigestSourceParity()));
+        vectors.Add(Vector(
+            "manifest/leading-dash-file-name",
+            "refused:manifest-file-name-invalid",
+            ParseManifest(ManifestJson.Replace(
+                "\"name\":\"alpha.dll\"",
+                "\"name\":\"-alpha.dll\"",
+                StringComparison.Ordinal))));
+        vectors.Add(Vector(
+            "manifest/leading-underscore-file-name",
+            "refused:manifest-file-name-invalid",
+            ParseManifest(ManifestJson.Replace(
+                "\"name\":\"alpha.dll\"",
+                "\"name\":\"_alpha.dll\"",
                 StringComparison.Ordinal))));
         vectors.Add(Vector(
             "manifest/closure-verified",
@@ -924,6 +964,40 @@ internal static class CoreConformance
             VerifyClosure(new InMemoryArtifactFileSource()
                 .Add("alpha.dll", Utf8.GetBytes("xyz"))
                 .Add("beta.exe", Utf8.GetBytes("1234")))));
+    }
+
+    /// <summary>
+    /// Measures the same bytes through both file sources and compares.
+    ///
+    /// The in-memory source and the deny-write stream path must agree exactly.
+    /// This vector exists because the previous suite exercised only the
+    /// in-memory source, so a double hash in the stream path — which would have
+    /// rejected every genuine file of every genuine bundle — was invisible to
+    /// 105 passing vectors. Nothing here opens a file.
+    /// </summary>
+    private static string DigestSourceParity()
+    {
+        byte[] content = Utf8.GetBytes("the same bytes measured two ways");
+        InMemoryArtifactFileSource memory = new InMemoryArtifactFileSource()
+            .Add("alpha.dll", content);
+        if (!memory.TryMeasure("alpha.dll", out long memorySize, out string memoryDigest))
+        {
+            return "in-memory-measure-failed";
+        }
+
+        using MemoryStream stream = new(content, writable: false);
+        if (!ReadOnlyDirectoryArtifactFileSource.TryMeasureStream(
+            stream,
+            out long streamSize,
+            out string streamDigest))
+        {
+            return "stream-measure-failed";
+        }
+
+        return memorySize == streamSize &&
+            string.Equals(memoryDigest, streamDigest, StringComparison.Ordinal)
+            ? "true"
+            : string.Concat("false:", memoryDigest, ":", streamDigest);
     }
 
     private static InMemoryArtifactFileSource ClosureSource() =>
@@ -978,9 +1052,6 @@ internal static class CoreConformance
 
         return manifest.Fingerprint();
     }
-
-    internal static string Sha256Hex(string text) =>
-        ArtifactManifest.Sha256Hex(SHA256.HashData(Utf8.GetBytes(text)));
 
     private static ConformanceVector Vector(string name, string expected, string observed) =>
         new(name, expected, observed);

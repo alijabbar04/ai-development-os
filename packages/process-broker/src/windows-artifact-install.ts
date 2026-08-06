@@ -107,7 +107,20 @@ export function windowsInstallLayout(
   });
 }
 
-const UNSAFE_SEGMENT = /[<>:"|?*\u0000-\u001f]/;
+/**
+ * Path segments may not contain Windows-reserved punctuation, an alternate
+ * data stream separator, a wildcard, a control character, or a tilde.
+ *
+ * The tilde matters on its own. NTFS keeps DOS 8.3 aliases, so `RUNTIM~1` can
+ * name the same on-disk object as a long directory name under a completely
+ * different string. Permitting it would let two different paths resolve to one
+ * object while both passed a "normalization is unambiguous" check, which is
+ * precisely what ADR 0017 section 6.5 step 1 promises to refuse. No component
+ * name, version string, RID, or quarantine label this design produces contains
+ * a tilde, so refusing every tilde outright is tighter and cheaper than trying
+ * to recognise the 8.3 shape.
+ */
+const UNSAFE_SEGMENT = /[<>:"|?*~\u0000-\u001f]/;
 
 function segmentIssue(segment: string): WindowsArtifactRefusal | null {
   if (segment.length === 0) return "artifact-path-normalization-ambiguous";

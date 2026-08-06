@@ -171,7 +171,7 @@ function syntheticBundle(options: {
       windowsApplicableVectorCount: secureBackendEscapeVectorCount("win32"),
       signerState: "unsigned-candidate",
       productionEligible: false,
-      limitations: ["artifact-never-executed", "unsigned-candidate"],
+      limitations: ["artifact-never-executed-beyond-read-only-self-test", "unsigned-candidate"],
       ...options.manifestOverrides,
     },
   };
@@ -297,7 +297,7 @@ describe("Stage 17 Windows artifact manifest identity (non-enforcement)", () => 
   it("rejects unsorted or unknown limitation codes", () => {
     expect(() =>
       parseWindowsArtifactManifest(
-        mutatedFixture({ limitations: ["unsigned-candidate", "artifact-never-executed"] }),
+        mutatedFixture({ limitations: ["unsigned-candidate", "artifact-never-executed-beyond-read-only-self-test"] }),
       ),
     ).toThrow();
     expect(() =>
@@ -316,6 +316,10 @@ describe("Stage 17 Windows artifact manifest identity (non-enforcement)", () => 
       "trailing ",
       "NUL.dll",
       "com1.dll",
+      // Regression, F-003(b): the C# validator used to permit a leading dash
+      // or underscore while this one did not.
+      "-alpha.dll",
+      "_alpha.dll",
       "alph\u00e1.dll",
       "alpha.dll:stream",
       "",
@@ -1129,7 +1133,7 @@ describe("Stage 17 Windows recovery-record format (pure, non-enforcement)", () =
 
 describe("Stage 17 native component conformance pins (non-enforcement)", () => {
   it("pins the shared core and role conformance the components must report", () => {
-    expect(WINDOWS_COMPONENT_CONFORMANCE.coreVectorCount).toBe(105);
+    expect(WINDOWS_COMPONENT_CONFORMANCE.coreVectorCount).toBe(110);
     expect(WINDOWS_COMPONENT_CONFORMANCE.coreConformanceDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(WINDOWS_COMPONENT_CONFORMANCE.roles["windows-supervisor"].vectorCount).toBe(27);
     expect(WINDOWS_COMPONENT_CONFORMANCE.roles["windows-helper"].vectorCount).toBe(53);
@@ -1177,6 +1181,122 @@ describe("Stage 17 native component conformance pins (non-enforcement)", () => {
         expect(combined).not.toContain(forbidden);
       }
     }
+  });
+});
+
+// ------------------------------------------------------- audit regressions
+
+describe("Stage 17 audit regressions (non-enforcement)", () => {
+  it("F-001: measures artifact digests as a single SHA-256 of the file bytes", async () => {
+    // The manifest fixture pins plain SHA-256 of the content, not a digest of
+    // a digest. The C# deny-write stream path used to hash twice, which would
+    // have rejected every genuine file of every genuine bundle; the shared
+    // `manifest/digest-source-parity` vector now fails if the two sources
+    // disagree, and this test pins the convention on the TypeScript side.
+    const files = fixtureManifest.files;
+    expect(files[0]?.sha256).toBe(sha256("123"));
+    expect(files[1]?.sha256).toBe(sha256("1234"));
+
+    // End to end: a bundle whose manifest carries plain SHA-256 verifies, and
+    // one carrying a double digest does not.
+    const root = await taskOwnedRoot("digest-convention");
+    await installed(root, "windows-supervisor", "1.0.0");
+    const good = await verifyWindowsInstalledBundle({
+      root,
+      component: "windows-supervisor",
+      bundleVersion: "1.0.0",
+    });
+    expect(good.verified).toBe(true);
+
+    const doubled = syntheticBundle({ component: "windows-helper", bundleVersion: "1.0.0" });
+    const manifest = doubled.manifest as Record<string, unknown>;
+    manifest["files"] = (manifest["files"] as { name: string; size: number; sha256: string }[]).map(
+      (entry) => ({ ...entry, sha256: createHash("sha256").update(Buffer.from(entry.sha256, "hex")).digest("hex") }),
+    );
+    const stagingDir = await stage(root, doubled, "doubled");
+    const result = await installWindowsBundle({
+      root,
+      component: "windows-helper",
+      bundleVersion: "1.0.0",
+      stagingDir,
+    });
+    expect(result.installed).toBe(false);
+    expect(result.code).toBe("artifact-file-digest-mismatch");
+  });
+
+  it("F-003(a): refuses a recovery record naming a component that does not exist", () => {
+    const valid: WindowsRecoveryRecord = {
+      component: "windows-supervisor",
+      operationToken: TOKEN,
+      phase: "request-accepted",
+      sequence: 1,
+      bundleVersion: "1.0.0",
+    };
+    const canonical = canonicalWindowsRecoveryRecord(valid).replace(
+      '"component":"windows-supervisor"',
+      '"component":"windows-probe"',
+    );
+    const bytes = new TextEncoder().encode(canonical);
+    const digest = windowsRecoveryRecordDigest(bytes);
+    const framed = new Uint8Array(4 + bytes.length + digest.length);
+    new DataView(framed.buffer).setUint32(0, bytes.length, true);
+    framed.set(bytes, 4);
+    framed.set(digest, 4 + bytes.length);
+    const result = readWindowsRecoveryJournal(framed, TOKEN);
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.code).toBe("recovery-record-schema-invalid");
+
+    // Both real components remain acceptable.
+    for (const component of WINDOWS_ARTIFACT_COMPONENTS) {
+      const accepted = readWindowsRecoveryJournal(
+        frameWindowsRecoveryRecord({ ...valid, component }),
+        TOKEN,
+      );
+      expect(accepted.ok).toBe(true);
+    }
+  });
+
+  it("F-004: refuses a DOS 8.3 short-name alias in any path segment", async () => {
+    const root = await taskOwnedRoot("shortname");
+    await mkdir(join(root, "windows-supervisor"), { recursive: true });
+    for (const segment of ["RUNTIM~1", "PROGRA~2", "a~b", "~"]) {
+      expect(await checkWindowsArtifactPath(root, join(root, segment))).toBe(
+        "artifact-path-normalization-ambiguous",
+      );
+    }
+    // Nested, not just leaf.
+    expect(await checkWindowsArtifactPath(root, join(root, "windows-supervisor", "1~0", "win-x64"))).toBe(
+      "artifact-path-normalization-ambiguous",
+    );
+    // The real layout still resolves.
+    expect(
+      await checkWindowsArtifactPath(root, join(root, "windows-supervisor", "1.0.0", "win-x64")),
+    ).toBeNull();
+  });
+
+  it("F-005: names the read-only self-test exception in the limitation code", () => {
+    expect([...WINDOWS_ARTIFACT_LIMITATION_CODES]).toContain(
+      "artifact-never-executed-beyond-read-only-self-test",
+    );
+    expect([...WINDOWS_ARTIFACT_LIMITATION_CODES]).not.toContain("artifact-never-executed");
+    expect([...WINDOWS_ARTIFACT_LIMITATION_CODES]).toEqual(
+      [...WINDOWS_ARTIFACT_LIMITATION_CODES].sort(),
+    );
+    expect([...fixtureManifest.limitations]).toContain(
+      "artifact-never-executed-beyond-read-only-self-test",
+    );
+  });
+
+  it("F-006: pins the manifest fixture fingerprint against an independent constant", () => {
+    // The C# suite pins the same literal, so neither implementation can move
+    // alone. A vector that compared a value with itself, as the previous
+    // `manifest/fingerprint-stable` did, could never have caught this.
+    expect(WINDOWS_COMPONENT_CONFORMANCE.manifestFixtureFingerprint).toBe(
+      "c39961a4a6946201758403a86fe25795c89e70f607a1c6e3642c292419663054",
+    );
+    expect(windowsArtifactManifestFingerprint(fixtureManifest)).toBe(
+      WINDOWS_COMPONENT_CONFORMANCE.manifestFixtureFingerprint,
+    );
   });
 });
 

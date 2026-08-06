@@ -350,21 +350,15 @@ internal static class RecoveryRecordCodec
         return true;
     }
 
-    private static bool IsAcceptableComponentName(string? value)
-    {
-        if (value is null || value.Length is 0 or > 48)
-        {
-            return false;
-        }
-
-        foreach (char character in value)
-        {
-            if (!char.IsAsciiLetterLower(character) && character != '-')
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
+    /// <summary>
+    /// Only the two production components are acceptable.
+    ///
+    /// The TypeScript reader accepts exactly this closed set. Accepting any
+    /// lowercase-and-hyphen string here, as an earlier revision did, would have
+    /// let a journal name a component that does not exist and still parse on
+    /// one side of the boundary but not the other.
+    /// </summary>
+    private static bool IsAcceptableComponentName(string? value) =>
+        string.Equals(value, "windows-supervisor", StringComparison.Ordinal) ||
+        string.Equals(value, "windows-helper", StringComparison.Ordinal);
 }

@@ -164,9 +164,24 @@ internal sealed class ArtifactManifest
     /// </summary>
     internal string Fingerprint() => Sha256Hex(CanonicalJson.Serialize(ToCanonical()));
 
-    internal static string Sha256Hex(ReadOnlySpan<byte> content)
+    /// <summary>Lowercase hexadecimal SHA-256 of a byte range.</summary>
+    internal static string Sha256Hex(ReadOnlySpan<byte> content) => ToHex(SHA256.HashData(content));
+
+    /// <summary>
+    /// Lowercase hexadecimal SHA-256 of a stream, hashed exactly once.
+    ///
+    /// The streaming path and the in-memory path must produce the same digest
+    /// for the same bytes. An earlier revision hashed the stream and then
+    /// hashed that digest again, which would have made every genuine file of
+    /// every genuine bundle fail verification. Both paths now end at
+    /// <see cref="ToHex"/> with a digest taken once, and the
+    /// `manifest/digest-source-parity` conformance vector fails if they ever
+    /// diverge again.
+    /// </summary>
+    internal static string Sha256Hex(Stream stream) => ToHex(SHA256.HashData(stream));
+
+    private static string ToHex(byte[] digest)
     {
-        byte[] digest = SHA256.HashData(content);
         StringBuilder builder = new(digest.Length * 2);
         foreach (byte value in digest)
         {
@@ -271,9 +286,7 @@ internal sealed class ReadOnlyDirectoryArtifactFileSource : IArtifactFileSource
                 FileShare.Read,
                 bufferSize: 65_536,
                 FileOptions.SequentialScan);
-            size = stream.Length;
-            sha256Hex = ArtifactManifest.Sha256Hex(SHA256.HashData(stream));
-            return true;
+            return TryMeasureStream(stream, out size, out sha256Hex);
         }
         catch (IOException)
         {
@@ -283,6 +296,22 @@ internal sealed class ReadOnlyDirectoryArtifactFileSource : IArtifactFileSource
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// The single measurement routine behind the deny-write file handle.
+    ///
+    /// It is internal and static so the read-only self-test can drive the
+    /// exact code the file path uses, with an in-memory stream, and compare it
+    /// against the in-memory source without opening a file. Without that seam
+    /// the conformance suite could only ever exercise one of the two sources,
+    /// which is how a double hash survived review once already.
+    /// </summary>
+    internal static bool TryMeasureStream(Stream stream, out long size, out string sha256Hex)
+    {
+        size = stream.Length;
+        sha256Hex = ArtifactManifest.Sha256Hex(stream);
+        return true;
     }
 }
 
@@ -514,7 +543,11 @@ internal static class ArtifactManifestReader
             return false;
         }
 
-        if (value[0] == '.' || value[^1] == '.' || value[^1] == ' ')
+        // The first character must be alphanumeric. This matches the
+        // TypeScript control plane's FILE_NAME_PATTERN exactly and rejects a
+        // leading dot, dash, or underscore. A validator that is only almost
+        // the same as its counterpart is a validator that disagrees somewhere.
+        if (!char.IsAsciiLetterOrDigit(value[0]) || value[^1] == '.' || value[^1] == ' ')
         {
             return false;
         }

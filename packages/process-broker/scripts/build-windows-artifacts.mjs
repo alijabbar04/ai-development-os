@@ -118,7 +118,7 @@ const REJECTED_EXTENSIONS = new Set([
 ]);
 
 const LIMITATIONS = [
-  "artifact-never-executed",
+  "artifact-never-executed-beyond-read-only-self-test",
   "installed-source-trust-blocked-on-release-signing",
   "no-pinned-bundle-fingerprint",
   "path-redirection-needs-protected-install-root",

@@ -31,5 +31,5 @@
   "windowsApplicableVectorCount": 40,
   "signerState": "unsigned-candidate",
   "productionEligible": false,
-  "limitations": ["artifact-never-executed", "unsigned-candidate"]
+  "limitations": ["artifact-never-executed-beyond-read-only-self-test", "unsigned-candidate"]
 }

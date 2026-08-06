@@ -53,7 +53,7 @@ export type WindowsArtifactSignerState = (typeof WINDOWS_ARTIFACT_SIGNER_STATES)
  * cannot be presented later as if it had been proved.
  */
 export const WINDOWS_ARTIFACT_LIMITATION_CODES = Object.freeze([
-  "artifact-never-executed",
+  "artifact-never-executed-beyond-read-only-self-test",
   "installed-source-trust-blocked-on-release-signing",
   "no-pinned-bundle-fingerprint",
   "path-redirection-needs-protected-install-root",
@@ -144,11 +144,11 @@ export const WINDOWS_PROTOCOL_LIMITS = Object.freeze({
 export const WINDOWS_COMPONENT_CONFORMANCE = Object.freeze({
   suiteVersion: 1,
   coreSuite: "windows-production-core-v1",
-  coreVectorCount: 105,
+  coreVectorCount: 110,
   coreConformanceDigest:
-    "48dcda93b12e34c3f3455bdba017d031ee4943e4d21233888cc34a0968ebedb1",
+    "af25a90c021deee3d617db1c8bb3663457cc4e48bda9d42ccff6a597d9e284d8",
   manifestFixtureFingerprint:
-    "9e2049563310b9b1cf108802887911150e3abbc078a43d8d08da7ad1f61c8985",
+    "c39961a4a6946201758403a86fe25795c89e70f607a1c6e3642c292419663054",
   roles: Object.freeze({
     "windows-supervisor": Object.freeze({
       suite: "windows-supervisor-role-v1",
