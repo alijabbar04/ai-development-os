@@ -558,17 +558,25 @@ Tests and gate:
 
 Status: Planned.
 
-Packages: `@ai-dev-os/scheduler`, `@ai-dev-os/application`
+Packages, in implementation order: `@ai-dev-os/provider-anthropic`, `@ai-dev-os/product-planning`, `@ai-dev-os/scheduler`, `@ai-dev-os/application`
 
 Deliverables:
 
 - Request acceptance, planning commands, bounded dynamic graph mutation, and the complete run lifecycle.
+- A first-party direct Anthropic `InferenceProvider` adapter, separate from Claude Code, with a fixed versioned endpoint/profile, scoped secret references, operator-supplied model catalog facts, strict capability preflight, bounded streaming/structured output, model and role substitution rejection, normalized usage, cancellation, retention disclosure, adversarial transport parsing, and no hard-coded flagship model. This is required only for deployments that choose Anthropic inference aliases; the planning protocol remains provider-neutral.
+- A durable product-completeness planning assembly for material product work with finite `product-discovery`, `specialist-gap-analysis`, `engineering-feasibility`, and `plan-synthesis` operation classes. Simple bounded requests retain the single-pass/rules path.
+- Strict versioned `ProductIntent`, `PlanningContribution`, `ProductSpecification`, requirement-disposition, and coverage-matrix contracts. Every contributed candidate receives an `accepted`, `deferred`, `rejected`, `duplicate-of`, or `needs-user-decision` disposition with provenance; synthesis cannot silently drop or promote it.
+- Capability-based phase routing with configurable aliases and independence requirements. No commercial model name carries a semantic role in production code, and no model output grants scope, execution, approval, budget, or completion authority.
+- Configurable bounds for phases, specialist set, candidate requirements, synthesis rounds, provider calls, graph growth, tokens, money, wall time, and output bytes. Material inferred scope is held behind an exact scope decision rather than scheduled automatically.
+- Requirement-to-task planning: accepted requirements bind to stable task IDs, typed outputs, acceptance criteria, validation evidence, and explicit waivers. The durable state machine resumes each phase idempotently after restart without duplicating contributions or approvals.
 - Durable ready queues, attempt creation, leases, heartbeats, fencing, retries, capacity pools, fairness, cancellation, and reconciliation, consuming the retry dispositions and partial-work evidence the provider adapters already produce.
 - Budget reservation before dispatch and release/reconciliation after terminal attempts.
 
 Tests and gate:
 
-- Integration tests cover parallel DAGs, dependency failures, duplicate delivery, expired leases, daemon and worker crashes, cancellation races, provider fallback, and budget exhaustion.
+- The Anthropic adapter passes the shared inference-provider contract suite, fixed-profile fake-server and adversarial streaming tests, credential/policy ordering tests, model/role substitution tests, and explicit opt-in budget-capped live canaries. Claude Code credentials or sessions can never satisfy this adapter.
+- Integration tests cover routine single-pass planning; material greenfield planning; specialist discovery of omitted security, accessibility, failure, data-lifecycle, testing, and operations requirements; feasibility objections; contradictory and duplicate contributions; user scope decisions; route independence; phase and requirement ceilings; parallel DAGs; dependency failures; duplicate delivery; expired leases; daemon and worker crashes; cancellation races; provider fallback; and budget exhaustion.
+- Golden and property tests prove permutation-stable dispositions, no silent requirement loss, no inferred-feature authorization, complete source provenance, bounded expansion, conservative behavior when an independent route is unavailable, and exact restart replay.
 - Chaos tests prove restart recovery without duplicate Git integration or external mutation.
 
 ## Stage 19: Evaluation, disagreement handling, and integration
@@ -580,12 +588,15 @@ Packages: `@ai-dev-os/evaluation`, `@ai-dev-os/integrator`
 Deliverables:
 
 - Output-schema, changed-path, compilation, test, static-analysis, and acceptance-criteria evaluators.
+- Requirement-coverage evaluators that reconcile the approved product specification, task results, integrated repository state, deterministic validation, explicit waivers, and unresolved gaps.
+- A separately routed final completeness audit for material product work. It may propose missing requirements or corrective tasks, but it cannot mark an unsupported requirement complete, widen scope, authorize execution, or override deterministic evidence.
 - Deterministic structured merge strategies and serialized Git integration.
-- Structural, scope, semantic, and intent conflict detection, plus a rubric-based independent evaluator and fresh-worktree resolution flow.
+- Structural, scope, semantic, intent, and specification conflict detection, plus a rubric-based independent evaluator and fresh-worktree resolution flow. Dissenting security/feasibility findings and all planning dispositions remain visible to arbitration.
 
 Tests and gate:
 
-- Fixture matrix includes clean merges, textual conflicts, non-overlapping semantic breaks, stale target, failing resolver, fabricated tests, and policy violations.
+- Fixture matrix includes clean merges, textual conflicts, non-overlapping semantic breaks, stale target, failing resolver, fabricated tests, policy violations, missing required features, partially implemented user journeys, lowered acceptance criteria, undocumented waivers, narrative-only completion claims, and post-integration regressions.
+- A run cannot reach normal completion while a required or expected-quality coverage entry lacks valid evidence or an authorized waiver. Delight and deferred candidates remain visible without blocking unless explicitly promoted through a scope decision.
 - No model verdict can mark deterministic validation as passed or authorize a merge.
 
 ## Stage 20: Local daemon API and client
@@ -597,6 +608,7 @@ Packages: `@ai-dev-os/api`, `@ai-dev-os/client`
 Deliverables:
 
 - Fastify `/v1` command/query API, OpenAPI document, generated TypeScript client, idempotency middleware, and error envelope.
+- Read-only product-intent, planning-contribution, specification, disposition, and coverage queries plus idempotent exact-digest scope-decision commands. API projections expose model/route provenance and unresolved gaps without exposing hidden reasoning or raw provider bodies.
 - Loopback session authentication, strict origins, request limits, WebSocket/SSE event replay, slow-client handling, and artifact download policy.
 - Daemon lifecycle, single-instance lock, connection descriptor, health, and diagnostics.
 
@@ -614,7 +626,8 @@ App: `apps/desktop`
 Deliverables:
 
 - Electron main/preload/renderer split with no Node integration in the renderer.
-- Runs, task DAG, attempts, timeline, estimates versus actuals, routing explanation, provider health, quota cards, projects, memory, approvals, conflicts, plugins, and settings.
+- Runs, product blueprint, user journeys, requirement dispositions, scope decisions, coverage matrix, completeness findings, task DAG, attempts, timeline, estimates versus actuals, routing explanation, provider health, quota cards, projects, memory, approvals, conflicts, plugins, and settings.
+- A planning review surface that lets the user accept, defer, reject, or clarify material inferred requirements before execution and shows exactly which approved requirements remain unimplemented, unvalidated, or waived.
 - A setup wizard that manages provider installation, credential configuration through approved mechanisms only, and the opt-in capacity collector.
 - Accessible dense dark operational UI, reconnect/replay behavior, bounded live logs, sanitized Markdown/diffs, cancellation, and exact approval detail.
 
@@ -665,7 +678,7 @@ Deliverables:
 
 - OpenTelemetry dashboards and alerts, incident runbooks, kill switch, circuit operations, retention/export/delete workflows, and support diagnostics.
 - SBOM, provenance, license report, signed releases, signed installers, verified updates, rollback, and dependency policy.
-- Versioned evaluation suite, live-provider canaries, routing calibration process, and cost anomaly alerts.
+- Versioned evaluation suite covering product discovery recall, irrelevant-feature control, specialist gap recovery, synthesis preservation, requirement traceability, implementation evidence, and final completeness; live-provider canaries, routing calibration process, and cost anomaly alerts.
 - Threat-model review and external penetration test focused on repository, process, plugin, desktop, and cross-project boundaries.
 
 Release gate:
@@ -681,8 +694,8 @@ Release gate:
 | --- | --- | --- |
 | `0.1` orchestration core | 0-7, 11-13 | Durable read-only multi-model planning with local models, cloud inference, and a unified usage ledger |
 | `0.2` isolated coding | 8-10, 14-16 | Claude Code and Codex edits in managed worktrees with context packs and quota-aware routing |
-| `0.3` contained execution | 17-19 | Genuinely sandboxed autonomous execution with durable scheduling, evaluation, and integration |
-| `0.4` daemon and desktop | 20-21 | Persistent multi-project daemon, full API, and the dark desktop dashboard with a setup wizard |
+| `0.3` contained execution | 17-19 | Genuinely sandboxed autonomous execution with durable product-completeness planning, scheduling, requirement coverage, evaluation, and integration |
+| `0.4` daemon and desktop | 20-21 | Persistent multi-project daemon, full API, product blueprint/coverage review, and the dark desktop dashboard with a setup wizard |
 | `0.5` extensions | 22 | Trusted signed provider, tool, MCP, and plugin extensions with explicit grants |
 | `1.0` hardened desktop | 24 | Signed, recoverable, audited single-user production release |
 | `1.x` team | 23 plus team hardening | Authenticated concurrent service and remote-worker deployment |

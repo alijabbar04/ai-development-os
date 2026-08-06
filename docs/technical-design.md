@@ -1,8 +1,8 @@
 # AI Development OS Technical Design
 
 Status: Accepted baseline  
-Version: 0.1  
-Last updated: 2026-08-02
+Version: 0.2
+Last updated: 2026-08-06
 
 ## 1. Executive summary
 
@@ -17,9 +17,10 @@ The initial product is a single-user desktop application backed by a local daemo
 ### 2.1 In scope
 
 - Request analysis, task classification, complexity estimation, token and cost estimation, and duration prediction.
+- Bounded product discovery, specialist gap analysis, engineering feasibility, specification synthesis, and requirement-to-evidence coverage tracking for material product work.
 - Configurable model routing using deterministic rules, live capabilities, learned outcome statistics, and a structured LLM classifier.
 - Static and dynamically extended task graphs with bounded parallel execution.
-- OpenAI Responses API, Claude Code CLI, and native Ollama adapters.
+- OpenAI Responses API, a direct Anthropic inference adapter, Claude Code CLI, and native Ollama adapters.
 - Repository discovery, commit-scoped indexing, Git worktree isolation, deterministic validation, and controlled integration.
 - Conflict detection, independent review, evidence-based disagreement resolution, and human approval gates.
 - Persistent project memory, explicit user preferences, provenance-aware retrieval, and scoped caching.
@@ -46,6 +47,7 @@ The initial product is a single-user desktop application backed by a local daemo
 8. **Bound every recursive process.** Graph size, fan-out, depth, attempts, tool calls, tokens, money, wall time, and output bytes all have limits.
 9. **Treat all content as untrusted.** Repository text, tool output, memories, model output, plugins, and remote responses can contain prompt injection or hostile data.
 10. **Keep the control plane small.** The trusted core contains domain invariants, policy, leases, credentials, audit, and persistence transactions. Provider and plugin processes remain outside it.
+11. **Trace scope to evidence.** A run is not complete because an agent says it is. Every approved requirement is implemented, explicitly waived, or left visibly incomplete, with acceptance evidence and provenance.
 
 ## 4. System context
 
@@ -59,7 +61,8 @@ flowchart LR
   App --> Memory[Memory and repository index]
   Scheduler --> Workers[Isolated workers]
   Workers --> OpenAI[OpenAI Responses API]
-  Workers --> Claude[Claude Code CLI]
+  Workers --> Anthropic[Anthropic inference API]
+  Workers --> ClaudeCode[Claude Code CLI]
   Workers --> Ollama[Local Ollama]
   Workers --> Git[Managed Git worktrees]
   App --> Store[(SQLite or PostgreSQL)]
@@ -107,10 +110,12 @@ Dependencies point inward: adapters depend on application ports; application dep
 | --- | --- | --- |
 | `domain` / `task-graph` | IDs, tasks, graph invariants, artifacts, budgets, state transitions | Standard library only |
 | `application` | Request lifecycle, run coordinator, use cases, transaction boundaries | Domain ports |
+| `product-planning` | Product intent, bounded planning phases, contribution/disposition schemas, and coverage invariants | Domain, task-graph, thinker/router ports |
 | `scheduler` | Readiness, leases, heartbeats, retry policy, capacity, cancellation | Domain, persistence ports, policy port |
 | `router` | Profiling, feasibility filters, scoring, fallback, decision explanation | Domain, provider catalog ports, metrics ports |
 | `providers` | Normalized inference and coding-agent contracts | Domain contracts |
 | `provider-openai` | OpenAI Responses adapter | Provider contract, OpenAI SDK |
+| `provider-anthropic` | Direct Anthropic inference adapter | Provider contract, bounded HTTPS transport |
 | `provider-claude-code` | Claude Code process adapter and reconciliation | Coding-agent contract, process broker |
 | `provider-ollama` | Ollama inference and local capacity adapter | Provider contract, HTTP client |
 | `workspace` | Repository snapshots, worktrees, diffs, validation, integration | Git/process ports, policy |
@@ -133,6 +138,10 @@ Provider adapters, plugins, persistence implementations, and the UI do not call 
 | `Project` | Repository roots, data policy, configuration, budgets, memory scope |
 | `RepositorySnapshot` | Immutable source identity: project, Git SHA, dirty overlay digest, index version |
 | `Run` | One accepted user objective and its global budgets and outcome |
+| `ProductIntent` | User outcomes, audiences, constraints, non-goals, assumptions, and unresolved questions derived without widening authority |
+| `ProductSpecification` | Versioned approved scope containing stable requirements and their dispositions |
+| `PlanningContribution` | One phase- and route-attributed set of candidate requirements, risks, conflicts, and unknowns |
+| `CoverageEntry` | Trace from one requirement to tasks, implementation artifacts, validation evidence, waiver, and completion state |
 | `Task` | Typed unit in a run DAG, with dependencies and acceptance criteria |
 | `TaskEdge` | Dependency relation between tasks |
 | `Attempt` | One leased execution of a task by one provider/model in one workspace |
@@ -150,6 +159,7 @@ Provider adapters, plugins, persistence implementations, and the UI do not call 
 Each task includes:
 
 - Stable task ID, kind, title, objective, and priority.
+- Stable requirement IDs covered by the task; every approved requirement must be covered by at least one task or an explicit waiver.
 - Dependency task IDs and typed input artifact references.
 - Declared output artifact schemas.
 - Required capabilities such as reasoning, repository read, code edit, shell, testing, or documentation.
@@ -194,19 +204,37 @@ All mutations use optimistic aggregate versions. The persistence adapter reads p
 2. **Inspect.** Capture a repository snapshot and retrieve high-signal structure, manifests, ownership rules, prior decisions, and explicit preferences.
 3. **Profile.** Produce a schema-validated `TaskProfile` with kind, complexity, context need, risk, edit scope, reasoning need, and confidence.
 4. **Estimate.** Predict input/output tokens, provider cost, queue time, execution duration ranges, local compute load, and validation time.
-5. **Plan.** Rules handle simple work directly. Complex work uses a planning route to propose a bounded task DAG with typed outputs and acceptance criteria.
-6. **Validate plan.** Deterministic code checks acyclicity, scopes, permissions, budgets, graph quotas, schemas, and provider feasibility.
-7. **Route.** Filter impossible candidates, score eligible routes, reserve budget, and persist the routing decision.
-8. **Dispatch.** The scheduler leases ready tasks subject to project fairness, provider rate limits, local compute capacity, and workspace locks.
-9. **Execute.** A worker receives a scoped lease, sanitized context pack, provider request, workspace grant, and cancellation signal.
-10. **Collect.** Stream normalized events to durable storage. Store large or sensitive payloads as redacted content-addressed artifacts.
-11. **Validate.** Check schemas, diffs, allowed paths, compilation, tests, static policy, and task-specific acceptance criteria.
-12. **Integrate.** Serialize repository integration in dependency order. Revalidate against the current target snapshot.
-13. **Resolve.** Use deterministic merge conflict detection first. A resolver model may propose a patch, but validation and policy decide acceptance.
-14. **Review.** A quality route examines the combined result and evidence, not merely individual outputs.
-15. **Complete.** Reconcile actual usage, create the run summary, propose durable memories, and expose provenance in the dashboard.
+5. **Frame.** Compile a `ProductIntent` that separates explicit outcomes and constraints from inferred assumptions, candidate opportunities, non-goals, and questions requiring the user.
+6. **Discover.** For material product work, a product-discovery route proposes a broad but bounded set of user journeys, expected-quality requirements, edge cases, and optional delight candidates. Simple bounded work may collapse this and the next two phases into one planning pass.
+7. **Challenge.** Independent specialist routes inspect the framed intent and discovery contribution for material gaps such as security, privacy, accessibility, data lifecycle, failure recovery, testing, operations, and maintainability. An engineering-feasibility route checks the repository and implementation constraints.
+8. **Synthesize and scope.** A separate synthesis route produces one cited specification and a disposition for every contributed requirement. Deterministic code rejects silent omission, duplicate identities, unsupported scope widening, or an unbounded graph. Material inferred scope requires an approval before it becomes executable.
+9. **Validate plan.** Deterministic code checks requirement coverage, acyclicity, scopes, permissions, budgets, graph quotas, schemas, and provider feasibility.
+10. **Route.** Filter impossible candidates, score eligible routes, reserve budget, and persist the routing decision.
+11. **Dispatch.** The scheduler leases ready tasks subject to project fairness, provider rate limits, local compute capacity, and workspace locks.
+12. **Execute.** A worker receives a scoped lease, sanitized context pack, provider request, workspace grant, and cancellation signal.
+13. **Collect.** Stream normalized events to durable storage. Store large or sensitive payloads as redacted content-addressed artifacts.
+14. **Validate.** Check schemas, diffs, allowed paths, compilation, tests, static policy, task-specific acceptance criteria, and linked requirement evidence.
+15. **Integrate.** Serialize repository integration in dependency order. Revalidate against the current target snapshot.
+16. **Resolve.** Use deterministic merge conflict detection first. A resolver model may propose a patch, but validation and policy decide acceptance.
+17. **Review.** An independent quality route examines the combined result and evidence, not merely individual outputs.
+18. **Audit completeness.** A completeness route compares the approved specification and coverage matrix with the integrated result. It may identify gaps but cannot declare an unsupported requirement complete or authorize more work.
+19. **Complete.** Deterministic completion requires every required requirement to have valid evidence or an explicit waiver. Reconcile actual usage, create the run summary, propose durable memories, and expose provenance and remaining gaps in the dashboard.
 
 Every step is resumable after a daemon restart from the database, attempt leases, provider IDs, worktrees, commits, and artifact digests.
+
+### 8.1 Product-completeness planning assembly
+
+The normative planning decision is recorded in [ADR 0016](adr/0016-product-completeness-planning-assembly.md).
+
+The planning assembly is a bounded protocol, not a model committee and not an authority transfer. The application coordinator invokes finite operation classes such as `product-discovery`, `specialist-gap-analysis`, `engineering-feasibility`, `plan-synthesis`, and `completeness-audit`. Each operation is routed independently through the existing capability, policy, locality, quota, cost, and health constraints. Deployment configuration may prefer different provider/model aliases for these operations, but production code never derives a role from a commercial model name.
+
+Each planning contribution is immutable and contains stable candidate requirement IDs, source references, affected user journeys, priority class, assumptions, conflicts, risks, and proposed acceptance evidence. Priority classes are `required`, `expected-quality`, `delight`, and `deferred-candidate`. A contribution grants no scope or execution authority.
+
+Synthesis must emit a disposition for every candidate: `accepted`, `deferred`, `rejected`, `duplicate-of`, or `needs-user-decision`. Accepted requirements retain source provenance and receive stable specification IDs. Rejection and deferral require bounded reasons; dissent and unresolved uncertainty remain visible. Majority vote, model self-confidence, or a more capable model label cannot settle a policy, security, scope, or validation question.
+
+The coverage matrix maps every accepted requirement to user journeys, tasks, acceptance criteria, validation commands or review rubrics, implementation artifacts, and final evidence. Required and expected-quality entries block normal completion until satisfied or explicitly waived by an authorized actor. Delight entries never become executable merely because a model proposed them. The initial request and any later approval define the scope ceiling.
+
+Configuration bounds the phase count, specialist set, candidate requirements, synthesis rounds, graph expansion, provider calls, tokens, money, wall time, and output bytes. High-risk or material greenfield work requires an authoring route and an independent review route when policy has an eligible alternative. If independence cannot be achieved, the run records that limitation and follows the configured approval or conservative-failure path rather than disguising self-review.
 
 ## 9. Task graph and scheduler
 
@@ -300,6 +328,8 @@ utility =
 - High-confidence, low-risk selections execute directly within policy.
 - Low-confidence selections can request one independent classifier or use the configured conservative route.
 - Critical tasks can require plan review, implementation, and independent review by different routes.
+- Material greenfield product work uses separately routed discovery, feasibility, synthesis, and completeness operations; a single model response is not treated as exhaustive coverage.
+- Independence is an evidence property bound to route/provider/model and contribution fingerprints. When required, an author cannot satisfy its own independent-review slot.
 - If top candidates disagree within a configured margin, the router favors the lower-risk candidate or asks for approval rather than creating false precision.
 
 ### 10.4 Configured role policies
@@ -308,13 +338,18 @@ The requested default roles are represented as editable policy, not source-code 
 
 | Logical role | Default route policy |
 | --- | --- |
-| Product manager, architect, planner, prompt engineer, reviewer, quality controller | Approved GPT model with the required reasoning and context capabilities |
-| Primary implementation, broad refactor, complex debugging, repository editing | Claude Code coding-agent adapter |
+| Product discovery and architecture | Approved planning inference route with high/extreme reasoning, sufficient context, strict structured output, and strong product/architecture evidence |
+| Engineering feasibility | Repository-aware planning route with coding, dependency, testing, and estimation evidence |
+| Specification synthesis | Planning route selected independently from discovery when required; must preserve contribution provenance and emit complete dispositions |
+| Primary implementation, broad refactor, complex debugging, repository editing | Eligible coding-agent route with fresh secure-execution evidence |
+| Independent review and completeness audit | Review route distinct from the author when policy requires independence; consumes specification, coverage, and deterministic evidence |
 | Reasoning, planning, algorithms | Local `deepseek-r1:8b` preference |
 | Documentation, summaries, Markdown | Local `gemma3:12b` preference |
 | Shell, scripting, lightweight code | Local `mistral:7b` preference |
 | Tests, regular expressions, transformations | Local `qwen3:8b` preference |
 | Explanation and lightweight interaction | Local `llama3.2:3b` preference |
+
+The named local entries are editable deployment examples, not semantic inference from model strings. A deployment can map maximum-capability, balanced-synthesis, coding-specialist, free-tier, and local-private aliases differently as catalogs change. The operation class and verified capabilities determine eligibility.
 
 Health, data policy, measured performance, context fit, and budget can override a default preference. The routing decision records that override.
 
@@ -360,7 +395,18 @@ Normalized events cover lifecycle, text deltas, reasoning summaries where policy
 - Use a stable privacy-preserving safety identifier when configured for multi-user service mode.
 - The adapter is disabled until a secret reference is configured. Keys never enter project configuration or worker-wide environments.
 
-### 11.2 Claude Code adapter
+### 11.2 Anthropic inference adapter
+
+- Implement the provider-neutral `InferenceProvider` contract over one reviewed, versioned first-party Anthropic API profile; do not route inference through Claude Code or reuse its account/session state.
+- Require an explicit operator catalog entry and permitted-model binding. Ship no permanent model IDs, role inference from names, guessed context limits, or guessed prices.
+- Map only capabilities proven by the selected profile and catalog evidence, including strict structured output, streaming, reasoning controls, usage, cancellation, and retention behavior. Unsupported capability combinations fail before credential access or HTTP.
+- Use one fixed origin/path policy, reject redirects and caller-defined authorization/transport headers, resolve credentials by scoped secret reference, and bind data handling to the exact provider instance.
+- Reject request/model/role substitution, malformed or oversized streams, incomplete structured output, unknown state-changing events, and usage disagreement. Raw response bodies and hidden reasoning are not persisted by default.
+- Pass the shared inference-provider contract suite, adversarial parser/transport tests, deterministic fake-server tests, and explicit opt-in budget-capped live canaries before any concrete model becomes eligible.
+
+This adapter enables configured Anthropic models to participate in discovery, synthesis, review, and other inference operation classes. Claude Code remains a separate coding-agent surface and cannot satisfy an inference alias.
+
+### 11.3 Claude Code adapter
 
 - Probe the installed CLI version and supported features at startup.
 - Use non-interactive print mode with machine-readable streaming output.
@@ -373,7 +419,7 @@ Normalized events cover lifecycle, text deltas, reasoning summaries where policy
 
 The installed CLI can expose new flags over time, so the adapter maintains a tested version-capability matrix instead of assuming `--help` is exhaustive.
 
-### 11.3 Ollama adapter
+### 11.4 Ollama adapter
 
 - Use the native local API for model discovery, health, chat streaming, structured output where supported, reasoning controls, and keep-alive behavior.
 - Treat local inference as metered: record prompt/evaluation tokens, load time, generation time, queue delay, CPU/GPU time, and peak memory.
@@ -432,6 +478,8 @@ Each task declares a merge strategy:
 - `synthesize`: ask a designated evaluator to build a new artifact from cited inputs.
 
 Disagreement is detected through schema conflicts, contradictory claims with shared keys, incompatible patches, divergent test evidence, or reviewer rubric thresholds. Resolution uses an independent evaluator with the original goal, constraints, candidates, provenance, and deterministic evidence. It returns a structured decision with selected claims, rejected claims, uncertainty, and required validation. Majority voting alone is not used.
+
+Product-planning synthesis uses the same evidence rule at requirement granularity. Every contributed candidate must appear in an immutable disposition ledger, including duplicates, rejections, deferrals, and questions returned to the user. Synthesis cannot silently drop a feature, convert a delight candidate into approved scope, lower an acceptance criterion, or erase a dissenting security or feasibility finding. The final completeness evaluator reads the approved specification and coverage matrix rather than trusting planning or implementation narratives.
 
 ## 14. Memory, preferences, and cache
 
@@ -497,7 +545,7 @@ Configuration is schema-versioned and layered in this order:
 
 Later layers cannot weaken centrally locked security or data policies. Unknown keys are errors in strict production mode. Configuration values include only secret references, never secret material. Effective configuration and its digest are recorded on every run.
 
-Configurable areas include providers, model catalogs, logical role policies, routing weights and rules, budgets, concurrency, memory retention, cache, data classification, workspace isolation, approvals, validation commands, telemetry exporters, and plugin grants.
+Configurable areas include providers, model catalogs, logical role and planning-operation policies, routing weights and rules, planning phase/specialist/requirement bounds, budgets, concurrency, memory retention, cache, data classification, workspace isolation, approvals, validation commands, telemetry exporters, and plugin grants.
 
 ## 17. API layer
 
@@ -513,6 +561,10 @@ POST   /v1/projects/{projectId}/snapshots
 POST   /v1/runs
 GET    /v1/runs/{runId}
 POST   /v1/runs/{runId}/cancel
+GET    /v1/runs/{runId}/product-specification
+GET    /v1/runs/{runId}/planning-contributions
+GET    /v1/runs/{runId}/coverage
+POST   /v1/runs/{runId}/scope-decisions
 GET    /v1/runs/{runId}/tasks
 POST   /v1/tasks/{taskId}/retry
 GET    /v1/routing-decisions/{decisionId}
@@ -539,6 +591,8 @@ The desktop renderer contains no orchestration state that cannot be reconstructe
 
 - **Runs:** running and completed work with status, project, route, duration, reserved/actual cost, and tokens.
 - **Run detail:** task DAG, active attempts, live output, validation evidence, artifacts, approvals, and cancellation.
+- **Product blueprint:** framed intent, user journeys, accepted/deferred/rejected requirements, specialist findings, unresolved questions, and exact scope decisions.
+- **Coverage:** requirement-to-task-to-validation traceability, implementation evidence, waivers, incomplete entries, and the final completeness audit.
 - **Timeline:** correlated routing, scheduling, provider, tool, Git, validation, memory, and cost events.
 - **Projects:** repositories, snapshots, configuration, budgets, data policy, index health, and recent outcomes.
 - **Memory:** facts, decisions, preferences, provenance, confidence, retrieval history, confirmation, and deletion.
@@ -566,6 +620,11 @@ The initial schema contains:
 | `projects` | Identity, repository roots, data policy, effective config digest |
 | `repository_snapshots` | Commit, overlay digest, tree digest, index status |
 | `runs` | Objective artifact, snapshot, state, budgets, aggregate version |
+| `product_intents` | Explicit outcomes, constraints, non-goals, assumptions, questions, provenance, version |
+| `product_specifications` | Approved versioned scope, requirement set, source contribution fingerprints, approval binding |
+| `planning_contributions` | Phase, operation class, route, immutable candidate requirements, findings, conflicts, uncertainty |
+| `requirement_dispositions` | Accepted, deferred, rejected, duplicate, or needs-user decision with source and reason |
+| `coverage_entries` | Requirement, tasks, acceptance criteria, validation/artifact evidence, waiver, completion state |
 | `tasks` | Specification, current state, priority, topology version |
 | `task_edges` | Run-scoped dependency pairs |
 | `attempts` | Route, provider IDs, workspace, state, timestamps, reconciliation |
@@ -660,6 +719,7 @@ Metrics include:
 - Estimated, reserved, and actual input/output/cached/reasoning tokens and money in integer micros.
 - Local model load, queue, evaluation duration, tokens per second, CPU/GPU time, and memory.
 - Routing selection, fallback, confidence calibration, success rate, regret, and policy rejection reasons.
+- Planning phase cost/latency, candidate requirement counts, disposition outcomes, unresolved-question age, coverage gaps, waivers, and post-implementation completeness findings.
 - Cache hit rate, retrieval sources, memory confirmation and expiry, index freshness.
 - Worktree count, disk usage, merge conflicts, validation duration, and integration failures.
 
@@ -677,6 +737,8 @@ Pricing records are versioned by provider, model, region, effective time, token 
 | Context overflow | Deterministic budget reduction, provenance-preserving summary, task split, or longer-context reroute |
 | Invalid structured output | Schema error and at most one bounded repair attempt before fallback/failure |
 | Graph explosion | Reject mutation exceeding node, depth, fan-out, time, or budget quota |
+| Planning expansion | Stop at phase/requirement/budget bounds, preserve all accepted evidence, and request scope decisions rather than silently trimming or scheduling inferred features |
+| Incomplete requirement coverage | Refuse normal completion until evidence is attached, an authorized waiver is recorded, or the run ends with a visible incomplete outcome |
 | Disk full | Stop admission, preserve committed state, surface remediation, avoid destructive cleanup |
 | Database lock/contention | Bounded retry and backpressure; never hold transactions across provider calls |
 | Target branch movement | Reintegrate on current head and rerun affected validations |
@@ -702,10 +764,10 @@ No module is considered complete until it has:
 1. **Domain:** graph cycles, legal transitions, propagation, budgets, policy, cost arithmetic, cache scopes, and idempotency.
 2. **Provider contracts:** deterministic fake servers/CLIs covering malformed streams, duplicate chunks, disconnects, throttling, auth failure, cancellation races, usage mismatch, and version drift.
 3. **Repository:** temporary repositories covering dirty trees, ignored and untracked files, worktrees, hooks, symlinks/junctions, conflicts, target movement, and process cleanup.
-4. **Orchestration:** real database and fake models covering parallel DAGs, duplicate delivery, expired leases, crash between side effect and commit, restart, budget exhaustion, and plugin removal.
+4. **Orchestration:** real database and fake models covering parallel DAGs, multi-phase product planning, contribution disposition, scope approval, duplicate delivery, expired leases, crash between side effect and commit, restart, budget exhaustion, and plugin removal.
 5. **Adversarial:** hostile repository and prompt-injection corpus attempting secret access, scope change, command injection, path escape, network exfiltration, forged approval, fake test results, or persistent memory poisoning.
 6. **Desktop/API:** authentication, origin, CSRF/WebSocket rules, schema confusion, rate limits, XSS in diffs/logs/Markdown, IPC escalation, unsafe links, deep links, reconnect, and event replay.
-7. **Quality evaluations:** versioned reference repositories and tasks for planning, implementation, refactor, debugging, tests, review, documentation, conflict resolution, and recovery.
+7. **Quality evaluations:** versioned reference repositories and tasks for product discovery, user-journey and expected-quality coverage, specialist gap recovery, feasibility, synthesis preservation, implementation, refactor, debugging, tests, review, documentation, conflict resolution, final completeness, and recovery.
 8. **Load and chaos:** large repositories, concurrent graphs, provider brownouts, local model saturation, database contention, disk exhaustion, network partitions, abrupt termination, backup, and restore.
 
 Deterministic checks, compilers, tests, and sampled human review are authoritative. LLM evaluators supplement them but do not replace them.
@@ -718,6 +780,7 @@ Deterministic checks, compilers, tests, and sampled human review are authoritati
 - Every side effect has complete audit attribution.
 - Policy and capability code meets branch and mutation-test thresholds.
 - Restart and duplicate-delivery tests demonstrate idempotent recovery.
+- Every required or expected-quality requirement in a release candidate has valid acceptance evidence or an explicit authorized waiver; model assertions alone never satisfy coverage.
 - Backup restore, signed update, and rollback are tested.
 - Live provider canaries pass within fixed cost budgets; normal CI uses deterministic fakes.
 

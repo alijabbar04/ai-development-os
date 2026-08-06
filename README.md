@@ -20,6 +20,7 @@ execution remains refused and no Stage 17 release tag exists.
 
 - [Technical design](docs/technical-design.md)
 - [Implementation roadmap](docs/implementation-roadmap.md)
+- [Product-completeness planning decision](docs/adr/0016-product-completeness-planning-assembly.md)
 - [Stage 8 completion report](docs/stage-8-completion.md)
 
 ## Requirements
