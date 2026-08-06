@@ -6,8 +6,8 @@
     "tagObject": "9fbaf6e1d7cbae7e026b1dadae6109ac46a884e4",
     "peeledCommit": "c344b1e9264e5306fb648abaa7add6cebc17c3cc"
   },
-  "observedAt": "2026-08-06T08:47:46.6062980Z",
-  "evidenceExpiresAt": "2026-08-06T08:47:46.6062980Z",
+  "observedAt": "2026-08-06T10:24:21.5029936Z",
+  "evidenceExpiresAt": "2026-08-06T10:24:21.5029936Z",
   "releaseEligibility": {
     "eligible": false,
     "roadmapStatus": "gated-on-platform-primitives",
@@ -45,11 +45,12 @@
   },
   "windowsFeasibilityProbe": {
     "kind": "evidence-tool-not-production-helper",
-    "protocolVersion": 4,
+    "protocolVersion": 5,
     "targetFramework": "net9.0-windows",
-    "publishMode": "framework-dependent-no-apphost",
-    "sourceDigest": "9dd47fe5deb0a0f28000d05d7e6311bd8707549be4c83515e217297df184f2fa",
-    "binaryDigest": "9592400aa1a92a5ce283ee7cb472ac5dd15571faf55974765d67e187da095369",
+    "publishMode": "framework-dependent-apphost",
+    "sourceDigest": "19b2829ebb3a70a0f4c57c6f2ea8251c79000dde0827408218d7b6103b188845",
+    "binaryDigest": "94c25f8b9370c61f60dfdbc6e4fd294df49d492b3c712a4d5f44568923f6bfc1",
+    "managedPayloadDigest": "800f2dea9eea797d5ef82d11ce1de8359ab57b98a5af88d65714c7f65db906fc",
     "buildDigest": null,
     "twoCleanBuildsByteIdentical": true,
     "selfTest": "passed",
@@ -190,6 +191,119 @@
     "productionBackendAvailable": false,
     "result": "passed"
   },
+  "windowsHelperLifecycleCrashProof": {
+    "kind": "authorized-bounded-test-helper-lifecycle-not-enforcement",
+    "protocolVersion": 5,
+    "implementationCommit": "77c42949396cc75a126c0c1de18984b7a0849648",
+    "proofSourceDigest": "19b2829ebb3a70a0f4c57c6f2ea8251c79000dde0827408218d7b6103b188845",
+    "helperApphostDigest": "94c25f8b9370c61f60dfdbc6e4fd294df49d492b3c712a4d5f44568923f6bfc1",
+    "helperPayloadDigest": "800f2dea9eea797d5ef82d11ce1de8359ab57b98a5af88d65714c7f65db906fc",
+    "fixtureSourceDigest": "74e146e1d21ffba65bd671d499629e3c6d54829837ae5d3a95d986ba6fcf30ef",
+    "fixtureBinaryDigest": "041e7d1d88e21b7cecd6013a0cd220ea5ec3ce806cd48954370c441b292cee13",
+    "twoCleanBuildsByteIdentical": true,
+    "maximumFrameBytes": 4096,
+    "oneRequestPerFreshHelper": true,
+    "inheritedAmbientEnvironment": false,
+    "explicitHelperHandleCount": 4,
+    "profileCreationLimit": 10,
+    "appContainerFixtureCreationLimit": 10,
+    "totalTaskProcessCreationLimit": 20,
+    "failedDevelopmentAttempts": 3,
+    "failedDevelopmentCodes": [
+      "invalid-checkpoint-frame",
+      "lifecycle-target-ready-frame-invalid",
+      "fixture-lifecycle-validate-failed"
+    ],
+    "failedDevelopmentAttemptsRecovered": true,
+    "priorProfileCreateCount": 3,
+    "priorHelperProcessCreateCount": 3,
+    "priorAppContainerFixtureProcessCreateCount": 3,
+    "ordinaryFixturePositiveControlCount": 2,
+    "finalProfileCreateCount": 9,
+    "finalHelperProcessCreateCount": 9,
+    "finalAppContainerFixtureProcessCreateCount": 7,
+    "finalTotalHelperFixtureProcessCreateCount": 18,
+    "scenarioCount": 6,
+    "scenarioResults": [
+      {
+        "scenario": "normal-lifecycle",
+        "expectedPhase": "cleanup-complete",
+        "helperOwnedCleanup": true,
+        "supervisorRecoveryPerformed": false,
+        "jobTotalProcesses": 1,
+        "jobActiveProcesses": 0,
+        "result": "passed"
+      },
+      {
+        "scenario": "client-disconnect-before-target",
+        "expectedPhase": "setup-complete",
+        "helperOwnedCleanup": true,
+        "supervisorRecoveryPerformed": false,
+        "fixtureProcessCreated": false,
+        "jobTotalProcesses": 0,
+        "jobActiveProcesses": 0,
+        "result": "passed"
+      },
+      {
+        "scenario": "helper-terminated-after-setup",
+        "expectedPhase": "setup-complete",
+        "helperTerminationHandleBased": true,
+        "supervisorRecoveryPerformed": true,
+        "fixtureProcessCreated": false,
+        "jobTotalProcesses": 0,
+        "jobActiveProcesses": 0,
+        "result": "passed"
+      },
+      {
+        "scenario": "helper-terminated-target-suspended",
+        "expectedPhase": "target-suspended",
+        "helperTerminationHandleBased": true,
+        "markerAbsentBeforeResume": true,
+        "supervisorRecoveryPerformed": true,
+        "jobTotalProcesses": 1,
+        "jobActiveProcesses": 0,
+        "result": "passed"
+      },
+      {
+        "scenario": "helper-terminated-target-running",
+        "expectedPhase": "target-ready",
+        "helperTerminationHandleBased": true,
+        "targetReady": true,
+        "supervisorRecoveryPerformed": true,
+        "jobTotalProcesses": 1,
+        "jobActiveProcesses": 0,
+        "result": "passed"
+      },
+      {
+        "scenario": "helper-terminated-after-target-exit",
+        "expectedPhase": "target-exited",
+        "helperTerminationHandleBased": true,
+        "targetExited": true,
+        "supervisorRecoveryPerformed": true,
+        "jobTotalProcesses": 1,
+        "jobActiveProcesses": 0,
+        "result": "passed"
+      }
+    ],
+    "everyExpectedPhaseObserved": true,
+    "everyJobDrained": true,
+    "noDescendantProcessSurvived": true,
+    "controllerHandlesClosed": true,
+    "manualRecoveryRequired": false,
+    "finalResidueScan": {
+      "filesystem": 0,
+      "marker": 0,
+      "packageFolder": 0,
+      "registry": 0,
+      "helperProcess": 0,
+      "fixtureProcess": 0,
+      "genericTaskDirectory": 0,
+      "genericRegistry": 0
+    },
+    "capsRespected": true,
+    "productionBackendAvailable": false,
+    "result": "passed"
+  },
   "escapeCorpus": {
     "version": 1,
     "seed": "stage-17-corpus-seed-0001",
@@ -240,18 +354,19 @@
         "experimentalSandboxExports": "observed-present",
         "authoritativeSandboxSpec": "unavailable",
         "appContainerProfileLifecycle": "passed-single-profile-no-workload",
-        "currentParentJob": "observed-present-nested-private-child-job-passed-single-synthetic"
+        "currentParentJob": "observed-present-nested-private-child-job-passed-single-synthetic",
+        "testOnlyHelperLifecycle": "passed-bounded-normal-disconnect-and-four-handle-termination-scenarios-not-production"
       },
       "boundaries": {
         "filesystem": "bounded-feasibility-only-not-corpus",
-        "processTree": "bounded-one-process-job-only-not-corpus",
+        "processTree": "bounded-one-process-job-and-test-helper-termination-only-not-corpus",
         "identity": "bounded-feasibility-only-not-production",
-        "profile": "bounded-normal-cleanup-only-not-crash",
+        "profile": "bounded-test-helper-normal-disconnect-and-crash-recovery-only",
         "networkDenial": "bounded-parent-loopback-transfer-only",
         "controlledEgress": "unverified",
         "credentials": "unverified",
         "ipc": "unverified",
-        "cleanup": "bounded-normal-path-only-not-crash"
+        "cleanup": "bounded-test-helper-supervised-recovery-only-not-production"
       },
       "quotas": {
         "wallClock": "unsupported",
@@ -270,7 +385,8 @@
         "profile-lifecycle-proof-is-not-enforcement",
         "single-synthetic-process-proof-is-not-production-enforcement",
         "structured-boundary-proof-is-not-production-or-corpus-enforcement",
-        "general-filesystem-network-quota-crash-and-corpus-unverified",
+        "helper-lifecycle-crash-proof-is-test-only-not-production-or-corpus-enforcement",
+        "general-filesystem-network-quota-production-crash-and-corpus-unverified",
         "diagnostic-payload-not-packaged",
         "privileged-host-changes-not-performed"
       ],

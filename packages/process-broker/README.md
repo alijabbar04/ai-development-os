@@ -109,6 +109,21 @@ did return success, so this is a bounded transfer-denial observation, not a
 claim that every socket syscall is denied. Normal-path cleanup and an
 independent generic residue scan passed. Production remains unavailable.
 
+Protocol version 5 adds a separately authorized, test-only helper lifecycle
+proof around that same composition. A finite 4-byte-length-prefixed strict
+UTF-8 JSON protocol uses one fresh helper and private Job per scenario, no
+ambient environment, and exactly four explicitly inherited helper handles.
+Normal lifecycle, client disconnect before target creation, and actual helper
+termination after setup, while the target was suspended, while running after
+READY, and after target exit all passed. The surviving controller used only
+exact helper/Job handles and token-derived recovery state; every Job drained,
+no descendant survived, and every per-scenario, post-recovery, final, and
+external residue scan was zero. Three earlier failed development attempts and
+their successful bounded recovery remain recorded. Cumulative use was 9 fresh
+profiles, 9 helpers, 7 AppContainer fixtures, and 2 ordinary fixture controls
+(18 total helper/fixture processes), within the authorized 10/10/20 caps. This
+is evidence tooling, not a production helper or corpus result.
+
 The only candidate production network shape is deny-all with no AppContainer
 network capability, proxy, allowlist, or loopback exemption. Controlled
 service egress remains a separate unavailable boundary. All quota dimensions
@@ -253,17 +268,19 @@ rejects a different version, fingerprint, or platform count.
 
 | Platform | Shipped status | Actual escape tests | Native artifact | What remains |
 | --- | --- | ---: | --- | --- |
-| Windows 11 10.0.26200 x64 | unavailable | 0 | bounded profile, suspended-process, and structured boundary evidence tooling only; no production helper | implement/package the helper, prove crash/quota/general filesystem-network-IPC boundaries, then run all 40 positive-control vectors |
+| Windows 11 10.0.26200 x64 | unavailable | 0 | bounded profile, suspended-process, structured-boundary, and test-helper lifecycle/crash evidence tooling only; no production helper | design/package an immutable production helper, prove quota/general filesystem-network-IPC-production-crash boundaries, then run all 40 positive-control vectors |
 | Linux | unavailable/unverified | 0 | none | actual host, namespace/cgroup implementation and positive-control corpus |
 | macOS | unavailable/unverified | 0 | none | actual host, supported documented containment foundation and positive-control corpus |
 
 There is no production native helper to install or remove, no postinstall
 hook, and no runtime download. The evidence tool builds with the already
-installed .NET 9 SDK and produces a framework-dependent DLL with no apphost;
-it is not a shipped runtime prerequisite. The explicitly authorized profile,
-synthetic-process, and structured-boundary host-state resources were
-completely removed. No privileged operation, firewall/loopback/proxy change,
-virtualization
+installed .NET 9 SDK and now produces a framework-dependent apphost plus its
+managed payload solely so the controller can create an exact helper image; the
+self-contained fixture is likewise evidence-only. Neither is a shipped runtime
+prerequisite or npm entry. The explicitly authorized profile,
+synthetic-process, structured-boundary, and helper-lifecycle host-state
+resources were completely removed. No privileged operation,
+firewall/loopback/proxy change, virtualization
 enablement, signing, or external infrastructure change was performed.
 Recovery from a containment or cleanup failure is fail-closed: quarantine the
 backend registration, confirm task-owned resources are gone, then obtain fresh

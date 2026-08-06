@@ -1,6 +1,7 @@
 # ADR 0015: Stage 17 Windows native enforcement feasibility
 
-Status: Accepted for an honest Windows gated checkpoint with bounded profile, synthetic-process, and structured-boundary proofs
+Status: Accepted for an honest Windows gated checkpoint with bounded profile,
+synthetic-process, structured-boundary, and test-helper lifecycle/crash proofs
 Date: 2026-08-06
 
 ## Decision
@@ -27,14 +28,26 @@ result is deliberately recorded as bounded transfer denial rather than a
 blanket socket-syscall denial. Normal cleanup and a generic residue scan
 passed.
 
+A fourth explicitly authorized protocol-v5 command placed the same reviewed
+composition behind a finite, framed, body-free, shell-free test helper. One
+normal lifecycle, client disconnect before target creation, and helper
+termination after setup, while suspended, while running after READY, and after
+target exit all passed. The surviving controller terminated only exact handles,
+drained its private Job to zero active processes, performed token-bound
+supervised recovery for the four helper terminations, and observed zero residue
+after every scenario. Three earlier implementation attempts remain recorded as
+failed even though their exact emergency recovery and later scans succeeded.
+This proves only the bounded test ownership/recovery design on one host; it is
+not a production helper or production crash-cleanup result.
+
 The preferred implementation direction is the documented public Win32
 composition using an AppContainer or LPAC identity, a task-owned filesystem
 staging root, and creation-time Job Object assignment through one
 `STARTUPINFOEX` attribute list. Bounded instances of that composition are now
 observed, including the narrow filesystem, loopback-transfer, and
-process-count slices above, but general filesystem/network denial, executable
-immutability, quotas, crash recovery, packaging, and the native corpus remain
-unproved. The
+process-count and test-helper lifecycle slices above, but general
+filesystem/network denial, executable immutability, quotas, production crash
+recovery, packaging, and the native corpus remain unproved. The
 experimental `processmodel.dll` API is rejected for implementation
 at this checkpoint because its exact required FlatBuffer schema layout is not
 available from an installed or published authoritative Microsoft artifact.
@@ -46,11 +59,12 @@ System32 DLL paths, checks documented export names, hashes
 and emits a finite body-free result. Its ordinary probe and self-test never
 invoke a mutating export. Its original separately authorized protocol-v2
 lifecycle command invoked only profile create/derive/folder/delete and
-task-owned ACL operations. Protocol version 4 retains that command and the
-synthetic process command, and adds the separately authorized structured
-boundary command described above. The tool
-is deliberately not a sandbox helper and always reports the production
-composition unavailable.
+task-owned ACL operations. Protocol version 5 retains that command, the
+synthetic process command, and the structured boundary command and adds the
+separately authorized test-helper lifecycle command described above. The same
+program may act as the helper only inside that bounded proof; it is deliberately
+not a shipped sandbox helper and always reports the production composition
+unavailable.
 
 ## Observed host and evidence boundary
 
@@ -184,6 +198,13 @@ synthetic command separately proved one process identity and creation-time Job
 membership instance. Neither proves filesystem denial, network denial, quotas,
 crash cleanup, or any escape-corpus vector.
 
+The later protocol-v5 helper proof does not rewrite that historical result. It
+created a fresh profile per scenario and separately proved bounded helper-owned
+normal/disconnect cleanup plus controller-owned recovery after four actual
+helper terminations. All retained and development-attempt profile, folder,
+mapping, and storage records were absent after recovery. This remains test-only
+feasibility rather than a production lifecycle claim.
+
 ### Race-free Job ownership and handles
 
 The candidate would create a private Job Object before process creation, set
@@ -196,8 +217,11 @@ in one list, created the target suspended, and observed the expected
 AppContainer token, zero capabilities, and exactly one private-Job process
 before `ResumeThread` returned a previous suspend count of one. The Job used
 kill-on-close plus an active-process limit of one and omitted both breakaway
-flags. This proves the narrow API composition on one host, not helper crash
-semantics or adversarial rapid-spawn behavior.
+flags. That historical command proved the narrow API composition on one host,
+not helper crash semantics or adversarial rapid-spawn behavior. The later
+protocol-v5 proof reused the composition behind a fresh helper per scenario and
+observed zero active Job processes after each controlled interruption; it still
+did not exercise rapid-spawn corpus behavior.
 
 Only explicitly duplicated stdin/stdout/stderr pipe handles would be eligible
 for inheritance. Broker/helper tokens, Job handles, files, sockets, registry
@@ -216,9 +240,15 @@ revalidate immediately before structured native creation. Exact semantics for
 locking the image against substitution remain part of the native design
 review; a same-user path hash alone is not promoted into enforcement.
 
-The helper would own every Job/profile/pipe/process/ACL handle. Protocol loss,
-helper or broker crash, unconfirmed empty-Job state, or incomplete profile/ACL
-removal would invalidate evidence and could not return success.
+The bounded proof assigns recovery authority to a surviving controller: it
+owns the exact unnamed Job, the exact helper process handle, the controller
+pipe ends, and the token-bound recovery manifest. The helper owns its profile,
+target process/thread/token, fixture-pipe, attribute-list, and normal cleanup
+handles. It receives only the request-read, response-write, duplicated private
+Job, and NUL standard-stream handles. Production must preserve an equivalent
+supervisory ownership invariant. Protocol loss, helper or broker crash,
+unconfirmed empty-Job state, or incomplete profile/ACL removal invalidates
+evidence and cannot return success.
 
 ## Quota matrix
 
@@ -238,21 +268,26 @@ remain unavailable until exact boundary and quota results exist.
 ## Helper protocol, build, and packaging
 
 The retained feasibility probe targets `net9.0-windows`, uses no NuGet
-dependency or apphost, enables nullable analysis, SDK analyzers, warnings as
-errors, checked arithmetic, and deterministic/CI build settings, and disables
-unsafe code and debug-symbol path material. Protocol version 4 has read-only
-`probe` and `self-test` commands plus the separately authorized
-`profile-lifecycle-proof`, `synthetic-process-proof`, and
-`structured-boundary-proof` commands; unknown commands and invalid shapes are
-stable refusals. The structured fixture is a separate offline-restored,
-self-contained, single-file `win-x64` evidence payload and is also excluded
-from the npm package.
+dependency, emits a framework-dependent apphost for exact helper creation,
+enables nullable analysis, SDK analyzers, warnings as errors, checked
+arithmetic, and deterministic/CI build settings, and disables unsafe code and
+debug-symbol path material. Protocol version 5 has read-only `probe` and
+`self-test` commands plus the separately authorized
+`profile-lifecycle-proof`, `synthetic-process-proof`,
+`structured-boundary-proof`, and `helper-lifecycle-crash-proof` commands;
+unknown commands and invalid shapes are stable refusals. The internal
+`helper-lifecycle-worker` accepts one maximum-4,096-byte length-prefixed strict
+UTF-8 JSON request on fresh anonymous pipes, recognizes only fixed scenarios
+and ordered checkpoints, and rejects malformed, duplicate, oversized,
+out-of-order, or unknown frames. The structured fixture is a separate
+offline-restored, self-contained, single-file `win-x64` evidence payload and
+is also excluded from the npm package.
 
-Two clean task-owned builds are required to have identical DLL, deps, and
-runtime-configuration manifests before their digest is recorded. This proves
-only the diagnostic payload's build determinism. The diagnostic source and
-payload are not included in the process-broker npm tarball and are never
-invoked by a platform factory.
+Two clean task-owned builds are required to have identical apphost, DLL, deps,
+runtime-configuration, and fixture payloads before their digests are recorded.
+This proves only the evidence payloads' build determinism. The diagnostic
+source and payloads are not included in the process-broker npm tarball and are
+never invoked by a platform factory.
 
 There is no production helper protocol, production payload, digest lookup,
 signing decision, or fresh installed-package native execution path. Those are
@@ -298,6 +333,13 @@ This checkpoint is falsified if any of the following occurs:
   marker, reports more than one total private-Job process, hides successful
   socket syscalls as denied, runs a public-network/provider/repository action,
   or leaves task/profile/registry residue;
+- the authorized helper-lifecycle command accepts an unframed, malformed,
+  oversized, duplicate, out-of-order, or unknown request/checkpoint; inherits
+  ambient environment or any handle outside its exact four-entry list;
+  terminates by name or PID; misses an expected phase; lets a pre-resume marker
+  appear; leaves a target/descendant or active Job process; requires ad-hoc
+  recovery; exceeds the 10-profile, 10-AppContainer-fixture, or 20-total-process
+  cap; or leaves any exact or generic measured residue;
 - an unknown command is accepted;
 - the TypeScript Windows factory reports available, secure-enforcing, or a
   non-unsupported quota;
@@ -314,7 +356,10 @@ Future enforcement claims require the actual helper/integration tests plus all
 - [Launch an AppContainer](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer)
 - [CreateAppContainerProfile](https://learn.microsoft.com/en-us/windows/win32/api/userenv/nf-userenv-createappcontainerprofile)
 - [DeleteAppContainerProfile](https://learn.microsoft.com/en-us/windows/win32/api/userenv/nf-userenv-deleteappcontainerprofile)
+- [GetAppContainerFolderPath](https://learn.microsoft.com/en-us/windows/win32/api/userenv/nf-userenv-getappcontainerfolderpath)
 - [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+- [TerminateJobObject](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-terminatejobobject)
+- [CreateProcessW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw)
 - [UpdateProcThreadAttribute](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)
 - [Networking basics](https://learn.microsoft.com/en-us/windows/uwp/networking/networking-basics)
 - [.NET single-file deployment](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)
@@ -327,11 +372,11 @@ checkpoint. Windows actual-native count remains 0/40, corpus positive controls
 remain unrun, production remains closed, Stage 17 remains gated, Stage 18
 remains blocked, and no Stage 17 tag or push is permitted.
 
-The structured boundary fixture described above completed that earlier
-bounded action. The smallest next action requires separate authorization: put
-the reviewed composition behind a finite test-only helper protocol, force
-client/helper failure at controlled lifecycle points, and independently prove
-Job/process/handle/staging/ACL/profile/registry cleanup. Production must remain
-unavailable until executable immutability, full filesystem/network/process-
-tree/credential/IPC/quota/crash cleanup, packaging, and all 40
+The helper lifecycle/crash proof described above completed that bounded next
+action. The smallest next action requiring separate authorization is a reviewed
+production-helper and installed-artifact design with immutable executable
+identity, packaging, update/removal semantics, and production supervisor
+recovery, followed by the full armed 40-vector Windows corpus. Production must
+remain unavailable until general filesystem/network/process-tree/credential/
+IPC/quota boundaries, production crash cleanup, packaging, and all 40
 Windows-applicable positive-control vectors pass.

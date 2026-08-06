@@ -262,6 +262,17 @@ the exact limits recorded in
 `stage-17-windows-structured-boundary-proof.md`; that result remains a bounded
 feasibility proof rather than production enforcement.
 
+## Follow-up: protocol-v5 helper lifecycle proof
+
+On 2026-08-06, a later separately authorized protocol-v5 proof placed the
+reviewed structured composition behind a finite test-only helper. Its normal,
+disconnect, and four exact-handle helper-termination scenarios all passed with
+zero per-scenario and final residue; see
+`stage-17-windows-helper-lifecycle-crash-proof.md`. This later result does not
+rewrite this historical protocol-v3 command or make it production/corpus
+enforcement. Windows remains unavailable and actual Windows corpus coverage
+remains 0/40.
+
 ## Official references
 
 - [Launch an AppContainer](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer)

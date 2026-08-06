@@ -267,6 +267,17 @@ run no provider or repository workload, ship no production registration, and
 leave the backend unavailable. Packaging, quotas, adversarial filesystem/IPC/
 credential work, and all 40 corpus vectors remain later blockers.
 
+## Follow-up: protocol-v5 helper lifecycle proof
+
+On 2026-08-06, a later separately authorized protocol-v5 proof completed the
+finite test-only helper action described above. Normal lifecycle, client
+disconnect, and four exact-handle helper-termination checkpoints passed with
+zero per-scenario and final residue; see
+`stage-17-windows-helper-lifecycle-crash-proof.md`. This follow-up does not
+change the historical protocol-v4 observations or turn this structured fixture
+into production/corpus enforcement. Windows remains unavailable and actual
+Windows corpus coverage remains 0/40.
+
 ## Official references
 
 - [Implementing an AppContainer](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer)
