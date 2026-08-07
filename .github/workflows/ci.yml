@@ -54,8 +54,8 @@ jobs:
   #      unconditionally even though the broker supplies a fresh session HOME on
   #      POSIX and USERPROFILE on Windows. The bounded repair asserts the actual
   #      platform value and removes ambient Windows HOMEDRIVE/HOMEPATH values that
-  #      Node otherwise adds during spawn. Exact hosted closure evidence is still
-  #      required before this item is called closed.
+  #      Node otherwise adds during spawn. Exact commit 6bd96c4 passed both hosted
+  #      checks and Windows coverage in run 31226295963; L-01 is closed.
   #   2. @ai-dev-os/workspace misses its coverage floors on Linux - 89.62% vs 90%
   #      statements, 79.77% vs 80% branches - because platform-specific branches
   #      are unreachable there.
@@ -66,10 +66,9 @@ jobs:
   # refused closed. L-03 is fixed by canonicalising both operands independently and
   # comparing path components; its focused regression remains in the Windows run.
   #
-  # The final L-03 run was visibly red on Ubuntu for exactly L-01. This repair
-  # branch must make both matrix legs green; a new red result is not expected or
-  # ignored. L-02 remains visible in the Windows coverage choice below. L-03 is
-  # not an expected failure on either platform.
+  # L-01 and L-03 are not expected failures on either matrix leg. L-02 remains
+  # visible in the Windows coverage choice below. A separate dependency audit may
+  # fail independently of these platform checks and is never hidden here.
   #
   # `continue-on-error` remains rejected: it would render genuine failures green and
   # hide the information the matrix exists to produce.

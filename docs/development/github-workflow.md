@@ -63,11 +63,11 @@ are handled rather than ignored:
 
 CI had never run on this repository before it was created, and the code had only
 ever been validated on Windows. The first runs found three defects across 32
-packages. L-01 is under bounded repair below, L-02 remains open and separately
-scoped, and L-03 is closed.
+packages. L-01 and L-03 are closed below; L-02 remains open and separately
+scoped.
 
-**L-01 — repair implemented; open pending exact GitHub-hosted POSIX and Windows
-evidence.**
+**L-01 — Fixed: the Claude child now receives only its broker-owned platform
+home.**
 `packages/provider-claude-code/test/security.test.ts` unconditionally asserted
 that the child environment did not contain `HOME`. The broker deliberately sets
 a broker-owned session home — `HOME` on POSIX, `USERPROFILE` on Windows — so the
@@ -93,8 +93,33 @@ The real fake CLI records only allowlisted bounded values and proves the selecte
 home exists empty under the expected session root, is neither equal to the root
 nor accepted through a sibling-prefix collision, is outside source/managed
 workspaces and the ambient profile, and is removed before settlement. Do not
-mark this defect closed until a run for the exact repair commit passes both
-hosted operating systems.
+mark this defect closed without a run for the exact repair commit on both hosted
+operating systems.
+
+Corrective commit
+[`6bd96c4005f24c575e5e4d849a9d5299e2901a08`](https://github.com/alijabbar04/ai-development-os/commit/6bd96c4005f24c575e5e4d849a9d5299e2901a08)
+was checked out by run
+[`31226295963`](https://github.com/alijabbar04/ai-development-os/actions/runs/31226295963).
+The
+[`Ubuntu check`](https://github.com/alijabbar04/ai-development-os/actions/runs/31226295963/job/93021175912)
+and
+[`Windows check`](https://github.com/alijabbar04/ai-development-os/actions/runs/31226295963/job/93021175888)
+both passed. On each host all 45 Claude security tests executed and passed. The
+process-broker suite passed on both; all 19 retained L-03 containment tests ran
+on Windows, while Ubuntu skipped only the physically unavailable Windows
+cross-volume vector. The
+[`coverage job`](https://github.com/alijabbar04/ai-development-os/actions/runs/31226295963/job/93021175898)
+also ran all 45 Claude security tests and all 19 containment tests on Windows.
+Process-broker coverage was 91.53% statements, 86.43% branches, 90.43%
+functions, and 92.54% lines; Claude-provider coverage was 90.70%, 83.81%,
+94.32%, and 90.72%. All floors remain unchanged.
+
+The workflow's overall conclusion is nevertheless failure because its
+[`dependency audit`](https://github.com/alijabbar04/ai-development-os/actions/runs/31226295963/job/93021175861)
+independently reported the newly published `GHSA-2v37-7h3g-55p8` against the
+unchanged transitive `nanoid@3.3.16` lock entry. That is a real, separately
+scoped dependency finding; no dependency was changed or audit result hidden in
+this bounded L-01 repair.
 
 **L-03 — Fixed: `process-broker` canonicalised one side of a containment
 comparison and not the other.**
@@ -220,10 +245,10 @@ runs on Windows, where the floors were measured. **Do not lower a threshold to
 close this.** The fix is to make those branches reachable on Linux or to make the
 floors platform-aware.
 
-The final L-03 run remains the pre-repair evidence: its Ubuntu job is red only at
-L-01. This branch is intended to remove that expected failure, so any red check
-on its exact head is a defect to investigate. L-02 remains open and explains the
-Windows placement of the separate coverage job; no threshold is lowered.
+L-01 and L-03 are not expected failures on either check platform. L-02 remains
+open and explains the Windows placement of the separate coverage job; no
+threshold is lowered. The independent dependency-audit finding above remains
+visible and requires its own bounded update.
 
 ## Standing policy for every future task
 
