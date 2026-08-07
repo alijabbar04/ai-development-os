@@ -13,7 +13,7 @@ this repository follows.
 | --- | --- |
 | Visibility | **private** |
 | Default branch | `main` |
-| Protected branches | `main` |
+| Protected branches | **none** — branch protection is unavailable on this plan, see below |
 | Release lineage | `v0.1.0` … `v0.16.0`, one tag per completed stage |
 | Current work | `feat/stage-17-secure-execution-backends` (gated, unmerged) |
 
@@ -44,6 +44,7 @@ you believe you have and do not is worse than a known gap.
 | Secret scanning | **Unavailable** — GitHub Advanced Security, not offered for this private repository's plan |
 | Push protection | **Unavailable** — same reason |
 | Private vulnerability reporting | **Unavailable** — API reports the feature absent |
+| Branch protection / rulesets | **Unavailable** — both refused with 403, see the section below |
 
 No other setting was weakened and visibility was **not** changed to obtain any of
 these. Two consequences follow and are handled rather than ignored:
@@ -101,8 +102,9 @@ is deliberately not a required check. It is left visible for exactly that reason
 2. Fetch remote metadata before changing anything. Work from what the remote
    actually says, not from what a previous session recorded.
 3. Work on a task-specific branch. **Never commit new task work directly to
-   `main`** — protection blocks it, and the block is the reminder, not the
-   mechanism you should be relying on.
+   `main`.** Nothing stops you: branch protection is unavailable on this plan, so
+   there is no block to catch a mistake here. This rule is load-bearing precisely
+   because it is unenforced.
 
 ### While making changes
 
@@ -188,23 +190,43 @@ the push. If a real secret is ever found in history, **stop** — do not rewrite
 history to remove it without separate authorization, and report the affected refs
 and commits without reproducing the value.
 
-## Branch protection
+## Branch protection: UNAVAILABLE, and what that actually means
 
-`main` is protected so that:
+**`main` is not protected, and it cannot be on this plan.** Both mechanisms were
+attempted and both were refused:
 
-- force pushes are blocked;
-- deletion is blocked;
-- a pull request is required before merging;
-- the CI checks must pass;
-- conversation resolution is required where supported;
-- ordinary collaborators cannot bypass it.
+| Mechanism | Result |
+| --- | --- |
+| Classic branch protection (`PUT /repos/…/branches/main/protection`) | **403** — "Upgrade to GitHub Pro or make this repository public" |
+| Repository ruleset (`POST /repos/…/rulesets`) | **403** — same message |
 
-The required-approval count is deliberately **not** set above zero. This is a
-single-maintainer repository, and a rule that makes every change unmergeable is a
-rule that gets switched off. Review still happens — by independent audit sessions
-and by the evidence discipline in `CONTRIBUTING.md` — and that is recorded here so
-the absence of a required approver is understood as a deliberate choice rather
-than an oversight.
+Making the repository public would obtain both. **That is refused**, and the
+refusal is the point: a private repository whose protection was purchased by
+publishing its contents has not been protected, it has been exposed. No other
+setting was weakened to compensate either.
+
+So the following are, on this plan, **conventions rather than enforced
+controls**, and nothing server-side stops the maintainer from doing any of them:
+
+- not force-pushing;
+- not deleting `main`;
+- not committing task work directly to `main`;
+- not merging without CI passing.
+
+Stated plainly because a control you believe you have and do not is worse than a
+known gap: **the standing policy below is the only mechanism.** Every rule in it
+that would otherwise be enforced by protection is now enforced by whoever is
+following it. That is a real weakness, it is recorded here rather than glossed,
+and it is the strongest argument in this repository for either a Pro plan or a
+deliberate decision to accept the risk.
+
+The intended configuration, for whenever protection becomes available, is:
+blocked force pushes, blocked deletion, pull request required, the required checks
+in the CI section below, and conversation resolution required. The
+required-approval count is deliberately **zero**: this is a single-maintainer
+repository, and a rule that makes every change unmergeable is a rule that gets
+switched off. Review still happens, by independent audit sessions and by the
+evidence discipline in `CONTRIBUTING.md`.
 
 ## CI
 
