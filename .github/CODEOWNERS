@@ -1,0 +1,21 @@
+# Every path in this repository is owned by the sole maintainer.
+#
+# This is not aspirational: it is a single-maintainer project, and CODEOWNERS is
+# here so that if collaborators are ever added, review routing already exists and
+# nothing lands in a security-relevant area unnoticed by default.
+#
+# Branch protection deliberately does NOT require an approval count (see
+# docs/development/github-workflow.md for why), so this file assigns a reviewer
+# rather than gating a merge.
+
+* @alijabbar04
+
+# Security boundaries and the decisions that define them. Called out separately so
+# that a future reviewer configuration cannot widen who approves these without
+# editing this file.
+/docs/adr/                              @alijabbar04
+/packages/process-broker/               @alijabbar04
+/packages/policy/                       @alijabbar04
+/packages/secrets/                      @alijabbar04
+/.github/                               @alijabbar04
+/SECURITY.md                            @alijabbar04

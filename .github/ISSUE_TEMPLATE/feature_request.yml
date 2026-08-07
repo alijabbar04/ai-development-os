@@ -1,0 +1,56 @@
+name: Feature request
+description: Propose a capability or a change in direction
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is delivered in discrete reviewed stages, and the order is
+        deliberate: each stage's evidence is what makes the next one safe to
+        attempt. Requests that fit the existing sequence are much more likely to
+        be accepted than requests that skip ahead.
+
+        [`docs/implementation-roadmap.md`](../blob/main/docs/implementation-roadmap.md)
+        records what is planned and in what order.
+
+        One thing that will not be accepted: **enabling autonomous execution in
+        production without a genuinely enforcing sandbox backend.** That refusal
+        is the point of the current design, not an unfinished edge.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you unable to do? Describe the situation rather than the
+        solution — the useful design is often not the one first proposed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Optional. If you have one in mind, describe it.
+
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Does this change a security boundary?
+      description: >
+        Does it change what is trusted, where authority comes from, what may
+        execute, what a refusal depends on, or what is exposed? If yes, say how.
+        A change that moves a boundary needs an ADR, so establishing this up front
+        saves a round trip.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints this respects
+      options:
+        - label: It does not require weakening a production refusal gate
+        - label: It does not require a live provider call in ordinary tests
+        - label: It does not require committing a credential or a generated artifact
+        - label: I am not sure — please advise

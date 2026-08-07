@@ -8,31 +8,145 @@ Stage 15 keeps every retrieved context body in the untrusted user layer, compile
 
 Stage 16 turns declared, measured, inferred, and optional classifier facts into an immutable task profile, binds exact or conservative token estimates to an opaque provider/profile/model/catalog identity, and selects only among candidates that pass every policy, capability, context, freshness, quota, capacity, circuit, security, cost, budget, latency, and deadline constraint. Scoring cannot revive an excluded candidate. Route, fallback, circuit, reservation, and reconciliation outputs are deterministic plans with no invocation or durable-mutation authority.
 
+## Status
+
+[![CI](https://github.com/alijabbar04/ai-development-os/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/alijabbar04/ai-development-os/actions/workflows/ci.yml)
+
+| Fact | State |
+| --- | --- |
+| Latest completed release | **`v0.16.0-quota-aware-routing`** |
+| Stages 0 – 16 | **Complete**, one tag per stage |
+| Stage 17 (secure execution backends) | **Gated and unmerged**, on `feat/stage-17-secure-execution-backends` |
+| Stage 18 | **Blocked** on Stage 17 |
+| Production autonomous execution | **Refuses** |
+| Maturity | Pre-1.0. Nothing is published to any registry. |
+
+**This is not production software and does not claim to be.** The version tags
+mark completed development stages for provenance; they are not maintained
+releases and receive no backports.
+
+Three things are stated plainly because they are easy to assume the other way:
+
+- **Autonomous execution refuses in production, by design.** No built-in sandbox
+  backend is classified as genuinely enforcing. See the last section of this file.
+- **Stage 17 is a gated checkpoint, not a released stage.** No native Windows,
+  Linux, or macOS enforcement backend has been proven, the Stage 17 native
+  marshalling layer has never executed, the Windows escape corpus is unrun, and no
+  `v0.17` tag exists. **Windows containment is not claimed.**
+- **Stage 18 has not started.** It is blocked on Stage 17 evidence that does not
+  yet exist.
+
 ## Documents
 
-- [Technical design](docs/technical-design.md)
-- [Implementation roadmap](docs/implementation-roadmap.md)
+- [Technical design](docs/technical-design.md) — architecture and boundaries
+- [Implementation roadmap](docs/implementation-roadmap.md) — what is delivered, in
+  progress, and deliberately not started
+- [Architecture decision records](docs/adr/) — why each boundary is where it is,
+  and what each decision does **not** authorize
 - [Stage 8 completion report](docs/stage-8-completion.md)
+- [Contributing](CONTRIBUTING.md) — including the testing standards, which are
+  stricter than most projects' and are explained
+- [GitHub workflow policy](docs/development/github-workflow.md)
+- [Security policy](SECURITY.md) · [Support](SUPPORT.md) ·
+  [Code of conduct](CODE_OF_CONDUCT.md)
+
+Stage-17 release evidence lives on the Stage 17 branch under
+`docs/release-evidence/`, not here, because this branch deliberately carries no
+Stage 17 code.
 
 ## Requirements
 
-- Node.js 22 or newer
+- Node.js 22 or newer (CI runs Node 24)
 - npm 10 or newer
 
 ## Commands
 
+Every command below was run against this repository.
+
 ```powershell
-npm install
-npm run check
+npm ci             # lockfile-exact install
+npm run check      # typecheck, then tests, then build, across all 32 packages
 ```
 
-## Workspace layout
+`npm run check` takes roughly 20 to 45 minutes depending on machine load. The individual gates:
+
+```powershell
+npm run typecheck
+npm test
+npm run build
+npm run test:coverage     # per-package coverage; floors are enforced
+npm audit --audit-level=high
+```
+
+Scoped to one package:
+
+```powershell
+npm test --workspace @ai-dev-os/router
+npm run test:coverage --workspace @ai-dev-os/process-broker
+```
+
+Use plain `npm ci`. Exactly one dependency lifecycle script runs on install —
+`better-sqlite3`'s `install` hook, which fetches a prebuilt native binding and is
+required by `@ai-dev-os/persistence-sqlite`. No first-party package declares an
+install hook. `npm ci --ignore-scripts` works for anything that does not need that
+binding, including typecheck, build, and `npm audit`, and CI uses it for the audit
+job. [CONTRIBUTING.md](CONTRIBUTING.md) records the full audit.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pushes to
+maintained branches and on pull requests targeting `main`:
+
+| Job | Platform | Runs |
+| --- | --- | --- |
+| `check` | Ubuntu **and** Windows | `npm ci`, `npm run check` |
+| `dependency audit` | Ubuntu | `npm ci --ignore-scripts`, `npm audit --audit-level=high` |
+| `coverage` | Ubuntu | `npm run test:coverage`, uploads reports |
+
+Every action is pinned to a full commit SHA, because a tag is a mutable pointer.
+Top-level permissions are `contents: read`, and pull-request code never runs with
+a writable token.
+
+CI deliberately performs no elevation, no writes to protected locations, no
+AppContainer or Job object creation, no proof-mode native build or execution, no
+live provider calls, and no publication, and it configures no secrets. The native
+components are built and self-tested only by the local packaging script under
+explicit human operation.
+
+## Repository layout
 
 ```text
-apps/                  Deployable daemon and desktop applications
-packages/              Domain, application, and adapter modules
-docs/                  Architecture, decisions, and delivery roadmap
+packages/              32 domain, application, and adapter modules
+docs/adr/              Architecture decision records
+docs/development/      Contributor and GitHub workflow policy
+.github/workflows/     CI
 ```
+
+`packages/` is a single npm workspace. Internal dependencies are declared
+explicitly with no dependency cycle. Nothing is published to a registry.
+
+## Provider-neutral model configuration
+
+Provider and model identifiers are **opaque configuration**, not names the code
+reasons about. The router can select any configured eligible inference target
+without name heuristics and with no built-in commercial preference, and usage and
+reset facts come only from normalized authorized observations rather than guessed
+provider policy.
+
+Credentials are never stored in this repository. They are resolved at runtime by
+reference through the scoped-secret broker in `packages/secrets`. Live provider
+calls are explicit opt-in operations behind policy and scoped-secret boundaries,
+and are skipped by default in tests.
+
+## Security
+
+Report vulnerabilities **privately** — see [SECURITY.md](SECURITY.md). Do not open
+a public issue for a vulnerability.
+
+Before reporting, note that this project records its own limitations in detail. A
+report that a documented, gated limitation exists is not a vulnerability report. A
+report that one of the **gates does not actually hold** is exactly what would be
+most valuable.
 
 ## Stage 15 packages
 
