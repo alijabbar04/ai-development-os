@@ -49,16 +49,24 @@ using `pinnedLeadingArguments`.
 
 A `TrustedToolDescriptor` names an absolute path — never a `PATH` lookup — with
 an optional expected digest, containment root, and platform. Before every
-spawn the broker resolves the path, refuses link and reparse indirection,
-checks the file type, verifies the digest, and binds the normalized executable
-and argument digest into the policy subject.
+spawn the broker resolves the path, enforces the descriptor's executable-link
+policy, checks the file type, verifies the digest, and binds the normalized
+executable and argument digest into the policy subject.
 
-**Honest limitation.** On a same-user backend the digest check is
-time-of-check/time-of-use only. A process running as the same user can replace
-the image between verification and execution. The check raises the cost of
-substitution and produces audit evidence; it is not a boundary. A secure
-backend supplies an immutable mount or backend tool reference, and *that* is
-the enforcing mechanism.
+When a containment root is present, the broker canonicalizes the executable and
+root independently and performs a path-component-aware comparison. The root must
+resolve to an ordinary directory; a missing or unreadable root is
+`EXECUTABLE_UNAVAILABLE`, while a non-directory or linked root is
+`EXECUTABLE_UNSAFE`. `allowLinkIndirection` applies only to the executable and
+never permits a symlink or junction as the containment-root entry. An executable
+link target must still remain inside the canonical root.
+
+**Honest limitation.** On a same-user backend the filesystem and digest checks
+are time-of-check/time-of-use only. A process running as the same user can replace
+the image or path objects between verification and execution. The checks raise
+the cost of substitution and produce audit evidence; they are not a boundary. A
+secure backend supplies an immutable mount or backend tool reference, and *that*
+is the enforcing mechanism.
 
 ## Quotas
 

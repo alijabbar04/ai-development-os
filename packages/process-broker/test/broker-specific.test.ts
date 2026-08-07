@@ -199,7 +199,7 @@ describe("executable identity", () => {
     });
   });
 
-  it("refuses a tool outside its containment root", async () => {
+  it("refuses a missing containment root as unavailable", async () => {
     const root = await scratchRoot();
     const descriptor = createTrustedToolDescriptor({
       toolId: "contained",
@@ -209,7 +209,9 @@ describe("executable identity", () => {
       trustSource: "operator-pinned",
       containmentRoot: join(root, "nowhere"),
     });
-    await expect(resolveTrustedTool(descriptor)).rejects.toMatchObject({ code: "EXECUTABLE_UNSAFE" });
+    await expect(resolveTrustedTool(descriptor)).rejects.toMatchObject({
+      code: "EXECUTABLE_UNAVAILABLE",
+    });
   });
 
   it("refuses a missing tool without leaking the path", async () => {
