@@ -50,8 +50,14 @@ for exactly that reason. It will fail `packages/persistence-sqlite` tests.
 
 ## Branch naming
 
-Never commit task work directly to `main`. `main` is protected and represents the
-latest completed release lineage.
+Never commit task work directly to `main`. `main` represents the latest completed
+release lineage plus repository governance.
+
+Note that **nothing enforces this**: branch protection and rulesets are both
+unavailable for a private repository on this plan, and making the repository
+public to obtain them was refused. See
+[`docs/development/github-workflow.md`](docs/development/github-workflow.md). The
+rule matters more for being unenforced, not less.
 
 | Prefix | For |
 | --- | --- |
