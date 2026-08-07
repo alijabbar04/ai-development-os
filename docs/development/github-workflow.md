@@ -83,6 +83,39 @@ present, its value is the workspace-scoped path and not the ambient one. That is
 **stronger** test than the current one, which today catches an ambient-home leak
 on neither platform. Do not simply delete `HOME` from the forbidden list.
 
+**L-03 — `process-broker` canonicalises one side of a containment comparison and
+not the other. Fails on the Windows runner, so this is not a Linux-only issue.**
+
+`packages/process-broker/src/tool.ts:333-352` compares a resolved tool image
+against its containment root:
+
+```ts
+resolved = await realpath(descriptor.executablePath);   // canonicalised
+const root = descriptor.containmentRoot;               // NOT canonicalised
+if (resolved !== root && !resolved.startsWith(root.endsWith(sep) ? root : root + sep)) { … }
+```
+
+The executable goes through `realpath`; the root does not. Two paths that name the
+same directory therefore fail to compare equal whenever the root as supplied is
+not already in its canonical on-disk form. Two tests in
+`packages/process-broker/test/edges.test.ts` — "verifies a matching digest and
+accepts the tool" and "accepts a tool inside its containment root" — fail with
+`EXECUTABLE_UNSAFE` on `windows-latest` and pass on the maintainer's Windows
+machine, where `%TEMP%` already happens to be canonical.
+
+The failure direction is **closed**: a legitimate tool is refused, not an illegitimate
+one admitted. So this is a portability and robustness defect rather than an escape.
+It still matters, for two reasons. The broker is unusable anywhere the temporary
+directory is not already canonical. And an asymmetric comparison is the same shape
+as Stage 17's F-01 — two values that are meant to correspond, where one is
+normalised and the other is not — which failed open there.
+
+The fix is to canonicalise **both** sides before comparing, with a deliberate
+decision about what a `realpath` failure on the root should mean (it should be a
+refusal, not a silent skip of the check). The exact environmental trigger on the
+runner was not established read-only; the asymmetry is sufficient to explain it and
+is the thing to fix regardless.
+
 **L-02 — `@ai-dev-os/workspace` misses its coverage floors on Linux.**
 89.62% statements against a 90% floor, and 79.77% branches against 80%, because
 platform-specific branches are unreachable on Linux. The coverage job therefore
