@@ -63,24 +63,18 @@ jobs:
   #      statements, 79.77% vs 80% branches - because platform-specific branches
   #      are unreachable there.
   #
-  # And the Windows leg is red too, for a THIRD defect that has nothing to do with
-  # Linux. process-broker's containment check canonicalises the tool path through
-  # realpath but compares it against a containment root it never canonicalises, so
-  # two tests fail on windows-latest and pass on the maintainer's machine, where
-  # %TEMP% already happens to be canonical. Recorded as L-03. It fails closed - a
-  # legitimate tool is refused - so it is a portability defect rather than an
-  # escape, but the asymmetry is the same shape as Stage 17's F-01 and is worth
-  # fixing on that basis alone.
+  # The first Windows leg also found L-03: process-broker canonicalised a tool path
+  # but compared it with a lexical containment root. Windows hosted runners spell
+  # the temporary user directory through an 8.3 alias, so two legitimate tools were
+  # refused closed. L-03 is fixed by canonicalising both operands independently and
+  # comparing path components; its focused regression remains in the Windows run.
   #
-  # So: CI is currently red on both platforms, for three distinct, genuine, and
-  # previously invisible defects. That is the CI doing its job on a repository that
-  # had never had any. None is fixed here. Each touches a security boundary or a
-  # security test in a package outside this change's scope, none can be validated
-  # locally on the platform that fails, and each belongs on its own branch behind a
-  # pull request.
+  # Ubuntu therefore remains visibly red for exactly L-01. L-02 remains visible in
+  # the Windows coverage choice below. L-03 is not an expected failure on either
+  # platform.
   #
-  # `continue-on-error` was considered and rejected for all of them: it would render
-  # the jobs green and hide the very information they exist to produce.
+  # `continue-on-error` remains rejected: it would render genuine failures green and
+  # hide the information the matrix exists to produce.
   check:
     name: check (${{ matrix.os }})
     strategy:

@@ -54,14 +54,11 @@ these. Two consequences follow and are handled rather than ignored:
 - Because no server-side secret scanning exists, the local pre-push scan below is
   not a belt-and-braces extra. It is the only secret scanning this repository has.
 
-## Known open defects that CI surfaced
+## Defects that CI surfaced
 
 CI had never run on this repository before it was created, and the code had only
-ever been validated on Windows. The first Linux run found exactly two defects
-across 32 packages. Both are recorded here rather than fixed, and the reason is
-scope rather than convenience: each touches a package outside the change that
-enabled CI, neither can be validated locally on the platform that fails, and a fix
-belongs on its own branch behind a pull request.
+ever been validated on Windows. The first runs found three defects across 32
+packages. L-01 and L-02 remain open and separately scoped. L-03 is closed below.
 
 **L-01 — `provider-claude-code` asserts the wrong property, and passes on Windows
 by accident.**
@@ -83,8 +80,8 @@ present, its value is the workspace-scoped path and not the ambient one. That is
 **stronger** test than the current one, which today catches an ambient-home leak
 on neither platform. Do not simply delete `HOME` from the forbidden list.
 
-**L-03 — `process-broker` canonicalises one side of a containment comparison and
-not the other. Fails on the Windows runner, so this is not a Linux-only issue.**
+**L-03 — Fixed: `process-broker` canonicalised one side of a containment
+comparison and not the other.**
 
 `packages/process-broker/src/tool.ts:333-352` compares a resolved tool image
 against its containment root:
@@ -95,26 +92,57 @@ const root = descriptor.containmentRoot;               // NOT canonicalised
 if (resolved !== root && !resolved.startsWith(root.endsWith(sep) ? root : root + sep)) { … }
 ```
 
-The executable goes through `realpath`; the root does not. Two paths that name the
-same directory therefore fail to compare equal whenever the root as supplied is
+The executable went through `realpath`; the root did not. Two paths that named the
+same directory therefore failed to compare equal whenever the root as supplied was
 not already in its canonical on-disk form. Two tests in
 `packages/process-broker/test/edges.test.ts` — "verifies a matching digest and
-accepts the tool" and "accepts a tool inside its containment root" — fail with
-`EXECUTABLE_UNSAFE` on `windows-latest` and pass on the maintainer's Windows
-machine, where `%TEMP%` already happens to be canonical.
+accepts the tool" and "accepts a tool inside its containment root" — expected a
+resolved tool but actually received `EXECUTABLE_UNSAFE` in both the `check
+(windows-latest)` and `coverage` jobs for main run `31175235796` and Stage 17 run
+`31175253557`. Both used Actions runner `2.336.0`, Windows Server 2025 image
+`20260803.193.1`, and Node `24.18.1`.
 
-The failure direction is **closed**: a legitimate tool is refused, not an illegitimate
-one admitted. So this is a portability and robustness defect rather than an escape.
-It still matters, for two reasons. The broker is unusable anywhere the temporary
-directory is not already canonical. And an asymmetric comparison is the same shape
-as Stage 17's F-01 — two values that are meant to correspond, where one is
-normalised and the other is not — which failed open there.
+The errors correctly serialized no operands. The sanitized spelling difference is
+the hosted runner's 8.3 temporary-user alias:
 
-The fix is to canonicalise **both** sides before comparing, with a deliberate
-decision about what a `realpath` failure on the root should mean (it should be a
-refusal, not a silent skip of the check). The exact environmental trigger on the
-runner was not established read-only; the asymmetry is sufficient to explain it and
-is the thing to fix regardless.
+```text
+lexical root:    C:\Users\RUNNER~1\AppData\Local\Temp\<task-leaf>
+canonical image: C:\Users\runneradmin\AppData\Local\Temp\<task-leaf>\<tool>
+```
+
+This is long/short-name canonicalization, not a casing-only difference and not
+junction resolution. The regression suite also supplies its own case-variant root,
+so it deterministically distinguishes the fix even on a Windows machine whose
+ambient temporary path is already canonical.
+
+The failure direction was **closed**: a legitimate tool was refused, not an
+illegitimate one admitted. It was therefore a portability and robustness defect,
+not an escape. The asymmetry nevertheless had the same shape as Stage 17's F-01 —
+two values meant to correspond, where only one was normalized.
+
+The fix canonicalizes the executable and containment root independently at the
+live resolution boundary, refuses either resolution failure, and uses
+`relative()` with component-aware `..`, absolute-result, and equality checks.
+Missing or unreadable roots use the existing `EXECUTABLE_UNAVAILABLE` public code;
+an existing non-directory root is `EXECUTABLE_UNSAFE`. Equality is refused because
+the descriptor contract requires a directory root and a file executable.
+
+The root entry itself must be an ordinary directory. A root symlink or junction is
+refused even when `allowLinkIndirection` permits deliberate executable indirection;
+that flag does not expand the descriptor's boundary authority. Executable links
+remain governed by the existing flag, and their canonical target must still be a
+descendant. The same-user path and digest checks retain their documented TOCTOU
+limitation: without an immutable backend reference, another same-user process can
+replace filesystem objects between verification and image load.
+
+Two isolated built-output mutants distinguish the regressions. Mutant A replaced
+the component comparison with the original lexical-root/string-prefix comparison:
+the fixed build accepted a case-variant Windows root naming the same hierarchy,
+while the mutant refused it with `EXECUTABLE_UNSAFE`. Mutant B retained both
+canonicalizations but bypassed the containment predicate: the fixed build refused
+an existing outside-root tool with `EXECUTABLE_UNSAFE`, while the mutant accepted
+it. Neither mutant modified the authoritative worktree, and all task-owned mutant
+and filesystem-test leaves were removed after the proof.
 
 **L-02 — `@ai-dev-os/workspace` misses its coverage floors on Linux.**
 89.62% statements against a 90% floor, and 79.77% branches against 80%, because
