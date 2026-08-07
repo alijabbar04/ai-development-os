@@ -11,7 +11,7 @@ this repository follows.
 
 | Fact | Value |
 | --- | --- |
-| Visibility | **private** |
+| Visibility | **public temporarily** — operator-managed for GitHub-hosted L-03 CI; return to private is a separate action |
 | Default branch | `main` |
 | Protected branches | **none** — branch protection is unavailable on this plan, see below |
 | Release lineage | `v0.1.0` … `v0.16.0`, one tag per completed stage |
@@ -35,7 +35,9 @@ change reaches `main` without someone deciding it should.
 ## Security features: what this repository actually has
 
 Feature-detected against the API rather than assumed, because a security control
-you believe you have and do not is worse than a known gap.
+you believe you have and do not is worse than a known gap. The table below records
+the standing private-repository feature state; temporary public visibility for
+hosted L-03 validation does not turn public-plan features into durable controls.
 
 | Feature | State |
 | --- | --- |
@@ -46,8 +48,11 @@ you believe you have and do not is worse than a known gap.
 | Private vulnerability reporting | **Unavailable** — API reports the feature absent |
 | Branch protection / rulesets | **Unavailable** — both refused with 403, see the section below |
 
-No other setting was weakened and visibility was **not** changed to obtain any of
-these. Two consequences follow and are handled rather than ignored:
+The operator later made the repository public temporarily so standard
+GitHub-hosted runners could complete L-03 validation without paid private minutes.
+The L-03 task changed no visibility or repository setting and does not restore
+privacy; that remains a separate operator action. Two private-state consequences
+are handled rather than ignored:
 
 - Vulnerability reports come by email; `SECURITY.md` says so plainly instead of
   pointing at a button that does not exist.
@@ -143,6 +148,59 @@ canonicalizations but bypassed the containment predicate: the fixed build refuse
 an existing outside-root tool with `EXECUTABLE_UNSAFE`, while the mutant accepted
 it. Neither mutant modified the authoritative worktree, and all task-owned mutant
 and filesystem-test leaves were removed after the proof.
+
+**Hosted closure evidence.** The first executed rerun of the original fix was
+[`31182304551`, attempt 2](https://github.com/alijabbar04/ai-development-os/actions/runs/31182304551)
+at exact head `38d8b9fc350ea54e020572779e997ef224d0857e`. Its
+[`check (windows-latest)` job](https://github.com/alijabbar04/ai-development-os/actions/runs/31182304551/job/92896653467)
+and
+[`coverage` job](https://github.com/alijabbar04/ai-development-os/actions/runs/31182304551/job/92896653766)
+both failed at `tool-containment.test.ts:146` before the named casing vector called
+`resolveTrustedTool`. The fixture's lexical path combined the hosted runner's
+`RUNNER~1` ancestor with a deliberately case-varied leaf. The diagnostic helper
+returned one priority-ordered string, so it reported
+`8.3-short-name-to-long-name`; the brittle assertion required the whole pair to
+equal `casing-only`. Production containment did not refuse. The preceding ambient
+8.3 vector was accepted, and every later equality, traversal, sibling-prefix,
+outside-root, cross-volume, linked-root, and executable-escape vector executed and
+passed.
+
+Local validation missed the harness defect because the local temporary root was
+already canonical. Only the controlled casing difference remained, so the
+exclusive label happened to equal `casing-only`. Corrective commit
+`a6d1da73a7a7e9053a15628dfbc8652a9ea23088` replaced that enum-like label with
+independent, path-redacted characteristics, used a canonical ancestor for a true
+casing-only live vector, retained the live hosted 8.3 vector, and added a composed
+live vector plus positive and negative detector controls. Reintroducing the old
+exact-label assumption produced expected `casing-only`, actual
+`8.3-short-name-to-long-name`; the corrected combined detector recorded both
+`casing=true` and `8.3-short-name-to-long-name=true`.
+
+Corrective-code run
+[`31195723647`](https://github.com/alijabbar04/ai-development-os/actions/runs/31195723647)
+checked out that exact commit. The
+[`Windows check`](https://github.com/alijabbar04/ai-development-os/actions/runs/31195723647/job/92923330628)
+and
+[`coverage`](https://github.com/alijabbar04/ai-development-os/actions/runs/31195723647/job/92923330681)
+jobs both logged, without operands:
+
+```text
+ambient:    casing=false; 8.3-short-name-to-long-name=true
+casing-only: casing=true;  8.3-short-name-to-long-name=false
+combined:   casing=true;  8.3-short-name-to-long-name=true
+```
+
+All 19 Windows containment tests executed and passed in both jobs. Process-broker
+coverage was 91.56% statements, 86.74% branches, 90.32% functions, and 92.59%
+lines, above the unchanged 90/80/90/90 floors. The
+[`dependency audit`](https://github.com/alijabbar04/ai-development-os/actions/runs/31195723647/job/92923330664)
+found zero vulnerabilities. The only failure in the complete
+[`Ubuntu log`](https://github.com/alijabbar04/ai-development-os/actions/runs/31195723647/job/92923330597)
+was the separately tracked L-01 `provider-claude-code` assertion at
+`security.test.ts:628`, where `HOME` was present; process-broker passed there with
+only the physically unavailable Windows cross-volume vector skipped. The Node 20
+action-runtime deprecation annotation is a separate non-blocking maintenance item.
+No Stage 17 stateful operation was performed.
 
 **L-02 — `@ai-dev-os/workspace` misses its coverage floors on Linux.**
 89.62% statements against a 90% floor, and 79.77% branches against 80%, because
