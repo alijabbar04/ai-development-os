@@ -93,6 +93,31 @@ internal sealed class HostileConditions
     /// <summary>Report digests as not measured through the handle.</summary>
     internal bool MeasurementNotThroughHandle { get; set; }
 
+    /// <summary>
+    /// Make <c>RewindToStart</c> a successful no-op, so the handle keeps the
+    /// offset the previous read left it at.
+    ///
+    /// This models an adapter that does not reset the file position, which is
+    /// the defect an audit found in the real one: the transaction read a source
+    /// file to EOF and then measured it on the same handle, hashing zero bytes.
+    /// Injecting it here is what makes the transaction's rewind call load-bearing
+    /// — delete the call and the happy path breaks, which is the distinguishing
+    /// property a guard has to have.
+    /// </summary>
+    internal bool SkipRewind { get; set; }
+
+    /// <summary>
+    /// Fail the enumeration of the named component instead of listing it.
+    ///
+    /// Models <c>GetFileInformationByHandleEx</c> returning FALSE for a reason
+    /// other than end-of-enumeration. The adapter previously treated every
+    /// FALSE as the end, so a failed enumeration was indistinguishable from an
+    /// empty directory — which silently disabled the source extra-file scan, the
+    /// destination extra-entry scan, and removal's proof that a directory is
+    /// empty.
+    /// </summary>
+    internal string? EnumerationFailsAt { get; set; }
+
     /// <summary>Report a filesystem other than NTFS on the volume root.</summary>
     internal string FileSystemName { get; set; } = ProofConfiguration.RequiredFileSystemName;
 
@@ -141,8 +166,16 @@ internal sealed class HostileConditions
 /// NOTHING about whether the native adapter marshals those same requests
 /// correctly, because a simulation of a syscall is not the syscall. That half
 /// is discharged by review of the adapter and, eventually, by running it.
+///
+/// One consequence is worth naming, because ignoring it hid a defect. Anything
+/// the simulation does not model, no vector can see. The per-handle byte offset
+/// was previously not modelled, so an adapter that read a file to EOF and then
+/// "re-measured" it on the same handle — hashing zero bytes and digesting the
+/// empty string — passed every vector. The offset is modelled below for exactly
+/// that reason, and <see cref="HostileConditions.SkipRewind"/> injects the
+/// missing rewind so the guard's removal is observable.
 /// </summary>
-internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
+internal sealed class SimulatedFileSystem : HandleRelativeFileSystem
 {
     internal const string ProofIdentitySid = "S-1-5-21-1111111111-2222222222-3333333333-1001";
     internal const uint VolumeSerial = 0xA1B2C3D4;
@@ -151,9 +184,16 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
     private readonly HostileConditions hostile;
     private readonly List<CanonicalObject> log = [];
     private readonly Dictionary<long, SimulatedNode> byHandle = [];
+
+    /// <summary>
+    /// The byte offset of each open handle, which is per-HANDLE and not per
+    /// object: two handles on one file have two offsets. Modelled because the
+    /// requests this component issues all carry
+    /// <c>FILE_SYNCHRONOUS_IO_NONALERT</c>, so the kernel really does keep one.
+    /// </summary>
+    private readonly Dictionary<long, long> offsets = [];
     private readonly SimulatedNode volumeRoot;
     private readonly HashSet<string> swappedAlready = new(StringComparer.Ordinal);
-    private long nextOrdinal = 1;
     private long nextFileId = 0x1000;
 
     internal SimulatedFileSystem(HostileConditions? conditions)
@@ -200,7 +240,7 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
 
     internal SimulatedNode SourceRoot { get; }
 
-    internal IReadOnlyList<CanonicalObject> OperationLog => log;
+    public override IReadOnlyList<CanonicalObject> OperationLog => log;
 
     /// <summary>The canonical digest of every operation, in order.</summary>
     internal string OperationLogDigest()
@@ -279,14 +319,14 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
 
     // ------------------------------------------------------------- resolution
 
-    public Outcome<KnownFolderResolution> ResolveCommonApplicationData()
+    public override Outcome<KnownFolderResolution> ResolveCommonApplicationData()
     {
         Record("resolve-known-folder", new CanonicalObject().Set("api", "SHGetKnownFolderPath"));
         return Outcome<KnownFolderResolution>.Success(
             new KnownFolderResolution("C:\\ProgramData", Drive, ["ProgramData"]));
     }
 
-    public Outcome<ProofIdentity> ResolveProofIdentity()
+    public override Outcome<ProofIdentity> ResolveProofIdentity()
     {
         Record("resolve-proof-identity", new CanonicalObject().Set("api", "GetTokenInformation for TokenUser"));
         string sid = hostile.ProofIdentityIsWellKnown ? WellKnownSids.BuiltinUsers : ProofIdentitySid;
@@ -296,48 +336,45 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
 
     // ------------------------------------------------------------------ opens
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The OpenedObject is the RETURN VALUE; ownership transfers to the caller.")]
-    public Outcome<OpenedObject> OpenVolumeRoot(char driveLetter, HandleRelativeOpenRequest request)
+    protected override RefusalCode OpenVolumeRootCore(
+        char driveLetter,
+        HandleRelativeOpenRequest request,
+        long ordinal)
     {
-        ArgumentNullException.ThrowIfNull(request);
         Record("open-volume-root", request.ToCanonical());
         if (driveLetter != Drive)
         {
-            return Outcome<OpenedObject>.Refused(RefusalCode.VolumeRootUnopenable);
+            return RefusalCode.VolumeRootUnopenable;
         }
 
-        return Outcome<OpenedObject>.Success(Attach(volumeRoot, null, request, "C:\\"));
+        Register(ordinal, volumeRoot, request);
+        return RefusalCode.None;
     }
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The OpenedObject is the RETURN VALUE; ownership transfers to the caller.")]
-    public Outcome<OpenedObject> OpenRelative(OpenedObject parent, HandleRelativeOpenRequest request)
+    /// <summary>
+    /// Opens one component and says whether it worked. It is never asked what
+    /// the parent handle object was and never builds one: the shared base class
+    /// does that from the parent the CALLER named, which is why neither
+    /// implementation can be the one that loses the ancestor chain.
+    /// </summary>
+    protected override RefusalCode OpenRelativeCore(
+        OpenedObject parent,
+        HandleRelativeOpenRequest request,
+        long ordinal)
     {
-        ArgumentNullException.ThrowIfNull(parent);
-        ArgumentNullException.ThrowIfNull(request);
         Record("open-relative", request.ToCanonical());
 
-        // A request whose name is not a single component would mean the caller
-        // built a path and handed it to a "handle-relative" primitive, which is
-        // the defect this whole component exists to make impossible.
-        if (NameGrammar.Validate(request.Name) != RefusalCode.None)
+        // The base class has already enforced the name grammar and that the
+        // parent handle object is open. What is left is this implementation's own
+        // question: do WE still have a node registered against it?
+        if (!byHandle.TryGetValue(parent.Ordinal, out SimulatedNode? parentNode))
         {
-            return Outcome<OpenedObject>.Refused(RefusalCode.PathUsedWithoutHandle);
-        }
-
-        if (!parent.IsOpen || !byHandle.TryGetValue(parent.Ordinal, out SimulatedNode? parentNode))
-        {
-            return Outcome<OpenedObject>.Refused(RefusalCode.NativeInvalidHandle);
+            return RefusalCode.NativeInvalidHandle;
         }
 
         if (parentNode.Deleted)
         {
-            return Outcome<OpenedObject>.Refused(RefusalCode.NativeChangedUnderneath);
+            return RefusalCode.NativeChangedUnderneath;
         }
 
         MaybeCollide(parentNode, request);
@@ -347,7 +384,7 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
         {
             if (node is not null)
             {
-                return Outcome<OpenedObject>.Refused(RefusalCode.NativeAlreadyExists);
+                return RefusalCode.NativeAlreadyExists;
             }
 
             if (request.SecurityDescriptor is null)
@@ -355,8 +392,7 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
                 // Creating without a descriptor would produce an object with the
                 // creator's default DACL, to be repaired afterwards. ADR 0018
                 // section 2.1 forbids that: the repair window is the defect.
-                return Outcome<OpenedObject>.Refused(
-                    RefusalCode.SecurityDescriptorNotSuppliedAtCreation);
+                return RefusalCode.SecurityDescriptorNotSuppliedAtCreation;
             }
 
             bool directory = request.RequiresDirectory;
@@ -369,39 +405,40 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
             };
             parentNode.Children[request.Name] = created;
             MaybeExtraGrant(created);
-            return Outcome<OpenedObject>.Success(Attach(created, parent, request, request.Name));
+            Register(ordinal, created, request);
+            return RefusalCode.None;
         }
 
         if (node is null || node.Deleted)
         {
-            return Outcome<OpenedObject>.Refused(RefusalCode.NativeNotFound);
+            return RefusalCode.NativeNotFound;
         }
 
         if (node.IsReparsePoint && !request.InspectsLinkWithoutTraversing)
         {
             // OBJ_DONT_REPARSE: the open fails rather than being redirected.
-            return Outcome<OpenedObject>.Refused(
-                request.RefusesReparse
-                    ? RefusalCode.NativeReparsePointEncountered
-                    : RefusalCode.ComponentIsReparsePoint);
+            return request.RefusesReparse
+                ? RefusalCode.NativeReparsePointEncountered
+                : RefusalCode.ComponentIsReparsePoint;
         }
 
         if (request.RequiresDirectory && !node.IsDirectory)
         {
-            return Outcome<OpenedObject>.Refused(RefusalCode.ComponentNotDirectory);
+            return RefusalCode.ComponentNotDirectory;
         }
 
         if ((request.CreateOptions & NtFlags.FILE_NON_DIRECTORY_FILE) != 0 && node.IsDirectory)
         {
-            return Outcome<OpenedObject>.Refused(RefusalCode.ComponentNotDirectory);
+            return RefusalCode.ComponentNotDirectory;
         }
 
-        return Outcome<OpenedObject>.Success(Attach(node, parent, request, request.Name));
+        Register(ordinal, node, request);
+        return RefusalCode.None;
     }
 
     // ------------------------------------------------------------- inspection
 
-    public Outcome<ObjectFacts> QueryFacts(OpenedObject handle)
+    public override Outcome<ObjectFacts> QueryFacts(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("query-facts", new CanonicalObject()
@@ -423,7 +460,7 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
             node.Content.LongLength));
     }
 
-    public Outcome<SecuritySnapshot> QuerySecurity(OpenedObject handle)
+    public override Outcome<SecuritySnapshot> QuerySecurity(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("query-security", new CanonicalObject()
@@ -438,7 +475,7 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
             new SecuritySnapshot(node.OwnerSid, node.Control, true, node.Aces));
     }
 
-    public Outcome<AccessCheckResult> AccessCheckAsProofIdentity(OpenedObject handle)
+    public override Outcome<AccessCheckResult> AccessCheckAsProofIdentity(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("access-check", new CanonicalObject()
@@ -454,11 +491,11 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
         return Outcome<AccessCheckResult>.Success(new AccessCheckResult(granted, hostile.TokenKind));
     }
 
-    public Outcome<DirectoryListing> ListDirectory(OpenedObject handle)
+    public override Outcome<DirectoryListing> ListDirectory(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("list-directory", new CanonicalObject()
-            .Set("api", "GetFileInformationByHandleEx for FileIdBothDirectoryInfo")
+            .Set("api", "GetFileInformationByHandleEx for FileFullDirectoryInfo")
             .Set("component", handle.ComponentName));
         if (!handle.IsOpen || !byHandle.TryGetValue(handle.Ordinal, out SimulatedNode? node))
         {
@@ -468,6 +505,15 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
         if (!node.IsDirectory)
         {
             return Outcome<DirectoryListing>.Refused(RefusalCode.ComponentNotDirectory);
+        }
+
+        if (hostile.EnumerationFailsAt is string failing &&
+            string.Equals(failing, node.Name, StringComparison.Ordinal))
+        {
+            // An enumeration this component cannot complete is a REFUSAL, never
+            // an empty answer. Returning success-with-nothing here is what made
+            // three separate scans vacuous in the real adapter.
+            return Outcome<DirectoryListing>.Refused(RefusalCode.NativeUnexpectedFailure);
         }
 
         List<string> files = [];
@@ -499,24 +545,52 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
         return Outcome<DirectoryListing>.Success(new DirectoryListing(files, directories));
     }
 
-    public Outcome<FileMeasurement> MeasureFile(OpenedObject handle)
+    public override RefusalCode RewindToStart(OpenedObject handle)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        Record("rewind-to-start", new CanonicalObject()
+            .Set("api", "SetFilePointerEx to FILE_BEGIN")
+            .Set("component", handle.ComponentName));
+        if (!handle.IsOpen || !byHandle.ContainsKey(handle.Ordinal))
+        {
+            return RefusalCode.NativeInvalidHandle;
+        }
+
+        if (hostile.SkipRewind)
+        {
+            // Reports success and moves nothing, which is what an adapter that
+            // forgot to seek looks like from the caller's side.
+            return RefusalCode.None;
+        }
+
+        offsets[handle.Ordinal] = 0;
+        return RefusalCode.None;
+    }
+
+    public override Outcome<FileMeasurement> MeasureFile(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("measure-file", new CanonicalObject()
-            .Set("api", "ReadFile on the handle then SHA-256")
+            .Set("api", "ReadFile on the handle then SHA-256, cross-checked against the reported size")
             .Set("component", handle.ComponentName));
         if (!handle.IsOpen || !byHandle.TryGetValue(handle.Ordinal, out SimulatedNode? node))
         {
             return Outcome<FileMeasurement>.Refused(RefusalCode.NativeInvalidHandle);
         }
 
+        // Hashes from the handle's CURRENT offset, exactly as ReadFile does, and
+        // cross-checks the number of bytes hashed against the size the object
+        // reports. Measuring the whole node regardless of offset is what let the
+        // adapter's zero-byte measurement pass unnoticed.
+        byte[] measured = SliceFromOffset(handle.Ordinal, node);
         return Outcome<FileMeasurement>.Success(new FileMeasurement(
-            node.Content.LongLength,
-            ProofConfiguration.Sha256Hex(node.Content),
-            !hostile.MeasurementNotThroughHandle));
+            measured.LongLength,
+            ProofConfiguration.Sha256Hex(measured),
+            measured.LongLength == node.Content.LongLength &&
+                !hostile.MeasurementNotThroughHandle));
     }
 
-    public Outcome<byte[]> ReadThroughHandle(OpenedObject handle, int maximumBytes)
+    public override Outcome<byte[]> ReadThroughHandle(OpenedObject handle, int maximumBytes)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("read-through-handle", new CanonicalObject()
@@ -532,7 +606,7 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
             return Outcome<byte[]>.Refused(RefusalCode.SourceFileSizeMismatch);
         }
 
-        byte[] copy = (byte[])node.Content.Clone();
+        byte[] copy = SliceFromOffset(handle.Ordinal, node);
         MaybeSwapSourceBytes(node);
 
         // "The ground moves while the transaction is busy." Source measurement
@@ -546,7 +620,7 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
         return Outcome<byte[]>.Success(copy);
     }
 
-    public Outcome<FileMeasurement> WriteThroughHandle(OpenedObject handle, byte[] content)
+    public override Outcome<FileMeasurement> WriteThroughHandle(OpenedObject handle, byte[] content)
     {
         ArgumentNullException.ThrowIfNull(handle);
         ArgumentNullException.ThrowIfNull(content);
@@ -559,6 +633,11 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
         }
 
         node.Content = (byte[])content.Clone();
+
+        // WriteFile advances the offset. Modelling that is the point: it is why
+        // a measurement taken on the write handle afterwards has to rewind
+        // first, and why one that does not measures nothing.
+        offsets[handle.Ordinal] = content.LongLength;
         if (string.Equals(
                 node.Name,
                 ProofConfiguration.InstalledManifestFileName,
@@ -571,13 +650,35 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
             PlantExtraDestinationEntry(node.Parent);
         }
 
+        // Describes the BUFFER, not the file, and says so — the same answer the
+        // native adapter gives, for the same reason: hashing the array you just
+        // handed the kernel proves nothing about what landed on disk.
         return Outcome<FileMeasurement>.Success(new FileMeasurement(
-            node.Content.LongLength,
-            ProofConfiguration.Sha256Hex(node.Content),
-            !hostile.MeasurementNotThroughHandle));
+            content.LongLength,
+            ProofConfiguration.Sha256Hex(content),
+            measuredThroughHandle: false));
     }
 
-    public RefusalCode FlushBuffers(OpenedObject handle)
+    /// <summary>
+    /// The bytes from this handle's offset to the end of the object, advancing
+    /// the offset by what was returned — the behaviour of a synchronous
+    /// <c>ReadFile</c>.
+    /// </summary>
+    private byte[] SliceFromOffset(long ordinal, SimulatedNode node)
+    {
+        long offset = offsets.TryGetValue(ordinal, out long value) ? value : 0;
+        if (offset >= node.Content.LongLength)
+        {
+            return [];
+        }
+
+        byte[] slice = new byte[node.Content.LongLength - offset];
+        Array.Copy(node.Content, offset, slice, 0, slice.LongLength);
+        offsets[ordinal] = node.Content.LongLength;
+        return slice;
+    }
+
+    public override RefusalCode FlushBuffers(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("flush-buffers", new CanonicalObject()
@@ -586,7 +687,7 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
         return handle.IsOpen ? RefusalCode.None : RefusalCode.NativeInvalidHandle;
     }
 
-    public RefusalCode DeleteThroughHandle(OpenedObject handle)
+    public override RefusalCode DeleteThroughHandle(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("delete-through-handle", new CanonicalObject()
@@ -613,9 +714,10 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
         return RefusalCode.None;
     }
 
-    public void CloseHandle(OpenedObject handle)
+    public override void CloseHandle(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
+        _ = offsets.Remove(handle.Ordinal);
         if (byHandle.Remove(handle.Ordinal, out SimulatedNode? node))
         {
             node.OpenHandleCount--;
@@ -625,8 +727,6 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
             }
         }
     }
-
-    IReadOnlyList<CanonicalObject> IHandleRelativeFileSystem.OperationLog => log;
 
     // ------------------------------------------------------ hostile injection
 
@@ -941,21 +1041,24 @@ internal sealed class SimulatedFileSystem : IHandleRelativeFileSystem
         return builder.ToString();
     }
 
-    private OpenedObject Attach(
-        SimulatedNode node,
-        OpenedObject? parent,
-        HandleRelativeOpenRequest request,
-        string componentName)
+    /// <summary>
+    /// Records the node this implementation opened against the ordinal the BASE
+    /// class allocated, and starts its offset at zero.
+    ///
+    /// It deliberately does not build an <see cref="OpenedObject"/>. The handle
+    /// object and its parent link belong to the shared base class, so this
+    /// implementation is never asked what the parent was and cannot answer
+    /// wrongly — which is the whole content of the fix.
+    /// </summary>
+    private void Register(long ordinal, SimulatedNode node, HandleRelativeOpenRequest request)
     {
-        OpenedObject handle = new(this, nextOrdinal++, componentName, parent, request);
-        byHandle[handle.Ordinal] = node;
+        byHandle[ordinal] = node;
+        offsets[ordinal] = 0;
         node.OpenHandleCount++;
         if (request.DeniesDeleteSharing)
         {
             node.OpenHandlesDenyingDelete++;
         }
-
-        return handle;
     }
 
     private void Record(string operation, CanonicalObject detail) =>

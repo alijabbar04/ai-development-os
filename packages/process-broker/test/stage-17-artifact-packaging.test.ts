@@ -1222,6 +1222,7 @@ const INTEROP_ALLOW_LIST: Readonly<Record<string, Readonly<Record<string, readon
         "nt-create-file",
         "security-descriptor",
         "durability",
+        "file-position",
       ]),
     }),
   });
@@ -1253,6 +1254,12 @@ const INTEROP_CATEGORIES: Readonly<Record<string, readonly string[]>> = Object.f
     "GetTokenInformation",
   ],
   durability: ["FlushFileBuffers", "MoveFileExW", "WriteFile", "ReadFile"],
+
+  // Moving a handle's byte offset is its own capability, not a sub-case of
+  // reading. It is separated because the offset is what an audit found the
+  // adapter getting wrong: a read to EOF followed by a "re-measurement" on the
+  // same handle hashed zero bytes. A file that wants to seek has to say so.
+  "file-position": ["SetFilePointerEx", "SetFilePointer"],
 });
 
 /**
@@ -1278,6 +1285,21 @@ const FORBIDDEN_EVERYWHERE: readonly string[] = Object.freeze([
   "OpenSCManager",
   "CreateServiceW",
   "ITaskService",
+  // `Registry` alone stopped covering `RegistryKey` when the scan moved from
+  // substring to whole-identifier matching — a narrowing on precisely the string
+  // ADR 0017 section 9a records as covered by the mechanism this replaced. Both
+  // spellings are listed rather than reverting to substring matching, which had
+  // its own false positives.
+  //
+  // `Microsoft.Win32` is deliberately NOT listed, and the reason is worth
+  // keeping: it was tried, and it flagged `using Microsoft.Win32.SafeHandles;`
+  // in the supervisor, which is where `SafeFileHandle` lives and has nothing to
+  // do with the registry. That is the false-positive pressure this file's own
+  // comment warns about — a token that flags legitimate code is a token someone
+  // eventually deletes along with the rule. The registry-specific prefix is used
+  // instead.
+  "RegistryKey",
+  "Microsoft.Win32.Registry",
   "schtasks",
   "netsh",
   "HttpClient",
@@ -1314,6 +1336,7 @@ const PERMITTED_IMPORTS: Readonly<Record<string, readonly string[]>> = Object.fr
     "GetVolumeInformationByHandleW",
     "LocalFree",
     "ReadFile",
+    "SetFilePointerEx",
     "WriteFile",
   ]),
   "advapi32.dll": Object.freeze([
@@ -1343,11 +1366,53 @@ const PERMITTED_IMPORTS: Readonly<Record<string, readonly string[]>> = Object.fr
  */
 const ALLOW_LISTED_FILE_COUNT = 1;
 
+/**
+ * The reviewed native components the allow-list governs.
+ *
+ * This list used to be the whole story, and that was a finding. `native/`
+ * contains five directories; this names three. The other two —
+ * `windows-feasibility-probe` and `windows-boundary-fixture` — contain real
+ * `DllImport` declarations and, between them, twenty-two occurrences of
+ * `CreateProcessW`, `CreateJobObjectW` and `CreateAppContainerProfile`. None of
+ * it was scanned by anything, and a NEW component directory would likewise have
+ * been invisible: the only structural tie was that the allow-list's keys equalled
+ * this array, which ties the list to itself rather than to the filesystem.
+ *
+ * The carve-out is now explicit and, more importantly, CHECKED against
+ * `readdir` — see "every native directory is either governed or deliberately
+ * carved out". A directory that is neither fails the suite.
+ */
 const NATIVE_COMPONENTS = Object.freeze([
   "windows-supervisor",
   "windows-helper",
   "windows-proof-installer",
 ] as const);
+
+/**
+ * Retained investigative tooling, deliberately NOT governed by the allow-list.
+ *
+ * Both are reviewed source that exists to establish what Windows actually does;
+ * neither is shipped, packaged, discovered, or reachable from any production or
+ * proof path. They are excluded because they are permitted to contain the very
+ * interop the reviewed components must not, and pretending otherwise would mean
+ * either deleting the investigation or widening the allow-list to cover code that
+ * is not on any authority path.
+ *
+ * The exclusion is a pinned decision rather than a silent gap: adding a name here
+ * is the reviewable act, and the count below has to change with it.
+ */
+const UNGOVERNED_NATIVE_TOOLING = Object.freeze([
+  "windows-boundary-fixture",
+  "windows-feasibility-probe",
+] as const);
+
+/**
+ * Every directory under `native/`, pinned. A sixth directory appearing without
+ * a decision about which of the two lists above it belongs in is exactly the
+ * case that previously went unnoticed.
+ */
+const NATIVE_DIRECTORY_COUNT =
+  NATIVE_COMPONENTS.length + UNGOVERNED_NATIVE_TOOLING.length;
 
 /**
  * Removes comments from C# source, keeping string and character literals.
@@ -1427,6 +1492,41 @@ function stripCSharpComments(source: string): string {
 
 async function readNativeCode(component: string, name: string): Promise<string> {
   return stripCSharpComments(await readFile(join(packageRoot, "native", component, name), "utf8"));
+}
+
+/**
+ * Every `.cs` file under a component, RECURSIVELY, excluding build output.
+ *
+ * The scans used a non-recursive `readdir`, so a `.cs` file one directory down
+ * was invisible to the allow-list — a gap with no upside, since nothing about
+ * the confinement argument depends on interop living at the top level. Build
+ * output is excluded because `obj/` legitimately contains generated code that no
+ * reviewer wrote and the csproj already refuses to compile.
+ *
+ * Returned names are relative to the component directory and use forward slashes,
+ * so an allow-list entry for a nested file is spelled the same on every host.
+ */
+async function nativeSourceFiles(component: string): Promise<string[]> {
+  const root = join(packageRoot, "native", component);
+  const found: string[] = [];
+
+  const walk = async (relative: string): Promise<void> => {
+    const entries = await readdir(relative === "" ? root : join(root, relative), {
+      withFileTypes: true,
+    });
+    for (const entry of entries) {
+      const child = relative === "" ? entry.name : `${relative}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name === "bin" || entry.name === "obj") continue;
+        await walk(child);
+        continue;
+      }
+      if (entry.name.endsWith(".cs")) found.push(child);
+    }
+  };
+
+  await walk("");
+  return found.sort();
 }
 
 /**
@@ -1519,11 +1619,30 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
     }
   });
 
+  it("every native directory is either governed or deliberately carved out", async () => {
+    // The gap this closes: the component list was tied only to the allow-list's
+    // own keys, so two directories full of real interop — and any directory added
+    // later — were scanned by nothing and flagged by nothing.
+    const entries = await readdir(join(packageRoot, "native"), { withFileTypes: true });
+    const directories = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+
+    expect(directories.length).toBe(NATIVE_DIRECTORY_COUNT);
+    for (const name of directories) {
+      const governed = (NATIVE_COMPONENTS as readonly string[]).includes(name);
+      const carvedOut = (UNGOVERNED_NATIVE_TOOLING as readonly string[]).includes(name);
+      expect(
+        governed || carvedOut,
+        `native/${name} is neither an allow-list-governed component nor a pinned carve-out`,
+      ).toBe(true);
+      // A directory cannot be both, which would make the carve-out silently win.
+      expect(governed && carvedOut).toBe(false);
+    }
+  });
+
   it("confines every interop category to its allow-listed files", async () => {
     const observed: { file: string; category: string }[] = [];
     for (const component of NATIVE_COMPONENTS) {
-      const directory = join(packageRoot, "native", component);
-      const sources = (await readdir(directory)).filter((name) => name.endsWith(".cs"));
+      const sources = await nativeSourceFiles(component);
       expect(sources.length).toBeGreaterThan(0);
 
       for (const name of sources) {
@@ -1560,7 +1679,7 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
   it("forbids dynamic binding, reflection invocation, process, shell, registry and network APIs everywhere", async () => {
     for (const component of NATIVE_COMPONENTS) {
       const directory = join(packageRoot, "native", component);
-      const sources = (await readdir(directory)).filter((name) => name.endsWith(".cs"));
+      const sources = await nativeSourceFiles(component);
       for (const name of sources) {
         const text = await readNativeCode(component, name);
         for (const forbidden of FORBIDDEN_EVERYWHERE) {
@@ -1579,6 +1698,76 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
       expect(project).toContain("<AllowUnsafeBlocks>false</AllowUnsafeBlocks>");
       expect(project).toContain("<TreatWarningsAsErrors>true</TreatWarningsAsErrors>");
     }
+  });
+
+  it("keeps handle-object construction in exactly one place", async () => {
+    // A syntactic property, which is the kind a text scan can actually decide.
+    //
+    // The ancestor chain that justifies the whole handle-based design was
+    // vacuous in the real adapter because each implementation built its own
+    // `OpenedObject` and the adapter passed `null` for every parent. The fix
+    // moved construction into the shared base class, and this is what keeps it
+    // there: one construction site, in the file that declares the contract.
+    // A second site anywhere is an implementation being asked a question it has
+    // already been shown to answer wrongly.
+    const sites: string[] = [];
+    for (const component of NATIVE_COMPONENTS) {
+      for (const name of await nativeSourceFiles(component)) {
+        const text = await readNativeCode(component, name);
+        const count = text.match(/new\s+OpenedObject\s*\(/g)?.length ?? 0;
+        for (let index = 0; index < count; index += 1) sites.push(`${component}/${name}`);
+      }
+    }
+    expect(sites).toEqual(["windows-proof-installer/HandleRelativeContract.cs"]);
+  });
+
+  it("passes every information class by name, never as a bare number", async () => {
+    // A syntactic pin, closing the gap that let one call site escape the vectors
+    // which pin these ordinals.
+    //
+    // The conformance suite compares each information-class CONSTANT against the
+    // SDK value, which is what caught two ordinals from the wrong enum family. It
+    // governs the constants, not the call sites — and one call site in `QueryFacts`
+    // passed the raw literal `1`, so the pin did not reach it. Requiring a name at
+    // every call site is what makes the vectors cover all of them.
+    const text = await readNativeCode("windows-proof-installer", "NativeFileSystem.cs");
+
+    // The scan is only meaningful if it finds the call sites at all, so the
+    // occurrence count is asserted before anything is concluded from it. One of
+    // these is the DllImport declaration; the rest are calls.
+    const occurrences = text.match(/GetFileInformationByHandleEx/g)?.length ?? 0;
+    expect(occurrences).toBeGreaterThan(1);
+
+    // A bare number in the second argument position. `[^)]*` spans newlines,
+    // which matters because these calls are written one argument per line.
+    const bareNumber = /GetFileInformationByHandleEx\s*\(\s*[^),]*,\s*\d+\s*,/;
+    expect(
+      bareNumber.test(text),
+      "GetFileInformationByHandleEx is called with a bare numeric information class; use a named constant so the pinned ordinal vectors govern that call site",
+    ).toBe(false);
+  });
+
+  it("keeps the elevation query distinguishable from a non-elevated token", async () => {
+    // A source-level pin, and honestly labelled as one: the token path needs a
+    // real elevated process to execute, so no vector in this repository can run
+    // it. What is checkable is the SHAPE that produced the finding — a helper
+    // that returned `false` both for "not elevated" and for "could not tell",
+    // whose failure mode was an elevated token labelled `standard-user` and an
+    // AccessCheck that then passed against the wrong principal.
+    const text = await readNativeCode("windows-proof-installer", "NativeFileSystem.cs");
+
+    // The collapsing form must not come back.
+    expect(text).not.toMatch(/static\s+bool\s+ReadTokenElevation\s*\(/);
+
+    // The try-form must exist and be consulted twice: once for the process
+    // token to decide which branch to take, and once for the DUPLICATE, so the
+    // recorded label is a reading of the token that will actually be checked
+    // rather than an assumption of the branch that produced it.
+    expect(text).toMatch(/static\s+bool\s+TryReadTokenElevation\s*\(/);
+    expect(text.match(/TryReadTokenElevation\s*\(/g)?.length ?? 0).toBe(3);
+
+    // "standard-user" is assigned in exactly one place, after that second read.
+    expect(text.match(/standardTokenKind\s*=\s*"standard-user"/g)?.length ?? 0).toBe(1);
   });
 
   it("pins the exact imported libraries and entry points", async () => {
@@ -1627,8 +1816,7 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
     // of them exists yet, and this test is what will notice the moment one
     // appears without the allow-list being extended in the same change.
     for (const component of NATIVE_COMPONENTS) {
-      const directory = join(packageRoot, "native", component);
-      const sources = (await readdir(directory)).filter((name) => name.endsWith(".cs"));
+      const sources = await nativeSourceFiles(component);
       for (const name of sources) {
         const text = await readNativeCode(component, name);
         for (const token of INTEROP_CATEGORIES["create-process-w"] as readonly string[]) {

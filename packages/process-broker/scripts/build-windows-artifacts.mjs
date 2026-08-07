@@ -68,9 +68,26 @@ const MANIFEST_FILE_NAME = "artifact-manifest.json";
  *
  * Passing it produces a binary that reports `reviewed-proof-mode` from both
  * read-only commands, has a different conformance digest, and is a different
- * set of bytes. It is never the default and it can never be produced by
- * accident: the packaging pipeline requires `--flavor reviewed-proof` on the
- * command line and refuses to emit a production-shaped manifest for it.
+ * set of bytes. It is never the default and it cannot be produced by accident:
+ * it requires `--flavor reviewed-proof` on the command line.
+ *
+ * `--flavor` applies ONLY to the proof-only component. Every production-shaped
+ * component is built sealed regardless of it, which is enforced in
+ * `flavorFor(entry)` and asserted per component further down.
+ *
+ * That is a correction. This comment previously said the pipeline "refuses to
+ * emit a production-shaped manifest for" a proof build, and it did no such
+ * thing: `--flavor` was applied to every component, and the manifest — carrying
+ * `manifestKind: "…production-artifact-manifest"` and no flavour field at all —
+ * was written before any flavour assertion ran. The stated behaviour is now the
+ * implemented behaviour, which is the honest direction to resolve that in: a
+ * production-shaped binary has no legitimate reason to exist in proof mode.
+ *
+ * Note also what `--flavor reviewed-proof` still does NOT confer. The environment
+ * cannot supply this constant — the csproj neutralises `DefineConstants`, proved
+ * by building with it set and observing a sealed binary — and a reviewed-proof
+ * binary is refused at production discovery by component identity as well as by
+ * flavour.
  */
 const REVIEWED_PROOF_CONSTANT = "AIDEVOS_STAGE17_REVIEWED_PROOF_MODE";
 const SEALED_FLAVOR = "sealed";
@@ -166,6 +183,19 @@ const LIMITATIONS = [
 function fail(message) {
   process.stderr.write(`build-windows-artifacts: ${message}\n`);
   process.exit(1);
+}
+
+/**
+ * The recipe a component is built with.
+ *
+ * A production-shaped component is built sealed no matter what `--flavor` says.
+ * The switch exists for the proof-only installer, which is the only component
+ * with a mutating operation to gate; applying it to the supervisor and helper
+ * produced binaries with the mutating branch compiled in AND a manifest that
+ * announced itself as a production artifact.
+ */
+function flavorFor(entry, requestedFlavor) {
+  return entry.productionShaped === true ? "sealed" : requestedFlavor;
 }
 
 function parseArguments(argv) {
@@ -609,8 +639,22 @@ function buildProofOnlyComponent(entry, out, flavor) {
         `candidates; the reviewed table is empty by decision (ADR 0018 section 2.4)`,
     );
   }
+  // These two are now MEASUREMENTS in the binary — read from counters the native
+  // adapter increments in its own constructor and its own open path — rather than
+  // the compile-time `false` literals they used to be. Checking a literal against
+  // a literal is what made this a check that could not fire, about the one
+  // property most worth checking.
   if (selfTestJson.hostStateCreated !== false) {
     fail(`${entry.component} self-test reports host state was created`);
+  }
+  if (selfTestJson.nativeFileSystemInstantiated !== false) {
+    fail(`${entry.component} self-test instantiated the native filesystem`);
+  }
+  if (selfTestJson.nativeOpenAttempts !== 0) {
+    fail(
+      `${entry.component} self-test attempted ${String(selfTestJson.nativeOpenAttempts)} native ` +
+        `opens; the read-only suite must attempt none`,
+    );
   }
 
   const envelope = sourceEnvelope(entry);
@@ -636,6 +680,7 @@ function buildProofOnlyComponent(entry, out, flavor) {
       installableCandidateCount: selfTestJson.installableCandidateCount,
       hostStateCreated: selfTestJson.hostStateCreated,
       nativeFileSystemInstantiated: selfTestJson.nativeFileSystemInstantiated,
+      nativeOpenAttempts: selfTestJson.nativeOpenAttempts,
     },
     describeArtifact: { exitCode: describe.status, ...describeJson },
     unknownCommand: { exitCode: unknown.status, code: unknownJson.code },
@@ -706,8 +751,14 @@ async function main() {
   const allDifferences = [];
 
   for (const entry of COMPONENTS) {
-    const firstDir = publishOnce(entry, out, 1, flavor);
-    const secondDir = publishOnce(entry, out, 2, flavor);
+    // Sealed for every production-shaped component, whatever --flavor asked for.
+    const entryFlavor = flavorFor(entry, flavor);
+    if (entry.productionShaped === true && entryFlavor !== "sealed") {
+      fail(`${entry.component} is production-shaped and must be built sealed`);
+    }
+
+    const firstDir = publishOnce(entry, out, 1, entryFlavor);
+    const secondDir = publishOnce(entry, out, 2, entryFlavor);
     const first = enumerateClosure(firstDir);
     const second = enumerateClosure(secondDir);
 
@@ -859,7 +910,7 @@ async function main() {
     if (selfTest.status !== 0 || selfTestJson.status !== "passed") {
       fail(`${entry.component} self-test failed`);
     }
-    assertGateMatchesRecipe(entry, mutationGate, flavor);
+    assertGateMatchesRecipe(entry, mutationGate, entryFlavor);
     if (!mutationGate.commandsAgree) {
       fail(`${entry.component}: self-test and describe-artifact disagree about the mutation gate`);
     }

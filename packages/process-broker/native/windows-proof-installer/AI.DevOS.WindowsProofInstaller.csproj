@@ -36,6 +36,39 @@
   -->
 
   <PropertyGroup>
+    <!--
+      Neutralise the ENVIRONMENT as a source of compilation constants.
+
+      MSBuild materialises every environment variable as a property, and an
+      environment property is overridden by a project-file assignment. Without
+      this line, `DefineConstants=AIDEVOS_STAGE17_REVIEWED_PROOF_MODE` in the
+      environment reached the compiler, and a comment in the packaging script
+      claimed the constant was "not derivable from the environment". It was.
+
+      With this line the only remaining way to define it is a command-line global
+      property (`-p:DefineConstants=...`), which is the documented switch and
+      overrides project-file assignments by design. That is the honest end state:
+      the environment cannot do it silently, the command line can do it
+      explicitly, and the flavour assertion in the packaging script is what
+      catches a binary whose recipe and self-reported flavour disagree.
+
+      The SDK appends its implicit constants (NET9_0, and so on) in a later
+      target, so clearing the property here does not remove them.
+
+      One consequence of the command-line route is recorded because it is not
+      obvious and could bite later. A GLOBAL property is immutable for the whole
+      build, so when `-p:DefineConstants=AIDEVOS_STAGE17_REVIEWED_PROOF_MODE` is
+      passed, the SDK targets that would append the implicit constants cannot,
+      and a reviewed-proof build therefore does NOT define NET9_0, TRACE, or
+      WINDOWS. No source in this component uses any of them, so there is no
+      behavioural difference today. A future `#if NET9_0` or `Trace.*` would
+      silently compile differently between the two flavours, which is the kind of
+      difference that must be noticed deliberately rather than discovered.
+    -->
+    <DefineConstants></DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

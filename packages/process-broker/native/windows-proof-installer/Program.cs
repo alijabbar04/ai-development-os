@@ -26,9 +26,24 @@ namespace AiDevOs.WindowsProofInstaller;
 ///
 /// The two gated commands are the only ones that can touch the filesystem at
 /// all, and in a sealed build they refuse before examining a single argument.
-/// In a reviewed-proof build they still refuse in this checkpoint, because the
-/// compiled-in installable candidate table is empty by decision, so there is no
-/// candidate to install and nothing for an operator to name.
+///
+/// What a REVIEWED-PROOF build does in this checkpoint has to be stated per
+/// command, because the two are not inert for the same reason and an earlier
+/// version of this comment gave one reason for both:
+///
+///   install  refuses STRUCTURALLY. The candidate is looked up before any
+///            filesystem object is touched, and the compiled-in installable
+///            table is empty by decision, so every candidate identifier is
+///            unknown and there is nothing an operator can name.
+///
+///   remove   takes no candidate, so nothing on its path consults that table.
+///            It resolves the known folder, opens the volume root, and walks
+///            toward the run-token leaf. It finds nothing and refuses, but it
+///            refuses because no matching leaf EXISTS — a fact about the host,
+///            not a property of the build. Its blast radius is bounded
+///            structurally instead: the only deletion candidates are the
+///            components it recomputed from the token, and
+///            <c>C:\ProgramData</c> is not among them.
 /// </summary>
 internal static class Program
 {
@@ -64,16 +79,27 @@ internal static class Program
     private static int RunSelfTest()
     {
         ConformanceReport report = InstallerConformance.Run();
+
+        // MEASURED, not asserted. Both of these were hardcoded `false`, which
+        // made the packaging script's `hostStateCreated !== false` check an
+        // examination of a compile-time literal — a check that could never fire,
+        // about the one property most worth checking. They are now read from
+        // counters the native adapter increments in its own constructor and its
+        // own open path, so "the self-test touched nothing" is a reading rather
+        // than a claim.
+        int instantiations = NativeHandleRelativeFileSystem.InstantiationCount;
+        int nativeOpens = NativeHandleRelativeFileSystem.NativeOpenAttemptCount;
         CanonicalObject result = MutationGate.Describe(new CanonicalObject())
             .Set("component", ComponentIdentity.ComponentName)
             .Set("conformanceDigest", report.Digest)
             .Set("failedVectorCount", report.FailedCount)
             .Set("failedVectorDetail", report.FailedDetail)
             .Set("failedVectors", report.FailedNames)
-            .Set("hostStateCreated", false)
+            .Set("hostStateCreated", nativeOpens != 0)
             .Set("installableCandidateCount", ProofConfiguration.Installable.Count)
             .Set("mutatingOperationsPermitted", MutationGate.MutatingOperationsPermitted)
-            .Set("nativeFileSystemInstantiated", false)
+            .Set("nativeFileSystemInstantiated", instantiations != 0)
+            .Set("nativeOpenAttempts", nativeOpens)
             .Set("productionEligible", ComponentIdentity.ProductionEligible)
             .Set("status", report.Passed ? "passed" : "failed")
             .Set("suite", report.Suite)

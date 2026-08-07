@@ -5,6 +5,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 
 // Controlled DLL-search posture for the WHOLE assembly, not just this file.
 // Every P/Invoke in this component resolves only from %SystemRoot%\System32, so
@@ -221,6 +222,14 @@ internal static class NativeMethods
         out uint bytesWritten,
         nint overlapped);
 
+    [DllImport("kernel32.dll", EntryPoint = "SetFilePointerEx", ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetFilePointerEx(
+        nint file,
+        long distanceToMove,
+        out long newFilePointer,
+        uint moveMethod);
+
     [DllImport("kernel32.dll", EntryPoint = "FlushFileBuffers", ExactSpelling = true, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool FlushFileBuffers(nint file);
@@ -360,7 +369,7 @@ internal static class NativeMethods
 /// is all that may be claimed. ADR 0018 section 3 states the same rule for the
 /// process-creation call sites and it applies identically here.
 /// </summary>
-internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem, IDisposable
+internal sealed class NativeHandleRelativeFileSystem : HandleRelativeFileSystem, IDisposable
 {
     private const int SE_FILE_OBJECT = 1;
     private const uint OWNER_SECURITY_INFORMATION = 0x00000001;
@@ -368,9 +377,32 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
     private const uint DACL_SECURITY_INFORMATION = 0x00000004;
     private const int FileAttributeTagInformation = 35;
     private const int FileDispositionInformationEx = 64;
+    // FILE_INFO_BY_HANDLE_CLASS, the enum GetFileInformationByHandleEx takes.
+    //
+    // These were 3 and 2 — FILE_INFORMATION_CLASS values, which belong to
+    // NtQueryDirectoryFile. In the class GetFileInformationByHandleEx actually
+    // uses, 2 is FileNameInfo and 3 is FileRenameInfo, which is SET-only. The
+    // struct offsets below were correct for FILE_FULL_DIR_INFO, which is what
+    // isolated the defect to these two ordinals rather than the parsing.
+    private const int FileStandardInfo = 1;
     private const int FileIdInfo = 18;
-    private const int FileFullDirectoryRestartInfo = 3;
-    private const int FileFullDirectoryInfo = 2;
+    private const int FileFullDirectoryInfo = 14;
+    private const int FileFullDirectoryRestartInfo = 15;
+    private const int ERROR_NO_MORE_FILES = 18;
+    private const uint FILE_BEGIN = 0;
+
+    // The ordinals above, readable by the conformance suite so it can pin them
+    // against the SDK values a reviewer can look up. Reading a constant does not
+    // construct this type, which is what the instantiation counter proves.
+    internal static int FileStandardInfoClass => FileStandardInfo;
+
+    internal static int FileIdInfoClass => FileIdInfo;
+
+    internal static int FileFullDirectoryInfoClass => FileFullDirectoryInfo;
+
+    internal static int FileFullDirectoryRestartInfoClass => FileFullDirectoryRestartInfo;
+
+    internal static int NoMoreFilesError => ERROR_NO_MORE_FILES;
     private const uint FILE_DISPOSITION_DELETE = 0x00000001;
     private const uint FILE_DISPOSITION_POSIX_SEMANTICS = 0x00000002;
     private const uint FILE_NAME_NORMALIZED = 0x00000000;
@@ -393,19 +425,38 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
     private static readonly Guid FolderIdProgramData =
         new("62AB5D82-FDC1-4DC3-A9DD-070D1D495D97");
 
+    /// <summary>
+    /// How many times this type has been constructed in this process, and how
+    /// many native opens it has attempted.
+    ///
+    /// They exist because a vector asserting "the self-test never instantiates
+    /// the native filesystem" compared the literal "true" to the literal "true"
+    /// — the same tautology the release evidence records as F2 and that this
+    /// component's own comments cite twice as the thing being avoided. A claim
+    /// about what the self-test did has to be a measurement of what the
+    /// self-test did.
+    /// </summary>
+    private static int instantiationCount;
+    private static int nativeOpenAttemptCount;
+
+    internal static int InstantiationCount => Volatile.Read(ref instantiationCount);
+
+    internal static int NativeOpenAttemptCount => Volatile.Read(ref nativeOpenAttemptCount);
+
+    internal NativeHandleRelativeFileSystem() => Interlocked.Increment(ref instantiationCount);
+
     private readonly List<CanonicalObject> log = [];
     private readonly Dictionary<long, nint> handles = [];
-    private long nextOrdinal = 1;
     private nint standardToken;
     private bool standardTokenResolved;
     private string standardTokenKind = "unresolved";
     private bool disposed;
 
-    public IReadOnlyList<CanonicalObject> OperationLog => log;
+    public override IReadOnlyList<CanonicalObject> OperationLog => log;
 
     // ------------------------------------------------------------- resolution
 
-    public Outcome<KnownFolderResolution> ResolveCommonApplicationData()
+    public override Outcome<KnownFolderResolution> ResolveCommonApplicationData()
     {
         Record("resolve-known-folder", "SHGetKnownFolderPath(FOLDERID_ProgramData)");
         Guid folder = FolderIdProgramData;
@@ -453,7 +504,7 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
             new KnownFolderResolution(path, drive, components));
     }
 
-    public Outcome<ProofIdentity> ResolveProofIdentity()
+    public override Outcome<ProofIdentity> ResolveProofIdentity()
     {
         Record("resolve-proof-identity", "OpenProcessToken+GetTokenInformation(TokenUser)");
         if (!NativeMethods.OpenProcessToken(
@@ -483,56 +534,52 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
 
     // ------------------------------------------------------------------ opens
 
-    public Outcome<OpenedObject> OpenVolumeRoot(char driveLetter, HandleRelativeOpenRequest request)
+    protected override RefusalCode OpenVolumeRootCore(
+        char driveLetter,
+        HandleRelativeOpenRequest request,
+        long ordinal)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        if (driveLetter < 'A' || driveLetter > 'Z')
-        {
-            return Outcome<OpenedObject>.Refused(RefusalCode.KnownFolderPathNotDriveRooted);
-        }
-
         // The single absolute open of the transaction. \GLOBAL?? rather than
         // \?? so a per-logon-session device map cannot supply the drive letter;
         // see OpenRequests.VolumeRootObjectAttributes for why OBJ_DONT_REPARSE
         // cannot be set on this one open and what bounds that exception.
         string ntPath = string.Create(CultureInfo.InvariantCulture, $"\\GLOBAL??\\{driveLetter}:\\");
-        return Open(null, ntPath, request, "open-volume-root", request.Name);
+        return Open(null, ntPath, request, "open-volume-root", ordinal);
     }
 
-    public Outcome<OpenedObject> OpenRelative(OpenedObject parent, HandleRelativeOpenRequest request)
+    protected override RefusalCode OpenRelativeCore(
+        OpenedObject parent,
+        HandleRelativeOpenRequest request,
+        long ordinal)
     {
-        ArgumentNullException.ThrowIfNull(parent);
-        ArgumentNullException.ThrowIfNull(request);
-
-        // A name that is not a single component would mean a path had been
-        // built and handed to a handle-relative primitive. Refusing here is the
-        // last structural stop before the marshalling layer would happily pass
-        // it through.
-        if (NameGrammar.Validate(request.Name) != RefusalCode.None)
+        // The base class has already enforced the name grammar and that the
+        // parent handle object is open. What is left is this adapter's own
+        // question: do WE still hold a native handle for it?
+        if (!handles.TryGetValue(parent.Ordinal, out nint parentHandle))
         {
-            return Outcome<OpenedObject>.Refused(RefusalCode.PathUsedWithoutHandle);
+            return RefusalCode.AncestorHandleNotRetained;
         }
 
-        if (!parent.IsOpen || !handles.TryGetValue(parent.Ordinal, out nint parentHandle))
-        {
-            return Outcome<OpenedObject>.Refused(RefusalCode.AncestorHandleNotRetained);
-        }
-
-        return Open(parentHandle, request.Name, request, "open-relative", request.Name);
+        return Open(parentHandle, request.Name, request, "open-relative", ordinal);
     }
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The OpenedObject is the RETURN VALUE: ownership transfers to the caller, which retains it for the whole transaction and disposes it in reverse order. Disposing it here would close the handle the method exists to hand out. The analyzer cannot see ownership transfer through the Outcome wrapper.")]
-    private Outcome<OpenedObject> Open(
+    /// <summary>
+    /// Marshals one request and reports only whether it worked.
+    ///
+    /// It deliberately does not return a handle object. Building one, and
+    /// linking it to its parent, belongs to the shared base class, so this
+    /// adapter cannot be the place where the ancestor chain silently becomes
+    /// a single link.
+    /// </summary>
+    private RefusalCode Open(
         nint? rootDirectory,
         string objectName,
         HandleRelativeOpenRequest request,
         string operation,
-        string componentName)
+        long ordinal)
     {
         Record(operation, CanonicalJson.SerializeToString(request.ToCanonical()));
+        _ = Interlocked.Increment(ref nativeOpenAttemptCount);
 
         nint namePointer = 0;
         nint unicodeStringPointer = 0;
@@ -547,8 +594,7 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
                         out securityDescriptor,
                         out _) || securityDescriptor == 0)
                 {
-                    return Outcome<OpenedObject>.Refused(
-                        RefusalCode.SecurityDescriptorCompositionFailed);
+                    return RefusalCode.SecurityDescriptorCompositionFailed;
                 }
             }
             else if (request.IsCreateOnly)
@@ -556,8 +602,7 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
                 // Creating without a descriptor would produce an object with the
                 // creator's default DACL, to be repaired afterwards. The repair
                 // window is the vulnerability, so the create is refused instead.
-                return Outcome<OpenedObject>.Refused(
-                    RefusalCode.SecurityDescriptorNotSuppliedAtCreation);
+                return RefusalCode.SecurityDescriptorNotSuppliedAtCreation;
             }
 
             namePointer = Marshal.StringToHGlobalUni(objectName);
@@ -597,7 +642,7 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
 
             if (!NtStatusCodes.Succeeded(status))
             {
-                return Outcome<OpenedObject>.Refused(NtStatusCodes.Classify(status));
+                return NtStatusCodes.Classify(status);
             }
 
             if (status == NtStatusCodes.STATUS_REPARSE)
@@ -608,16 +653,19 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
                 // unreachable" are different propositions and only one of them
                 // is checkable here.
                 _ = NativeMethods.NtClose(handle);
-                return Outcome<OpenedObject>.Refused(RefusalCode.NativeReparsePointEncountered);
+                return RefusalCode.NativeReparsePointEncountered;
             }
 
-            OpenedObject opened = new(this, nextOrdinal++, componentName, ParentOf(rootDirectory), request);
-            handles[opened.Ordinal] = handle;
-            return Outcome<OpenedObject>.Success(opened);
+            // Register against the ordinal the BASE allocated. The handle
+            // object and its parent link are the base class's to build; this
+            // adapter is never asked what the parent was, so it cannot answer
+            // wrongly.
+            handles[ordinal] = handle;
+            return RefusalCode.None;
         }
         catch (OverflowException)
         {
-            return Outcome<OpenedObject>.Refused(RefusalCode.ComponentNameInvalid);
+            return RefusalCode.ComponentNameInvalid;
         }
         finally
         {
@@ -638,18 +686,10 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
         }
     }
 
-    /// <summary>
-    /// The adapter does not model the parent chain; the transaction does. The
-    /// chain-retention property is asserted by <see cref="OpenedObject"/>,
-    /// whose parent is supplied by the caller of <c>OpenRelative</c>, so this
-    /// returns null and the linkage is established by the transaction. Recorded
-    /// here because a reader would otherwise expect a parent lookup.
-    /// </summary>
-    private static OpenedObject? ParentOf(nint? rootDirectory) => rootDirectory is null ? null : null;
 
     // ------------------------------------------------------------- inspection
 
-    public Outcome<ObjectFacts> QueryFacts(OpenedObject handle)
+    public override Outcome<ObjectFacts> QueryFacts(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("query-facts", "NtQueryInformationFile(FileAttributeTagInformation)+FileIdInfo+GetFinalPathNameByHandleW");
@@ -747,21 +787,21 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
         long endOfFile = 0;
         if ((attributes & NtFlags.FILE_ATTRIBUTE_DIRECTORY) == 0)
         {
-            const int standardInfoBytes = 24;
-            nint standard = Marshal.AllocHGlobal(standardInfoBytes);
-            try
+            // Through the SAME named-constant helper the measurement uses, and a
+            // failed query is a REFUSAL.
+            //
+            // Two defects were fixed here at once, both of the kind this component
+            // eradicates elsewhere. The information class was a raw literal `1`,
+            // so the vector pinning `FileStandardInfoClass` did not govern this
+            // call site. And a FALSE return left `endOfFile` at 0, which is a
+            // benign-looking answer to a question that failed: a size of zero
+            // vacuously satisfies the pre-read maximum-size gate in
+            // MeasureSourceClosure, so a file whose size could not be read would
+            // pass a check that exists to bound it.
+            RefusalCode sized = TryReportedSize(raw, out endOfFile);
+            if (sized != RefusalCode.None)
             {
-                // FileStandardInfo = 1: LARGE_INTEGER AllocationSize, EndOfFile;
-                // DWORD NumberOfLinks, then two BOOLEANs: delete-pending
-                // and is-a-directory.
-                if (NativeMethods.GetFileInformationByHandleEx(raw, 1, standard, standardInfoBytes))
-                {
-                    endOfFile = Marshal.ReadInt64(standard, 8);
-                }
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(standard);
+                return Outcome<ObjectFacts>.Refused(sized);
             }
         }
 
@@ -776,7 +816,7 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
             endOfFile));
     }
 
-    public Outcome<SecuritySnapshot> QuerySecurity(OpenedObject handle)
+    public override Outcome<SecuritySnapshot> QuerySecurity(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("query-security", "GetSecurityInfo(handle,SE_FILE_OBJECT,OWNER|GROUP|DACL)");
@@ -862,7 +902,7 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
         }
     }
 
-    public Outcome<AccessCheckResult> AccessCheckAsProofIdentity(OpenedObject handle)
+    public override Outcome<AccessCheckResult> AccessCheckAsProofIdentity(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("access-check", "AccessCheck(MAXIMUM_ALLOWED, standard token)");
@@ -932,7 +972,7 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
         }
     }
 
-    public Outcome<DirectoryListing> ListDirectory(OpenedObject handle)
+    public override Outcome<DirectoryListing> ListDirectory(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("list-directory", "GetFileInformationByHandleEx(FileFullDirectoryInfo)");
@@ -947,12 +987,33 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
         try
         {
             int informationClass = FileFullDirectoryRestartInfo;
-            while (NativeMethods.GetFileInformationByHandleEx(
-                       raw,
-                       informationClass,
-                       buffer,
-                       DirectoryBufferBytes))
+            while (true)
             {
+                if (!NativeMethods.GetFileInformationByHandleEx(
+                        raw,
+                        informationClass,
+                        buffer,
+                        DirectoryBufferBytes))
+                {
+                    // A FALSE return is END OF ENUMERATION only when the
+                    // last error says so. Treating every FALSE as the end
+                    // made a failed enumeration indistinguishable from an
+                    // empty directory, which turned four separate guards
+                    // into no-ops at once: the source extra-file and
+                    // case-duplicate scan, the destination extra-entry scan,
+                    // and removal's refusal of unexpected entries and its
+                    // proof that a directory is empty. An enumeration this
+                    // component cannot complete is a refusal, never an
+                    // empty answer.
+                    int error = Marshal.GetLastWin32Error();
+                    return error == ERROR_NO_MORE_FILES
+                        ? Finish(files, directories)
+                        : Outcome<DirectoryListing>.Refused(
+                            error == 5
+                                ? RefusalCode.NativeAccessDenied
+                                : RefusalCode.NativeUnexpectedFailure);
+                }
+
                 informationClass = FileFullDirectoryInfo;
                 nint entry = buffer;
                 while (true)
@@ -997,29 +1058,113 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
         {
             Marshal.FreeHGlobal(buffer);
         }
+    }
 
+    private static Outcome<DirectoryListing> Finish(List<string> files, List<string> directories)
+    {
         files.Sort(StringComparer.Ordinal);
         directories.Sort(StringComparer.Ordinal);
         return Outcome<DirectoryListing>.Success(new DirectoryListing(files, directories));
     }
 
-    public Outcome<FileMeasurement> MeasureFile(OpenedObject handle)
+    public override RefusalCode RewindToStart(OpenedObject handle)
     {
-        Outcome<byte[]> bytes = ReadThroughHandle(
-            handle,
+        ArgumentNullException.ThrowIfNull(handle);
+        Record("rewind-to-start", "SetFilePointerEx to FILE_BEGIN");
+        if (!handle.IsOpen || !handles.TryGetValue(handle.Ordinal, out nint raw))
+        {
+            return RefusalCode.NativeInvalidHandle;
+        }
+
+        return NativeMethods.SetFilePointerEx(raw, 0, out long moved, FILE_BEGIN) && moved == 0
+            ? RefusalCode.None
+            : RefusalCode.NativeUnexpectedFailure;
+    }
+
+    public override Outcome<FileMeasurement> MeasureFile(OpenedObject handle)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+
+        // Recorded as ONE operation, and the read it performs internally is
+        // deliberately not recorded as a second. The simulated filesystem logs
+        // exactly one entry here, and an operation log that disagrees between
+        // the two implementations would make the pinned install sequence a
+        // statement about the simulation rather than about the contract — the
+        // same class of divergence as the ancestor link the adapter did not
+        // supply.
+        Record("measure-file", "ReadFile(handle) to EOF then SHA-256, cross-checked against FileStandardInfo");
+        if (!handle.IsOpen || !handles.TryGetValue(handle.Ordinal, out nint raw))
+        {
+            return Outcome<FileMeasurement>.Refused(RefusalCode.NativeInvalidHandle);
+        }
+
+        Outcome<byte[]> bytes = ReadToEnd(
+            raw,
             checked((int)ProofConfiguration.MaximumInstalledFileBytes));
         if (!bytes.Ok || bytes.Value is null)
         {
             return Outcome<FileMeasurement>.Refused(bytes.Refusal);
         }
 
+        // Provenance is a CROSS-CHECK, not a literal. The size is read back
+        // through the same handle that was just hashed, and the two have to
+        // agree. A hardcoded `true` here is what made the refusal it feeds
+        // unreachable in the real path, and it is also what would have hidden
+        // the offset defect: hashing zero bytes of a non-empty file is
+        // precisely the disagreement this now detects.
+        RefusalCode sized = TryReportedSize(raw, out long reported);
+        if (sized != RefusalCode.None)
+        {
+            return Outcome<FileMeasurement>.Refused(sized);
+        }
+
         return Outcome<FileMeasurement>.Success(new FileMeasurement(
             bytes.Value.LongLength,
             ProofConfiguration.Sha256Hex(bytes.Value),
-            measuredThroughHandle: true));
+            measuredThroughHandle: bytes.Value.LongLength == reported));
     }
 
-    public Outcome<byte[]> ReadThroughHandle(OpenedObject handle, int maximumBytes)
+    /// <summary>
+    /// The size this exact handle reports, via <c>FileStandardInfo</c>.
+    ///
+    /// <c>Outcome&lt;T&gt;</c> is constrained to reference types on purpose — a
+    /// refusal must never be confused with a default value — so a size is
+    /// returned the way every other refusal-or-value primitive in this file
+    /// returns one: the refusal is the return value and the size is an out
+    /// parameter that is only meaningful when the refusal is
+    /// <see cref="RefusalCode.None"/>.
+    /// </summary>
+    private static RefusalCode TryReportedSize(nint raw, out long size)
+    {
+        size = 0;
+
+        // FILE_STANDARD_INFO: AllocationSize (8), EndOfFile (8), NumberOfLinks
+        // (4), DeletePending (1), Directory (1), plus two bytes of tail padding
+        // to the 8-byte alignment of the leading Int64 members.
+        const int standardInfoBytes = 24;
+        const int endOfFileOffset = 8;
+        nint standard = Marshal.AllocHGlobal(standardInfoBytes);
+        try
+        {
+            if (!NativeMethods.GetFileInformationByHandleEx(
+                    raw,
+                    FileStandardInfo,
+                    standard,
+                    standardInfoBytes))
+            {
+                return RefusalCode.NativeUnexpectedFailure;
+            }
+
+            size = Marshal.ReadInt64(standard, endOfFileOffset);
+            return RefusalCode.None;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(standard);
+        }
+    }
+
+    public override Outcome<byte[]> ReadThroughHandle(OpenedObject handle, int maximumBytes)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("read-through-handle", "ReadFile(handle)");
@@ -1028,6 +1173,20 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
             return Outcome<byte[]>.Refused(RefusalCode.NativeInvalidHandle);
         }
 
+        return ReadToEnd(raw, maximumBytes);
+    }
+
+    /// <summary>
+    /// Reads from the handle's CURRENT offset to end of file.
+    ///
+    /// It starts wherever the last operation left the offset, and does not
+    /// silently rewind. That is why <see cref="RewindToStart"/> exists as a
+    /// contract operation the caller has to ask for: a hidden rewind here would
+    /// make the missing-rewind defect invisible to a simulation, which is
+    /// precisely how the defect survived review the first time.
+    /// </summary>
+    private static Outcome<byte[]> ReadToEnd(nint raw, int maximumBytes)
+    {
         using MemoryStream accumulated = new();
         byte[] chunk = new byte[65_536];
         long total = 0;
@@ -1060,7 +1219,7 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
         return Outcome<byte[]>.Success(accumulated.ToArray());
     }
 
-    public Outcome<FileMeasurement> WriteThroughHandle(OpenedObject handle, byte[] content)
+    public override Outcome<FileMeasurement> WriteThroughHandle(OpenedObject handle, byte[] content)
     {
         ArgumentNullException.ThrowIfNull(handle);
         ArgumentNullException.ThrowIfNull(content);
@@ -1077,13 +1236,17 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
             return Outcome<FileMeasurement>.Refused(RefusalCode.NativeUnexpectedFailure);
         }
 
+        // This digest describes the BUFFER, not the file. Reporting it as
+        // measured-through-the-handle would be a claim that hashing the array
+        // you just handed the kernel proves what landed on disk, which it does
+        // not. Verification is a separate read through a freshly opened handle.
         return Outcome<FileMeasurement>.Success(new FileMeasurement(
             content.LongLength,
             ProofConfiguration.Sha256Hex(content),
-            measuredThroughHandle: true));
+            measuredThroughHandle: false));
     }
 
-    public RefusalCode FlushBuffers(OpenedObject handle)
+    public override RefusalCode FlushBuffers(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("flush-buffers", "FlushFileBuffers(handle)");
@@ -1092,10 +1255,15 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
             return RefusalCode.NativeInvalidHandle;
         }
 
-        return NativeMethods.FlushFileBuffers(raw) ? RefusalCode.None : RefusalCode.DeleteFailed;
+        // A flush failure is not a delete failure. Reporting one as the other
+        // sends a reviewer looking at the removal path for a fault that happened
+        // while writing.
+        return NativeMethods.FlushFileBuffers(raw)
+            ? RefusalCode.None
+            : RefusalCode.NativeUnexpectedFailure;
     }
 
-    public RefusalCode DeleteThroughHandle(OpenedObject handle)
+    public override RefusalCode DeleteThroughHandle(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         Record("delete-through-handle", "NtSetInformationFile(FileDispositionInformationEx)");
@@ -1137,7 +1305,7 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
         }
     }
 
-    public void CloseHandle(OpenedObject handle)
+    public override void CloseHandle(OpenedObject handle)
     {
         ArgumentNullException.ThrowIfNull(handle);
         if (handles.Remove(handle.Ordinal, out nint raw) && raw != 0)
@@ -1208,7 +1376,15 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
         nint source = 0;
         try
         {
-            bool elevated = ReadTokenElevation(process);
+            // A FAILED elevation query is not evidence of non-elevation.
+            // Treating it as such is how an elevated token gets labelled
+            // standard-user and an AccessCheck that should fail passes with
+            // FullControl on a correctly protected directory.
+            if (!TryReadTokenElevation(process, out bool elevated))
+            {
+                return RefusalCode.StandardTokenUnavailable;
+            }
+
             if (elevated)
             {
                 nint buffer = Marshal.AllocHGlobal(nint.Size);
@@ -1235,13 +1411,10 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
                 {
                     return RefusalCode.StandardTokenUnavailable;
                 }
-
-                standardTokenKind = "standard-user";
             }
             else
             {
                 source = process;
-                standardTokenKind = "standard-user";
             }
 
             if (!NativeMethods.DuplicateTokenEx(
@@ -1255,6 +1428,25 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
                 return RefusalCode.StandardTokenUnavailable;
             }
 
+            // The label is derived from an OBSERVATION of the token that will
+            // actually be checked against, not assigned by whichever branch
+            // produced it. A label the code writes is a label the code can be
+            // wrong about; a label read back from the object cannot disagree
+            // with the object.
+            if (!TryReadTokenElevation(impersonation, out bool duplicateElevated))
+            {
+                _ = NativeMethods.CloseHandle(impersonation);
+                return RefusalCode.StandardTokenUnavailable;
+            }
+
+            if (duplicateElevated)
+            {
+                _ = NativeMethods.CloseHandle(impersonation);
+                standardTokenKind = "elevated";
+                return RefusalCode.StandardTokenUnavailable;
+            }
+
+            standardTokenKind = "standard-user";
             standardToken = impersonation;
             return RefusalCode.None;
         }
@@ -1269,8 +1461,14 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
         }
     }
 
-    private static bool ReadTokenElevation(nint token)
+    /// <summary>
+    /// Reads TokenElevation, distinguishing "not elevated" from "could not tell".
+    /// Collapsing the two is what let a failed query stand in for a
+    /// non-elevated token.
+    /// </summary>
+    private static bool TryReadTokenElevation(nint token, out bool elevated)
     {
+        elevated = false;
         nint buffer = Marshal.AllocHGlobal(Marshal.SizeOf<NativeMethods.TOKEN_ELEVATION>());
         try
         {
@@ -1284,7 +1482,8 @@ internal sealed class NativeHandleRelativeFileSystem : IHandleRelativeFileSystem
                 return false;
             }
 
-            return Marshal.PtrToStructure<NativeMethods.TOKEN_ELEVATION>(buffer).TokenIsElevated != 0;
+            elevated = Marshal.PtrToStructure<NativeMethods.TOKEN_ELEVATION>(buffer).TokenIsElevated != 0;
+            return true;
         }
         finally
         {

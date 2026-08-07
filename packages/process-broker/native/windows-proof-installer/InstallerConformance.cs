@@ -123,7 +123,29 @@ internal static class InstallerConformance
         AddPlanVectors(vectors);
         AddGateVectors(vectors);
         AddHandleRetentionVectors(vectors);
+        AddContractLinkageVectors(vectors);
+        AddInformationClassVectors(vectors);
         AddTransactionVectors(vectors);
+
+        // LAST, deliberately, and this ordering is the whole point.
+        //
+        // A MEASUREMENT, not a tautology. The previous form compared the literal
+        // "true" to the literal "true" — the F2 defect from the release evidence,
+        // shipped in the same checkpoint whose comments cite F2 twice as the thing
+        // being avoided. A claim about what the self-test did has to be a reading
+        // of what the self-test did, so these counters are incremented by the
+        // native adapter's own constructor and its own open path.
+        //
+        // Reading them here rather than mid-suite is a correction an audit asked
+        // for: added earlier, the vector observed only the vectors that happened
+        // to precede it, so an instantiation by a LATER vector — including every
+        // transaction vector — would not have flipped it. Added last, it covers
+        // the whole suite.
+        vectors.Add(new ConformanceVector(
+            "transaction/self-test-never-instantiates-the-native-filesystem",
+            "instantiations=0 nativeOpens=0",
+            NativeFileSystemActivity()));
+
         return new ConformanceReport("windows-proof-installer-v1", vectors);
     }
 
@@ -922,6 +944,227 @@ internal static class InstallerConformance
     private static string StepAndCode(TransactionReport report) =>
         string.Concat(ProtocolNames.Of(report.Refusal), ":", report.FailedStep);
 
+    /// <summary>
+    /// What the native adapter has actually done in this process, read from its
+    /// own counters. Naming the type here does not construct it; the counters are
+    /// what prove that.
+    /// </summary>
+    internal static string NativeFileSystemActivity() => string.Create(
+        CultureInfo.InvariantCulture,
+        $"instantiations={NativeHandleRelativeFileSystem.InstantiationCount} " +
+        $"nativeOpens={NativeHandleRelativeFileSystem.NativeOpenAttemptCount}");
+
+    // -------------------------------------------------- contract-level linkage
+
+    /// <summary>
+    /// A second implementation of the handle-relative contract that opens
+    /// nothing, so the ancestor chain it produces can only have come from the
+    /// shared base class.
+    ///
+    /// It exists because of an audit finding whose lesson was structural. The
+    /// contract's flagship property — every ancestor handle retained, observable
+    /// through <c>Parent</c> and <c>Depth</c> — was asserted only against the
+    /// simulation, which wired the parent correctly. The native adapter did not
+    /// wire it at all, so in the binary that would actually run the property was
+    /// vacuous while all four retention vectors passed. A vector that can only
+    /// see one implementation cannot see an implementation that does not
+    /// implement the contract.
+    ///
+    /// This probe closes that: it declines to answer every question except "did
+    /// the open work", which is now the only question an implementation is asked.
+    /// If construction of <see cref="OpenedObject"/> were ever moved back out of
+    /// the base class, this type would stop compiling rather than start lying.
+    /// </summary>
+    private sealed class LinkageProbeFileSystem : HandleRelativeFileSystem
+    {
+        private readonly List<CanonicalObject> log = [];
+
+        public override IReadOnlyList<CanonicalObject> OperationLog => log;
+
+        protected override RefusalCode OpenVolumeRootCore(
+            char driveLetter,
+            HandleRelativeOpenRequest request,
+            long ordinal) => RefusalCode.None;
+
+        protected override RefusalCode OpenRelativeCore(
+            OpenedObject parent,
+            HandleRelativeOpenRequest request,
+            long ordinal) => RefusalCode.None;
+
+        public override RefusalCode RewindToStart(OpenedObject handle) => RefusalCode.None;
+
+        public override void CloseHandle(OpenedObject handle)
+        {
+            // Nothing to release: this implementation never opened anything.
+        }
+
+        public override Outcome<KnownFolderResolution> ResolveCommonApplicationData() =>
+            Outcome<KnownFolderResolution>.Refused(RefusalCode.KnownFolderUnresolvable);
+
+        public override Outcome<ObjectFacts> QueryFacts(OpenedObject handle) =>
+            Outcome<ObjectFacts>.Refused(RefusalCode.NativeNotSupported);
+
+        public override Outcome<SecuritySnapshot> QuerySecurity(OpenedObject handle) =>
+            Outcome<SecuritySnapshot>.Refused(RefusalCode.NativeNotSupported);
+
+        public override Outcome<AccessCheckResult> AccessCheckAsProofIdentity(OpenedObject handle) =>
+            Outcome<AccessCheckResult>.Refused(RefusalCode.NativeNotSupported);
+
+        public override Outcome<DirectoryListing> ListDirectory(OpenedObject handle) =>
+            Outcome<DirectoryListing>.Refused(RefusalCode.NativeNotSupported);
+
+        public override Outcome<FileMeasurement> MeasureFile(OpenedObject handle) =>
+            Outcome<FileMeasurement>.Refused(RefusalCode.NativeNotSupported);
+
+        public override Outcome<FileMeasurement> WriteThroughHandle(OpenedObject handle, byte[] content) =>
+            Outcome<FileMeasurement>.Refused(RefusalCode.NativeNotSupported);
+
+        public override Outcome<byte[]> ReadThroughHandle(OpenedObject handle, int maximumBytes) =>
+            Outcome<byte[]>.Refused(RefusalCode.NativeNotSupported);
+
+        public override RefusalCode FlushBuffers(OpenedObject handle) => RefusalCode.NativeNotSupported;
+
+        public override RefusalCode DeleteThroughHandle(OpenedObject handle) =>
+            RefusalCode.NativeNotSupported;
+
+        public override Outcome<ProofIdentity> ResolveProofIdentity() =>
+            Outcome<ProofIdentity>.Refused(RefusalCode.ProofIdentityUnacceptable);
+    }
+
+    /// <summary>
+    /// The ancestor chain, asserted against an implementation that supplies no
+    /// part of it, and against the simulation, so the property is shown to come
+    /// from the contract rather than from one cooperative implementation.
+    /// </summary>
+    private static void AddContractLinkageVectors(List<ConformanceVector> vectors)
+    {
+        // The SAME expected string for both implementations, walked over the two
+        // components the simulation already has, so the two are genuinely
+        // comparable rather than each being graded against its own answer.
+        const string expectedChain =
+            "depth=0,1,2 names=C:\\,staging,closure retained=true denies-delete=true";
+
+        vectors.Add(new ConformanceVector(
+            "linkage/probe/chain-is-built-by-the-contract",
+            expectedChain,
+            LinkageOf(new LinkageProbeFileSystem())));
+
+        vectors.Add(new ConformanceVector(
+            "linkage/simulation/chain-is-built-by-the-contract",
+            expectedChain,
+            LinkageOf(new SimulatedFileSystem(new HostileConditions()))));
+
+        // The same walk, with the middle handle released. Both implementations
+        // must report the chain broken, because neither of them is what tracks
+        // it.
+        vectors.Add(new ConformanceVector(
+            "linkage/probe/chain-breaks-when-an-ancestor-is-released",
+            "retained=false",
+            ChainAfterReleasingMiddle(new LinkageProbeFileSystem())));
+        vectors.Add(new ConformanceVector(
+            "linkage/simulation/chain-breaks-when-an-ancestor-is-released",
+            "retained=false",
+            ChainAfterReleasingMiddle(new SimulatedFileSystem(new HostileConditions()))));
+
+        // A handle-relative open whose name is a path is refused in the shared
+        // half, so neither implementation can be the one that forgets. Driven
+        // through the probe, which performs no validation of its own at all.
+        LinkageProbeFileSystem grammar = new();
+        Outcome<OpenedObject> grammarRoot = grammar.OpenVolumeRoot('C', OpenRequests.VolumeRoot('C'));
+        Outcome<OpenedObject> pathShaped = grammar.OpenRelative(
+            grammarRoot.Value!,
+            OpenRequests.OpenExistingDirectory("p", "ProgramData\\AI-Dev-OS"));
+        grammarRoot.Value!.Dispose();
+        vectors.Add(new ConformanceVector(
+            "linkage/probe/path-shaped-name-is-refused-by-the-contract",
+            "path-used-without-handle",
+            ProtocolNames.Of(pathShaped.Refusal)));
+
+        // An implementation is never consulted about an already-closed parent
+        // either: the shared half refuses first, with the retention code.
+        LinkageProbeFileSystem closed = new();
+        Outcome<OpenedObject> closedRoot = closed.OpenVolumeRoot('C', OpenRequests.VolumeRoot('C'));
+        closedRoot.Value!.Dispose();
+        Outcome<OpenedObject> afterClose = closed.OpenRelative(
+            closedRoot.Value!,
+            OpenRequests.OpenExistingDirectory("p", "ProgramData"));
+        vectors.Add(new ConformanceVector(
+            "linkage/probe/closed-parent-is-refused-by-the-contract",
+            "ancestor-handle-not-retained",
+            ProtocolNames.Of(afterClose.Refusal)));
+    }
+
+    private static string LinkageOf(IHandleRelativeFileSystem fs)
+    {
+        Outcome<OpenedObject> root = fs.OpenVolumeRoot('C', OpenRequests.VolumeRoot('C'));
+        if (!root.Ok || root.Value is null)
+        {
+            return string.Concat("volume-root-refused:", ProtocolNames.Of(root.Refusal));
+        }
+
+        Outcome<OpenedObject> first = fs.OpenRelative(
+            root.Value,
+            OpenRequests.OpenExistingDirectory("p", "staging"));
+        if (!first.Ok || first.Value is null)
+        {
+            return string.Concat("first-hop-refused:", ProtocolNames.Of(first.Refusal));
+        }
+
+        Outcome<OpenedObject> second = fs.OpenRelative(
+            first.Value,
+            OpenRequests.OpenExistingDirectory("p", "closure"));
+        if (!second.Ok || second.Value is null)
+        {
+            return string.Concat("second-hop-refused:", ProtocolNames.Of(second.Refusal));
+        }
+
+        string described = string.Create(
+            CultureInfo.InvariantCulture,
+            $"depth={root.Value.Depth},{first.Value.Depth},{second.Value.Depth} " +
+            $"names={NameChainOf(second.Value)} " +
+            $"retained={(second.Value.ChainIsRetained ? "true" : "false")} " +
+            $"denies-delete={(second.Value.ChainDeniesDeleteSharing ? "true" : "false")}");
+
+        second.Value.Dispose();
+        first.Value.Dispose();
+        root.Value.Dispose();
+        return described;
+    }
+
+    /// <summary>Root-to-leaf component names, which only a real parent link can produce.</summary>
+    private static string NameChainOf(OpenedObject leaf)
+    {
+        List<string> names = [];
+        for (OpenedObject? current = leaf; current is not null; current = current.Parent)
+        {
+            names.Add(current.ComponentName);
+        }
+
+        names.Reverse();
+        return string.Join(',', names);
+    }
+
+    private static string ChainAfterReleasingMiddle(IHandleRelativeFileSystem fs)
+    {
+        Outcome<OpenedObject> root = fs.OpenVolumeRoot('C', OpenRequests.VolumeRoot('C'));
+        Outcome<OpenedObject> first = fs.OpenRelative(
+            root.Value!,
+            OpenRequests.OpenExistingDirectory("p", "staging"));
+        Outcome<OpenedObject> second = fs.OpenRelative(
+            first.Value!,
+            OpenRequests.OpenExistingDirectory("p", "closure"));
+        if (!second.Ok || second.Value is null || first.Value is null)
+        {
+            return "setup-failed";
+        }
+
+        first.Value.Dispose();
+        string described = second.Value.ChainIsRetained ? "retained=true" : "retained=false";
+        second.Value.Dispose();
+        root.Value!.Dispose();
+        return described;
+    }
+
     // ------------------------------------------------------- handle retention
 
     private static void AddHandleRetentionVectors(List<ConformanceVector> vectors)
@@ -1000,15 +1243,65 @@ internal static class InstallerConformance
             ProtocolNames.Of(permissiveCheck)));
     }
 
+    // ------------------------------------------------ native information classes
+
+    /// <summary>
+    /// The numeric information-class ordinals the adapter passes to
+    /// <c>GetFileInformationByHandleEx</c>, pinned as literals.
+    ///
+    /// They are pinned because getting them wrong is invisible to every other
+    /// kind of test. The adapter used <c>3</c> and <c>2</c> — values from
+    /// <c>FILE_INFORMATION_CLASS</c>, the enum <c>NtQueryDirectoryFile</c> takes.
+    /// In <c>FILE_INFO_BY_HANDLE_CLASS</c>, which is what this function takes,
+    /// <c>2</c> is <c>FileNameInfo</c> and <c>3</c> is <c>FileRenameInfo</c>, a
+    /// SET-only class. The structure offsets the adapter parsed were correct for
+    /// <c>FILE_FULL_DIR_INFO</c> throughout, which is what isolated the defect to
+    /// the two ordinals rather than to the parsing.
+    ///
+    /// A literal-versus-literal comparison would be worthless here, so these
+    /// compare a hand-written expected value from the Windows SDK header against
+    /// the constant the adapter actually passes.
+    /// </summary>
+    private static void AddInformationClassVectors(List<ConformanceVector> vectors)
+    {
+        (string Name, int Expected, int Actual)[] classes =
+        [
+            ("FileStandardInfo", 1, NativeHandleRelativeFileSystem.FileStandardInfoClass),
+            ("FileIdInfo", 18, NativeHandleRelativeFileSystem.FileIdInfoClass),
+            ("FileFullDirectoryInfo", 14, NativeHandleRelativeFileSystem.FileFullDirectoryInfoClass),
+            ("FileFullDirectoryRestartInfo", 15, NativeHandleRelativeFileSystem.FileFullDirectoryRestartInfoClass),
+        ];
+
+        foreach ((string name, int expected, int actual) in classes)
+        {
+            vectors.Add(new ConformanceVector(
+                string.Concat("native-info-class/", name),
+                expected.ToString(CultureInfo.InvariantCulture),
+                actual.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        // The two directory classes belong to the same family and must be
+        // adjacent restart/continue partners. Two ordinals from different enums
+        // could each be individually plausible; this is the relationship between
+        // them.
+        vectors.Add(new ConformanceVector(
+            "native-info-class/restart-is-the-continue-partner",
+            "true",
+            NativeHandleRelativeFileSystem.FileFullDirectoryRestartInfoClass ==
+                NativeHandleRelativeFileSystem.FileFullDirectoryInfoClass + 1
+                ? "true"
+                : "false"));
+
+        vectors.Add(new ConformanceVector(
+            "native-info-class/end-of-enumeration-is-error-18",
+            "18",
+            NativeHandleRelativeFileSystem.NoMoreFilesError.ToString(CultureInfo.InvariantCulture)));
+    }
+
     // ------------------------------------------------------------ transaction
 
     private static void AddTransactionVectors(List<ConformanceVector> vectors)
     {
-        vectors.Add(new ConformanceVector(
-            "transaction/self-test-never-instantiates-the-native-filesystem",
-            "true",
-            "true"));
-
 #if AIDEVOS_STAGE17_REVIEWED_PROOF_MODE
         AddReviewedProofTransactionVectors(vectors);
 #else
@@ -1140,6 +1433,37 @@ internal static class InstallerConformance
             ("measurement-not-through-the-handle",
                 new HostileConditions { MeasurementNotThroughHandle = true },
                 "source-measurement-not-through-handle:measure-source-closure"),
+
+            // The offset defect, injected as the adapter exhibited it: the
+            // rewind reports success and moves nothing, so the measurement that
+            // follows the read starts at end of file and hashes zero bytes. The
+            // size cross-check is what catches it, and it is the reason that
+            // cross-check exists instead of a hardcoded `true`.
+            //
+            // This vector is two-sided: it fails if the cross-check is removed,
+            // and transaction/install-happy-path fails if either rewind call is
+            // removed, so neither the guard nor its caller can be deleted
+            // silently.
+            ("rewind-that-moves-nothing",
+                new HostileConditions { SkipRewind = true },
+                "source-measurement-not-through-handle:measure-source-closure"),
+
+            // A failed directory enumeration reported as an empty directory.
+            // This is the strongest of the enumeration vectors because an empty
+            // source listing does NOT stop the install: every planned file is
+            // then opened by name and found, so the transaction would succeed
+            // while its extra-file and case-duplicate scans had seen nothing at
+            // all. Expecting a refusal here is expecting the enumeration failure
+            // to be propagated rather than swallowed.
+            ("enumeration-failure-in-the-source-root",
+                new HostileConditions { EnumerationFailsAt = "closure" },
+                "native-unexpected-failure:measure-source-closure"),
+
+            // The same failure at the destination leaf, after the copy, where it
+            // would otherwise defeat the extra-entry scan.
+            ("enumeration-failure-in-the-destination-leaf",
+                new HostileConditions { EnumerationFailsAt = Token },
+                "native-unexpected-failure:re-measure-installed-closure"),
 
             // A component replaced between one check and the next. Retaining
             // the handle without delete sharing is what should make this
@@ -1420,6 +1744,24 @@ internal static class InstallerConformance
     ///
     /// There is no delete operation anywhere in an install, and nothing is
     /// re-opened by name after being created.
+    ///
+    /// Every <c>rewind-to-start</c> entry below is load-bearing, and the rule that
+    /// makes it so is worth stating exactly, because an earlier revision got it
+    /// wrong: a rewind appears if and only if an EARLIER operation on that same
+    /// handle already advanced the offset.
+    ///
+    /// That is once per source file — after the read, before the measurement,
+    /// since both go through the one handle — and once per destination file,
+    /// since the write left the offset at end of file. An audit found both of
+    /// those positions hashing zero bytes and digesting the empty string.
+    ///
+    /// It is NOT before the first read of a source file, and NOT in the final
+    /// verification loop, for the same single reason in both cases: those handles
+    /// were just opened, so their offset is already zero. An earlier revision
+    /// rewound before the first source read as well, and a later audit was right
+    /// that the call was decorative while its comment called it load-bearing —
+    /// removing it changed nothing observable. It is gone, so the rule and the
+    /// sequence now agree.
     /// </summary>
     private const string ExpectedInstallSequence =
         "resolve-proof-identity|resolve-known-folder|open-volume-root|query-facts|" +
@@ -1430,13 +1772,13 @@ internal static class InstallerConformance
         "access-check|access-check|access-check|access-check|" +
         "open-volume-root|query-facts|open-relative|query-facts|open-relative|query-facts|" +
         "list-directory|" +
-        "open-relative|query-facts|read-through-handle|measure-file|" +
-        "open-relative|query-facts|read-through-handle|measure-file|" +
+        "open-relative|query-facts|read-through-handle|rewind-to-start|measure-file|" +
+        "open-relative|query-facts|read-through-handle|rewind-to-start|measure-file|" +
         "query-facts|query-facts|query-facts|query-facts|" +
-        "open-relative|write-through-handle|flush-buffers|measure-file|" +
-        "open-relative|write-through-handle|flush-buffers|measure-file|" +
-        "open-relative|write-through-handle|flush-buffers|measure-file|" +
-        "open-relative|write-through-handle|flush-buffers|measure-file|" +
+        "open-relative|write-through-handle|flush-buffers|rewind-to-start|measure-file|" +
+        "open-relative|write-through-handle|flush-buffers|rewind-to-start|measure-file|" +
+        "open-relative|write-through-handle|flush-buffers|rewind-to-start|measure-file|" +
+        "open-relative|write-through-handle|flush-buffers|rewind-to-start|measure-file|" +
         "list-directory|" +
         "open-relative|measure-file|query-security|access-check|" +
         "open-relative|measure-file|query-security|access-check";

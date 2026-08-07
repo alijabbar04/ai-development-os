@@ -1445,12 +1445,37 @@ internal static class InstallTransaction
                 return Outcome<Dictionary<string, byte[]>>.Refused(refusal);
             }
 
+            // The read below needs no rewind: the handle was opened one statement
+            // ago and a freshly opened handle's offset is zero. An earlier
+            // revision rewound here anyway and its comment called the call
+            // load-bearing, which was false — removing it changed nothing
+            // observable — and it contradicted the reason this transaction
+            // deliberately does NOT rewind in the verification loop. A decorative
+            // call documented as a guard is worse than no call, so it is gone.
             Outcome<byte[]> bytes = fs.ReadThroughHandle(
                 file.Value,
                 checked((int)ProofConfiguration.MaximumInstalledFileBytes));
             if (!bytes.Ok || bytes.Value is null)
             {
                 refusal = bytes.Refusal;
+                return Outcome<Dictionary<string, byte[]>>.Refused(refusal);
+            }
+
+            // This rewind IS load-bearing. The read above consumed the file, and
+            // a handle opened with FILE_SYNCHRONOUS_IO_NONALERT carries an offset
+            // the kernel advanced to end of file. Measuring without rewinding
+            // hashes zero bytes and digests the empty string — an audit found
+            // exactly that, which inverted "measure what was read" into "measure
+            // nothing" while every vector still passed.
+            //
+            // The rewind is requested here, by the caller, rather than hidden
+            // inside the adapter's read, because a hidden rewind would make its
+            // own absence unobservable to any simulation. That is how the defect
+            // survived review the first time.
+            RefusalCode rewound = fs.RewindToStart(file.Value);
+            if (rewound != RefusalCode.None)
+            {
+                refusal = rewound;
                 return Outcome<Dictionary<string, byte[]>>.Refused(refusal);
             }
 
@@ -1613,6 +1638,22 @@ internal static class InstallTransaction
             if (flushed != RefusalCode.None)
             {
                 return flushed;
+            }
+
+            // The write left the offset at end of file. Re-measuring without
+            // rewinding would hash zero bytes, compare the digest of the empty
+            // string against the digest of the content, and refuse every install
+            // with destination-digest-mismatch-after-write — the same offset
+            // defect, in the other direction.
+            //
+            // This re-reads through the handle that did the writing rather than
+            // re-opening the file by name: a name resolved a second time is a
+            // name that can resolve to something else, which is the substitution
+            // this component exists to prevent.
+            RefusalCode rewound = fs.RewindToStart(destination.Value);
+            if (rewound != RefusalCode.None)
+            {
+                return rewound;
             }
 
             Outcome<FileMeasurement> reread = fs.MeasureFile(destination.Value);

@@ -325,6 +325,24 @@ internal sealed class OpenedObject : IDisposable
     private readonly IHandleRelativeFileSystem owner;
     private bool closed;
 
+    /// <summary>
+    /// The ONLY construction site is
+    /// <see cref="HandleRelativeFileSystem.OpenRelative"/> and its volume-root
+    /// sibling, both of which live in the shared base class and supply
+    /// <paramref name="parent"/> from their own parameter.
+    ///
+    /// That is deliberate and it is the fix for an audit finding. An earlier
+    /// revision let each implementation construct this type, and the native
+    /// adapter passed <see langword="null"/> for the parent from a helper whose
+    /// two branches both returned null. Every handle in the binary that would
+    /// actually run therefore had <c>Parent == null</c>, <c>Depth == 0</c>, and
+    /// a <see cref="ChainIsRetained"/> that inspected exactly one handle — the
+    /// flagship property of the design, vacuous in the only place it mattered,
+    /// while all four retention vectors passed because the simulation supplied
+    /// the link the adapter did not. Moving construction into the base makes
+    /// the linkage something no implementation can get wrong, because no
+    /// implementation is asked.
+    /// </summary>
     internal OpenedObject(
         IHandleRelativeFileSystem owner,
         long ordinal,
@@ -718,6 +736,21 @@ internal interface IHandleRelativeFileSystem
     /// <summary>Opens or creates one component relative to an already-open parent.</summary>
     Outcome<OpenedObject> OpenRelative(OpenedObject parent, HandleRelativeOpenRequest request);
 
+    /// <summary>
+    /// Returns the handle's byte offset to zero.
+    ///
+    /// This is in the contract because it is a REAL property of the handles this
+    /// component opens: they use <c>FILE_SYNCHRONOUS_IO_NONALERT</c>, so the
+    /// kernel keeps a per-handle offset and a second read starts where the first
+    /// stopped. An audit found the adapter reading a file to EOF and then
+    /// "re-measuring" it on the same handle, which hashed zero bytes and
+    /// digested the empty string — the design intent, measure what was read,
+    /// silently inverted into measuring nothing. Making the rewind explicit puts
+    /// the offset in the contract, so the simulation models it too and a missing
+    /// rewind is observable without running the adapter.
+    /// </summary>
+    RefusalCode RewindToStart(OpenedObject handle);
+
     Outcome<ObjectFacts> QueryFacts(OpenedObject handle);
 
     Outcome<SecuritySnapshot> QuerySecurity(OpenedObject handle);
@@ -726,8 +759,29 @@ internal interface IHandleRelativeFileSystem
 
     Outcome<DirectoryListing> ListDirectory(OpenedObject handle);
 
+    /// <summary>
+    /// Hashes the file from the handle's current offset to end of file and
+    /// cross-checks the number of bytes hashed against the size the SAME handle
+    /// reports.
+    ///
+    /// <see cref="FileMeasurement.MeasuredThroughHandle"/> is that cross-check's
+    /// result, not a literal. It used to be a hardcoded <see langword="true"/>
+    /// in the adapter, which made the refusal it feeds unreachable in the only
+    /// path that matters — and would have hidden the offset defect above, since
+    /// hashing zero bytes of a non-empty file is exactly the disagreement this
+    /// now detects.
+    /// </summary>
     Outcome<FileMeasurement> MeasureFile(OpenedObject handle);
 
+    /// <summary>
+    /// Writes the buffer through the handle. The returned measurement describes
+    /// the BUFFER, not the file, and reports
+    /// <see cref="FileMeasurement.MeasuredThroughHandle"/> as
+    /// <see langword="false"/> for that reason: hashing the bytes you just
+    /// handed the kernel proves the caller can hash its own array, and nothing
+    /// about what landed on disk. Verification is a separate read through a
+    /// freshly opened handle.
+    /// </summary>
     Outcome<FileMeasurement> WriteThroughHandle(OpenedObject handle, byte[] content);
 
     Outcome<byte[]> ReadThroughHandle(OpenedObject handle, int maximumBytes);
@@ -752,4 +806,135 @@ internal interface IHandleRelativeFileSystem
     /// visible without running the transaction.
     /// </summary>
     IReadOnlyList<CanonicalObject> OperationLog { get; }
+}
+
+/// <summary>
+/// The shared half of every implementation: ordinal allocation, name-grammar
+/// enforcement, parent-handle validation, and — the point of the class —
+/// construction of <see cref="OpenedObject"/> with the parent the CALLER named.
+///
+/// An implementation is asked only to open something and say whether it worked.
+/// It is never asked what the parent was, so it cannot answer wrongly. That is
+/// a direct response to an audit finding: the previous shape let each
+/// implementation build the handle object, and the native adapter supplied
+/// <see langword="null"/> for every parent from a helper whose two branches both
+/// returned null. The simulation supplied the link correctly, so every
+/// contract vector passed while the binary that would actually run had no
+/// ancestor chain at all.
+///
+/// The structural lesson is written into the shape rather than into a comment: a
+/// contract vector that only ever runs against the simulation cannot see an
+/// adapter that does not implement the contract, so the part of the contract
+/// most worth protecting is the part no adapter implements.
+/// </summary>
+internal abstract class HandleRelativeFileSystem : IHandleRelativeFileSystem
+{
+    private long nextOrdinal = 1;
+
+    public abstract IReadOnlyList<CanonicalObject> OperationLog { get; }
+
+    public Outcome<OpenedObject> OpenVolumeRoot(char driveLetter, HandleRelativeOpenRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (driveLetter < 'A' || driveLetter > 'Z')
+        {
+            return Outcome<OpenedObject>.Refused(RefusalCode.KnownFolderPathNotDriveRooted);
+        }
+
+        return Materialize(
+            parent: null,
+            request,
+            request.Name,
+            ordinal => OpenVolumeRootCore(driveLetter, request, ordinal));
+    }
+
+    public Outcome<OpenedObject> OpenRelative(OpenedObject parent, HandleRelativeOpenRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentNullException.ThrowIfNull(request);
+
+        // A name that is not a single component would mean a path had been built
+        // and handed to a handle-relative primitive. Refusing here, in the
+        // shared half, means neither implementation can be the one that forgets.
+        if (NameGrammar.Validate(request.Name) != RefusalCode.None)
+        {
+            return Outcome<OpenedObject>.Refused(RefusalCode.PathUsedWithoutHandle);
+        }
+
+        if (!parent.IsOpen)
+        {
+            return Outcome<OpenedObject>.Refused(RefusalCode.AncestorHandleNotRetained);
+        }
+
+        return Materialize(
+            parent,
+            request,
+            request.Name,
+            ordinal => OpenRelativeCore(parent, request, ordinal));
+    }
+
+    /// <summary>
+    /// Allocates the ordinal, asks the implementation to open, and — only on
+    /// success — builds the handle object with the parent this method was given.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The OpenedObject is the RETURN VALUE: ownership transfers to the caller, which retains it for the whole transaction and disposes it in reverse order. Disposing it here would close the handle this method exists to hand out. The analyzer cannot see ownership transfer through the Outcome wrapper.")]
+    private Outcome<OpenedObject> Materialize(
+        OpenedObject? parent,
+        HandleRelativeOpenRequest request,
+        string componentName,
+        Func<long, RefusalCode> open)
+    {
+        long ordinal = nextOrdinal++;
+        RefusalCode refusal = open(ordinal);
+        if (refusal != RefusalCode.None)
+        {
+            return Outcome<OpenedObject>.Refused(refusal);
+        }
+
+        return Outcome<OpenedObject>.Success(
+            new OpenedObject(this, ordinal, componentName, parent, request));
+    }
+
+    /// <summary>
+    /// Opens the volume root. The implementation registers whatever it needs
+    /// against <c>ordinal</c> and returns <see cref="RefusalCode.None"/> on
+    /// success. It is not given, and cannot set, the parent.
+    /// </summary>
+    protected abstract RefusalCode OpenVolumeRootCore(char driveLetter, HandleRelativeOpenRequest request, long ordinal);
+
+    /// <summary>
+    /// Opens one component relative to <paramref name="parent"/>. The parent is
+    /// passed so the implementation can find its own native handle, and is
+    /// deliberately NOT used to build the returned object.
+    /// </summary>
+    protected abstract RefusalCode OpenRelativeCore(OpenedObject parent, HandleRelativeOpenRequest request, long ordinal);
+
+    public abstract Outcome<KnownFolderResolution> ResolveCommonApplicationData();
+
+    public abstract RefusalCode RewindToStart(OpenedObject handle);
+
+    public abstract Outcome<ObjectFacts> QueryFacts(OpenedObject handle);
+
+    public abstract Outcome<SecuritySnapshot> QuerySecurity(OpenedObject handle);
+
+    public abstract Outcome<AccessCheckResult> AccessCheckAsProofIdentity(OpenedObject handle);
+
+    public abstract Outcome<DirectoryListing> ListDirectory(OpenedObject handle);
+
+    public abstract Outcome<FileMeasurement> MeasureFile(OpenedObject handle);
+
+    public abstract Outcome<FileMeasurement> WriteThroughHandle(OpenedObject handle, byte[] content);
+
+    public abstract Outcome<byte[]> ReadThroughHandle(OpenedObject handle, int maximumBytes);
+
+    public abstract RefusalCode FlushBuffers(OpenedObject handle);
+
+    public abstract RefusalCode DeleteThroughHandle(OpenedObject handle);
+
+    public abstract Outcome<ProofIdentity> ResolveProofIdentity();
+
+    public abstract void CloseHandle(OpenedObject handle);
 }

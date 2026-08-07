@@ -110,6 +110,41 @@ is a lower-level API whose contract can change; that is an accepted, recorded
 cost of obtaining the property at all, and it is why the interop is confined to
 an allow-listed file set (section 5) and audited call site by call site.
 
+**Two properties of an open handle are part of the contract, because leaving them
+implicit produced defects that no vector could see.** Both were found by audit in
+the first implementation of this section, and both are the class of defect §7a
+predicts: a real property of the kernel object that the simulation did not model.
+
+- **The byte offset is per handle and the kernel advances it.** Every request
+  here carries `FILE_SYNCHRONOUS_IO_NONALERT`, so a second read on one handle
+  starts where the first stopped. The adapter read a source file to end of file
+  and then "re-measured" it on the same handle, hashing zero bytes and digesting
+  the empty string — measure-what-was-read silently inverted into
+  measure-nothing, in three separate places. Rewinding is therefore an explicit
+  contract operation the transaction requests, **not** something the adapter does
+  silently inside a read: a hidden rewind would make its own absence
+  unobservable, which is how the defect survived review. The simulation models
+  the offset, and a hostile condition makes the rewind report success while
+  moving nothing, so deleting either the guard or its caller changes an observable
+  answer.
+- **A failed enumeration is a refusal, never an empty directory.**
+  `GetFileInformationByHandleEx` returning FALSE means end-of-enumeration only
+  when the last error says so. The adapter treated every FALSE as the end and
+  never consulted the error, which made a failed enumeration indistinguishable
+  from an empty directory and silently disabled four guards at once: the source
+  extra-file and case-duplicate scans, the destination extra-entry scan, and
+  removal's refusal of unexpected entries. Measured consequence, not inferred:
+  with a failed enumeration reported as empty, an install with a planted extra
+  source file **succeeds**, because every planned file is then opened by name and
+  found. An enumeration this component cannot complete must fail the transaction.
+
+The information-class ordinals these calls pass are pinned as literals against
+the SDK values, because the original defect was two ordinals from the wrong enum
+family — `FILE_INFORMATION_CLASS` values passed to a function taking
+`FILE_INFO_BY_HANDLE_CLASS` — with structure offsets that were correct
+throughout, which is what isolated the fault to the ordinals rather than the
+parsing.
+
 ### 2.3 Protection target
 
 Root: `C:\ProgramData\AI-Dev-OS\Stage17-Proof\<32-lowercase-hex-run-token>`.
@@ -253,10 +288,40 @@ artifact fingerprints" without qualification, which would invite exactly the
 wrong check.
 
 Every mutating entry point requires the capability **by signature**, so a sealed
-build cannot reach one even if a branch is mistakenly left enabled. No
-environment variable, registry value, configuration file, manifest field,
-ordinary CLI switch, reflection path, or caller-supplied boolean can turn a
-sealed build into a proof build.
+build cannot reach one even if a branch is mistakenly left enabled. No registry
+value, configuration file, manifest field, ordinary CLI switch, reflection path,
+or caller-supplied boolean can turn a sealed build into a proof build.
+
+**The environment used to be able to, and that is corrected rather than
+restated.** An earlier revision of this section said no environment variable
+could, and the packaging script said the constant was "not derivable from the
+environment". Both were false. MSBuild materialises every environment variable as
+a property, this project set `DefineConstants` nowhere, and the SDK's implicit
+constants are appended rather than assigned — so `DefineConstants=AIDEVOS_STAGE17_
+REVIEWED_PROOF_MODE` in the environment reached the compiler. The claim was
+disproved by building with exactly that variable set and reading the resulting
+binary's `describe-artifact`.
+
+The project file now assigns `DefineConstants` explicitly, which overrides an
+environment property, and the same experiment with the assignment removed
+produces a proof binary while the same experiment with it present produces a
+sealed one. The honest end state, stated per mechanism:
+
+- **Environment: cannot.** Neutralised in the project file, proved both ways.
+- **Command line: can, and is meant to.** A global `-p:DefineConstants=…`
+  property overrides project-file assignments by design; that is the documented
+  switch, and `--flavor reviewed-proof` is how the packaging script passes it.
+- **Either way, a mismatch is caught.** The script compares each binary's
+  self-reported flavour against the requested recipe in both directions and
+  refuses to package a disagreement.
+
+`--flavor` applies **only to the proof-only installer**. Every production-shaped
+component is built sealed regardless of it. That too is a correction: the switch
+previously applied to every component, so a reviewed-proof run produced supervisor
+and helper binaries with the mutating branch compiled in, alongside a manifest
+declaring `manifestKind: "…production-artifact-manifest"` with no flavour field,
+written before any flavour assertion ran. A production-shaped binary has no
+legitimate reason to exist in proof mode, so the combination is now refused.
 
 The proof controller refuses a sealed binary — it cannot perform the proof.
 Production discovery refuses a proof binary — it must never be promoted.
@@ -279,15 +344,54 @@ deleted. This decision performs that replacement.
 A narrow reviewed allow-list names the exact files permitted to contain
 `DllImport`/`LibraryImport`, `Marshal` or unsafe/native allocation,
 `NtCreateFile`, `CreateFileW`, `CreateProcessW`, Job APIs, AppContainer APIs,
-security-descriptor APIs, and journal-durability APIs. Every other production
-and native source file must remain free of interop.
+security-descriptor APIs, journal-durability APIs, and file-position APIs.
+
+**Scope, corrected.** This section previously said "every other production **and
+native** source file must remain free of interop", and the checks did not
+implement that. `native/` holds five directories and the scan covered three. The
+two it missed — `windows-feasibility-probe` and `windows-boundary-fixture` —
+contain real `DllImport` declarations and, between them, twenty-two occurrences
+of `CreateProcessW`, `CreateJobObjectW` and `CreateAppContainerProfile`. Worse,
+the only structural tie was that the allow-list's keys equalled the component
+array, which ties the list to itself rather than to the filesystem, so a newly
+added component directory would have been scanned by nothing and flagged by
+nothing. The scan was also non-recursive, making a `.cs` file one level down
+invisible.
+
+The governed set is therefore:
+
+- **Governed by the allow-list:** `windows-supervisor`, `windows-helper`,
+  `windows-proof-installer`. Every `.cs` file under them, recursively, excluding
+  `bin/` and `obj/`.
+- **Deliberately carved out:** `windows-feasibility-probe` and
+  `windows-boundary-fixture`. Both are retained investigative tooling that exists
+  to establish what Windows actually does. Neither is shipped, packaged,
+  discovered, or reachable from any production or proof path, and both are
+  permitted to contain the interop the governed components must not. The
+  alternative — deleting the investigation, or widening the allow-list to cover
+  code on no authority path — is worse.
+- **Checked, not assumed:** the directory listing of `native/` is compared
+  against those two lists, and a directory in neither fails the suite. That is
+  what makes the carve-out a reviewable decision rather than a silent gap.
 
 Enforceable checks cover: the exact allow-listed file set; the exact imported
-libraries and entry points; absence of dynamic `NativeLibrary.Load`/`GetExport`;
+libraries and entry points; that every native directory is governed or carved
+out; that `OpenedObject` has exactly one construction site, in the file that
+declares the contract; absence of dynamic `NativeLibrary.Load`/`GetExport`;
 absence of reflection-generated invocation; absence of any new process-creation
 call site; absence of shell creation; absence of registry, service, scheduled
 task, firewall, and network APIs; and no growth of the allow-list without a
 deliberate ADR change.
+
+One token in the everywhere-forbidden set is worth recording, because narrowing
+it was itself a finding. When the scan moved from substring to whole-identifier
+matching, `Registry` stopped covering `RegistryKey` — a narrowing on exactly the
+string ADR 0017 §9a records as covered by the mechanism this replaced. Both
+spellings plus `Microsoft.Win32.Registry` are listed now. The broader
+`Microsoft.Win32` was tried and rejected: it flags
+`using Microsoft.Win32.SafeHandles;`, which is where `SafeFileHandle` lives and
+has nothing to do with the registry. A token that flags legitimate code is a
+token someone eventually deletes along with the rule.
 
 **What textual scanning cannot prove**, stated so nobody mistakes the test for
 the guarantee: a grep cannot decide reachability, cannot see source-generated
@@ -334,6 +438,37 @@ allocation lifetimes are exactly the class of defect a simulation cannot catch.
 So the transaction logic is verified and the marshalling is not. Any statement
 that the installer "enforces" anything must carry that qualification until a
 later authorized run exercises the native path.
+
+**This boundary has now been shown to bite, which is the strongest available
+argument for stating it.** An independent audit of the first implementation found
+three HIGH defects, every one of them inside this boundary and every one of the
+kind predicted here:
+
+1. an object-graph link the simulation supplied and the adapter did not, leaving
+   the ancestor-chain property — the justification for the entire handle-based
+   design — vacuous in the binary that would actually run, while all four
+   retention vectors passed;
+2. two enum ordinals from the wrong enum family, with a FALSE return
+   misinterpreted as end-of-enumeration;
+3. a per-handle byte offset that was never reset.
+
+The structural lesson has been written into the code's shape rather than only
+into this document, because a lesson recorded in prose is a lesson the next
+implementation can ignore:
+
+- **Construction of the handle object moved into the shared base class.** An
+  implementation is asked only whether an open succeeded. It is never asked what
+  the parent was, so it cannot answer wrongly, and a test enforces that the type
+  has exactly one construction site.
+- **Contract properties are asserted against more than one implementation.** A
+  vector that can only see the cooperative simulation cannot see an adapter that
+  does not implement the contract. A second, deliberately inert implementation
+  now drives the ancestor-chain vectors alongside the simulation, against the same
+  expected string.
+- **Anything the simulation does not model, no vector can see.** The offset is
+  modelled for that reason. This is the standing question for any future addition
+  to the contract, and the reason to prefer an explicit contract operation over a
+  convenience hidden in an adapter.
 
 ## 8. Remaining blockers
 
