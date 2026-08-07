@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/alijabbar04/ai-development-os/security/advisories/new
+    about: Report privately. Never open a public issue for a vulnerability.
+  - name: Questions and current status
+    url: https://github.com/alijabbar04/ai-development-os/blob/main/SUPPORT.md
+    about: Release status, why autonomous execution refuses, and where the evidence lives.

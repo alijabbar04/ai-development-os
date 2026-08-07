@@ -1,12 +1,56 @@
 version: 2
+
 updates:
+  # npm, against the default branch only. Feature branches are short-lived and a
+  # dependency pull request opened against one would be stale before it was read.
   - package-ecosystem: npm
     directory: /
+    target-branch: main
     schedule:
       interval: weekly
+      day: monday
     open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      # Development tooling is grouped because these move together and reviewing
+      # five near-identical pull requests is how real changes get skimmed.
+      #
+      # `update-types` deliberately excludes major: a major bump must arrive as its
+      # own pull request, because grouping is exactly how a breaking change gets
+      # merged inside a batch nobody read closely.
+      dev-tooling:
+        patterns:
+          - "typescript"
+          - "vitest"
+          - "@vitest/*"
+          - "@types/*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: github-actions
     directory: /
+    target-branch: main
     schedule:
       interval: weekly
+      day: monday
     open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "chore(actions)"
+
+# Nothing here merges automatically, and no auto-merge is configured anywhere.
+#
+# CI actions in this repository are pinned to full commit SHAs so a tag cannot be
+# moved under us. Dependabot is the counterpart to that pin: it proposes the
+# upgrade as a reviewable pull request, and a human decides. Enabling auto-merge
+# would convert the pin from a control into a delay.
+#
+# No credential, token, or registry secret appears in this configuration, and none
+# is needed: every dependency resolves from the public npm registry.

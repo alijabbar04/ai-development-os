@@ -1,0 +1,109 @@
+name: Bug report
+description: Something behaves differently from what the documentation says it does
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report a security vulnerability here.** Use private reporting —
+        see [SECURITY.md](../blob/main/SECURITY.md).
+
+        Before filing, please check whether the behaviour is already recorded.
+        This project documents its limitations in unusual detail, and several
+        things that look like bugs are recorded, intentional, and gated:
+
+        - Production autonomous execution **refuses by design** — no built-in
+          sandbox backend is genuinely enforcing.
+        - **Stage 17 is a gated checkpoint, not a release.** Native Windows
+          enforcement is unproven and the native marshalling layer has never
+          executed.
+        - Live provider calls are **explicit opt-in** and skipped by default.
+
+        `docs/release-evidence/` and `docs/adr/` record what is and is not
+        delivered, including unresolved limitations.
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Preliminaries
+      options:
+        - label: I checked the roadmap, ADRs, and release evidence for this behaviour
+          required: true
+        - label: This is not a security vulnerability
+          required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: >
+        The exact commit (`git rev-parse HEAD`). This project pins and measures a
+        great deal, so a commit makes a report far more actionable than a version.
+      placeholder: e.g. bb2c205
+    validations:
+      required: true
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      description: Which workspace package, if you know
+      options:
+        - "not sure"
+        - "@ai-dev-os/process-broker"
+        - "@ai-dev-os/router"
+        - "@ai-dev-os/task-graph"
+        - "@ai-dev-os/policy"
+        - "@ai-dev-os/secrets"
+        - "@ai-dev-os/memory"
+        - "@ai-dev-os/context"
+        - "@ai-dev-os/thinker"
+        - "@ai-dev-os/profiler"
+        - "@ai-dev-os/prompt-compiler"
+        - "@ai-dev-os/workspace"
+        - "a provider adapter"
+        - "persistence or artifact storage"
+        - "other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What the documentation says should happen
+      description: >
+        Quote it and say where it is. A mismatch between a document and the code
+        is a bug in one of them, and which one is the useful thing to establish.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happens
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >
+        The smallest sequence that shows it. A failing test is ideal. Do not
+        include real credentials, tokens, private repository contents, or personal
+        data.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and version, `node --version`, `npm --version`
+      placeholder: |
+        OS: Windows 11 24H2
+        node: v24.17.0
+        npm: 11.13.0
+    validations:
+      required: true

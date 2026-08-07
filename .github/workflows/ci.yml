@@ -1,42 +1,153 @@
 name: CI
 
+# Every action below is pinned to a full commit SHA, with its human-readable
+# release tag in a trailing comment. A tag is a mutable pointer: whoever controls
+# the action repository can move `v4` to different code, and a workflow that
+# trusts a tag inherits that ability. Each SHA here was resolved from the official
+# action repository's own tag API and is the commit `v4` pointed at when this file
+# was written.
+#
+# The major versions are deliberately unchanged from the tag-based references this
+# file replaces. Pinning and upgrading are two separate concerns, and doing both at
+# once means a CI failure cannot be attributed to either. Dependabot's
+# github-actions ecosystem proposes major upgrades as reviewable pull requests,
+# which is the right mechanism for that decision.
+
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+      - "chore/**"
+      - "integration/**"
   pull_request:
+    branches:
+      - main
 
+# Read-only by default. No job here needs write access, and pull-request code must
+# never run with a writable token: a `pull_request` event from a fork executes
+# untrusted code, and a writable token in that context is a supply-chain hole.
+# Any future job needing more must request it at the job level, not here.
 permissions:
   contents: read
 
+# One in-flight run per ref. Superseded branch runs are cancelled because they
+# test code nobody is waiting on any more; runs on `main` are NOT cancelled,
+# because the result for a commit that is already merged is a fact worth having.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
+  # Typecheck, unit tests, and build across both supported host platforms.
+  #
+  # Windows is not decoration here: this repository contains Windows-specific
+  # path, filename-grammar, and process-composition logic, and a Linux-only CI
+  # would report green on exactly the platform where that logic is wrong.
   check:
+    name: check (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          # The default is to leave a credential in .git/config for the rest of
+          # the job. Nothing here pushes, so leaving one available to any step or
+          # dependency script is avoidable risk.
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          # Satisfies the repository's declared engines (node >= 22) and matches
+          # the version the delivered stages were measured on.
           node-version: 24
           cache: npm
+
+      # Lockfile-exact install. `npm ci` fails rather than resolving a different
+      # tree, which is the property that makes a CI result mean anything.
+      #
+      # Lifecycle scripts are ENABLED here, and that is a deliberate, documented
+      # exception rather than an oversight. Exactly one dependency lifecycle
+      # script runs on install — `better-sqlite3`'s `install` hook, which fetches
+      # a prebuilt native binding for the host ABI and falls back to compiling
+      # the bundled source. `packages/persistence-sqlite` cannot be tested
+      # without it. No first-party manifest in this repository declares a
+      # preinstall, install, or postinstall script.
+      #
+      # Jobs that do not need that binding use `--ignore-scripts` instead; see
+      # the audit job. CONTRIBUTING.md records the full audit.
       - run: npm ci
+
       - run: npm run check
 
-  coverage:
+  # Dependency vulnerability policy, at the severity the repository already uses.
+  #
+  # This job is where `--ignore-scripts` genuinely applies: auditing the declared
+  # dependency tree needs the lockfile resolved, not a compiled native binding.
+  # Running it hardened rather than uniformly enabling scripts everywhere is the
+  # point — the exception in `check` is narrowed to the jobs that require it.
+  audit:
+    name: dependency audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+
+      - run: npm ci --ignore-scripts
+
       - run: npm audit --audit-level=high
+
+  # Coverage across all workspaces. Per-package thresholds are enforced by each
+  # package's own vitest configuration, so a drop below a floor fails this job
+  # rather than being reported and ignored.
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
       - run: npm run test:coverage
-      - uses: actions/upload-artifact@v4
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage
           path: packages/*/coverage
           if-no-files-found: error
+          retention-days: 14
+
+# What this workflow deliberately does NOT do, recorded so nobody adds it by
+# assuming it was forgotten:
+#
+#   - no elevation or UAC transaction;
+#   - no write to C:\ProgramData or any protected location;
+#   - no AppContainer profile, Job object, or supervisor/helper process creation;
+#   - no native proof-mode build and no execution of any proof-mode binary;
+#   - no live provider or model calls, and no provider credentials;
+#   - no secrets of any kind — no job here reads one, so none is configured;
+#   - no package publication, release creation, or tag creation.
+#
+# The native components are built and self-tested only by the local packaging
+# script, under explicit human operation. Stage 17 remains gated and the Windows
+# escape corpus remains unrun; CI is not a place to change either.
