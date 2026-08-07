@@ -21,6 +21,77 @@ this repository follows.
 It deliberately does **not** carry Stage 17: Stage 17 is a gated checkpoint, and a
 default branch that contained it would imply a release that has not happened.
 
+## Merge policy
+
+| Method | Enabled | Why |
+| --- | --- | --- |
+| Squash | **Yes** | The default for a focused change. One reviewable commit on `main`. |
+| Merge commit | **Yes** | For a stage branch, whose intermediate commits and their evidence are the record. Squashing a stage would destroy the per-checkpoint history this project's evidence documents refer to by SHA. |
+| Rebase | **No** | Rebasing rewrites commits. This repository never rewrites published history, and a merge method that does so by design is the wrong tool here. |
+
+Branches are deleted automatically after merge, and auto-merge is disabled: no
+change reaches `main` without someone deciding it should.
+
+## Security features: what this repository actually has
+
+Feature-detected against the API rather than assumed, because a security control
+you believe you have and do not is worse than a known gap.
+
+| Feature | State |
+| --- | --- |
+| Dependabot vulnerability alerts | **Enabled** |
+| Dependabot automated security fixes | **Enabled** |
+| Secret scanning | **Unavailable** — GitHub Advanced Security, not offered for this private repository's plan |
+| Push protection | **Unavailable** — same reason |
+| Private vulnerability reporting | **Unavailable** — API reports the feature absent |
+
+No other setting was weakened and visibility was **not** changed to obtain any of
+these. Two consequences follow and are handled rather than ignored:
+
+- Vulnerability reports come by email; `SECURITY.md` says so plainly instead of
+  pointing at a button that does not exist.
+- Because no server-side secret scanning exists, the local pre-push scan below is
+  not a belt-and-braces extra. It is the only secret scanning this repository has.
+
+## Known open defects that CI surfaced
+
+CI had never run on this repository before it was created, and the code had only
+ever been validated on Windows. The first Linux run found exactly two defects
+across 32 packages. Both are recorded here rather than fixed, and the reason is
+scope rather than convenience: each touches a package outside the change that
+enabled CI, neither can be validated locally on the platform that fails, and a fix
+belongs on its own branch behind a pull request.
+
+**L-01 — `provider-claude-code` asserts the wrong property, and passes on Windows
+by accident.**
+`packages/provider-claude-code/test/security.test.ts` asserts the child
+environment does not contain `HOME`. The broker deliberately sets a
+**workspace-scoped** home — `HOME` on POSIX, `USERPROFILE` on Windows
+(`packages/process-broker/src/environment.ts`). So the assertion passes on Windows
+only because Windows takes the other branch, and the test does not check
+`USERPROFILE` at all.
+
+The security property it means to protect — the child cannot see the ambient home,
+so an installed-CLI OAuth session is not visible — **does hold on both
+platforms**, because the home it is given points inside the workspace. What is
+wrong is the statement of it: the assertion, and `packages/provider-claude-code/README.md`,
+both say `HOME` and `USERPROFILE` are *omitted*, and one of them is set.
+
+The fix is to assert the property that matters: whichever home variable is
+present, its value is the workspace-scoped path and not the ambient one. That is a
+**stronger** test than the current one, which today catches an ambient-home leak
+on neither platform. Do not simply delete `HOME` from the forbidden list.
+
+**L-02 — `@ai-dev-os/workspace` misses its coverage floors on Linux.**
+89.62% statements against a 90% floor, and 79.77% branches against 80%, because
+platform-specific branches are unreachable on Linux. The coverage job therefore
+runs on Windows, where the floors were measured. **Do not lower a threshold to
+close this.** The fix is to make those branches reachable on Linux or to make the
+floors platform-aware.
+
+Until L-01 and L-02 are fixed, `check (ubuntu-latest)` is expected to be red and
+is deliberately not a required check. It is left visible for exactly that reason.
+
 ## Standing policy for every future task
 
 ### Before making changes
