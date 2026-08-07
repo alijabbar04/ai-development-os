@@ -63,14 +63,24 @@ jobs:
   #      statements, 79.77% vs 80% branches - because platform-specific branches
   #      are unreachable there.
   #
-  # `check (ubuntu-latest)` is therefore deliberately NOT a required check for
-  # branch protection. It stays visible, and red, so the work is not forgotten.
-  # `continue-on-error` was considered and rejected: it would render the job green
-  # and hide the very information the job exists to produce.
+  # And the Windows leg is red too, for a THIRD defect that has nothing to do with
+  # Linux. process-broker's containment check canonicalises the tool path through
+  # realpath but compares it against a containment root it never canonicalises, so
+  # two tests fail on windows-latest and pass on the maintainer's machine, where
+  # %TEMP% already happens to be canonical. Recorded as L-03. It fails closed - a
+  # legitimate tool is refused - so it is a portability defect rather than an
+  # escape, but the asymmetry is the same shape as Stage 17's F-01 and is worth
+  # fixing on that basis alone.
   #
-  # Neither defect is fixed here. A fix touches a security test and a security
-  # claim in a package outside this change's scope, cannot be validated locally on
-  # the platform that fails, and belongs on its own branch behind a pull request.
+  # So: CI is currently red on both platforms, for three distinct, genuine, and
+  # previously invisible defects. That is the CI doing its job on a repository that
+  # had never had any. None is fixed here. Each touches a security boundary or a
+  # security test in a package outside this change's scope, none can be validated
+  # locally on the platform that fails, and each belongs on its own branch behind a
+  # pull request.
+  #
+  # `continue-on-error` was considered and rejected for all of them: it would render
+  # the jobs green and hide the very information they exist to produce.
   check:
     name: check (${{ matrix.os }})
     strategy:
