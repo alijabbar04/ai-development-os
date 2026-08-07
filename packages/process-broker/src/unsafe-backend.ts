@@ -64,6 +64,41 @@ export interface UnsafeBackendOptions {
   readonly platform?: NodeJS.Platform;
 }
 
+const WINDOWS_AMBIENT_HOME_NAMES = Object.freeze(["HOMEDRIVE", "HOMEPATH"] as const);
+
+/**
+ * Node copies HOMEDRIVE and HOMEPATH from its own environment into a Windows
+ * child even when a complete custom environment block omits them. Suppress
+ * those two ambient values only for the synchronous native spawn call, then
+ * restore the parent exactly. JavaScript callbacks cannot interleave with this
+ * section, and the child receives only the broker's constructed block.
+ */
+function withoutAmbientWindowsHome<T>(platform: NodeJS.Platform, action: () => T): T {
+  if (platform !== "win32") {
+    return action();
+  }
+  const removed: Array<{ readonly name: string; readonly value: string }> = [];
+  const parentNames = Object.keys(process.env);
+  for (const canonicalName of WINDOWS_AMBIENT_HOME_NAMES) {
+    const actualName = parentNames.find((name) => name.toUpperCase() === canonicalName);
+    if (actualName === undefined) {
+      continue;
+    }
+    const value = process.env[actualName];
+    if (value !== undefined) {
+      removed.push({ name: actualName, value });
+    }
+    delete process.env[actualName];
+  }
+  try {
+    return action();
+  } finally {
+    for (const entry of removed) {
+      process.env[entry.name] = entry.value;
+    }
+  }
+}
+
 function descriptorFor(platform: NodeJS.Platform): BackendDescriptor {
   return parseBackendDescriptor({
     backendId: UNSAFE_BACKEND_ID,
@@ -193,21 +228,25 @@ class UnsafeProcess implements BackendProcess {
       });
     }
     try {
-      this.#child = spawn(command, args, {
-        cwd: input.workingDirectory,
-        // The constructed block is the complete environment. Nothing is
-        // inherited: omitting `env` would inherit the parent's.
-        env: { ...input.environment.variables },
-        // Never a shell. A shell would reintroduce string parsing, quoting
-        // bugs, and metacharacter injection through arguments.
-        shell: false,
-        windowsHide: true,
-        // On POSIX a new process group lets us signal the whole tree with a
-        // negative PID. On Windows this has no equivalent meaning and tree
-        // termination goes through taskkill instead.
-        detached: platform !== "win32",
-        stdio: ["pipe", "pipe", "pipe"],
-      }) as ChildProcessWithoutNullStreams;
+      this.#child = withoutAmbientWindowsHome(
+        platform,
+        () =>
+          spawn(command, args, {
+            cwd: input.workingDirectory,
+            // The constructed block is the complete environment. Nothing is
+            // inherited: omitting `env` would inherit the parent's.
+            env: { ...input.environment.variables },
+            // Never a shell. A shell would reintroduce string parsing, quoting
+            // bugs, and metacharacter injection through arguments.
+            shell: false,
+            windowsHide: true,
+            // On POSIX a new process group lets us signal the whole tree with a
+            // negative PID. On Windows this has no equivalent meaning and tree
+            // termination goes through taskkill instead.
+            detached: platform !== "win32",
+            stdio: ["pipe", "pipe", "pipe"],
+          }) as ChildProcessWithoutNullStreams,
+      );
     } catch (error) {
       throw new ProcessBrokerError("SPAWN_FAILED", "The process could not be created.", {
         backendId: UNSAFE_BACKEND_ID,

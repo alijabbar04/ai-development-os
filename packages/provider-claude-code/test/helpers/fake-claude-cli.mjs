@@ -12,7 +12,15 @@
  * which the fake records verbatim so tests can assert on exactly what was sent.
  */
 
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -42,13 +50,68 @@ if (typeof scenario.startMarker === "string") {
   writeFileSync(scenario.startMarker, "started", "utf8");
 }
 
-/** Records every environment variable name the child actually received. */
+const ENVIRONMENT_VALUE_ALLOWLIST = new Set([
+  "ANTHROPIC_API_KEY",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "GITHUB_TOKEN",
+  "HOME",
+  "USERPROFILE",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "XDG_CONFIG_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_DATA_HOME",
+]);
+const MAX_CAPTURED_ENVIRONMENT_NAMES = 512;
+const MAX_CAPTURED_ENVIRONMENT_VALUES = 16;
+const MAX_CAPTURED_HOME_ENTRIES = 16;
+
+function selectedEnvironmentNames() {
+  const requested = scenario.environmentCanaryNames ?? [];
+  if (
+    !Array.isArray(requested) ||
+    requested.length > MAX_CAPTURED_ENVIRONMENT_VALUES ||
+    new Set(requested).size !== requested.length ||
+    requested.some((name) => typeof name !== "string" || !ENVIRONMENT_VALUE_ALLOWLIST.has(name))
+  ) {
+    throw new Error("fake-claude-cli: invalid environment capture request");
+  }
+  return requested;
+}
+
+function brokerHomeState() {
+  const name = process.platform === "win32" ? "USERPROFILE" : "HOME";
+  const value = process.env[name];
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+  try {
+    const entries = readdirSync(value).sort();
+    return {
+      name,
+      existsAsDirectory: statSync(value).isDirectory(),
+      entries: entries.slice(0, MAX_CAPTURED_HOME_ENTRIES),
+      truncated: entries.length > MAX_CAPTURED_HOME_ENTRIES,
+    };
+  } catch {
+    return { name, existsAsDirectory: false, entries: [], truncated: false };
+  }
+}
+
+/** Records names plus only explicitly allowlisted values from the child environment. */
 if (typeof scenario.environmentOut === "string") {
+  const names = Object.keys(process.env).sort();
+  if (names.length > MAX_CAPTURED_ENVIRONMENT_NAMES) {
+    throw new Error("fake-claude-cli: environment name capture exceeds its bound");
+  }
+  const selectedNames = selectedEnvironmentNames();
   writeFileSync(
     scenario.environmentOut,
     JSON.stringify({
-      names: Object.keys(process.env).sort(),
-      values: (scenario.environmentCanaryNames ?? []).map((name) => process.env[name] ?? null),
+      names,
+      selectedNames,
+      values: selectedNames.map((name) => process.env[name] ?? null),
+      brokerHome: brokerHomeState(),
       cwd: process.cwd(),
     }),
     "utf8",

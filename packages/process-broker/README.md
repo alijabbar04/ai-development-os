@@ -12,7 +12,8 @@ provide isolation it cannot enforce.
 
 - An executable plus an argument array. There is no command-string API and no
   option that turns one on.
-- A child environment constructed from empty, never inherited.
+- A child environment constructed from empty, with no ambient caller bindings
+  inherited.
 - Output captured within hard byte bounds, on separate streams.
 - A wall-clock deadline the broker enforces itself.
 - Exactly one terminal outcome per process, whatever races occur.
@@ -31,6 +32,28 @@ primitive is missing and refuse to spawn. None of them is classified
 That refusal is the intended behaviour. Running autonomously against a hostile
 repository on a machine with no sandbox is the thing this stage exists to
 prevent.
+
+## Child profile and environment
+
+After admission, the backend prepares an empty session scratch area. The broker
+adds deterministic locale and temporary-directory values and, when the backend
+provides a session home, exposes exactly one platform home name: `HOME` on POSIX
+or `USERPROFILE` on Windows. It does not copy the invoking user's home;
+`HOMEDRIVE`, `HOMEPATH`, and the opposite platform home name remain absent. The
+unsafe Windows backend also prevents Node's native spawn path from silently
+reintroducing `HOMEDRIVE` and `HOMEPATH` from the parent process.
+
+Requests cannot bind `HOME`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, or the XDG
+home/config/cache redirectors as either ordinary or secret variables. Trusted
+composition may separately provide broker-owned config/cache directories. An
+explicit permitted API-key binding is supported and is resolved only after
+policy approval.
+
+This profile redirection prevents a CLI's default home lookup from discovering
+the invoking user's installed-login files. It is not filesystem isolation: the
+unsafe backend still runs as the invoking user and can open any absolute path
+that user can open. Only a genuinely enforcing backend can make out-of-scope
+profile paths unreachable.
 
 ## Shell execution
 

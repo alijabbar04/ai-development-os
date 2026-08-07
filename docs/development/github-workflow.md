@@ -63,27 +63,38 @@ are handled rather than ignored:
 
 CI had never run on this repository before it was created, and the code had only
 ever been validated on Windows. The first runs found three defects across 32
-packages. L-01 and L-02 remain open and separately scoped. L-03 is closed below.
+packages. L-01 is under bounded repair below, L-02 remains open and separately
+scoped, and L-03 is closed.
 
-**L-01 — `provider-claude-code` asserts the wrong property, and passes on Windows
-by accident.**
-`packages/provider-claude-code/test/security.test.ts` asserts the child
-environment does not contain `HOME`. The broker deliberately sets a
-**workspace-scoped** home — `HOME` on POSIX, `USERPROFILE` on Windows
-(`packages/process-broker/src/environment.ts`). So the assertion passes on Windows
-only because Windows takes the other branch, and the test does not check
-`USERPROFILE` at all.
+**L-01 — repair implemented; open pending exact GitHub-hosted POSIX and Windows
+evidence.**
+`packages/provider-claude-code/test/security.test.ts` unconditionally asserted
+that the child environment did not contain `HOME`. The broker deliberately sets
+a broker-owned session home — `HOME` on POSIX, `USERPROFILE` on Windows — so the
+assertion failed on Ubuntu and passed on Windows without checking the Windows
+home at all. The provider README, live-test comment, and roadmap repeated the
+same incorrect omission claim.
 
-The security property it means to protect — the child cannot see the ambient home,
-so an installed-CLI OAuth session is not visible — **does hold on both
-platforms**, because the home it is given points inside the workspace. What is
-wrong is the statement of it: the assertion, and `packages/provider-claude-code/README.md`,
-both say `HOME` and `USERPROFILE` are *omitted*, and one of them is set.
+The reconstructed contract starts from an empty environment and never inherits
+the invoking user's profile. After admission the broker may add one trusted,
+fresh session home under its session root using the platform name. The opposite
+home name and provider-unused XDG redirectors stay absent, and request bindings
+cannot set any home/profile redirector. An explicitly authorized API-key secret
+binding remains supported. This blocks default installed-login discovery but is
+not filesystem containment under `unsafe-development-current-user`.
 
-The fix is to assert the property that matters: whichever home variable is
-present, its value is the workspace-scoped path and not the ambient one. That is a
-**stronger** test than the current one, which today catches an ambient-home leak
-on neither platform. Do not simply delete `HOME` from the forbidden list.
+The stronger test found a second Windows-specific part of L-01: Node copied the
+parent process's `HOMEDRIVE` and `HOMEPATH` into the spawned child even though the
+broker's environment object omitted them. The repair suppresses only those two
+ambient values for the synchronous native spawn call and restores the parent
+immediately. Lower-level tests simulate hostile POSIX and Windows homes, a null
+home, ordinary and secret override attempts, and explicit permitted bindings.
+The real fake CLI records only allowlisted bounded values and proves the selected
+home exists empty under the expected session root, is neither equal to the root
+nor accepted through a sibling-prefix collision, is outside source/managed
+workspaces and the ambient profile, and is removed before settlement. Do not
+mark this defect closed until a run for the exact repair commit passes both
+hosted operating systems.
 
 **L-03 — Fixed: `process-broker` canonicalised one side of a containment
 comparison and not the other.**
@@ -209,8 +220,10 @@ runs on Windows, where the floors were measured. **Do not lower a threshold to
 close this.** The fix is to make those branches reachable on Linux or to make the
 floors platform-aware.
 
-Until L-01 and L-02 are fixed, `check (ubuntu-latest)` is expected to be red and
-is deliberately not a required check. It is left visible for exactly that reason.
+The final L-03 run remains the pre-repair evidence: its Ubuntu job is red only at
+L-01. This branch is intended to remove that expected failure, so any red check
+on its exact head is a defect to investigate. L-02 remains open and explains the
+Windows placement of the separate coverage job; no threshold is lowered.
 
 ## Standing policy for every future task
 

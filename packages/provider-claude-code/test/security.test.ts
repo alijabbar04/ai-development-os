@@ -14,7 +14,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   createCodingAgentRequest,
   createTrace,
@@ -623,7 +623,6 @@ describe("secrets and sensitive content never leak", () => {
         "AWS_SECRET_ACCESS_KEY",
         "SSH_AUTH_SOCK",
         "GIT_ASKPASS",
-        "HOME",
       ]) {
         expect(environment.names).not.toContain(forbidden);
       }
@@ -635,6 +634,104 @@ describe("secrets and sensitive content never leak", () => {
       );
     } finally {
       await rm(argvOut, { force: true });
+      await rm(environmentOut, { force: true });
+      await harness.close();
+    }
+  });
+
+  it("uses only the platform home name for a fresh broker-owned session home", async () => {
+    const environmentOut = join(SCRATCH, "adox-broker-home-env.json");
+    const capturedNames = [
+      "HOME",
+      "USERPROFILE",
+      "HOMEDRIVE",
+      "HOMEPATH",
+      "XDG_CONFIG_HOME",
+      "XDG_CACHE_HOME",
+      "XDG_DATA_HOME",
+    ] as const;
+    const harness = await createClaudeHarness({
+      scenario: {
+        environmentOut,
+        environmentCanaryNames: capturedNames,
+        fragments: [line(initRecord()), line(resultRecord())],
+      },
+    });
+    try {
+      const operation = await harness.provider.start(
+        createCodingAgentRequest({
+          requestId: "req-broker-home",
+          workspaceId: WORKSPACE_ID,
+          instructions: "read",
+          capabilities: ["read-files"],
+          disclosure: DISCLOSURE,
+          trace: createTrace("trace-broker-home"),
+        }),
+      );
+      await operation.result;
+
+      const environment = JSON.parse(await readFile(environmentOut, "utf8")) as {
+        names: string[];
+        selectedNames: string[];
+        values: (string | null)[];
+        brokerHome: {
+          name: string;
+          existsAsDirectory: boolean;
+          entries: string[];
+          truncated: boolean;
+        } | null;
+        cwd: string;
+      };
+      expect(environment.selectedNames).toEqual(capturedNames);
+      const selected = Object.fromEntries(
+        environment.selectedNames.map((name, index) => [name, environment.values[index] ?? null]),
+      ) as Record<string, string | null>;
+      const expectedHomeName = process.platform === "win32" ? "USERPROFILE" : "HOME";
+      const oppositeHomeName = process.platform === "win32" ? "HOME" : "USERPROFILE";
+      const selectedHome = selected[expectedHomeName];
+      if (typeof selectedHome !== "string") {
+        throw new Error("The fake CLI did not observe the broker-owned platform home.");
+      }
+
+      expect(environment.names.filter((name) => name === "HOME" || name === "USERPROFILE")).toEqual([
+        expectedHomeName,
+      ]);
+      expect(selected[oppositeHomeName]).toBeNull();
+      for (const forbidden of [
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_DATA_HOME",
+      ]) {
+        expect(environment.names).not.toContain(forbidden);
+        expect(selected[forbidden]).toBeNull();
+      }
+
+      expect(environment.brokerHome).toEqual({
+        name: expectedHomeName,
+        existsAsDirectory: true,
+        entries: [],
+        truncated: false,
+      });
+      expect(isStrictDescendant(harness.sessionRoot, selectedHome)).toBe(true);
+      expect(isStrictDescendant(harness.sessionRoot, harness.sessionRoot)).toBe(false);
+      expect(isStrictDescendant(harness.sessionRoot, join(`${harness.sessionRoot}-sibling`, "home"))).toBe(false);
+      if (process.platform === "win32") {
+        expect(isStrictDescendant(harness.sessionRoot.toUpperCase(), harness.sessionRoot)).toBe(false);
+      }
+      expect(isWithinOrEqual(harness.sourceRoot, selectedHome)).toBe(false);
+      expect(isWithinOrEqual(harness.record.managedRoot, selectedHome)).toBe(false);
+      expect(isWithinOrEqual(harness.worktreeDir, selectedHome)).toBe(false);
+      expect(isWithinOrEqual(harness.worktreeDir, environment.cwd)).toBe(true);
+
+      const ambientPlatformHome = process.env[expectedHomeName];
+      if (typeof ambientPlatformHome === "string" && ambientPlatformHome.length > 0) {
+        expect(resolve(selectedHome)).not.toBe(resolve(ambientPlatformHome));
+      }
+      // Broker disposal happens before the adapter operation settles.
+      expect(existsSync(selectedHome)).toBe(false);
+    } finally {
       await rm(environmentOut, { force: true });
       await harness.close();
     }
@@ -952,6 +1049,16 @@ async function fingerprintDirectory(root: string): Promise<string> {
   };
   await walk(root, "");
   return hash.digest("hex");
+}
+
+function isWithinOrEqual(root: string, candidate: string): boolean {
+  const fromRoot = relative(resolve(root), resolve(candidate));
+  return fromRoot === "" || (fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot));
+}
+
+function isStrictDescendant(root: string, candidate: string): boolean {
+  const fromRoot = relative(resolve(root), resolve(candidate));
+  return fromRoot !== "" && fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot);
 }
 
 /** Keeps the unused-import checker honest about writeFile in this module. */

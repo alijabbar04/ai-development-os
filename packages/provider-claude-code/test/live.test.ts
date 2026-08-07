@@ -22,13 +22,15 @@
  *     observations, or errors.
  *
  * Why an API key rather than the machine owner's Claude login: the process
- * broker builds the child environment from an empty baseline and deliberately
- * omits HOME and USERPROFILE, so an installed-CLI OAuth session is simply not
- * reachable from a brokered process. Reaching it would mean reading a Claude
- * credential file directly, which this adapter must never do. That is the
- * Anthropic authentication boundary showing up as an actual mechanism rather
- * than as a policy note, and it is why the probe canary can run without a
- * credential while the task canaries cannot.
+ * broker starts from an empty environment and supplies a fresh broker-owned
+ * session home as HOME on POSIX or USERPROFILE on Windows. It does not inherit
+ * the machine owner's home, and callers cannot override the home/profile or XDG
+ * redirectors. The CLI's default home lookup therefore cannot discover an
+ * installed OAuth login. This is environment redirection, not filesystem
+ * isolation: the explicitly unsafe backend still has the invoking user's file
+ * access. Installed-login operation remains a local development canary outside
+ * distributable authentication, while task canaries use an API key resolved
+ * after policy approval.
  *
  * Optionally, AI_DEV_OS_CLAUDE_LIVE_MODEL names one permitted model.
  *

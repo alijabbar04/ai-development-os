@@ -197,6 +197,8 @@ export function createRecordingArtifactSink(): RecordingArtifactSink {
 
 export interface ClaudeHarness {
   readonly base: string;
+  /** Trusted root under which the unsafe backend creates and removes one session home. */
+  readonly sessionRoot: string;
   readonly sourceRoot: string;
   readonly runtime: GitRuntime;
   readonly snapshot: RepositorySnapshot;
@@ -450,6 +452,7 @@ export async function createClaudeHarness(options: HarnessOptions): Promise<Clau
 
   return Object.freeze({
     base,
+    sessionRoot,
     sourceRoot,
     runtime,
     snapshot,

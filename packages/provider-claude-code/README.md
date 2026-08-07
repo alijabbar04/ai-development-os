@@ -340,11 +340,20 @@ mechanism, not just a note:
   development-canary opt-in, and it is never a distributable mechanism.
 
 There is a mechanical consequence worth knowing: the process broker builds the
-child environment from an empty baseline and omits `HOME` and `USERPROFILE`, so
-**an installed-CLI OAuth session is simply unreachable from a brokered
-process**. Reaching it would mean reading a Claude credential file directly,
-which this adapter must never do. That is why the live probe canary runs without
-a credential while the live task canaries require an API key.
+child environment from an empty baseline rather than inheriting the caller's
+environment. After admission it supplies a fresh broker-owned session home as
+`HOME` on POSIX or `USERPROFILE` on Windows; the opposite name,
+`HOMEDRIVE`/`HOMEPATH`, and XDG profile redirectors are absent for this adapter.
+Requests cannot override those names as ordinary or secret bindings. This stops
+the CLI's default home lookup from discovering the invoking user's installed
+OAuth login, while an explicitly authorized API-key binding is still resolved
+after policy approval and supported.
+
+That environment boundary is not filesystem isolation. The unsafe development
+backend still runs as the invoking user and can open any absolute path that user
+can open. A personal installed-CLI login therefore remains an explicit local
+development canary outside the distributable authentication modes; the live task
+canaries require an API key.
 
 If authentication cannot be supplied without crossing the boundary, the adapter
 returns `AUTHENTICATION_FAILED` with safe metadata and human-action retry

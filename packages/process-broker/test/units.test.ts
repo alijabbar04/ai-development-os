@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -425,10 +425,15 @@ describe("unsafe development backend", () => {
     ).rejects.toMatchObject({ code: "BROKER_CLOSED" });
   });
 
-  it("creates and removes only its own session directory", async () => {
+  it("creates a fresh scoped home and removes only its own session directory", async () => {
     const root = await scratchRoot();
-    const backend = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "sessions") });
-    const session = await backend.prepare({
+    const sessionRoot = join(root, "sessions");
+    const siblingRoot = join(root, "sessions-sibling");
+    const siblingMarker = join(siblingRoot, "keep.txt");
+    await mkdir(siblingRoot, { recursive: true });
+    await writeFile(siblingMarker, "keep", "utf8");
+    const backend = createUnsafeDevelopmentBackend({ sessionRoot });
+    const binding = {
       projectId: "p",
       workspaceId: "w",
       snapshotId: null,
@@ -440,11 +445,32 @@ describe("unsafe development backend", () => {
       workspaceRoot: root,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       nonce: "0".repeat(32),
-    });
+    } as const;
+    const session = await backend.prepare(binding);
+    if (session.homeDir === null) {
+      throw new Error("The unsafe development backend did not create its scoped home.");
+    }
+    const expectedSessionRoot = join(sessionRoot, session.sessionId);
     expect(session.sessionId).toContain("attempt-1");
-    expect(session.tempDir.startsWith(join(root, "sessions"))).toBe(true);
+    expect(session.tempDir).toBe(join(expectedSessionRoot, "tmp"));
+    expect(session.homeDir).toBe(join(expectedSessionRoot, "home"));
+    await access(session.tempDir);
+    await access(session.homeDir);
+    const staleMarker = join(session.homeDir, "stale-credential");
+    await writeFile(staleMarker, "must be deleted", "utf8");
+
     await backend.dispose(session);
     await backend.dispose(session);
+    await expect(access(expectedSessionRoot)).rejects.toThrow();
+    expect(await readFile(siblingMarker, "utf8")).toBe("keep");
+
+    const recreated = await backend.prepare(binding);
+    if (recreated.homeDir === null) {
+      throw new Error("The unsafe development backend did not recreate its scoped home.");
+    }
+    expect(recreated.homeDir).toBe(session.homeDir);
+    await expect(access(staleMarker)).rejects.toThrow();
+    await backend.dispose(recreated);
     await backend.close();
   });
 });

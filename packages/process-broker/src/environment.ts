@@ -4,7 +4,7 @@
  * The child never inherits the caller's environment. The environment is built
  * from an empty baseline and contains only what was named explicitly: a small
  * set of platform variables the operating system needs to create a process,
- * workspace-scoped temporary and profile directories, deterministic locale
+ * broker-owned temporary and profile directories, deterministic locale
  * values, and the caller's explicitly configured bindings.
  *
  * Honest limitation: once the operating system creates the child, the
@@ -227,7 +227,7 @@ export function parseEnvironmentBindings(
 export interface WorkspaceEnvironmentPaths {
   /** Workspace-scoped temporary directory. Absolute. */
   readonly tempDir: string;
-  /** Empty profile directory presented to tools that insist on a home. */
+  /** Trusted empty profile directory presented to tools that insist on a home. */
   readonly homeDir: string | null;
   readonly configDir: string | null;
   readonly cacheDir: string | null;
@@ -277,7 +277,7 @@ export function buildEnvironment(input: EnvironmentBuildInput): BuiltEnvironment
     }
   }
 
-  // 3. Workspace-scoped locations. No ambient temp or profile directory.
+  // 3. Broker-owned locations. No ambient temp or profile directory.
   variables["TMPDIR"] = input.paths.tempDir;
   variables["TMP"] = input.paths.tempDir;
   variables["TEMP"] = input.paths.tempDir;

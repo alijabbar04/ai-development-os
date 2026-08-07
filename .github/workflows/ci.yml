@@ -46,19 +46,16 @@ jobs:
   # filename-grammar, and process-composition logic, and a Linux-only CI would
   # report green on exactly the platform where that logic is wrong.
   #
-  # Ubuntu is not decoration either, but its status here is honest rather than
-  # aspirational. This repository had never been run on Linux before CI existed,
-  # and the first run found two real defects. Both are recorded in
-  # docs/development/github-workflow.md rather than papered over:
+  # Ubuntu is not decoration either. This repository had never been run on Linux
+  # before CI existed, and the first run found two real defects. Both are recorded
+  # in docs/development/github-workflow.md rather than papered over:
   #
-  #   1. provider-claude-code/test/security.test.ts asserts the child environment
-  #      omits HOME. The broker deliberately sets a WORKSPACE-SCOPED home - HOME
-  #      on POSIX, USERPROFILE on Windows - so that assertion passes on Windows
-  #      only because Windows takes the other branch, and the test never checks
-  #      USERPROFILE at all. The security property it means to protect (the child
-  #      cannot see the ambient home, so no installed-CLI OAuth session is
-  #      visible) does hold on both platforms; the assertion, and the adapter's
-  #      README, state it wrongly.
+  #   1. L-01: provider-claude-code/test/security.test.ts rejected HOME
+  #      unconditionally even though the broker supplies a fresh session HOME on
+  #      POSIX and USERPROFILE on Windows. The bounded repair asserts the actual
+  #      platform value and removes ambient Windows HOMEDRIVE/HOMEPATH values that
+  #      Node otherwise adds during spawn. Exact hosted closure evidence is still
+  #      required before this item is called closed.
   #   2. @ai-dev-os/workspace misses its coverage floors on Linux - 89.62% vs 90%
   #      statements, 79.77% vs 80% branches - because platform-specific branches
   #      are unreachable there.
@@ -69,9 +66,10 @@ jobs:
   # refused closed. L-03 is fixed by canonicalising both operands independently and
   # comparing path components; its focused regression remains in the Windows run.
   #
-  # Ubuntu therefore remains visibly red for exactly L-01. L-02 remains visible in
-  # the Windows coverage choice below. L-03 is not an expected failure on either
-  # platform.
+  # The final L-03 run was visibly red on Ubuntu for exactly L-01. This repair
+  # branch must make both matrix legs green; a new red result is not expected or
+  # ignored. L-02 remains visible in the Windows coverage choice below. L-03 is
+  # not an expected failure on either platform.
   #
   # `continue-on-error` remains rejected: it would render genuine failures green and
   # hide the information the matrix exists to produce.
