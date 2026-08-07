@@ -65,28 +65,150 @@ async function pathContainsLink(path: string): Promise<boolean> {
   return false;
 }
 
-async function windowsSpellingKind(lexical: string, canonical: string): Promise<string> {
-  if (lexical === canonical) return "already-canonical";
-  if (lexical.toLocaleLowerCase("en-US") === canonical.toLocaleLowerCase("en-US")) {
-    return "casing-only";
-  }
+// Diagnostic evidence only: this never participates in authorization. The
+// controlled component names below are ASCII so each characteristic remains
+// literal and auditable rather than approximating general Windows case rules.
+interface WindowsSpellingCharacteristics {
+  readonly casing: boolean;
+  readonly shortNameExpansion: boolean;
+  readonly separatorNormalization: boolean;
+  readonly linkResolution: boolean;
+  readonly otherCanonicalDifference: boolean;
+}
+
+function detectWindowsSpellingCharacteristics(
+  lexical: string,
+  canonical: string,
+): WindowsSpellingCharacteristics {
   const lexicalComponents = lexical.split(/[\\/]+/);
   const canonicalComponents = canonical.split(/[\\/]+/);
-  if (
-    lexicalComponents.some(
-      (component, index) =>
-        /~\d+(?:\.|$)/i.test(component) &&
-        component.toLocaleLowerCase("en-US") !==
-          (canonicalComponents[index] ?? "").toLocaleLowerCase("en-US"),
-    )
+  let casing = false;
+  let shortNameExpansion = false;
+  let otherCanonicalDifference = false;
+
+  for (
+    let index = 0;
+    index < Math.max(lexicalComponents.length, canonicalComponents.length);
+    index += 1
   ) {
-    return "8.3-short-name-to-long-name";
+    const lexicalComponent = lexicalComponents[index];
+    const canonicalComponent = canonicalComponents[index];
+    if (lexicalComponent === canonicalComponent) continue;
+    if (lexicalComponent === undefined || canonicalComponent === undefined) {
+      otherCanonicalDifference = true;
+      continue;
+    }
+    if (lexicalComponent.toLowerCase() === canonicalComponent.toLowerCase()) {
+      casing = true;
+      continue;
+    }
+    if (/~\d+(?:\.|$)/i.test(lexicalComponent)) {
+      shortNameExpansion = true;
+      continue;
+    }
+    otherCanonicalDifference = true;
   }
-  if (await pathContainsLink(lexical)) return "junction-or-symlink-resolution";
-  return "other-canonical-spelling";
+
+  const lexicalSeparators = lexical.match(/[\\/]+/g) ?? [];
+  const canonicalSeparators = canonical.match(/[\\/]+/g) ?? [];
+  const separatorNormalization =
+    lexicalSeparators.length === canonicalSeparators.length &&
+    lexicalSeparators.some((separator, index) => separator !== canonicalSeparators[index]);
+
+  if (
+    lexical !== canonical &&
+    !casing &&
+    !shortNameExpansion &&
+    !separatorNormalization &&
+    !otherCanonicalDifference
+  ) {
+    otherCanonicalDifference = true;
+  }
+
+  return Object.freeze({
+    casing,
+    shortNameExpansion,
+    separatorNormalization,
+    linkResolution: false,
+    otherCanonicalDifference,
+  });
+}
+
+async function windowsSpellingCharacteristics(
+  lexical: string,
+  canonical: string,
+): Promise<WindowsSpellingCharacteristics> {
+  const detected = detectWindowsSpellingCharacteristics(lexical, canonical);
+  return Object.freeze({
+    ...detected,
+    linkResolution: lexical !== canonical && (await pathContainsLink(lexical)),
+  });
+}
+
+function formatWindowsSpellingCharacteristics(
+  characteristics: WindowsSpellingCharacteristics,
+): string {
+  return [
+    `casing=${characteristics.casing}`,
+    `8.3-short-name-to-long-name=${characteristics.shortNameExpansion}`,
+    `separator-normalization=${characteristics.separatorNormalization}`,
+    `junction-or-symlink-resolution=${characteristics.linkResolution}`,
+    `other-canonical-spelling=${characteristics.otherCanonicalDifference}`,
+  ].join("; ");
 }
 
 describe("trusted-tool canonical containment", () => {
+  it("records casing and 8.3 expansion as independent Windows spelling characteristics", () => {
+    const combined = detectWindowsSpellingCharacteristics(
+      "C:\\Users\\RUNNER~1\\Temp\\cANONICAL-rOOT",
+      "C:\\Users\\runneradmin\\Temp\\Canonical-Root",
+    );
+
+    expect(combined).toEqual({
+      casing: true,
+      shortNameExpansion: true,
+      separatorNormalization: false,
+      linkResolution: false,
+      otherCanonicalDifference: false,
+    });
+  });
+
+  it("does not report Windows spelling characteristics that are absent", () => {
+    const canonical = "C:\\Users\\runneradmin\\Temp\\Canonical-Root";
+
+    expect(detectWindowsSpellingCharacteristics(canonical, canonical)).toEqual({
+      casing: false,
+      shortNameExpansion: false,
+      separatorNormalization: false,
+      linkResolution: false,
+      otherCanonicalDifference: false,
+    });
+    expect(
+      detectWindowsSpellingCharacteristics(
+        "C:\\Users\\runneradmin\\Temp\\cANONICAL-rOOT",
+        canonical,
+      ),
+    ).toEqual({
+      casing: true,
+      shortNameExpansion: false,
+      separatorNormalization: false,
+      linkResolution: false,
+      otherCanonicalDifference: false,
+    });
+    expect(
+      detectWindowsSpellingCharacteristics(
+        "C:\\Users\\RUNNER~1\\Temp\\Canonical-Root",
+        canonical,
+      ),
+    ).toEqual({
+      casing: false,
+      shortNameExpansion: true,
+      separatorNormalization: false,
+      linkResolution: false,
+      otherCanonicalDifference: false,
+    });
+  });
+
   it("accepts a canonical tool inside a canonical root", async () => {
     const taskRoot = await scratchRoot();
     const root = join(taskRoot, "root");
@@ -119,14 +241,26 @@ describe("trusted-tool canonical containment", () => {
     await writeFile(file, "tool");
     const canonicalRoot = await realpath(root);
 
-    if (
-      process.platform === "win32" &&
-      process.env["GITHUB_ACTIONS"] === "true" &&
-      root !== canonicalRoot
-    ) {
-      // This classification is the only runner-specific diagnostic emitted.
-      // The operands themselves remain private, including on a failed run.
-      console.info(`L-03 Windows path spelling: ${await windowsSpellingKind(root, canonicalRoot)}`);
+    if (process.platform === "win32") {
+      const characteristics = await windowsSpellingCharacteristics(root, canonicalRoot);
+      const lexicalComponents = root.split(/[\\/]+/);
+      const canonicalComponents = canonicalRoot.split(/[\\/]+/);
+      const hasShortNameExpansion = lexicalComponents.some(
+        (component, index) =>
+          /~\d+(?:\.|$)/i.test(component) &&
+          component.toLowerCase() !== (canonicalComponents[index] ?? "").toLowerCase(),
+      );
+      expect(characteristics.shortNameExpansion).toBe(hasShortNameExpansion);
+      if (root !== canonicalRoot) {
+        expect(Object.values(characteristics)).toContain(true);
+      }
+      if (process.env["GITHUB_ACTIONS"] === "true") {
+        // These flags are the only runner-specific diagnostic emitted. The
+        // operands themselves remain private, including on a failed run.
+        console.info(
+          `L-03 ambient Windows path characteristics: ${formatWindowsSpellingCharacteristics(characteristics)}`,
+        );
+      }
     }
 
     await expect(resolveTrustedTool(descriptor(file, root))).resolves.toMatchObject({
@@ -135,15 +269,57 @@ describe("trusted-tool canonical containment", () => {
   });
 
   if (process.platform === "win32") {
-    it("accepts a case-variant Windows root spelling after both operands are canonicalized", async () => {
+    it("accepts a casing-only Windows root spelling after both operands are canonicalized", async () => {
       const taskRoot = await scratchRoot();
-      const root = join(taskRoot, "Canonical-Root");
-      const alias = join(taskRoot, "cANONICAL-rOOT");
+      const canonicalTaskRoot = await realpath(taskRoot);
+      const root = join(canonicalTaskRoot, "Canonical-Root");
+      const alias = join(canonicalTaskRoot, "cANONICAL-rOOT");
       const file = join(root, "tool.bin");
       await mkdir(root);
       await writeFile(file, "tool");
 
-      expect(await windowsSpellingKind(alias, await realpath(alias))).toBe("casing-only");
+      const characteristics = await windowsSpellingCharacteristics(alias, await realpath(alias));
+      expect(characteristics).toEqual({
+        casing: true,
+        shortNameExpansion: false,
+        separatorNormalization: false,
+        linkResolution: false,
+        otherCanonicalDifference: false,
+      });
+      if (process.env["GITHUB_ACTIONS"] === "true") {
+        console.info(
+          `L-03 casing-only Windows path characteristics: ${formatWindowsSpellingCharacteristics(characteristics)}`,
+        );
+      }
+      await expect(resolveTrustedTool(descriptor(file, alias))).resolves.toMatchObject({
+        toolId: "containment-test",
+      });
+    });
+
+    it("records and accepts composed casing and ambient Windows root transformations", async () => {
+      const taskRoot = await scratchRoot();
+      const root = join(taskRoot, "Combined-Root");
+      const alias = join(taskRoot, "cOMBINED-rOOT");
+      const file = join(root, "tool.bin");
+      await mkdir(root);
+      await writeFile(file, "tool");
+
+      const canonicalTaskRoot = await realpath(taskRoot);
+      const characteristics = await windowsSpellingCharacteristics(alias, await realpath(alias));
+      const lexicalTaskComponents = taskRoot.split(/[\\/]+/);
+      const canonicalTaskComponents = canonicalTaskRoot.split(/[\\/]+/);
+      const hasAmbientShortNameExpansion = lexicalTaskComponents.some(
+        (component, index) =>
+          /~\d+(?:\.|$)/i.test(component) &&
+          component.toLowerCase() !== (canonicalTaskComponents[index] ?? "").toLowerCase(),
+      );
+      expect(characteristics.casing).toBe(true);
+      expect(characteristics.shortNameExpansion).toBe(hasAmbientShortNameExpansion);
+      if (process.env["GITHUB_ACTIONS"] === "true") {
+        console.info(
+          `L-03 combined Windows path characteristics: ${formatWindowsSpellingCharacteristics(characteristics)}`,
+        );
+      }
       await expect(resolveTrustedTool(descriptor(file, alias))).resolves.toMatchObject({
         toolId: "containment-test",
       });
