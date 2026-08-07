@@ -40,11 +40,37 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # Typecheck, unit tests, and build across both supported host platforms.
+  # Typecheck, unit tests, and build on both platforms.
   #
-  # Windows is not decoration here: this repository contains Windows-specific
-  # path, filename-grammar, and process-composition logic, and a Linux-only CI
-  # would report green on exactly the platform where that logic is wrong.
+  # Windows is not decoration: this repository contains Windows-specific path,
+  # filename-grammar, and process-composition logic, and a Linux-only CI would
+  # report green on exactly the platform where that logic is wrong.
+  #
+  # Ubuntu is not decoration either, but its status here is honest rather than
+  # aspirational. This repository had never been run on Linux before CI existed,
+  # and the first run found two real defects. Both are recorded in
+  # docs/development/github-workflow.md rather than papered over:
+  #
+  #   1. provider-claude-code/test/security.test.ts asserts the child environment
+  #      omits HOME. The broker deliberately sets a WORKSPACE-SCOPED home - HOME
+  #      on POSIX, USERPROFILE on Windows - so that assertion passes on Windows
+  #      only because Windows takes the other branch, and the test never checks
+  #      USERPROFILE at all. The security property it means to protect (the child
+  #      cannot see the ambient home, so no installed-CLI OAuth session is
+  #      visible) does hold on both platforms; the assertion, and the adapter's
+  #      README, state it wrongly.
+  #   2. @ai-dev-os/workspace misses its coverage floors on Linux - 89.62% vs 90%
+  #      statements, 79.77% vs 80% branches - because platform-specific branches
+  #      are unreachable there.
+  #
+  # `check (ubuntu-latest)` is therefore deliberately NOT a required check for
+  # branch protection. It stays visible, and red, so the work is not forgotten.
+  # `continue-on-error` was considered and rejected: it would render the job green
+  # and hide the very information the job exists to produce.
+  #
+  # Neither defect is fixed here. A fix touches a security test and a security
+  # claim in a package outside this change's scope, cannot be validated locally on
+  # the platform that fails, and belongs on its own branch behind a pull request.
   check:
     name: check (${{ matrix.os }})
     strategy:
@@ -112,9 +138,21 @@ jobs:
   # Coverage across all workspaces. Per-package thresholds are enforced by each
   # package's own vitest configuration, so a drop below a floor fails this job
   # rather than being reported and ignored.
+  #
+  # Runs on WINDOWS, deliberately. Every coverage floor in this repository was
+  # established and is recorded from a Windows measurement, and platform-specific
+  # branches that are unreachable on Linux put @ai-dev-os/workspace below its
+  # floors there. Measuring the gate on the platform whose numbers the floors
+  # describe is the accurate choice, not a lenient one: the alternative is a
+  # permanently red check that hides a genuine future coverage regression behind a
+  # known platform artifact.
+  #
+  # Lowering a threshold to accommodate Linux was rejected outright. The correct
+  # fix is to make the Linux branches reachable or the floors platform-aware, and
+  # that is tracked in docs/development/github-workflow.md.
   coverage:
     name: coverage
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

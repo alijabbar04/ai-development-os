@@ -6,14 +6,24 @@
 visible to everyone who can see the repository and gives an attacker the same
 information it gives the maintainer, before any fix exists.
 
-Report privately, in this order of preference:
+Report privately:
 
-1. **GitHub private vulnerability reporting** — the "Report a vulnerability"
-   button under this repository's **Security** tab. This creates a private
-   advisory only the maintainer can see. If you do not see that button, the
-   feature is not enabled for this repository; use the next option.
-2. **Email** the maintainer at the address on the commit history of this
-   repository, with `SECURITY` in the subject line.
+1. **Email** the maintainer at the address on the commit history of this
+   repository, with `SECURITY` in the subject line. **This is currently the only
+   private reporting channel.**
+2. **GitHub private vulnerability reporting** is **not available** on this
+   repository, checked rather than assumed: the API reports the feature absent for
+   this private repository's plan, so there is no "Report a vulnerability" button
+   under the Security tab. If that changes, it becomes the preferred channel and
+   this section will say so.
+
+The same check found **secret scanning and push protection unavailable** here, for
+the same reason. Both are GitHub Advanced Security features that a private
+repository on this plan does not have. That is recorded rather than worked around,
+and no other setting was weakened and no visibility changed to obtain them. Secret
+scanning before every push is therefore performed locally, over every blob
+reachable from every ref, and is documented in
+[`docs/development/github-workflow.md`](docs/development/github-workflow.md).
 
 Please include what you need to make the report actionable and nothing more:
 affected component and version or commit, what an attacker gains, and the

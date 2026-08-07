@@ -1,8 +1,13 @@
 blank_issues_enabled: false
 contact_links:
+  # Deliberately points at SECURITY.md rather than /security/advisories/new.
+  # Private vulnerability reporting was checked against the API and is NOT
+  # available for this private repository's plan, so that URL would 404 for a
+  # reporter — sending someone with a vulnerability to a dead page is worse than
+  # sending them to a page that explains the working channel.
   - name: Security vulnerability
-    url: https://github.com/alijabbar04/ai-development-os/security/advisories/new
-    about: Report privately. Never open a public issue for a vulnerability.
+    url: https://github.com/alijabbar04/ai-development-os/blob/main/SECURITY.md
+    about: Report privately by email. Never open a public issue for a vulnerability.
   - name: Questions and current status
     url: https://github.com/alijabbar04/ai-development-os/blob/main/SUPPORT.md
     about: Release status, why autonomous execution refuses, and where the evidence lives.
