@@ -11,7 +11,7 @@ this repository follows.
 
 | Fact | Value |
 | --- | --- |
-| Visibility | **private** |
+| Visibility | **public temporarily** — operator-managed for GitHub-hosted L-03 CI; return to private is a separate action |
 | Default branch | `main` |
 | Protected branches | **none** — branch protection is unavailable on this plan, see below |
 | Release lineage | `v0.1.0` … `v0.16.0`, one tag per completed stage |
@@ -35,7 +35,9 @@ change reaches `main` without someone deciding it should.
 ## Security features: what this repository actually has
 
 Feature-detected against the API rather than assumed, because a security control
-you believe you have and do not is worse than a known gap.
+you believe you have and do not is worse than a known gap. The table below records
+the standing private-repository feature state; temporary public visibility for
+hosted L-03 validation does not turn public-plan features into durable controls.
 
 | Feature | State |
 | --- | --- |
@@ -46,45 +48,142 @@ you believe you have and do not is worse than a known gap.
 | Private vulnerability reporting | **Unavailable** — API reports the feature absent |
 | Branch protection / rulesets | **Unavailable** — both refused with 403, see the section below |
 
-No other setting was weakened and visibility was **not** changed to obtain any of
-these. Two consequences follow and are handled rather than ignored:
+The operator later made the repository public temporarily so standard
+GitHub-hosted runners could complete L-03 validation without paid private minutes.
+The L-03 task changed no visibility or repository setting and does not restore
+privacy; that remains a separate operator action. Two private-state consequences
+are handled rather than ignored:
 
 - Vulnerability reports come by email; `SECURITY.md` says so plainly instead of
   pointing at a button that does not exist.
 - Because no server-side secret scanning exists, the local pre-push scan below is
   not a belt-and-braces extra. It is the only secret scanning this repository has.
 
-## Known open defects that CI surfaced
+## Defects that CI surfaced
 
 CI had never run on this repository before it was created, and the code had only
-ever been validated on Windows. The first Linux run found exactly two defects
-across 32 packages. Both are recorded here rather than fixed, and the reason is
-scope rather than convenience: each touches a package outside the change that
-enabled CI, neither can be validated locally on the platform that fails, and a fix
-belongs on its own branch behind a pull request.
+ever been validated on Windows. The first runs found three defects across 32
+packages. L-03 is closed below; L-01's strengthened home-boundary proof passed
+on both hosted operating systems, and the separate lockfile-only dependency
+repair is now included in the dedicated Stage 17 integration described below.
+L-02 remains open and separately scoped.
 
-**L-01 — `provider-claude-code` asserts the wrong property, and passes on Windows
-by accident.**
-`packages/provider-claude-code/test/security.test.ts` asserts the child
-environment does not contain `HOME`. The broker deliberately sets a
-**workspace-scoped** home — `HOME` on POSIX, `USERPROFILE` on Windows
-(`packages/process-broker/src/environment.ts`). So the assertion passes on Windows
-only because Windows takes the other branch, and the test does not check
-`USERPROFILE` at all.
+**L-01 — Fixed; dependency audit repaired in the dedicated integration.**
+`packages/provider-claude-code/test/security.test.ts` unconditionally asserted
+that the child environment did not contain `HOME`. The broker deliberately sets
+a broker-owned session home — `HOME` on POSIX, `USERPROFILE` on Windows — so the
+assertion failed on Ubuntu and passed on Windows without checking the Windows
+home at all. The provider README, live-test comment, and roadmap repeated the
+same incorrect omission claim.
 
-The security property it means to protect — the child cannot see the ambient home,
-so an installed-CLI OAuth session is not visible — **does hold on both
-platforms**, because the home it is given points inside the workspace. What is
-wrong is the statement of it: the assertion, and `packages/provider-claude-code/README.md`,
-both say `HOME` and `USERPROFILE` are *omitted*, and one of them is set.
+The reconstructed contract starts from an empty environment and never inherits
+the invoking user's profile. After admission the broker may add one trusted,
+fresh session home under its session root using the platform name. The opposite
+home name, Windows application-data paths, provider-unused XDG redirectors,
+`CLAUDE_CONFIG_DIR`, and Claude OAuth token/refresh/scopes stay absent. Request
+bindings cannot set those names in any casing, and the public environment
+builder rechecks already-typed bindings. An explicitly authorized API-key secret
+binding remains supported. This blocks default installed-login discovery but is
+not filesystem containment under `unsafe-development-current-user`.
 
-The fix is to assert the property that matters: whichever home variable is
-present, its value is the workspace-scoped path and not the ambient one. That is a
-**stronger** test than the current one, which today catches an ambient-home leak
-on neither platform. Do not simply delete `HOME` from the forbidden list.
+The stronger test found a second Windows-specific part of L-01: Node copied
+omitted parent values such as `HOMEDRIVE`, `HOMEPATH`, `PATH`, `USERNAME`, and
+`USERDOMAIN` into the spawned child even though the broker supplied a complete
+environment object. The repair suppresses every omitted parent name only for
+the synchronous native spawn call and restores the parent immediately.
+Lower-level tests simulate hostile POSIX and Windows homes, a null home,
+ordinary and secret override attempts, and explicit permitted bindings. The
+real fake CLI records bounded environment names, presence bits for credential
+canaries, and only the broker-owned platform-home value; it never records a
+credential value or directory-entry name. It proves the selected home exists
+empty under the expected session root,
+is neither equal to the root nor accepted through a sibling-prefix collision,
+is outside source/managed workspaces and a controlled ambient-home canary, and
+is removed before settlement. Raw stderr is classified only in bounded memory;
+the diagnostics artifact is structural because provider stderr may echo a
+credential.
 
-**L-03 — `process-broker` canonicalises one side of a containment comparison and
-not the other. Fails on the Windows runner, so this is not a Linux-only issue.**
+Corrective commit
+[`6bd96c4005f24c575e5e4d849a9d5299e2901a08`](https://github.com/alijabbar04/ai-development-os/commit/6bd96c4005f24c575e5e4d849a9d5299e2901a08)
+was checked out by run
+[`31226295963`](https://github.com/alijabbar04/ai-development-os/actions/runs/31226295963).
+The
+[`Ubuntu check`](https://github.com/alijabbar04/ai-development-os/actions/runs/31226295963/job/93021175912)
+and
+[`Windows check`](https://github.com/alijabbar04/ai-development-os/actions/runs/31226295963/job/93021175888)
+both passed. On each host all 45 Claude security tests executed and passed. The
+process-broker suite passed on both; all 19 retained L-03 containment tests ran
+on Windows, while Ubuntu skipped only the physically unavailable Windows
+cross-volume vector. The
+[`coverage job`](https://github.com/alijabbar04/ai-development-os/actions/runs/31226295963/job/93021175898)
+also ran all 45 Claude security tests and all 19 containment tests on Windows.
+Process-broker coverage was 91.53% statements, 86.43% branches, 90.43%
+functions, and 92.54% lines; Claude-provider coverage was 90.70%, 83.81%,
+94.32%, and 90.72%. All floors remain unchanged.
+
+The workflow's overall conclusion is nevertheless failure because its
+[`dependency audit`](https://github.com/alijabbar04/ai-development-os/actions/runs/31226295963/job/93021175861)
+independently reported the newly published `GHSA-2v37-7h3g-55p8` against the
+unchanged transitive `nanoid@3.3.16` lock entry. That is a real, separately
+scoped dependency finding; no dependency was changed or audit result hidden in
+this bounded L-01 repair.
+
+A subsequent fresh review found that this first repair was not the final
+contract: lowercase `home` passed request validation and became `HOME` on
+Windows; direct typed bindings could bypass parser-only rejection; a
+longer-lived workspace profile could take precedence over the fresh backend
+home; and the artifact canary assertion examined only category names while the
+raw stderr payload actually contained the canary. The follow-up code closes all
+four gaps. Independent review then found that macOS Keychain lookup is not
+redirected by `HOME`, Windows native spawn can copy more omitted values than the
+two legacy home components, and repeated grants could reuse one deterministic
+session directory while cleanup failures were reported as success. The
+strengthened repair refuses distributable macOS operations until Keychain
+isolation exists, suppresses every omitted Windows parent name, gives every
+prepare a unique fail-closed directory, reports cleanup failures, and keeps
+credential fixtures presence-only. The historical run above remains valid
+evidence for commit `6bd96c4`, but it is superseded for the strengthened repair
+by corrective commit
+[`774802bf575b82611a906f86aeb79e12aebcaba4`](https://github.com/alijabbar04/ai-development-os/commit/774802bf575b82611a906f86aeb79e12aebcaba4)
+and exact-head run
+[`31254868909`](https://github.com/alijabbar04/ai-development-os/actions/runs/31254868909).
+The
+[`Ubuntu check`](https://github.com/alijabbar04/ai-development-os/actions/runs/31254868909/job/93096668090),
+[`Windows check`](https://github.com/alijabbar04/ai-development-os/actions/runs/31254868909/job/93096668148),
+and
+[`coverage job`](https://github.com/alijabbar04/ai-development-os/actions/runs/31254868909/job/93096668068)
+all passed. Each hosted check executed and passed all 45 Claude security tests.
+The Claude package reported 257 passing tests with seven explicit opt-in live
+canaries skipped on each host. Process-broker reported 259 passing tests on
+Ubuntu with only the physically unavailable Windows cross-volume vector skipped,
+and 260 passing tests on Windows. All 19 retained L-03 containment vectors ran on
+Windows; Ubuntu ran the 18 physically applicable vectors. Coverage reran all 45
+Claude security tests and all 19 containment vectors on Windows. Process-broker
+coverage was 91.58% statements, 85.60% branches, 92.03% functions, and 92.20%
+lines; Claude-provider coverage was 90.72%, 83.85%, 94.34%, and 90.74%. The
+90/80/90/90 floors remain unchanged.
+
+The home-isolation execution proof is therefore complete on both required hosted
+operating systems. The workflow's overall conclusion remains failure because the
+[`dependency audit`](https://github.com/alijabbar04/ai-development-os/actions/runs/31254868909/job/93096668101)
+reported one high-severity vulnerability: `GHSA-2v37-7h3g-55p8` in the unchanged
+transitive `nanoid@3.3.16` lock entry (fixed in `3.3.17`). The bounded L-01
+authorization does not include a dependency or lockfile update, so this document
+does not hide the finding or call the final zero-vulnerability gate closed.
+
+The later bounded dependency authorization changed only `package-lock.json` at
+exact commit `bfb06ff54fa0902908a7769d9e4d6a8d18e77604`: the single transitive
+`nanoid` object moved from 3.3.16 to 3.3.18, with no manifest, override,
+resolution, control, or unrelated lockfile change. On the dedicated
+`fix/stage-17w-l01-l03-integration` tree, `npm ci` succeeded,
+`npm ls nanoid postcss vite vitest` showed the single chain
+`vitest@4.1.10` -> `vite@8.2.0` -> `postcss@8.5.25` -> `nanoid@3.3.18`, and
+both `npm audit --json` and `npm audit --audit-level=high` reported zero
+findings. These are local integration results; hosted integration results are
+not claimed until the exact merge commit is pushed and its workflow completes.
+
+**L-03 — Fixed: `process-broker` canonicalised one side of a containment
+comparison and not the other.**
 
 `packages/process-broker/src/tool.ts:333-352` compares a resolved tool image
 against its containment root:
@@ -95,26 +194,110 @@ const root = descriptor.containmentRoot;               // NOT canonicalised
 if (resolved !== root && !resolved.startsWith(root.endsWith(sep) ? root : root + sep)) { … }
 ```
 
-The executable goes through `realpath`; the root does not. Two paths that name the
-same directory therefore fail to compare equal whenever the root as supplied is
+The executable went through `realpath`; the root did not. Two paths that named the
+same directory therefore failed to compare equal whenever the root as supplied was
 not already in its canonical on-disk form. Two tests in
 `packages/process-broker/test/edges.test.ts` — "verifies a matching digest and
-accepts the tool" and "accepts a tool inside its containment root" — fail with
-`EXECUTABLE_UNSAFE` on `windows-latest` and pass on the maintainer's Windows
-machine, where `%TEMP%` already happens to be canonical.
+accepts the tool" and "accepts a tool inside its containment root" — expected a
+resolved tool but actually received `EXECUTABLE_UNSAFE` in both the `check
+(windows-latest)` and `coverage` jobs for main run `31175235796` and Stage 17 run
+`31175253557`. Both used Actions runner `2.336.0`, Windows Server 2025 image
+`20260803.193.1`, and Node `24.18.1`.
 
-The failure direction is **closed**: a legitimate tool is refused, not an illegitimate
-one admitted. So this is a portability and robustness defect rather than an escape.
-It still matters, for two reasons. The broker is unusable anywhere the temporary
-directory is not already canonical. And an asymmetric comparison is the same shape
-as Stage 17's F-01 — two values that are meant to correspond, where one is
-normalised and the other is not — which failed open there.
+The errors correctly serialized no operands. The sanitized spelling difference is
+the hosted runner's 8.3 temporary-user alias:
 
-The fix is to canonicalise **both** sides before comparing, with a deliberate
-decision about what a `realpath` failure on the root should mean (it should be a
-refusal, not a silent skip of the check). The exact environmental trigger on the
-runner was not established read-only; the asymmetry is sufficient to explain it and
-is the thing to fix regardless.
+```text
+lexical root:    C:\Users\RUNNER~1\AppData\Local\Temp\<task-leaf>
+canonical image: C:\Users\runneradmin\AppData\Local\Temp\<task-leaf>\<tool>
+```
+
+This is long/short-name canonicalization, not a casing-only difference and not
+junction resolution. The regression suite also supplies its own case-variant root,
+so it deterministically distinguishes the fix even on a Windows machine whose
+ambient temporary path is already canonical.
+
+The failure direction was **closed**: a legitimate tool was refused, not an
+illegitimate one admitted. It was therefore a portability and robustness defect,
+not an escape. The asymmetry nevertheless had the same shape as Stage 17's F-01 —
+two values meant to correspond, where only one was normalized.
+
+The fix canonicalizes the executable and containment root independently at the
+live resolution boundary, refuses either resolution failure, and uses
+`relative()` with component-aware `..`, absolute-result, and equality checks.
+Missing or unreadable roots use the existing `EXECUTABLE_UNAVAILABLE` public code;
+an existing non-directory root is `EXECUTABLE_UNSAFE`. Equality is refused because
+the descriptor contract requires a directory root and a file executable.
+
+The root entry itself must be an ordinary directory. A root symlink or junction is
+refused even when `allowLinkIndirection` permits deliberate executable indirection;
+that flag does not expand the descriptor's boundary authority. Executable links
+remain governed by the existing flag, and their canonical target must still be a
+descendant. The same-user path and digest checks retain their documented TOCTOU
+limitation: without an immutable backend reference, another same-user process can
+replace filesystem objects between verification and image load.
+
+Two isolated built-output mutants distinguish the regressions. Mutant A replaced
+the component comparison with the original lexical-root/string-prefix comparison:
+the fixed build accepted a case-variant Windows root naming the same hierarchy,
+while the mutant refused it with `EXECUTABLE_UNSAFE`. Mutant B retained both
+canonicalizations but bypassed the containment predicate: the fixed build refused
+an existing outside-root tool with `EXECUTABLE_UNSAFE`, while the mutant accepted
+it. Neither mutant modified the authoritative worktree, and all task-owned mutant
+and filesystem-test leaves were removed after the proof.
+
+**Hosted closure evidence.** The first executed rerun of the original fix was
+[`31182304551`, attempt 2](https://github.com/alijabbar04/ai-development-os/actions/runs/31182304551)
+at exact head `38d8b9fc350ea54e020572779e997ef224d0857e`. Its
+[`check (windows-latest)` job](https://github.com/alijabbar04/ai-development-os/actions/runs/31182304551/job/92896653467)
+and
+[`coverage` job](https://github.com/alijabbar04/ai-development-os/actions/runs/31182304551/job/92896653766)
+both failed at `tool-containment.test.ts:146` before the named casing vector called
+`resolveTrustedTool`. The fixture's lexical path combined the hosted runner's
+`RUNNER~1` ancestor with a deliberately case-varied leaf. The diagnostic helper
+returned one priority-ordered string, so it reported
+`8.3-short-name-to-long-name`; the brittle assertion required the whole pair to
+equal `casing-only`. Production containment did not refuse. The preceding ambient
+8.3 vector was accepted, and every later equality, traversal, sibling-prefix,
+outside-root, cross-volume, linked-root, and executable-escape vector executed and
+passed.
+
+Local validation missed the harness defect because the local temporary root was
+already canonical. Only the controlled casing difference remained, so the
+exclusive label happened to equal `casing-only`. Corrective commit
+`a6d1da73a7a7e9053a15628dfbc8652a9ea23088` replaced that enum-like label with
+independent, path-redacted characteristics, used a canonical ancestor for a true
+casing-only live vector, retained the live hosted 8.3 vector, and added a composed
+live vector plus positive and negative detector controls. Reintroducing the old
+exact-label assumption produced expected `casing-only`, actual
+`8.3-short-name-to-long-name`; the corrected combined detector recorded both
+`casing=true` and `8.3-short-name-to-long-name=true`.
+
+Corrective-code run
+[`31195723647`](https://github.com/alijabbar04/ai-development-os/actions/runs/31195723647)
+checked out that exact commit. The
+[`Windows check`](https://github.com/alijabbar04/ai-development-os/actions/runs/31195723647/job/92923330628)
+and
+[`coverage`](https://github.com/alijabbar04/ai-development-os/actions/runs/31195723647/job/92923330681)
+jobs both logged, without operands:
+
+```text
+ambient:    casing=false; 8.3-short-name-to-long-name=true
+casing-only: casing=true;  8.3-short-name-to-long-name=false
+combined:   casing=true;  8.3-short-name-to-long-name=true
+```
+
+All 19 Windows containment tests executed and passed in both jobs. Process-broker
+coverage was 91.56% statements, 86.74% branches, 90.32% functions, and 92.59%
+lines, above the unchanged 90/80/90/90 floors. The
+[`dependency audit`](https://github.com/alijabbar04/ai-development-os/actions/runs/31195723647/job/92923330664)
+found zero vulnerabilities. The only failure in the complete
+[`Ubuntu log`](https://github.com/alijabbar04/ai-development-os/actions/runs/31195723647/job/92923330597)
+was the separately tracked L-01 `provider-claude-code` assertion at
+`security.test.ts:628`, where `HOME` was present; process-broker passed there with
+only the physically unavailable Windows cross-volume vector skipped. The Node 20
+action-runtime deprecation annotation is a separate non-blocking maintenance item.
+No Stage 17 stateful operation was performed.
 
 **L-02 — `@ai-dev-os/workspace` misses its coverage floors on Linux.**
 89.62% statements against a 90% floor, and 79.77% branches against 80%, because
@@ -123,8 +306,11 @@ runs on Windows, where the floors were measured. **Do not lower a threshold to
 close this.** The fix is to make those branches reachable on Linux or to make the
 floors platform-aware.
 
-Until L-01 and L-02 are fixed, `check (ubuntu-latest)` is expected to be red and
-is deliberately not a required check. It is left visible for exactly that reason.
+L-01 and L-03 are not expected failures on either check platform. L-02 remains
+open and explains the Windows placement of the separate coverage job; no
+threshold is lowered. The independent dependency-audit finding remains visible
+as historical evidence above and is repaired by the exact bounded lockfile-only
+update recorded there.
 
 ## Standing policy for every future task
 

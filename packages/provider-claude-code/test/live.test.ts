@@ -21,14 +21,18 @@
  *     process creation, and never places it in argv, configuration, artifacts,
  *     observations, or errors.
  *
- * Why an API key rather than the machine owner's Claude login: the process
- * broker builds the child environment from an empty baseline and deliberately
- * omits HOME and USERPROFILE, so an installed-CLI OAuth session is simply not
- * reachable from a brokered process. Reaching it would mean reading a Claude
- * credential file directly, which this adapter must never do. That is the
- * Anthropic authentication boundary showing up as an actual mechanism rather
- * than as a policy note, and it is why the probe canary can run without a
- * credential while the task canaries cannot.
+ * Why an API key rather than the machine owner's Claude login: on Linux and
+ * Windows, the process broker starts from an empty environment and supplies a
+ * fresh broker-owned session home as HOME or USERPROFILE. It does not inherit
+ * the machine owner's home, and callers cannot override the home/profile or XDG
+ * redirectors. The CLI's default file-backed lookup therefore cannot discover
+ * an installed OAuth login. macOS credentials live in the user's Keychain,
+ * which HOME cannot redirect, so distributable operations refuse there before
+ * their CLI probe or task process. This is credential-discovery redirection,
+ * not filesystem isolation: the explicitly unsafe backend still has the
+ * invoking user's file access. Installed-login operation remains a local
+ * development canary outside distributable authentication, while supported
+ * task canaries use an API key resolved after policy approval.
  *
  * Optionally, AI_DEV_OS_CLAUDE_LIVE_MODEL names one permitted model.
  *
@@ -264,8 +268,9 @@ describe("live canary opt-in status", () => {
 
   it.skipIf(TASKS_ENABLED)("skips the task canaries without an API key", () => {
     // Task canaries additionally require AI_DEV_OS_CLAUDE_LIVE_API_KEY,
-    // because a brokered process cannot reach an installed-CLI login and this
-    // adapter never reads a Claude credential file to make one reachable.
+    // because Linux/Windows isolated-home lookup cannot discover an installed
+    // login and macOS distributable task starts refuse without Keychain
+    // isolation. Adapter code never reads a Claude credential file itself.
     expect(TASKS_ENABLED).toBe(false);
   });
 });

@@ -4,7 +4,7 @@
  * The child never inherits the caller's environment. The environment is built
  * from an empty baseline and contains only what was named explicitly: a small
  * set of platform variables the operating system needs to create a process,
- * workspace-scoped temporary and profile directories, deterministic locale
+ * broker-owned temporary and profile directories, deterministic locale
  * values, and the caller's explicitly configured bindings.
  *
  * Honest limitation: once the operating system creates the child, the
@@ -43,6 +43,14 @@ export const FORBIDDEN_ENVIRONMENT_NAMES: ReadonlySet<string> = Object.freeze(
     "XDG_CONFIG_HOME",
     "XDG_CACHE_HOME",
     "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "APPDATA",
+    "LOCALAPPDATA",
+    // Claude credential/configuration redirection and subscription tokens.
+    "CLAUDE_CONFIG_DIR",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+    "CLAUDE_CODE_OAUTH_SCOPES",
     // Interactive credential and agent access.
     "SSH_AUTH_SOCK",
     "SSH_AGENT_PID",
@@ -119,6 +127,20 @@ export const FORBIDDEN_ENVIRONMENT_NAMES: ReadonlySet<string> = Object.freeze(
     "no_proxy",
   ]),
 );
+
+const FORBIDDEN_ENVIRONMENT_NAMES_CASE_INSENSITIVE: ReadonlySet<string> = Object.freeze(
+  new Set([...FORBIDDEN_ENVIRONMENT_NAMES].map((name) => name.toUpperCase())),
+);
+
+function assertRequestEnvironmentNameAllowed(name: string): void {
+  if (FORBIDDEN_ENVIRONMENT_NAMES_CASE_INSENSITIVE.has(name.toUpperCase())) {
+    throw new ProcessBrokerError(
+      "ENVIRONMENT_REJECTED",
+      "This environment variable redirects credentials, configuration, or runtime behaviour and cannot be set from a request.",
+      { name },
+    );
+  }
+}
 
 /**
  * Windows requires a small number of system values to create a usable
@@ -235,13 +257,10 @@ export function parseEnvironmentBindings(
   );
   const seen = new Set<string>();
   for (const binding of bindings) {
-    if (FORBIDDEN_ENVIRONMENT_NAMES.has(binding.name)) {
-      throw new ProcessBrokerError(
-        "ENVIRONMENT_REJECTED",
-        "This environment variable redirects credentials, configuration, or runtime behaviour and cannot be set from a request.",
-        { name: binding.name },
-      );
-    }
+    // Environment names are case-insensitive on Windows. Reserve every
+    // security-sensitive name case-insensitively on all platforms so one
+    // portable request cannot become hostile only when it reaches Windows.
+    assertRequestEnvironmentNameAllowed(binding.name);
     if (seen.has(binding.name)) {
       throw invalidRequest("Environment bindings contain a duplicate name.", {
         name: binding.name,
@@ -256,7 +275,7 @@ export function parseEnvironmentBindings(
 export interface WorkspaceEnvironmentPaths {
   /** Workspace-scoped temporary directory. Absolute. */
   readonly tempDir: string;
-  /** Empty profile directory presented to tools that insist on a home. */
+  /** Trusted empty profile directory presented to tools that insist on a home. */
   readonly homeDir: string | null;
   readonly configDir: string | null;
   readonly cacheDir: string | null;
@@ -306,7 +325,7 @@ export function buildEnvironment(input: EnvironmentBuildInput): BuiltEnvironment
     }
   }
 
-  // 3. Workspace-scoped locations. No ambient temp or profile directory.
+  // 3. Broker-owned locations. No ambient temp or profile directory.
   variables["TMPDIR"] = input.paths.tempDir;
   variables["TMP"] = input.paths.tempDir;
   variables["TEMP"] = input.paths.tempDir;
@@ -329,9 +348,13 @@ export function buildEnvironment(input: EnvironmentBuildInput): BuiltEnvironment
     variables["PATH"] = input.pathEntries.join(platform === "win32" ? ";" : ":");
   }
 
-  // 5. Caller bindings last, so a request cannot be silently overridden.
+  // 5. Caller bindings last, so a permitted request value is not silently
+  // overridden. Recheck the forbidden set here because buildEnvironment is a
+  // public boundary and must remain safe even if a typed binding did not come
+  // from parseEnvironmentBindings.
   const secretValues: string[] = [];
   for (const binding of input.bindings) {
+    assertRequestEnvironmentNameAllowed(binding.name);
     if (binding.kind === "secret") {
       const value = input.secretValues?.get(binding.name);
       if (value === undefined) {
@@ -374,5 +397,5 @@ export function strippedNames(
 }
 
 export function isSensitiveEnvironmentName(name: string): boolean {
-  return FORBIDDEN_ENVIRONMENT_NAMES.has(name);
+  return FORBIDDEN_ENVIRONMENT_NAMES_CASE_INSENSITIVE.has(name.toUpperCase());
 }

@@ -12,7 +12,16 @@
  * which the fake records verbatim so tests can assert on exactly what was sent.
  */
 
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  opendirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -42,13 +51,94 @@ if (typeof scenario.startMarker === "string") {
   writeFileSync(scenario.startMarker, "started", "utf8");
 }
 
-/** Records every environment variable name the child actually received. */
+const ENVIRONMENT_VALUE_ALLOWLIST = new Set([
+  "ANTHROPIC_API_KEY",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "GITHUB_TOKEN",
+  "HOME",
+  "USERPROFILE",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "XDG_CONFIG_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+  "CLAUDE_CODE_OAUTH_SCOPES",
+]);
+const ENVIRONMENT_RAW_VALUE_ALLOWLIST = new Set(["HOME", "USERPROFILE"]);
+const MAX_CAPTURED_ENVIRONMENT_NAMES = 512;
+const MAX_CAPTURED_ENVIRONMENT_VALUES = 16;
+
+function selectedEnvironmentNames() {
+  const requested = scenario.environmentCanaryNames ?? [];
+  if (
+    !Array.isArray(requested) ||
+    requested.length > MAX_CAPTURED_ENVIRONMENT_VALUES ||
+    new Set(requested).size !== requested.length ||
+    requested.some((name) => typeof name !== "string" || !ENVIRONMENT_VALUE_ALLOWLIST.has(name))
+  ) {
+    throw new Error("fake-claude-cli: invalid environment capture request");
+  }
+  return requested;
+}
+
+function brokerHomeState(selectedNames) {
+  const name = process.platform === "win32" ? "USERPROFILE" : "HOME";
+  if (!selectedNames.includes(name)) {
+    return null;
+  }
+  const value = process.env[name];
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+  try {
+    if (!statSync(value).isDirectory()) {
+      return { name, existsAsDirectory: false, empty: false, canonicalValue: null };
+    }
+    const directory = opendirSync(value);
+    let empty;
+    try {
+      empty = directory.readSync() === null;
+    } finally {
+      directory.closeSync();
+    }
+    return {
+      name,
+      existsAsDirectory: true,
+      empty,
+      canonicalValue: realpathSync.native(value),
+    };
+  } catch {
+    return { name, existsAsDirectory: false, empty: false, canonicalValue: null };
+  }
+}
+
+/**
+ * Records bounded names and presence bits. Raw values are retained only for
+ * the two broker-owned platform-home fields needed by the isolation proof;
+ * credential canaries are presence-only so this fixture cannot serialize a
+ * future injected credential value.
+ */
 if (typeof scenario.environmentOut === "string") {
+  const names = Object.keys(process.env).sort();
+  if (names.length > MAX_CAPTURED_ENVIRONMENT_NAMES) {
+    throw new Error("fake-claude-cli: environment name capture exceeds its bound");
+  }
+  const selectedNames = selectedEnvironmentNames();
   writeFileSync(
     scenario.environmentOut,
     JSON.stringify({
-      names: Object.keys(process.env).sort(),
-      values: (scenario.environmentCanaryNames ?? []).map((name) => process.env[name] ?? null),
+      names,
+      selectedNames,
+      present: selectedNames.map((name) => Object.hasOwn(process.env, name)),
+      values: selectedNames.map((name) =>
+        ENVIRONMENT_RAW_VALUE_ALLOWLIST.has(name) ? (process.env[name] ?? null) : null,
+      ),
+      brokerHome: brokerHomeState(selectedNames),
       cwd: process.cwd(),
     }),
     "utf8",

@@ -221,18 +221,32 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
   const sessions = new Set<DuplexProcessSession>();
   let closed = false;
 
-  async function disposeSandbox(session: SandboxSession): Promise<ProcessBrokerError | null> {
+  async function disposeSandbox(
+    session: SandboxSession,
+    context: {
+      readonly request: ProcessRequest;
+      readonly grant: CapabilityGrant;
+      readonly decision: AdmissionDecision;
+    },
+  ): Promise<ProcessBrokerError | null> {
+    let failure: ProcessBrokerError | null = null;
     try {
       await options.backend.dispose(session);
-      return null;
     } catch (error) {
       invalidateProductionBackendRegistration(productionRegistration);
-      return new ProcessBrokerError(
-        "SANDBOX_DISPOSAL_FAILED",
-        "Sandbox cleanup could not be confirmed.",
-        { backendId: session.backendId, cause: errorCategory(error) },
+      failure = new ProcessBrokerError(
+        options.mode === "production" ? "SANDBOX_DISPOSAL_FAILED" : "BACKEND_LOST",
+        "The sandbox session cleanup could not be confirmed.",
+        { backendId: context.decision.backendId, cause: errorCategory(error) },
       );
     }
+    emit("sandbox-disposed", {
+      ...context,
+      outcome: failure === null ? "disposed" : "dispose-failed",
+      occurredAt: clock.now().toISOString(),
+      environmentNameCount: context.request.environment.length,
+    });
+    return failure;
   }
 
   async function execute(input: ExecuteInput): Promise<ProcessResult> {
@@ -413,7 +427,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     });
     const sandbox = await options.backend.prepare(binding);
     if (sandbox.backendId !== descriptor.backendId) {
-      const disposalFailure = await disposeSandbox(sandbox);
+      const disposalFailure = await disposeSandbox(sandbox, { request, grant, decision });
       throw disposalFailure ?? new ProcessBrokerError(
         "BACKEND_INSECURE",
         "The prepared sandbox identity does not match the admitted backend.",
@@ -442,16 +456,8 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         startedAt,
       });
     } catch (error) {
-      const disposalFailure = await disposeSandbox(sandbox);
-      emit("sandbox-disposed", {
-        request,
-        grant,
-        decision,
-        outcome: disposalFailure === null ? "disposed" : "disposal-failed",
-        occurredAt: clock.now().toISOString(),
-        environmentNameCount: request.environment.length,
-      });
-      if (options.mode === "production" && disposalFailure !== null) {
+      const disposalFailure = await disposeSandbox(sandbox, { request, grant, decision });
+      if (disposalFailure !== null) {
         throw disposalFailure;
       }
       throw error;
@@ -684,14 +690,14 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
           invalidateProductionBackendRegistration(productionRegistration);
         }
       }
-      eventQueue.finish();
-      const output = collector.finish();
-      const endedAt = clock.now();
-      const disposalFailure = await disposeSandbox(sandbox);
-      if (options.mode === "production" && disposalFailure !== null) {
+      const disposalFailure = await disposeSandbox(sandbox, { request, grant, decision });
+      if (disposalFailure !== null) {
         state = "backend-lost";
         failure = disposalFailure;
       }
+      eventQueue.finish();
+      const output = collector.finish();
+      const endedAt = clock.now();
       const finalState = currentState();
       const result: ProcessResult = Object.freeze({
         requestId: request.requestId,
@@ -708,14 +714,6 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         failure,
       });
       emitTerminal(finalState, failure, exit.exitCode, result.durationMs, startedAt, output, context);
-      emit("sandbox-disposed", {
-        request,
-        grant,
-        decision,
-        outcome: disposalFailure === null ? "disposed" : "disposal-failed",
-        occurredAt: clock.now().toISOString(),
-        environmentNameCount: request.environment.length,
-      });
       resolveResult(result);
     };
     void child.wait().then(
@@ -970,7 +968,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     });
     const session = await options.backend.prepare(binding);
     if (session.backendId !== descriptor.backendId) {
-      const disposalFailure = await disposeSandbox(session);
+      const disposalFailure = await disposeSandbox(session, { request, grant, decision });
       throw disposalFailure ?? new ProcessBrokerError(
         "BACKEND_INSECURE",
         "The prepared sandbox identity does not match the admitted backend.",
@@ -1003,16 +1001,8 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     } catch (error) {
       executionFailure = error;
     }
-    const disposalFailure = await disposeSandbox(session);
-    emit("sandbox-disposed", {
-      request,
-      grant,
-      decision,
-      outcome: disposalFailure === null ? "disposed" : "disposal-failed",
-      occurredAt: clock.now().toISOString(),
-      environmentNameCount: request.environment.length,
-    });
-    if (options.mode === "production" && disposalFailure !== null) {
+    const disposalFailure = await disposeSandbox(session, { request, grant, decision });
+    if (disposalFailure !== null) {
       throw disposalFailure;
     }
     if (executionFailure !== null) {
@@ -1371,13 +1361,11 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         await options.backend.close();
       } catch (error) {
         invalidateProductionBackendRegistration(productionRegistration);
-        if (options.mode === "production") {
-          throw new ProcessBrokerError(
-            "SANDBOX_DISPOSAL_FAILED",
-            "Backend shutdown cleanup could not be confirmed.",
-            { cause: errorCategory(error) },
-          );
-        }
+        throw new ProcessBrokerError(
+          options.mode === "production" ? "SANDBOX_DISPOSAL_FAILED" : "BACKEND_LOST",
+          "Backend shutdown cleanup could not be confirmed.",
+          { cause: errorCategory(error) },
+        );
       }
     },
   });
@@ -1443,7 +1431,10 @@ function environmentPathsForSession(
   }
   return Object.freeze({
     tempDir: session.tempDir,
-    homeDir: requested.homeDir ?? session.homeDir,
+    // A backend-prepared home is fresh for this broker session and wins over
+    // any longer-lived trusted workspace profile. The workspace value is only
+    // a fallback for backends that provide no home.
+    homeDir: session.homeDir ?? requested.homeDir,
     configDir: requested.configDir,
     cacheDir: requested.cacheDir,
   });

@@ -46,6 +46,7 @@ import {
   claudeConfigurationFingerprint,
   isDistributableAuthentication,
   type ClaudeAdapterConfiguration,
+  type ClaudeAuthenticationMode,
   type ClaudeEffortLevel,
 } from "./config.js";
 import { CLAUDE_EFFORT_LEVELS } from "./config.js";
@@ -155,8 +156,9 @@ export interface CreateClaudeCodeProviderOptions {
   readonly secretEnvironment?: readonly EnvironmentBinding[];
   /**
    * Explicit opt-in for the personal, local development canary. Without it a
-   * personal installed-CLI login is refused, because routing a subscription
-   * credential on a user's behalf is outside Anthropic's published boundary.
+   * personal installed-CLI login is refused. This is an AI Development OS
+   * product-policy boundary; personal subscription login is never a
+   * distributable authentication mechanism.
    */
   readonly personalDevelopmentCanaryOptIn?: boolean;
   readonly projectId?: string;
@@ -177,6 +179,29 @@ const UNKNOWN_BACKEND: ClaudeBackendIdentity = Object.freeze({
   securityClass: "unavailable",
   commandExecutionAllowed: false,
 });
+
+export type ClaudeAuthenticationRefusalReason =
+  | "personal-opt-in-required"
+  | "macos-keychain-not-isolated";
+
+/**
+ * Returns the fail-closed reason before an authenticated Claude operation can
+ * start. HOME redirection isolates documented credential files on Linux and
+ * Windows, but it cannot isolate the current macOS user's Keychain. Until a
+ * backend can provide that stronger boundary, distributable modes must not
+ * launch Claude on macOS. The explicitly personal canary remains outside the
+ * distributable surface on every platform.
+ */
+export function claudeAuthenticationRefusalReason(
+  platform: NodeJS.Platform,
+  authenticationMode: ClaudeAuthenticationMode,
+  personalDevelopmentCanaryOptIn: boolean,
+): ClaudeAuthenticationRefusalReason | null {
+  if (authenticationMode === "personal-local-cli-login") {
+    return personalDevelopmentCanaryOptIn ? null : "personal-opt-in-required";
+  }
+  return platform === "darwin" ? "macos-keychain-not-isolated" : null;
+}
 
 export function createClaudeCodeProvider(
   options: CreateClaudeCodeProviderOptions,
@@ -286,11 +311,16 @@ export function createClaudeCodeProvider(
     if (isDeadlineExpired(request.deadline, clock.now())) {
       throw deadlineExceededError({ phase: "pre-start" });
     }
-    if (
-      configuration.authenticationMode === "personal-local-cli-login" &&
-      options.personalDevelopmentCanaryOptIn !== true
-    ) {
-      throw authenticationError("authentication-unavailable", { mode: configuration.authenticationMode });
+    const authenticationRefusal = claudeAuthenticationRefusalReason(
+      process.platform,
+      configuration.authenticationMode,
+      options.personalDevelopmentCanaryOptIn === true,
+    );
+    if (authenticationRefusal !== null) {
+      throw authenticationError("authentication-unavailable", {
+        mode: configuration.authenticationMode,
+        reason: authenticationRefusal,
+      });
     }
 
     const workspace = await options.workspaces.resolve(request.workspaceId);
@@ -1097,12 +1127,24 @@ export function createClaudeCodeProvider(
 
     let diagnosticsArtifactId: ArtifactId | null = null;
     if (persistenceAllowed && diagnosticsAllowed && state.diagnostics.byteLength > 0) {
+      // Provider stderr may echo prompts, credentials, paths, or other
+      // sensitive process input. It is useful in memory for finite failure
+      // classification, but raw bytes must never cross the artifact boundary.
+      // Persist only bounded structural evidence that diagnostics existed.
       diagnosticsArtifactId = await writeArtifact({
         category: "diagnostics",
-        kind: "log",
-        bytes: new Uint8Array(state.diagnostics),
+        kind: "structured-data",
+        bytes: Buffer.from(
+          JSON.stringify({
+            schemaVersion: 1,
+            stream: "stderr",
+            capturedBytes: state.diagnostics.byteLength,
+            contentRetained: false,
+          }),
+          "utf8",
+        ),
         classification: request.disclosure.classification,
-        mediaType: "text/plain",
+        mediaType: "application/json",
       });
       if (diagnosticsArtifactId !== null) {
         artifactsWritten.set("diagnostics", diagnosticsArtifactId);

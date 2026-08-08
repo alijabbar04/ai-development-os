@@ -238,6 +238,40 @@ describe("broker edge paths", () => {
     await broker.close();
   });
 
+  it("owns duplex sandbox cleanup exactly once and reports an unconfirmed cleanup", async () => {
+    const root = await scratchRoot();
+    const inner = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "s") });
+    const controlled = new ControlledProcess({ immediateExit: true });
+    let disposeCount = 0;
+    const backend: SandboxBackend = {
+      ...inner,
+      spawn: async () => controlled,
+      async dispose(session): Promise<void> {
+        disposeCount += 1;
+        await inner.dispose(session);
+        throw new Error("synthetic-cleanup-refusal");
+      },
+    };
+    const { broker, context, lease } = await harness(backend, root);
+    const effectiveLease = lease();
+    const session = await broker.openDuplexSession(
+      context(
+        contractRequest(fixtureTool(), {
+          workspaceLeaseId: effectiveLease.leaseId,
+          args: ["--duplex-lines"],
+        }),
+        effectiveLease,
+      ),
+    );
+    await expect(session.result).resolves.toMatchObject({
+      state: "backend-lost",
+      failure: { code: "BACKEND_LOST" },
+    });
+    expect(disposeCount).toBe(1);
+    await broker.close();
+    expect(disposeCount).toBe(1);
+  });
+
   it("reports a backend spawn failure as a structured error", async () => {
     const root = await scratchRoot();
     const inner = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "s") });

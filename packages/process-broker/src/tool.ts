@@ -17,7 +17,7 @@
 
 import { createHash } from "node:crypto";
 import { open, lstat, realpath } from "node:fs/promises";
-import { isAbsolute, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { validation } from "@ai-dev-os/domain";
 import { ProcessBrokerError, errorCategory, invalidRequest } from "./errors.js";
 
@@ -103,7 +103,10 @@ export interface TrustedToolDescriptor {
    * one, it — not the same-user digest check — is the enforcing identity.
    */
   readonly immutableReference: string | null;
-  /** Absolute directory the resolved image must stay inside, when required. */
+  /**
+   * Absolute ordinary directory the resolved image must stay inside, when
+   * required. The root entry itself must not be a link or reparse point.
+   */
   readonly containmentRoot: string | null;
   readonly platform: ToolPlatform;
   readonly architecture: ToolArchitecture;
@@ -330,10 +333,18 @@ export async function resolveTrustedTool(
     });
   }
 
+  // Resolve both containment operands independently at the live use boundary.
+  // Comparing one canonical spelling with one caller-supplied spelling is not a
+  // containment check on Windows, where casing and 8.3 aliases can name the
+  // same hierarchy. A failure on either side is a stable refusal; it never
+  // disables the containment check. The raw executable inspection above stays
+  // first so the existing allowLinkIndirection policy also covers dangling
+  // executable links.
+  let containment: { readonly executable: string; readonly root: string } | null = null;
   if (descriptor.containmentRoot !== null) {
-    let resolved: string;
+    let executable: string;
     try {
-      resolved = await realpath(descriptor.executablePath);
+      executable = await realpath(descriptor.executablePath);
     } catch (error) {
       throw new ProcessBrokerError(
         "EXECUTABLE_UNAVAILABLE",
@@ -341,8 +352,60 @@ export async function resolveTrustedTool(
         { toolId: descriptor.toolId, cause: errorCategory(error) },
       );
     }
-    const root = descriptor.containmentRoot;
-    if (resolved !== root && !resolved.startsWith(root.endsWith(sep) ? root : root + sep)) {
+
+    let root: string;
+    try {
+      root = await realpath(descriptor.containmentRoot);
+    } catch (error) {
+      throw new ProcessBrokerError(
+        "EXECUTABLE_UNAVAILABLE",
+        "The tool containment root could not be resolved.",
+        { toolId: descriptor.toolId, cause: errorCategory(error) },
+      );
+    }
+    containment = { executable, root };
+  }
+
+  if (descriptor.containmentRoot !== null && containment !== null) {
+    let rootInfo;
+    try {
+      rootInfo = await lstat(descriptor.containmentRoot);
+    } catch (error) {
+      throw new ProcessBrokerError(
+        "EXECUTABLE_UNAVAILABLE",
+        "The tool containment root could not be inspected.",
+        { toolId: descriptor.toolId, cause: errorCategory(error) },
+      );
+    }
+
+    // allowLinkIndirection belongs to the executable. It does not grant a
+    // linked boundary root: silently extending it to the root would change the
+    // authority represented by the descriptor.
+    if (rootInfo.isSymbolicLink()) {
+      throw new ProcessBrokerError(
+        "EXECUTABLE_UNSAFE",
+        "The tool containment root is a link or reparse point.",
+        { toolId: descriptor.toolId },
+      );
+    }
+    if (!rootInfo.isDirectory()) {
+      throw new ProcessBrokerError(
+        "EXECUTABLE_UNSAFE",
+        "The tool containment root is not a directory.",
+        { toolId: descriptor.toolId },
+      );
+    }
+
+    const pathFromRoot = relative(containment.root, containment.executable);
+    // Equality cannot satisfy the descriptor contract: the root is a directory
+    // and the executable is a file. On Windows a cross-volume relative result
+    // is absolute; on every platform a leading `..` component is an escape.
+    if (
+      pathFromRoot.length === 0 ||
+      isAbsolute(pathFromRoot) ||
+      pathFromRoot === ".." ||
+      pathFromRoot.startsWith(`..${sep}`)
+    ) {
       throw new ProcessBrokerError(
         "EXECUTABLE_UNSAFE",
         "The resolved tool image lies outside its containment root.",

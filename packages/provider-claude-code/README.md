@@ -248,10 +248,12 @@ Claude's output is ignored.
 
 Produced through the provider-neutral artifact interface: a canonical patch (from
 the reconciled workspace, never from a message), a bounded command log (tool
-names, target paths, and argument **key names** only), redacted diagnostics from
-stderr, a machine-readable test report, and session metadata when policy permits.
-Raw transcripts are never persisted. If persistence is denied, the adapter still
-returns a valid result and writes the content nowhere else.
+names, target paths, and argument **key names** only), a structural diagnostics
+summary, a machine-readable test report, and session metadata when policy
+permits. Provider stderr is inspected only in bounded memory for finite failure
+classification; its raw bytes may echo prompts, credentials, or paths and are
+never persisted. Raw transcripts are never persisted. If persistence is denied,
+the adapter still returns a valid result and writes the content nowhere else.
 
 **Test results require machine-verifiable evidence.** Claude saying "all tests
 passed" produces nothing. Structured `testResults` appear only when a strict
@@ -322,10 +324,13 @@ confirmed terminated carries that evidence in its warnings and observation.
 
 ## Authentication boundary
 
-Anthropic's published position is that products built on Claude should use
-API-key authentication and must not offer Claude.ai login or route Free, Pro, or
-Max subscription credentials on a user's behalf. This adapter respects that as a
-mechanism, not just a note:
+Claude Code documents both API credentials and OAuth variables for its own CLI
+use. AI Development OS deliberately exposes a narrower product surface: its
+distributable modes are API-key secret references, cloud-provider credentials,
+and enterprise gateways; a personal Claude subscription login is only an
+explicit local development canary. This is an AI Development OS product-policy
+boundary, aligned with Claude Code's guidance for third-party products, rather
+than a claim that the upstream CLI has no OAuth mechanism:
 
 - It never reads, parses, copies, exports, logs, serializes, or returns a Claude
   credential file, OAuth token, session cookie, API key, or credential-helper
@@ -340,11 +345,38 @@ mechanism, not just a note:
   development-canary opt-in, and it is never a distributable mechanism.
 
 There is a mechanical consequence worth knowing: the process broker builds the
-child environment from an empty baseline and omits `HOME` and `USERPROFILE`, so
-**an installed-CLI OAuth session is simply unreachable from a brokered
-process**. Reaching it would mean reading a Claude credential file directly,
-which this adapter must never do. That is why the live probe canary runs without
-a credential while the live task canaries require an API key.
+child environment from an empty baseline rather than inheriting the caller's
+environment. After admission it supplies a unique, fresh broker-owned session
+home as `HOME` on Linux or `USERPROFILE` on Windows; the opposite name,
+`HOMEDRIVE`/`HOMEPATH`, and XDG profile redirectors are absent for this adapter.
+Requests cannot override those names as ordinary or secret bindings. This stops
+the CLI's default file-backed credential lookup from discovering the invoking
+user's installed OAuth login on Linux and Windows, while an explicitly
+authorized API-key binding is still resolved after policy approval and
+supported on those platforms.
+
+The reservation is case-insensitive and also covers Windows application-data
+paths, XDG state, `CLAUDE_CONFIG_DIR`, and Claude OAuth access/refresh/scopes.
+That prevents a differently-cased Windows binding or a direct Claude config/token
+redirector from selecting ambient subscription credentials; `ANTHROPIC_API_KEY`
+remains the supported distributable secret binding on Linux and Windows.
+
+macOS stores Claude Code credentials in the user's Keychain, which changing
+`HOME` cannot isolate. Until a backend can prove a separate macOS credential
+store, every distributable authentication mode is therefore refused with
+`AUTHENTICATION_FAILED` before workspace resolution, policy evaluation, or the
+operation-owned compatibility probe and task process. The public standalone
+`probe()`/`health()` path remains available and invokes only the unauthenticated
+`--version` check; it does not start a session. The explicit personal
+development canary may use the current user's login by design and remains
+outside the distributable boundary.
+
+That environment boundary is not filesystem isolation. The unsafe development
+backend still runs as the invoking user and can open any absolute path and
+same-user credential store that user can open. A personal installed-CLI login
+therefore remains an explicit local development canary outside the
+distributable authentication modes; Linux and Windows live task canaries require
+an API key.
 
 If authentication cannot be supplied without crossing the boundary, the adapter
 returns `AUTHENTICATION_FAILED` with safe metadata and human-action retry

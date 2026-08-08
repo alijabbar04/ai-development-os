@@ -23,6 +23,7 @@
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ProcessBrokerError, errorCategory } from "./errors.js";
@@ -65,6 +66,46 @@ export interface UnsafeBackendOptions {
   readonly platform?: NodeJS.Platform;
 }
 
+const SESSION_REMOVE_MAX_RETRIES = 5;
+const SESSION_REMOVE_RETRY_DELAY_MS = 50;
+
+/**
+ * Node copies omitted values from its own environment into a Windows child even
+ * when spawn receives a complete custom block. Suppress every parent name not
+ * present in the broker block only for the synchronous native spawn call, then
+ * restore the parent exactly. JavaScript callbacks cannot interleave with this
+ * section, and any native value copied from the parent is therefore one the
+ * broker explicitly supplied as well.
+ */
+function withoutAmbientWindowsEnvironment<T>(
+  platform: NodeJS.Platform,
+  childEnvironment: Readonly<Record<string, string>>,
+  action: () => T,
+): T {
+  if (platform !== "win32") {
+    return action();
+  }
+  const childNames = new Set(Object.keys(childEnvironment).map((name) => name.toUpperCase()));
+  const removed: Array<{ readonly name: string; readonly value: string }> = [];
+  for (const actualName of Object.keys(process.env)) {
+    if (childNames.has(actualName.toUpperCase())) {
+      continue;
+    }
+    const value = process.env[actualName];
+    if (value !== undefined) {
+      removed.push({ name: actualName, value });
+    }
+    delete process.env[actualName];
+  }
+  try {
+    return action();
+  } finally {
+    for (const entry of removed) {
+      process.env[entry.name] = entry.value;
+    }
+  }
+}
+
 function descriptorFor(platform: NodeJS.Platform): BackendDescriptor {
   return parseBackendDescriptor({
     schemaVersion: BACKEND_DESCRIPTOR_SCHEMA_VERSION,
@@ -101,6 +142,27 @@ export function createUnsafeDevelopmentBackend(options: UnsafeBackendOptions): S
     }
   }
 
+  async function removeSession(session: SandboxSession): Promise<void> {
+    const tracked = sessions.get(session.sessionId);
+    if (tracked === undefined) {
+      return;
+    }
+    const root = join(options.sessionRoot, tracked.sessionId);
+    // Bounded and specific: only a session identifier generated and retained
+    // by this backend can select a removal target. Keep failed removals tracked
+    // so close() can retry them and callers never receive false cleanup proof.
+    await rm(root, {
+      recursive: true,
+      force: true,
+      // Windows can briefly retain a process or directory handle after the
+      // child reports exit. Node retries only the documented transient
+      // EPERM/EBUSY/ENOTEMPTY/EMFILE/ENFILE cases, with a finite linear delay.
+      maxRetries: SESSION_REMOVE_MAX_RETRIES,
+      retryDelay: SESSION_REMOVE_RETRY_DELAY_MS,
+    });
+    sessions.delete(tracked.sessionId);
+  }
+
   return Object.freeze({
     describe: (): BackendDescriptor => descriptor,
 
@@ -128,20 +190,13 @@ export function createUnsafeDevelopmentBackend(options: UnsafeBackendOptions): S
 
     async prepare(binding: SandboxBinding): Promise<SandboxSession> {
       assertOpen();
-      const sessionId = `${binding.attemptId}-${binding.nonce}`;
+      // The grant nonce identifies the authorization, not one particular
+      // process creation. Add a backend-owned nonce so concurrent or replayed
+      // executions cannot share a profile or delete each other's scratch data.
+      const sessionId = `${binding.attemptId}-${binding.nonce}-${randomUUID().replaceAll("-", "")}`;
       const root = join(options.sessionRoot, sessionId);
       const tempDir = join(root, "tmp");
       const homeDir = join(root, "home");
-      try {
-        await mkdir(tempDir, { recursive: true });
-        await mkdir(homeDir, { recursive: true });
-      } catch (error) {
-        throw new ProcessBrokerError(
-          "SPAWN_FAILED",
-          "The session scratch directories could not be created.",
-          { backendId: UNSAFE_BACKEND_ID, cause: errorCategory(error) },
-        );
-      }
       const session = Object.freeze({
         sessionId,
         backendId: UNSAFE_BACKEND_ID,
@@ -149,7 +204,38 @@ export function createUnsafeDevelopmentBackend(options: UnsafeBackendOptions): S
         homeDir,
         productionReceipt: null,
       });
-      sessions.set(sessionId, session);
+      let rootCreated = false;
+      try {
+        await mkdir(options.sessionRoot, { recursive: true });
+        // Fail closed on a collision or pre-seeded link/directory. A session
+        // home is created as a new directory and is never reused.
+        await mkdir(root);
+        rootCreated = true;
+        // Track as soon as this backend owns the root. If later preparation or
+        // rollback fails, close() can still retry the exact bounded removal.
+        sessions.set(sessionId, session);
+        await mkdir(tempDir);
+        await mkdir(homeDir);
+      } catch (error) {
+        let rollbackFailure: string | null = null;
+        if (rootCreated) {
+          try {
+            await removeSession(session);
+          } catch (cleanupError) {
+            rollbackFailure = errorCategory(cleanupError);
+          }
+        }
+        throw new ProcessBrokerError(
+          "SPAWN_FAILED",
+          "The session scratch directories could not be created.",
+          {
+            backendId: UNSAFE_BACKEND_ID,
+            cause: errorCategory(error),
+            rollback: rollbackFailure === null ? "completed-or-not-required" : "retry-pending",
+            ...(rollbackFailure === null ? {} : { rollbackCause: rollbackFailure }),
+          },
+        );
+      }
       return session;
     },
 
@@ -162,27 +248,21 @@ export function createUnsafeDevelopmentBackend(options: UnsafeBackendOptions): S
     },
 
     async dispose(session: SandboxSession): Promise<void> {
-      sessions.delete(session.sessionId);
-      const root = join(options.sessionRoot, session.sessionId);
-      // Bounded and specific: only this session's own generated directory.
-      try {
-        await rm(root, { recursive: true, force: true });
-      } catch {
-        // Cleanup remains best effort for this explicitly unsafe backend.
-      }
+      await removeSession(session);
     },
 
     async close(): Promise<void> {
-      if (closed) {
-        return;
+      if (!closed) {
+        closed = true;
+        await Promise.allSettled([...live].map((entry) => entry.terminateTree(0)));
       }
-      closed = true;
-      const terminations: Promise<BackendTermination>[] = [];
-      for (const entry of live) {
-        terminations.push(entry.terminateTree(0));
+      const cleanup = await Promise.allSettled([...sessions.values()].map(removeSession));
+      const failed = cleanup.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      if (failed !== undefined) {
+        throw failed.reason;
       }
-      await Promise.allSettled(terminations);
-      sessions.clear();
     },
   });
 }
@@ -204,21 +284,26 @@ class UnsafeProcess implements BackendProcess {
       });
     }
     try {
-      this.#child = spawn(command, args, {
-        cwd: input.workingDirectory,
-        // The constructed block is the complete environment. Nothing is
-        // inherited: omitting `env` would inherit the parent's.
-        env: { ...input.environment.variables },
-        // Never a shell. A shell would reintroduce string parsing, quoting
-        // bugs, and metacharacter injection through arguments.
-        shell: false,
-        windowsHide: true,
-        // On POSIX a new process group lets us signal the whole tree with a
-        // negative PID. On Windows this has no equivalent meaning and tree
-        // termination goes through taskkill instead.
-        detached: platform !== "win32",
-        stdio: ["pipe", "pipe", "pipe"],
-      }) as ChildProcessWithoutNullStreams;
+      this.#child = withoutAmbientWindowsEnvironment(
+        platform,
+        input.environment.variables,
+        () =>
+          spawn(command, args, {
+            cwd: input.workingDirectory,
+            // The constructed block is the complete environment. Nothing is
+            // inherited: omitting `env` would inherit the parent's.
+            env: { ...input.environment.variables },
+            // Never a shell. A shell would reintroduce string parsing, quoting
+            // bugs, and metacharacter injection through arguments.
+            shell: false,
+            windowsHide: true,
+            // On POSIX a new process group lets us signal the whole tree with a
+            // negative PID. On Windows this has no equivalent meaning and tree
+            // termination goes through taskkill instead.
+            detached: platform !== "win32",
+            stdio: ["pipe", "pipe", "pipe"],
+          }) as ChildProcessWithoutNullStreams,
+      );
     } catch (error) {
       throw new ProcessBrokerError("SPAWN_FAILED", "The process could not be created.", {
         backendId: UNSAFE_BACKEND_ID,

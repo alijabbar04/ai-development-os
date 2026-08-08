@@ -12,7 +12,8 @@ provide isolation it cannot enforce.
 
 - An executable plus an argument array. There is no command-string API and no
   option that turns one on.
-- A child environment constructed from empty, never inherited.
+- A child environment constructed from empty, with no ambient caller bindings
+  inherited.
 - Output captured within hard byte bounds, on separate streams.
 - A wall-clock deadline the broker enforces itself.
 - Exactly one terminal outcome per process, whatever races occur.
@@ -209,6 +210,41 @@ Until exact locked provider endpoints and an enforcing, platform-tested relay
 exist, controlled service egress remains unavailable and cannot satisfy
 production admission.
 
+## Child profile and environment
+
+After admission, the backend prepares an empty session scratch area. The broker
+adds deterministic locale and temporary-directory values and, when the backend
+provides a session home, prefers that fresh value over any longer-lived trusted
+workspace profile and exposes exactly one platform home name: `HOME` on POSIX or
+`USERPROFILE` on Windows. It does not copy the invoking user's home;
+`HOMEDRIVE`, `HOMEPATH`, and the opposite platform home name remain absent. The
+unsafe Windows backend also prevents Node's native spawn path from silently
+reintroducing *any* omitted parent variable: only for the synchronous native
+spawn call, it suppresses parent names absent from the broker's complete child
+block and then restores the parent exactly.
+
+Requests cannot bind `HOME`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, Windows
+application-data paths, XDG home/config/cache/state redirectors,
+`CLAUDE_CONFIG_DIR`, or Claude OAuth token/refresh/scopes as either ordinary or
+secret variables. These names are reserved case-insensitively so a portable
+request cannot become an override only on Windows. `buildEnvironment` rechecks
+the reservation even for already-typed bindings. Trusted composition may
+separately provide broker-owned config/cache directories. An explicit permitted
+API-key binding is supported and is resolved only after policy approval.
+
+This profile redirection prevents a CLI's default home lookup from discovering
+the invoking user's installed-login files on platforms where those credentials
+are file-backed. It is not filesystem or OS credential-store isolation: the
+unsafe backend still runs as the invoking user and can open any absolute path or
+same-user credential store that user can open. Only a genuinely enforcing
+backend can make out-of-scope profile and credential-store state unreachable.
+
+Every prepare call adds a backend-owned random nonce, so replaying or
+concurrently using the same grant cannot reuse a session profile. The backend
+creates the session root non-recursively, refuses a pre-existing target, removes
+only tracked generated session identifiers, and reports rather than conceals a
+cleanup failure.
+
 ## Shell execution
 
 Not represented. A string handed to a shell is a different and materially more
@@ -226,16 +262,24 @@ using `pinnedLeadingArguments`.
 
 A `TrustedToolDescriptor` names an absolute path — never a `PATH` lookup — with
 an optional expected digest, containment root, and platform. Before every
-spawn the broker resolves the path, refuses link and reparse indirection,
-checks the file type, verifies the digest, and binds the normalized executable
-and argument digest into the policy subject.
+spawn the broker resolves the path, enforces the descriptor's executable-link
+policy, checks the file type, verifies the digest, and binds the normalized
+executable and argument digest into the policy subject.
 
-**Honest limitation.** On a same-user backend the digest check is
-time-of-check/time-of-use only. A process running as the same user can replace
-the image between verification and execution. The check raises the cost of
-substitution and produces audit evidence; it is not a boundary. A secure
-backend supplies an immutable mount or backend tool reference, and *that* is
-the enforcing mechanism.
+When a containment root is present, the broker canonicalizes the executable and
+root independently and performs a path-component-aware comparison. The root must
+resolve to an ordinary directory; a missing or unreadable root is
+`EXECUTABLE_UNAVAILABLE`, while a non-directory or linked root is
+`EXECUTABLE_UNSAFE`. `allowLinkIndirection` applies only to the executable and
+never permits a symlink or junction as the containment-root entry. An executable
+link target must still remain inside the canonical root.
+
+**Honest limitation.** On a same-user backend the filesystem and digest checks
+are time-of-check/time-of-use only. A process running as the same user can replace
+the image or path objects between verification and execution. The checks raise
+the cost of substitution and produce audit evidence; they are not a boundary. A
+secure backend supplies an immutable mount or backend tool reference, and *that*
+is the enforcing mechanism.
 
 ## Quotas
 
