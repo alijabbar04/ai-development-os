@@ -37,23 +37,36 @@ prevent.
 
 After admission, the backend prepares an empty session scratch area. The broker
 adds deterministic locale and temporary-directory values and, when the backend
-provides a session home, exposes exactly one platform home name: `HOME` on POSIX
-or `USERPROFILE` on Windows. It does not copy the invoking user's home;
+provides a session home, prefers that fresh value over any longer-lived trusted
+workspace profile and exposes exactly one platform home name: `HOME` on POSIX or
+`USERPROFILE` on Windows. It does not copy the invoking user's home;
 `HOMEDRIVE`, `HOMEPATH`, and the opposite platform home name remain absent. The
 unsafe Windows backend also prevents Node's native spawn path from silently
-reintroducing `HOMEDRIVE` and `HOMEPATH` from the parent process.
+reintroducing *any* omitted parent variable: only for the synchronous native
+spawn call, it suppresses parent names absent from the broker's complete child
+block and then restores the parent exactly.
 
-Requests cannot bind `HOME`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, or the XDG
-home/config/cache redirectors as either ordinary or secret variables. Trusted
-composition may separately provide broker-owned config/cache directories. An
-explicit permitted API-key binding is supported and is resolved only after
-policy approval.
+Requests cannot bind `HOME`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, Windows
+application-data paths, XDG home/config/cache/state redirectors,
+`CLAUDE_CONFIG_DIR`, or Claude OAuth token/refresh/scopes as either ordinary or
+secret variables. These names are reserved case-insensitively so a portable
+request cannot become an override only on Windows. `buildEnvironment` rechecks
+the reservation even for already-typed bindings. Trusted composition may
+separately provide broker-owned config/cache directories. An explicit permitted
+API-key binding is supported and is resolved only after policy approval.
 
 This profile redirection prevents a CLI's default home lookup from discovering
-the invoking user's installed-login files. It is not filesystem isolation: the
-unsafe backend still runs as the invoking user and can open any absolute path
-that user can open. Only a genuinely enforcing backend can make out-of-scope
-profile paths unreachable.
+the invoking user's installed-login files on platforms where those credentials
+are file-backed. It is not filesystem or OS credential-store isolation: the
+unsafe backend still runs as the invoking user and can open any absolute path or
+same-user credential store that user can open. Only a genuinely enforcing
+backend can make out-of-scope profile and credential-store state unreachable.
+
+Every prepare call adds a backend-owned random nonce, so replaying or
+concurrently using the same grant cannot reuse a session profile. The backend
+creates the session root non-recursively, refuses a pre-existing target, removes
+only tracked generated session identifiers, and reports rather than conceals a
+cleanup failure.
 
 ## Shell execution
 

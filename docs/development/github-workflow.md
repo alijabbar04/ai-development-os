@@ -63,11 +63,11 @@ are handled rather than ignored:
 
 CI had never run on this repository before it was created, and the code had only
 ever been validated on Windows. The first runs found three defects across 32
-packages. L-01 and L-03 are closed below; L-02 remains open and separately
-scoped.
+packages. L-03 is closed below; L-01 has a follow-up exact-head gate pending,
+and L-02 remains open and separately scoped.
 
-**L-01 — Fixed: the Claude child now receives only its broker-owned platform
-home.**
+**L-01 — Follow-up validation pending: the Claude child must receive only its
+broker-owned platform home.**
 `packages/provider-claude-code/test/security.test.ts` unconditionally asserted
 that the child environment did not contain `HOME`. The broker deliberately sets
 a broker-owned session home — `HOME` on POSIX, `USERPROFILE` on Windows — so the
@@ -78,23 +78,30 @@ same incorrect omission claim.
 The reconstructed contract starts from an empty environment and never inherits
 the invoking user's profile. After admission the broker may add one trusted,
 fresh session home under its session root using the platform name. The opposite
-home name and provider-unused XDG redirectors stay absent, and request bindings
-cannot set any home/profile redirector. An explicitly authorized API-key secret
+home name, Windows application-data paths, provider-unused XDG redirectors,
+`CLAUDE_CONFIG_DIR`, and Claude OAuth token/refresh/scopes stay absent. Request
+bindings cannot set those names in any casing, and the public environment
+builder rechecks already-typed bindings. An explicitly authorized API-key secret
 binding remains supported. This blocks default installed-login discovery but is
 not filesystem containment under `unsafe-development-current-user`.
 
-The stronger test found a second Windows-specific part of L-01: Node copied the
-parent process's `HOMEDRIVE` and `HOMEPATH` into the spawned child even though the
-broker's environment object omitted them. The repair suppresses only those two
-ambient values for the synchronous native spawn call and restores the parent
-immediately. Lower-level tests simulate hostile POSIX and Windows homes, a null
-home, ordinary and secret override attempts, and explicit permitted bindings.
-The real fake CLI records only allowlisted bounded values and proves the selected
-home exists empty under the expected session root, is neither equal to the root
-nor accepted through a sibling-prefix collision, is outside source/managed
-workspaces and the ambient profile, and is removed before settlement. Do not
-mark this defect closed without a run for the exact repair commit on both hosted
-operating systems.
+The stronger test found a second Windows-specific part of L-01: Node copied
+omitted parent values such as `HOMEDRIVE`, `HOMEPATH`, `PATH`, `USERNAME`, and
+`USERDOMAIN` into the spawned child even though the broker supplied a complete
+environment object. The repair suppresses every omitted parent name only for
+the synchronous native spawn call and restores the parent immediately.
+Lower-level tests simulate hostile POSIX and Windows homes, a null home,
+ordinary and secret override attempts, and explicit permitted bindings. The
+real fake CLI records bounded environment names, presence bits for credential
+canaries, and only the broker-owned platform-home value; it never records a
+credential value or directory-entry name. It proves the selected home exists
+empty under the expected session root,
+is neither equal to the root nor accepted through a sibling-prefix collision,
+is outside source/managed workspaces and a controlled ambient-home canary, and
+is removed before settlement. Raw stderr is classified only in bounded memory;
+the diagnostics artifact is structural because provider stderr may echo a
+credential. Do not mark this defect closed without a run for the exact repair
+commit on both hosted operating systems.
 
 Corrective commit
 [`6bd96c4005f24c575e5e4d849a9d5299e2901a08`](https://github.com/alijabbar04/ai-development-os/commit/6bd96c4005f24c575e5e4d849a9d5299e2901a08)
@@ -120,6 +127,23 @@ independently reported the newly published `GHSA-2v37-7h3g-55p8` against the
 unchanged transitive `nanoid@3.3.16` lock entry. That is a real, separately
 scoped dependency finding; no dependency was changed or audit result hidden in
 this bounded L-01 repair.
+
+A subsequent fresh review found that this first repair was not the final
+contract: lowercase `home` passed request validation and became `HOME` on
+Windows; direct typed bindings could bypass parser-only rejection; a
+longer-lived workspace profile could take precedence over the fresh backend
+home; and the artifact canary assertion examined only category names while the
+raw stderr payload actually contained the canary. The follow-up code closes all
+four gaps. Independent review then found that macOS Keychain lookup is not
+redirected by `HOME`, Windows native spawn can copy more omitted values than the
+two legacy home components, and repeated grants could reuse one deterministic
+session directory while cleanup failures were reported as success. The
+strengthened repair refuses distributable macOS operations until Keychain
+isolation exists, suppresses every omitted Windows parent name, gives every
+prepare a unique fail-closed directory, reports cleanup failures, and keeps
+credential fixtures presence-only. The historical run above remains valid
+evidence for commit `6bd96c4`, but it is not final exact-head evidence for the
+strengthened repair.
 
 **L-03 — Fixed: `process-broker` canonicalised one side of a containment
 comparison and not the other.**

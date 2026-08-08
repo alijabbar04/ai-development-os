@@ -344,15 +344,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         startedAt,
       });
     } catch (error) {
-      await options.backend.dispose(sandbox).catch(() => undefined);
-      emit("sandbox-disposed", {
-        request,
-        grant,
-        decision,
-        outcome: "disposed",
-        occurredAt: clock.now().toISOString(),
-        environmentNameCount: request.environment.length,
-      });
+      await disposeSandbox(sandbox, { request, grant, decision });
       throw error;
     }
   }
@@ -376,7 +368,10 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         bindings: request.environment,
         paths: {
           tempDir: sandbox.tempDir,
-          homeDir: input.workspacePaths.homeDir ?? sandbox.homeDir,
+          // A backend-prepared home is fresh for this broker session and wins
+          // over any longer-lived trusted workspace profile. The workspace
+          // value is only a fallback for backends that provide no home.
+          homeDir: sandbox.homeDir ?? input.workspacePaths.homeDir,
           configDir: input.workspacePaths.configDir,
           cacheDir: input.workspacePaths.cacheDir,
         },
@@ -533,8 +528,11 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
 
     const finalize = async (exit: { exitCode: number | null; signal: string | null }): Promise<void> => {
       stopAll();
+      const cleanupFailure = await disposeSandbox(sandbox, { request, grant, decision });
       if (!settled) {
-        if (exit.exitCode === null && exit.signal === null) {
+        if (cleanupFailure !== null) {
+          settle("backend-lost", cleanupFailure);
+        } else if (exit.exitCode === null && exit.signal === null) {
           settle(
             "backend-lost",
             new ProcessBrokerError("BACKEND_LOST", "The backend process connection was lost."),
@@ -562,15 +560,6 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         failure,
       });
       emitTerminal(finalState, failure, exit.exitCode, result.durationMs, startedAt, output, context);
-      await options.backend.dispose(sandbox).catch(() => undefined);
-      emit("sandbox-disposed", {
-        request,
-        grant,
-        decision,
-        outcome: "disposed",
-        occurredAt: clock.now().toISOString(),
-        environmentNameCount: request.environment.length,
-      });
       resolveResult(result);
     };
     void child.wait().then(
@@ -790,8 +779,11 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       environmentNameCount: request.environment.length,
     });
 
+    let processResult: ProcessResult | null = null;
+    let processFailure: unknown;
+    let processFailed = false;
     try {
-      return await runProcess({
+      processResult = await runProcess({
         input,
         session,
         resolvedPath: resolved.executablePath,
@@ -800,17 +792,21 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         evaluation,
         startedAt,
       });
-    } finally {
-      await options.backend.dispose(session).catch(() => undefined);
-      emit("sandbox-disposed", {
-        request,
-        grant,
-        decision,
-        outcome: "disposed",
-        occurredAt: clock.now().toISOString(),
-        environmentNameCount: request.environment.length,
-      });
+    } catch (error) {
+      processFailed = true;
+      processFailure = error;
     }
+    const cleanupFailure = await disposeSandbox(session, { request, grant, decision });
+    if (processFailed) {
+      throw processFailure;
+    }
+    if (cleanupFailure !== null) {
+      throw cleanupFailure;
+    }
+    if (processResult === null) {
+      throw new ProcessBrokerError("BACKEND_LOST", "The process result was not available.");
+    }
+    return processResult;
   }
 
   async function runProcess(context: {
@@ -835,7 +831,10 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
         bindings: request.environment,
         paths: {
           tempDir: session.tempDir,
-          homeDir: input.workspacePaths.homeDir ?? session.homeDir,
+          // A backend-prepared home is fresh for this broker session and wins
+          // over any longer-lived trusted workspace profile. The workspace
+          // value is only a fallback for backends that provide no home.
+          homeDir: session.homeDir ?? input.workspacePaths.homeDir,
           configDir: input.workspacePaths.configDir,
           cacheDir: input.workspacePaths.cacheDir,
         },
@@ -1098,6 +1097,33 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
     );
   }
 
+  async function disposeSandbox(
+    session: SandboxSession,
+    context: {
+      readonly request: ProcessRequest;
+      readonly grant: CapabilityGrant;
+      readonly decision: AdmissionDecision;
+    },
+  ): Promise<ProcessBrokerError | null> {
+    let failure: ProcessBrokerError | null = null;
+    try {
+      await options.backend.dispose(session);
+    } catch (error) {
+      failure = new ProcessBrokerError(
+        "BACKEND_LOST",
+        "The sandbox session cleanup could not be confirmed.",
+        { backendId: context.decision.backendId, cause: errorCategory(error) },
+      );
+    }
+    emit("sandbox-disposed", {
+      ...context,
+      outcome: failure === null ? "disposed" : "dispose-failed",
+      occurredAt: clock.now().toISOString(),
+      environmentNameCount: context.request.environment.length,
+    });
+    return failure;
+  }
+
   return Object.freeze({
     execute,
     openDuplexSession,
@@ -1111,7 +1137,7 @@ export function createProcessBroker(options: ProcessBrokerOptions): ProcessBroke
       closed = true;
       await Promise.allSettled([...sessions].map((session) => session.close()));
       await Promise.allSettled([...inflight]);
-      await options.backend.close().catch(() => undefined);
+      await options.backend.close();
     },
   });
 }

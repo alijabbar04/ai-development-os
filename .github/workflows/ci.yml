@@ -52,10 +52,12 @@ jobs:
   #
   #   1. L-01: provider-claude-code/test/security.test.ts rejected HOME
   #      unconditionally even though the broker supplies a fresh session HOME on
-  #      POSIX and USERPROFILE on Windows. The bounded repair asserts the actual
-  #      platform value and removes ambient Windows HOMEDRIVE/HOMEPATH values that
-  #      Node otherwise adds during spawn. Exact commit 6bd96c4 passed both hosted
-  #      checks and Windows coverage in run 31226295963; L-01 is closed.
+  #      hosted Linux runner and USERPROFILE on Windows. The bounded repair asserts the actual
+  #      platform value, reserves home/config/OAuth redirectors case-insensitively,
+  #      and removes every omitted ambient Windows value that Node otherwise adds
+  #      during spawn. Exact hosted evidence and any remaining closure gate
+  #      belong in the GitHub workflow document; L-01 is not an expected
+  #      platform-check failure.
   #   2. @ai-dev-os/workspace misses its coverage floors on Linux - 89.62% vs 90%
   #      statements, 79.77% vs 80% branches - because platform-specific branches
   #      are unreachable there.

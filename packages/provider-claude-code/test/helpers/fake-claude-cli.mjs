@@ -15,8 +15,9 @@
 import {
   appendFileSync,
   mkdirSync,
+  opendirSync,
   readFileSync,
-  readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -58,13 +59,19 @@ const ENVIRONMENT_VALUE_ALLOWLIST = new Set([
   "USERPROFILE",
   "HOMEDRIVE",
   "HOMEPATH",
+  "APPDATA",
+  "LOCALAPPDATA",
   "XDG_CONFIG_HOME",
   "XDG_CACHE_HOME",
   "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+  "CLAUDE_CODE_OAUTH_SCOPES",
 ]);
+const ENVIRONMENT_RAW_VALUE_ALLOWLIST = new Set(["HOME", "USERPROFILE"]);
 const MAX_CAPTURED_ENVIRONMENT_NAMES = 512;
 const MAX_CAPTURED_ENVIRONMENT_VALUES = 16;
-const MAX_CAPTURED_HOME_ENTRIES = 16;
 
 function selectedEnvironmentNames() {
   const requested = scenario.environmentCanaryNames ?? [];
@@ -79,26 +86,43 @@ function selectedEnvironmentNames() {
   return requested;
 }
 
-function brokerHomeState() {
+function brokerHomeState(selectedNames) {
   const name = process.platform === "win32" ? "USERPROFILE" : "HOME";
+  if (!selectedNames.includes(name)) {
+    return null;
+  }
   const value = process.env[name];
   if (typeof value !== "string" || value.length === 0) {
     return null;
   }
   try {
-    const entries = readdirSync(value).sort();
+    if (!statSync(value).isDirectory()) {
+      return { name, existsAsDirectory: false, empty: false, canonicalValue: null };
+    }
+    const directory = opendirSync(value);
+    let empty;
+    try {
+      empty = directory.readSync() === null;
+    } finally {
+      directory.closeSync();
+    }
     return {
       name,
-      existsAsDirectory: statSync(value).isDirectory(),
-      entries: entries.slice(0, MAX_CAPTURED_HOME_ENTRIES),
-      truncated: entries.length > MAX_CAPTURED_HOME_ENTRIES,
+      existsAsDirectory: true,
+      empty,
+      canonicalValue: realpathSync.native(value),
     };
   } catch {
-    return { name, existsAsDirectory: false, entries: [], truncated: false };
+    return { name, existsAsDirectory: false, empty: false, canonicalValue: null };
   }
 }
 
-/** Records names plus only explicitly allowlisted values from the child environment. */
+/**
+ * Records bounded names and presence bits. Raw values are retained only for
+ * the two broker-owned platform-home fields needed by the isolation proof;
+ * credential canaries are presence-only so this fixture cannot serialize a
+ * future injected credential value.
+ */
 if (typeof scenario.environmentOut === "string") {
   const names = Object.keys(process.env).sort();
   if (names.length > MAX_CAPTURED_ENVIRONMENT_NAMES) {
@@ -110,8 +134,11 @@ if (typeof scenario.environmentOut === "string") {
     JSON.stringify({
       names,
       selectedNames,
-      values: selectedNames.map((name) => process.env[name] ?? null),
-      brokerHome: brokerHomeState(),
+      present: selectedNames.map((name) => Object.hasOwn(process.env, name)),
+      values: selectedNames.map((name) =>
+        ENVIRONMENT_RAW_VALUE_ALLOWLIST.has(name) ? (process.env[name] ?? null) : null,
+      ),
+      brokerHome: brokerHomeState(selectedNames),
       cwd: process.cwd(),
     }),
     "utf8",

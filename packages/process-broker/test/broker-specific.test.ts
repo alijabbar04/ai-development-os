@@ -1,6 +1,6 @@
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   BoundedOutputCollector,
@@ -45,6 +45,7 @@ import {
   type PolicyGateway,
   type ProcessAuditRecord,
   type ProcessRequest,
+  type SandboxBackend,
 } from "../src/index.js";
 import { contractGrant, contractRequest } from "../src/testing/contract-suite.js";
 import { FIXTURE, allowAllPolicy, fixtureTool } from "./contract.test.js";
@@ -69,6 +70,7 @@ async function brokerHarness(options: {
   readonly approvedBackendIds?: readonly string[];
   readonly observer?: (record: ProcessAuditRecord) => void;
   readonly secrets?: { resolve(request: ProcessRequest): Promise<ReadonlyMap<string, string>> };
+  readonly backend?: (sessionRoot: string) => SandboxBackend;
 }): Promise<{
   root: string;
   execute: (request: ProcessRequest, lease?: ExecutionLease) => Promise<unknown>;
@@ -76,7 +78,8 @@ async function brokerHarness(options: {
   context: (request: ProcessRequest, lease: ExecutionLease) => ExecuteInput;
 }> {
   const root = await scratchRoot();
-  const backend = createUnsafeDevelopmentBackend({ sessionRoot: join(root, "sessions") });
+  const sessionRoot = join(root, "sessions");
+  const backend = options.backend?.(sessionRoot) ?? createUnsafeDevelopmentBackend({ sessionRoot });
   const broker = createProcessBroker({
     backend,
     mode: options.mode ?? "development",
@@ -369,20 +372,62 @@ describe("environment construction", () => {
       "USERPROFILE",
       "HOMEDRIVE",
       "HOMEPATH",
+      "APPDATA",
+      "LOCALAPPDATA",
       "XDG_CONFIG_HOME",
       "XDG_CACHE_HOME",
       "XDG_DATA_HOME",
+      "XDG_STATE_HOME",
+      "CLAUDE_CONFIG_DIR",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+      "CLAUDE_CODE_OAUTH_SCOPES",
     ];
     for (const name of names) {
-      expect(() => parseEnvironmentBindings([{ kind: "literal", name, value: "hostile" }])).toThrow(
-        ProcessBrokerError,
-      );
-      expect(() =>
-        parseEnvironmentBindings([
-          { kind: "secret", name, secretRefFingerprint: "a".repeat(64) },
-        ]),
-      ).toThrow(ProcessBrokerError);
+      for (const spelling of new Set([name, name.toLowerCase()])) {
+        expect(() =>
+          parseEnvironmentBindings([{ kind: "literal", name: spelling, value: "hostile" }]),
+        ).toThrow(ProcessBrokerError);
+        expect(() =>
+          parseEnvironmentBindings([
+            { kind: "secret", name: spelling, secretRefFingerprint: "a".repeat(64) },
+          ]),
+        ).toThrow(ProcessBrokerError);
+      }
       expect(FORBIDDEN_ENVIRONMENT_NAMES.has(name)).toBe(true);
+    }
+  });
+
+  it("rechecks typed bindings so buildEnvironment cannot override its broker-owned home", () => {
+    const paths = {
+      tempDir: "C:/broker/session/tmp",
+      homeDir: "C:/broker/session/home",
+      configDir: null,
+      cacheDir: null,
+    } as const;
+    for (const binding of [
+      { kind: "literal", name: "HOME", value: "C:/ambient/home" } as const,
+      { kind: "literal", name: "userprofile", value: "C:/ambient/profile" } as const,
+      {
+        kind: "secret",
+        name: "HOME",
+        secretRefFingerprint: "a".repeat(64),
+      } as const,
+      {
+        kind: "secret",
+        name: "userprofile",
+        secretRefFingerprint: "a".repeat(64),
+      } as const,
+    ]) {
+      expect(() =>
+        buildEnvironment({
+          bindings: [binding],
+          paths,
+          platform: "win32",
+          hostEnvironment: {},
+          secretValues: new Map([[binding.name, "C:/ambient/secret-profile"]]),
+        }),
+      ).toThrow(ProcessBrokerError);
     }
   });
 
@@ -948,28 +993,110 @@ describe("broker behaviour", () => {
     await harness.close();
   });
 
-  it("keeps legacy ambient home components out of the spawned child", async () => {
+  it("keeps omitted ambient Windows values out of the spawned child", async () => {
     const harness = await brokerHarness({});
-    const parentHomeDrive = process.env["HOMEDRIVE"];
-    const parentHomePath = process.env["HOMEPATH"];
-    const result = (await harness.execute(
-      contractRequest(tool(), { args: ["--print-env"] }),
-    )) as { output: { stdout: { bytes: Uint8Array } } };
-    const names = Buffer.from(result.output.stdout.bytes)
-      .toString("utf8")
-      .split("\n")
-      .filter((name) => name.length > 0);
-    const expectedHomeName = process.platform === "win32" ? "USERPROFILE" : "HOME";
-    const oppositeHomeName = process.platform === "win32" ? "HOME" : "USERPROFILE";
-    expect(names.filter((name) => name === "HOME" || name === "USERPROFILE")).toEqual([
-      expectedHomeName,
-    ]);
-    expect(names).not.toContain(oppositeHomeName);
-    expect(names).not.toContain("HOMEDRIVE");
-    expect(names).not.toContain("HOMEPATH");
-    expect(process.env["HOMEDRIVE"]).toBe(parentHomeDrive);
-    expect(process.env["HOMEPATH"]).toBe(parentHomePath);
-    await harness.close();
+    const ambientNames = [
+      "HOMEDRIVE",
+      "HOMEPATH",
+      "LOGONSERVER",
+      "PATH",
+      "USERDOMAIN",
+      "USERNAME",
+    ] as const;
+    const originals = new Map(ambientNames.map((name) => [name, process.env[name]]));
+    for (const name of ambientNames) {
+      process.env[name] =
+        name === "HOMEDRIVE"
+          ? "Q:"
+          : name === "HOMEPATH"
+            ? "\\AMBIENT-HOME-CANARY"
+            : `L01_AMBIENT_${name}`;
+    }
+    try {
+      const result = (await harness.execute(
+        contractRequest(tool(), { args: ["--print-env"] }),
+      )) as { output: { stdout: { bytes: Uint8Array } } };
+      const names = Buffer.from(result.output.stdout.bytes)
+        .toString("utf8")
+        .split("\n")
+        .filter((name) => name.length > 0);
+      const expectedHomeName = process.platform === "win32" ? "USERPROFILE" : "HOME";
+      const oppositeHomeName = process.platform === "win32" ? "HOME" : "USERPROFILE";
+      expect(names.filter((name) => name === "HOME" || name === "USERPROFILE")).toEqual([
+        expectedHomeName,
+      ]);
+      expect(names).not.toContain(oppositeHomeName);
+      for (const name of ambientNames) {
+        expect(names).not.toContain(name);
+        expect(process.env[name]).toBe(
+          name === "HOMEDRIVE"
+            ? "Q:"
+            : name === "HOMEPATH"
+              ? "\\AMBIENT-HOME-CANARY"
+              : `L01_AMBIENT_${name}`,
+        );
+      }
+    } finally {
+      for (const name of ambientNames) {
+        const original = originals.get(name);
+        if (original === undefined) {
+          delete process.env[name];
+        } else {
+          process.env[name] = original;
+        }
+      }
+      await harness.close();
+    }
+  });
+
+  it("reports a sandbox cleanup failure instead of returning success", async () => {
+    const records: ProcessAuditRecord[] = [];
+    const harness = await brokerHarness({
+      observer: (record) => records.push(record),
+      backend: (sessionRoot) => {
+        const delegate = createUnsafeDevelopmentBackend({ sessionRoot });
+        return Object.freeze({
+          ...delegate,
+          async dispose(session): Promise<void> {
+            await delegate.dispose(session);
+            throw new Error("cleanup failure test canary");
+          },
+        });
+      },
+    });
+    try {
+      await expect(
+        harness.execute(contractRequest(tool(), { args: ["ok"] })),
+      ).rejects.toMatchObject({ code: "BACKEND_LOST" });
+      expect(
+        records.some(
+          (record) => record.event === "sandbox-disposed" && record.outcome === "dispose-failed",
+        ),
+      ).toBe(true);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("prefers the fresh backend session home over a longer-lived workspace profile", async () => {
+    const harness = await brokerHarness({});
+    try {
+      const expectedHomeName = process.platform === "win32" ? "USERPROFILE" : "HOME";
+      const result = (await harness.execute(
+        contractRequest(tool(), { args: ["--print-env-value", expectedHomeName] }),
+      )) as { output: { stdout: { bytes: Uint8Array } } };
+      const observedHome = Buffer.from(result.output.stdout.bytes).toString("utf8").trim();
+      const fromSessionRoot = relative(resolve(join(harness.root, "sessions")), resolve(observedHome));
+      expect(
+        fromSessionRoot !== "" &&
+          fromSessionRoot !== ".." &&
+          !fromSessionRoot.startsWith(`..${sep}`) &&
+          !isAbsolute(fromSessionRoot),
+      ).toBe(true);
+      expect(relative(resolve(join(harness.root, "home")), resolve(observedHome)) === "").toBe(false);
+    } finally {
+      await harness.close();
+    }
   });
 
   it("survives an observer that throws", async () => {

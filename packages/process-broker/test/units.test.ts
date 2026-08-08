@@ -464,13 +464,20 @@ describe("unsafe development backend", () => {
     await expect(access(expectedSessionRoot)).rejects.toThrow();
     expect(await readFile(siblingMarker, "utf8")).toBe("keep");
 
-    const recreated = await backend.prepare(binding);
-    if (recreated.homeDir === null) {
-      throw new Error("The unsafe development backend did not recreate its scoped home.");
+    const [recreated, concurrent] = await Promise.all([
+      backend.prepare(binding),
+      backend.prepare(binding),
+    ]);
+    if (recreated.homeDir === null || concurrent.homeDir === null) {
+      throw new Error("The unsafe development backend did not recreate its scoped homes.");
     }
-    expect(recreated.homeDir).toBe(session.homeDir);
+    expect(recreated.homeDir).not.toBe(session.homeDir);
+    expect(concurrent.homeDir).not.toBe(session.homeDir);
+    expect(concurrent.homeDir).not.toBe(recreated.homeDir);
     await expect(access(staleMarker)).rejects.toThrow();
     await backend.dispose(recreated);
+    await access(concurrent.homeDir);
+    await backend.dispose(concurrent);
     await backend.close();
   });
 });

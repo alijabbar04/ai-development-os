@@ -281,11 +281,13 @@ export async function probeClaudeCli(input: {
 }
 
 /**
- * Authentication is probed separately and only as an observation. The adapter
- * never reads a credential file, an OAuth token, a keychain entry, or the
- * output of a credential helper: the only honest signal available without
- * crossing that boundary is how a real session failed, so an authentication
- * verdict is recorded when a session reports one and is otherwise unknown.
+ * Authentication is observed separately. Adapter code never opens a credential
+ * file, requests a keychain entry, handles an OAuth token, or consumes
+ * credential-helper output. A spawned CLI could still use same-user credential
+ * stores, which is why distributable operations are refused on macOS until a
+ * Keychain-isolating backend exists. On an allowed operation, the only honest
+ * authentication signal is how the real session settled, so a verdict is
+ * recorded when a session reports one and is otherwise unknown.
  */
 export const CLAUDE_AUTHENTICATION_OBSERVATIONS = Object.freeze([
   "unknown",

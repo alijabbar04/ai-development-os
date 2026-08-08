@@ -150,9 +150,19 @@ describe("streaming across real pipe boundaries", () => {
 
       const diagnostics = harness.artifacts.writes.find((write) => write.category === "diagnostics");
       expect(diagnostics).toBeDefined();
-      expect(Buffer.from(diagnostics?.bytes ?? new Uint8Array()).toString("utf8")).toContain(
-        "something happened on stderr",
-      );
+      expect(diagnostics?.kind).toBe("structured-data");
+      expect(diagnostics?.mediaType).toBe("application/json");
+      const diagnosticsText = Buffer.from(diagnostics?.bytes ?? new Uint8Array()).toString("utf8");
+      expect(diagnosticsText.includes("something happened on stderr")).toBe(false);
+      expect(JSON.parse(diagnosticsText)).toEqual({
+        schemaVersion: 1,
+        stream: "stderr",
+        capturedBytes: Buffer.byteLength(
+          `warning: something happened on stderr\n${JSON.stringify({ type: "result", subtype: "success" })}\n`,
+          "utf8",
+        ),
+        contentRetained: false,
+      });
       expect(result.diagnosticsArtifactId).not.toBeNull();
     } finally {
       await harness.close();

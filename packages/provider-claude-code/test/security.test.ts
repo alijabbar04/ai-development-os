@@ -12,7 +12,7 @@
  */
 
 import { afterAll, describe, expect, it } from "vitest";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
@@ -561,11 +561,18 @@ describe("secrets and sensitive content never leak", () => {
   it("keeps a canary out of argv, the environment, errors, artifacts, and observations", async () => {
     const argvOut = join(SCRATCH, "adox-secret-argv.json");
     const environmentOut = join(SCRATCH, "adox-secret-env.json");
+    const credentialNames = [
+      "ANTHROPIC_API_KEY",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+      "CLAUDE_CONFIG_DIR",
+      "GITHUB_TOKEN",
+    ] as const;
     const harness = await createClaudeHarness({
       scenario: {
         argvOut,
         environmentOut,
-        environmentCanaryNames: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "GITHUB_TOKEN"],
+        environmentCanaryNames: credentialNames,
         stderr: `fatal: credential ${TESTKIT_SECRET_CANARY} rejected\n`,
         fragments: [
           line(initRecord()),
@@ -612,12 +619,19 @@ describe("secrets and sensitive content never leak", () => {
       // The child received no credential-bearing environment variable.
       const environment = JSON.parse(await readFile(environmentOut, "utf8")) as {
         names: string[];
+        selectedNames: string[];
+        present: boolean[];
         values: (string | null)[];
       };
-      expect(environment.values).toEqual([null, null, null]);
+      expect(environment.selectedNames).toEqual(credentialNames);
+      expect(environment.present.every((present) => !present)).toBe(true);
+      expect(environment.values.every((value) => value === null)).toBe(true);
       for (const forbidden of [
         "ANTHROPIC_API_KEY",
         "CLAUDE_CODE_OAUTH_TOKEN",
+        "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+        "CLAUDE_CODE_OAUTH_SCOPES",
+        "CLAUDE_CONFIG_DIR",
         "GITHUB_TOKEN",
         "GH_TOKEN",
         "AWS_SECRET_ACCESS_KEY",
@@ -629,9 +643,16 @@ describe("secrets and sensitive content never leak", () => {
 
       // Diagnostics that were captured are bounded and contain no canary in
       // any artifact the adapter offered for persistence.
-      expect(JSON.stringify(harness.artifacts.writes.map((write) => write.category))).not.toContain(
-        TESTKIT_SECRET_CANARY,
+      const serializedArtifacts = JSON.stringify(
+        harness.artifacts.writes.map((write) => ({
+          category: write.category,
+          kind: write.kind,
+          classification: write.classification,
+          mediaType: write.mediaType,
+          text: Buffer.from(write.bytes).toString("utf8"),
+        })),
       );
+      expect(serializedArtifacts.includes(TESTKIT_SECRET_CANARY)).toBe(false);
     } finally {
       await rm(argvOut, { force: true });
       await rm(environmentOut, { force: true });
@@ -641,14 +662,23 @@ describe("secrets and sensitive content never leak", () => {
 
   it("uses only the platform home name for a fresh broker-owned session home", async () => {
     const environmentOut = join(SCRATCH, "adox-broker-home-env.json");
+    const expectedHomeName = process.platform === "win32" ? "USERPROFILE" : "HOME";
+    const oppositeHomeName = process.platform === "win32" ? "HOME" : "USERPROFILE";
     const capturedNames = [
       "HOME",
       "USERPROFILE",
       "HOMEDRIVE",
       "HOMEPATH",
+      "APPDATA",
+      "LOCALAPPDATA",
       "XDG_CONFIG_HOME",
       "XDG_CACHE_HOME",
       "XDG_DATA_HOME",
+      "XDG_STATE_HOME",
+      "CLAUDE_CONFIG_DIR",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+      "CLAUDE_CODE_OAUTH_SCOPES",
     ] as const;
     const harness = await createClaudeHarness({
       scenario: {
@@ -657,7 +687,20 @@ describe("secrets and sensitive content never leak", () => {
         fragments: [line(initRecord()), line(resultRecord())],
       },
     });
+    const ambientCanaryHome = join(harness.base, "ambient-home-canary");
+    const originalAmbientHome = process.env[expectedHomeName];
+    await mkdir(ambientCanaryHome, { recursive: true });
+    const canonicalOriginalAmbientHome =
+      typeof originalAmbientHome === "string" && originalAmbientHome.length > 0
+        ? await realpath(originalAmbientHome).catch(() => resolve(originalAmbientHome))
+        : null;
+    process.env[expectedHomeName] = ambientCanaryHome;
     try {
+      const canonicalSessionRoot = await realpath(harness.sessionRoot);
+      const canonicalAmbientCanaryHome = await realpath(ambientCanaryHome);
+      const canonicalSourceRoot = await realpath(harness.sourceRoot);
+      const canonicalManagedRoot = await realpath(harness.record.managedRoot);
+      const canonicalWorktree = await realpath(harness.worktreeDir);
       const operation = await harness.provider.start(
         createCodingAgentRequest({
           requestId: "req-broker-home",
@@ -673,12 +716,13 @@ describe("secrets and sensitive content never leak", () => {
       const environment = JSON.parse(await readFile(environmentOut, "utf8")) as {
         names: string[];
         selectedNames: string[];
+        present: boolean[];
         values: (string | null)[];
         brokerHome: {
           name: string;
           existsAsDirectory: boolean;
-          entries: string[];
-          truncated: boolean;
+          empty: boolean;
+          canonicalValue: string | null;
         } | null;
         cwd: string;
       };
@@ -686,53 +730,79 @@ describe("secrets and sensitive content never leak", () => {
       const selected = Object.fromEntries(
         environment.selectedNames.map((name, index) => [name, environment.values[index] ?? null]),
       ) as Record<string, string | null>;
-      const expectedHomeName = process.platform === "win32" ? "USERPROFILE" : "HOME";
-      const oppositeHomeName = process.platform === "win32" ? "HOME" : "USERPROFILE";
+      const present = Object.fromEntries(
+        environment.selectedNames.map((name, index) => [name, environment.present[index] ?? false]),
+      ) as Record<string, boolean>;
       const selectedHome = selected[expectedHomeName];
       if (typeof selectedHome !== "string") {
         throw new Error("The fake CLI did not observe the broker-owned platform home.");
       }
 
-      expect(environment.names.filter((name) => name === "HOME" || name === "USERPROFILE")).toEqual([
-        expectedHomeName,
-      ]);
-      expect(selected[oppositeHomeName]).toBeNull();
+      expect(
+        environment.names
+          .filter((name) => name.toUpperCase() === "HOME" || name.toUpperCase() === "USERPROFILE")
+          .map((name) => name.toUpperCase()),
+      ).toEqual([expectedHomeName]);
+      expect(present[expectedHomeName]).toBe(true);
+      expect(present[oppositeHomeName]).toBe(false);
+      expect(selected[oppositeHomeName] === null).toBe(true);
       for (const forbidden of [
         "HOMEDRIVE",
         "HOMEPATH",
+        "APPDATA",
+        "LOCALAPPDATA",
         "XDG_CONFIG_HOME",
         "XDG_CACHE_HOME",
         "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
+        "CLAUDE_CODE_OAUTH_SCOPES",
       ]) {
-        expect(environment.names).not.toContain(forbidden);
-        expect(selected[forbidden]).toBeNull();
+        expect(environment.names.some((name) => name.toUpperCase() === forbidden)).toBe(false);
+        expect(present[forbidden]).toBe(false);
+        expect(selected[forbidden] === null).toBe(true);
       }
 
-      expect(environment.brokerHome).toEqual({
-        name: expectedHomeName,
-        existsAsDirectory: true,
-        entries: [],
-        truncated: false,
-      });
-      expect(isStrictDescendant(harness.sessionRoot, selectedHome)).toBe(true);
-      expect(isStrictDescendant(harness.sessionRoot, harness.sessionRoot)).toBe(false);
-      expect(isStrictDescendant(harness.sessionRoot, join(`${harness.sessionRoot}-sibling`, "home"))).toBe(false);
+      if (environment.brokerHome === null || environment.brokerHome.canonicalValue === null) {
+        throw new Error("The fake CLI did not resolve the broker-owned platform home.");
+      }
+      expect(environment.brokerHome.name).toBe(expectedHomeName);
+      expect(environment.brokerHome.existsAsDirectory).toBe(true);
+      expect(environment.brokerHome.empty).toBe(true);
+      const canonicalSelectedHome = environment.brokerHome.canonicalValue;
+      expect(isStrictDescendant(canonicalSessionRoot, canonicalSelectedHome)).toBe(true);
+      expect(isStrictDescendant(canonicalSessionRoot, canonicalSessionRoot)).toBe(false);
+      expect(
+        isStrictDescendant(canonicalSessionRoot, join(`${canonicalSessionRoot}-sibling`, "home")),
+      ).toBe(false);
       if (process.platform === "win32") {
-        expect(isStrictDescendant(harness.sessionRoot.toUpperCase(), harness.sessionRoot)).toBe(false);
+        expect(
+          isStrictDescendant(canonicalSessionRoot.toUpperCase(), canonicalSelectedHome.toLowerCase()),
+        ).toBe(true);
+        expect(
+          isStrictDescendant(canonicalSessionRoot.toUpperCase(), canonicalSessionRoot.toLowerCase()),
+        ).toBe(false);
       }
-      expect(isWithinOrEqual(harness.sourceRoot, selectedHome)).toBe(false);
-      expect(isWithinOrEqual(harness.record.managedRoot, selectedHome)).toBe(false);
-      expect(isWithinOrEqual(harness.worktreeDir, selectedHome)).toBe(false);
-      expect(isWithinOrEqual(harness.worktreeDir, environment.cwd)).toBe(true);
-
-      const ambientPlatformHome = process.env[expectedHomeName];
-      if (typeof ambientPlatformHome === "string" && ambientPlatformHome.length > 0) {
-        expect(resolve(selectedHome)).not.toBe(resolve(ambientPlatformHome));
+      expect(isWithinOrEqual(canonicalSourceRoot, canonicalSelectedHome)).toBe(false);
+      expect(isWithinOrEqual(canonicalManagedRoot, canonicalSelectedHome)).toBe(false);
+      expect(isWithinOrEqual(canonicalWorktree, canonicalSelectedHome)).toBe(false);
+      expect(isWithinOrEqual(canonicalWorktree, await realpath(environment.cwd))).toBe(true);
+      expect(isSamePath(canonicalSelectedHome, canonicalAmbientCanaryHome)).toBe(false);
+      if (canonicalOriginalAmbientHome !== null) {
+        expect(isSamePath(canonicalSelectedHome, canonicalOriginalAmbientHome)).toBe(false);
       }
       // Broker disposal happens before the adapter operation settles.
       expect(existsSync(selectedHome)).toBe(false);
     } finally {
+      if (originalAmbientHome === undefined) {
+        delete process.env[expectedHomeName];
+      } else {
+        process.env[expectedHomeName] = originalAmbientHome;
+      }
       await rm(environmentOut, { force: true });
+      await rm(ambientCanaryHome, { recursive: true, force: true });
       await harness.close();
     }
   });
@@ -1059,6 +1129,10 @@ function isWithinOrEqual(root: string, candidate: string): boolean {
 function isStrictDescendant(root: string, candidate: string): boolean {
   const fromRoot = relative(resolve(root), resolve(candidate));
   return fromRoot !== "" && fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot);
+}
+
+function isSamePath(left: string, right: string): boolean {
+  return relative(resolve(left), resolve(right)) === "";
 }
 
 /** Keeps the unused-import checker honest about writeFile in this module. */

@@ -31,6 +31,7 @@ import {
   sumModelUsage,
   toProviderUsage,
 } from "../src/index.js";
+import { claudeAuthenticationRefusalReason } from "../src/provider.js";
 import {
   HARNESS_EPOCH,
   PROJECT_ID,
@@ -869,6 +870,26 @@ describe("lifecycle", () => {
     } finally {
       await denied.close();
     }
+  });
+
+  it("refuses distributable authentication on macOS until Keychain access is isolated", () => {
+    for (const mode of [
+      "api-key-secret-ref",
+      "cloud-provider-credential",
+      "enterprise-gateway",
+    ] as const) {
+      expect(claudeAuthenticationRefusalReason("darwin", mode, false)).toBe(
+        "macos-keychain-not-isolated",
+      );
+      expect(claudeAuthenticationRefusalReason("linux", mode, false)).toBeNull();
+      expect(claudeAuthenticationRefusalReason("win32", mode, false)).toBeNull();
+    }
+    expect(
+      claudeAuthenticationRefusalReason("darwin", "personal-local-cli-login", false),
+    ).toBe("personal-opt-in-required");
+    expect(
+      claudeAuthenticationRefusalReason("darwin", "personal-local-cli-login", true),
+    ).toBeNull();
   });
 
   it("still returns a valid result when artifact persistence is denied", async () => {
