@@ -1,8 +1,8 @@
 # AI Development OS Technical Design
 
 Status: Accepted baseline  
-Version: 0.2
-Last updated: 2026-08-06
+Version: 0.3
+Last updated: 2026-08-08
 
 ## 1. Executive summary
 
@@ -10,7 +10,11 @@ AI Development OS is a local-first control plane for software engineering agents
 
 The system is not a conversational wrapper. Conversation is one input and presentation mechanism. The durable unit of work is a `Run`; its executable plan is a directed acyclic graph of typed `Task` records; and every side effect occurs through a policy-authorized `Attempt` with an auditable execution lease.
 
-The initial product is a single-user desktop application backed by a local daemon and SQLite. The same domain and application modules support a team deployment backed by PostgreSQL and remote object storage. The first release is a modular monolith with isolated worker processes. It does not begin as a fleet of microservices.
+The initial product is a Windows-only single-user desktop application backed by
+a local daemon and SQLite. Portable domain and application seams are retained
+for later platforms and a future team deployment, but neither is part of the
+initial production-release target. The first release is a modular monolith with
+isolated worker processes. It does not begin as a fleet of microservices.
 
 ## 2. Scope
 
@@ -24,7 +28,7 @@ The initial product is a single-user desktop application backed by a local daemo
 - Repository discovery, commit-scoped indexing, Git worktree isolation, deterministic validation, and controlled integration.
 - Conflict detection, independent review, evidence-based disagreement resolution, and human approval gates.
 - Persistent project memory, explicit user preferences, provenance-aware retrieval, and scoped caching.
-- Multi-project operation, desktop monitoring, plugin extension, observability, and recovery after crashes.
+- Multi-project operation, Windows desktop monitoring, observability, and recovery after crashes.
 
 ### 2.2 Non-goals for the first production release
 
@@ -32,8 +36,20 @@ The initial product is a single-user desktop application backed by a local daemo
 - Unattended publication, deployment, force-push, or destructive repository operations.
 - Training or fine-tuning foundation models.
 - A public plugin marketplace accepting untrusted native code.
+- Linux or macOS desktop/native integration, packaging, or production support;
+  those are deferred to Stage 25 without deleting portable seams.
 - Exactly-once execution. The scheduler is at-least-once and side effects are made idempotent or reconciled.
 - Automatic trust in model consensus. Deterministic validation and policy always take precedence.
+
+### 2.3 Product scope and release truth
+
+[ADR 0019](adr/0019-windows-first-production-scope.md) defines the initial
+Windows-only target and the independent states `implemented`, `measured`,
+`verified`, `supported production-release target`, `deferred/non-target`, and
+`unavailable/blocked`. Target status never grants availability, and deferral is
+never rendered as passing. Detailed future UI, profile-routing, authority, and
+communication requirements are in the
+[Windows product direction](product-direction.md).
 
 ## 3. Architectural principles
 
@@ -308,6 +324,13 @@ Repository metrics are measured. Token counts use provider-compatible tokenizers
 5. **Fallback construction:** persist an ordered fallback chain before dispatch.
 6. **Reservation:** reserve the p90 estimated cost and capacity; reconcile with actual usage later.
 
+Stage 18 extends hard feasibility with authorized profile ownership and
+source-attributed five-hour/weekly usage windows. Borrowed-profile ceilings,
+freshness, reset, timezone, and fail-closed rules are normative in the
+[Windows product direction](product-direction.md). A usage cap is an admission
+rule, never a score term, and a profile identifier never grants credential or
+execution authority.
+
 A baseline score is:
 
 ```text
@@ -508,7 +531,10 @@ Read-only classification, summaries, repository maps, embeddings, and determinis
 
 ## 15. Plugin system
 
-Built-in adapters use the same capability concepts as plugins. Third-party plugins run out of process over versioned JSON-RPC on stdio.
+This remains a post-Stage 25 architecture target rather than part of the
+numbered initial Windows release path. Built-in adapters use the same capability
+concepts so a later third-party plugin system can run out of process over
+versioned JSON-RPC on stdio without changing core authority semantics.
 
 A manifest declares:
 
@@ -531,7 +557,11 @@ A manifest declares:
 
 Installation verifies signature or trusted source, package digest, API compatibility, and declared capabilities. Grants are per user and optionally per project. Capability expansion requires reapproval. Secrets are brokered by reference for one invocation and never returned through general configuration APIs.
 
-Process isolation contains crashes but is not a complete security sandbox. Initial production builds allow built-in and explicitly trusted signed plugins. Untrusted plugins require a supported OS sandbox profile.
+Process isolation contains crashes but is not a complete security sandbox.
+Initial production builds allow built-in components only and expose no general
+third-party installation path. A later explicitly trusted signed-plugin path
+requires a separate product decision and capability-diff approval; untrusted
+plugins additionally require a supported OS sandbox profile.
 
 ## 16. Configuration
 
@@ -581,11 +611,26 @@ GET    /v1/artifacts/{artifactId}
 
 The live channel uses WebSocket or SSE with replay from a monotonic event cursor. An event envelope contains schema version, global and run sequence, event ID, aggregate version, zero-based event index, aggregate event count, time, project, run, task, attempt, trace context, type, redaction classification, and typed payload. Consumers apply a complete aggregate-version batch atomically. Slow clients are disconnected and resume from the last persisted cursor rather than consuming unbounded daemon memory.
 
+Before Discord, Telegram, or any later messaging adapter exists, Stage 20 must
+provide a typed, authenticated, idempotent command/notification boundary with
+replay protection, approval binding, redaction, recipient identity, and durable
+emergency stop. Free-form messages remain untrusted task input rather than
+authority.
+
 Local desktop authentication uses the per-launch bearer credential, strict origin validation, and loopback binding. Remote mode adds TLS, OIDC, RBAC, CSRF protection, rate limits, and tenant-aware authorization.
 
 ## 18. Desktop dashboard
 
 The desktop renderer contains no orchestration state that cannot be reconstructed from API snapshots and events.
+
+The initial desktop is Windows only and uses progressive disclosure. **Normal
+mode** presents everyday tasks, progress, approvals, results, compact
+health/usage state, and essential controls. **Developer mode** adds routing,
+provider/profile telemetry, policy traces, processes, logs, evidence,
+diagnostics, and advanced settings. Developer mode changes presentation and
+configuration reach only; it cannot weaken authorization or safety policy. The
+future design-review and borrowed-profile constraints are defined in the
+[Windows product direction](product-direction.md).
 
 ### 18.1 Primary navigation
 
@@ -598,12 +643,15 @@ The desktop renderer contains no orchestration state that cannot be reconstructe
 - **Memory:** facts, decisions, preferences, provenance, confidence, retrieval history, confirmation, and deletion.
 - **Routing:** candidate table with constraints, score terms, chosen fallback chain, and measured outcome.
 - **Models:** provider authentication, installed models, capability catalog, circuit state, latency, queue, and local resource load.
-- **Plugins:** installed versions, signatures, capabilities, grants, health, and logs.
+- **Extensions (post-25):** installed versions, signatures, capabilities,
+  grants, health, and logs only after the later plugin track is authorized and
+  implemented; this surface is absent from the initial Windows release.
 - **Settings:** profiles, approval defaults, telemetry, retention, and secret-reference setup.
 
 ### 18.2 Interaction rules
 
-- Dense operational layouts prioritize scanning and repeated action.
+- Normal mode prioritizes clarity and an uncluttered dark experience; Developer
+  mode may use dense operational layouts for scanning and repeated action.
 - Task and attempt state are visually distinct.
 - Cost always shows estimate, reservation, actual, currency, and pricing timestamp.
 - A cancellation control is available on every active run and attempt view.
@@ -667,11 +715,19 @@ Workers receive expiring grants containing run, project, snapshot, worktree, per
 
 Approvals bind to the normalized action and artifact digest, are one-shot, and expire. Argument or artifact changes invalidate the approval. Required approvals include remote Git writes, destructive actions, package installation, unrestricted network access, credential access, publication, deployment, and scope expansion.
 
+Future Windows presentation groups grants into **Contained**, **Scoped
+autonomous**, and **Trusted Full Access** profiles. These labels do not replace
+field-level grants or approvals. Trusted Full Access remains prominent,
+revocable, and separately excludes elevation, security-setting changes,
+destructive deletion, credential export, purchases, publication, signing, and
+new-recipient communication. Untrusted content cannot select or widen a
+profile.
+
 ### 20.3 Isolation
 
 An attempt runs as an unprivileged principal in an ephemeral sandbox with a dedicated worktree, read-only base, bounded writable paths, process-tree termination, CPU/RAM/disk/output quotas, and default-deny egress. It does not inherit user profiles, SSH agents, Git credential stores, cloud credentials, browser data, or unrelated package caches.
 
-Platform backends can use a hardened container, VM, or OS sandbox. A plain same-user subprocess is a developer convenience mode and is not represented as a security boundary for hostile repositories. Windows, macOS, and Linux isolation are tested independently because filesystem links and process termination differ.
+Platform backends can use a hardened container, VM, or OS sandbox. A plain same-user subprocess is a developer convenience mode and is not represented as a security boundary for hostile repositories. Windows is the initial production-release target and must pass its own isolation gates. Linux and macOS are deferred to Stage 25, remain unavailable/unverified, and must later be tested independently because filesystem, credential, packaging, and process-termination behavior differs.
 
 All egress passes through an enforcing proxy that validates DNS and redirects, blocks private and metadata ranges, and records destination and policy decision. Ollama remains loopback-only. Provider data classification is checked before routing quality or price.
 
@@ -705,7 +761,9 @@ Credentials live in the OS keychain for desktop or a secret manager for team mod
 - Generate an SBOM and provenance attestation; scan dependencies, licenses, secrets, and release artifacts.
 - Sign desktop releases and updates, verify update metadata, and test rollback.
 - Disable renderer Node integration, enable context isolation and sandboxing, validate every IPC sender and payload, use a custom local protocol, enforce CSP, and block arbitrary navigation and external URL opening.
-- Install only signed or explicitly trusted plugins until strong plugin sandboxing is available.
+- Once the post-Stage 25 plugin track is separately authorized, install only
+  signed or explicitly trusted plugins until strong plugin sandboxing is
+  available; the initial Windows product exposes no plugin installation path.
 
 ## 21. Observability and accounting
 
@@ -775,7 +833,10 @@ Deterministic checks, compilers, tests, and sampled human review are authoritati
 ### 23.3 Production release gates
 
 - No unresolved critical or high vulnerability without explicit risk acceptance.
-- Cross-project isolation and hostile-repository suites pass on every supported OS.
+- Cross-project isolation and hostile-repository suites pass on every supported
+  OS. The initial supported-target family is Windows; deferred Linux/macOS
+  absence is not represented as a pass and becomes gating if either is later
+  advertised.
 - Canary secrets never reach providers, logs, memory, cache, artifacts, or UI.
 - Every side effect has complete audit attribution.
 - Policy and capability code meets branch and mutation-test thresholds.
@@ -803,7 +864,8 @@ Provider inference time is external and excluded from control-plane latency obje
 
 ### 25.1 Desktop mode
 
-- Electron application plus local daemon and worker supervisor.
+- Windows Electron application plus local daemon and worker supervisor for the
+  initial production target.
 - SQLite WAL and encrypted local content-addressed artifacts.
 - Loopback-only authenticated API.
 - OS keychain credentials.
@@ -834,6 +896,9 @@ Provider inference time is external and excluded from control-plane latency obje
 8. **Git worktree isolation.** Parallel repository writes are never performed in the user's working tree.
 9. **SQL and lexical memory baseline.** Embeddings aid retrieval but are optional and never establish authority.
 10. **Out-of-process plugins.** Versioned RPC, manifests, and grants provide lifecycle and crash isolation; untrusted code still requires an OS sandbox.
+11. **Windows-first production scope.** Initial platform proof, packaging, and
+    release readiness target Windows; portable seams remain, while Linux/macOS
+    enforcement and parity move to Stage 25 and cannot be inferred from Windows.
 
 ## 27. Requirement traceability
 

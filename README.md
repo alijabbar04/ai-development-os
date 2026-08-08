@@ -1,6 +1,6 @@
 # AI Development OS
 
-AI Development OS is a local-first orchestration engine for software engineering. It coordinates remote reasoning models, Claude Code, and local Ollama models through a durable task graph, policy-controlled routing, isolated repository workspaces, persistent project memory, and an auditable desktop control surface.
+AI Development OS is a local-first orchestration engine for software engineering. It coordinates remote reasoning models, Claude Code, and local Ollama models through a durable task graph, policy-controlled routing, isolated repository workspaces, persistent project memory, and a planned auditable Windows desktop control surface.
 
 This repository is being delivered in tested modules. Stages 0 through 16 are complete: the task-graph kernel, domain vocabulary, persistence, content-addressed artifact storage, provider contracts, configuration/secrets/policy, Ollama and cloud inference adapters, workspace/process isolation, Claude Code and Codex coding-agent adapters, the strict OpenAI Responses adapter, the explicit multi-provider catalog/gateway, a durable provider-neutral quota/cost/health/usage/capacity evidence ledger, deterministic fixed-revision repository indexing, provenance-aware scoped memory, deterministic context packing, deterministic policy-bound prompt compilation, replaceable authority-free inference planning, repository-aware task profiling, evidence-bound token estimation, and hard-constrained quota-aware routing.
 
@@ -8,27 +8,38 @@ Stage 15 keeps every retrieved context body in the untrusted user layer, compile
 
 Stage 16 turns declared, measured, inferred, and optional classifier facts into an immutable task profile, binds exact or conservative token estimates to an opaque provider/profile/model/catalog identity, and selects only among candidates that pass every policy, capability, context, freshness, quota, capacity, circuit, security, cost, budget, latency, and deadline constraint. Scoring cannot revive an excluded candidate. Route, fallback, circuit, reservation, and reconciliation outputs are deterministic plans with no invocation or durable-mutation authority.
 
-Stage 17 is an active gated checkpoint, not a released stage. The process
+Stage 17W is the Windows-only continuation of the active gated Stage 17
+checkpoint, not a released stage. The process
 broker now treats backend descriptors as advisory, requires opaque measured
 registration plus a single-use pre-spawn receipt in production, validates
 request/grant/policy/lease monotonicity, and fails closed on unconfirmed
-termination or cleanup. No native Windows, Linux, or macOS enforcement backend
-or controlled provider-egress relay has been proven, so production autonomous
-execution remains refused and no Stage 17 release tag exists.
+termination or cleanup. Windows is the initial production-release target, but
+no native Windows enforcement backend or controlled provider-egress relay has
+been proven, so production autonomous execution remains refused and no Stage 17
+release tag exists. Linux/macOS production integration is deferred to Stage 25
+and remains unavailable/unverified rather than passing.
+
+Exact two-parent candidate `e06db598bc14238156b8d7b378320e35b2e064cf`
+integrates L-03, strengthened L-01, and the lockfile-only `nanoid@3.3.18`
+repair. Its independent Claude Opus 4.8/max review passed with no findings, its
+audit total is zero, and hosted run `31275835049` passed Ubuntu check, Windows
+check, coverage, and dependency audit. Those facts do not establish production
+availability or merge the candidate to `main`.
 
 ## Status
 
 [![CI](https://github.com/alijabbar04/ai-development-os/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/alijabbar04/ai-development-os/actions/workflows/ci.yml)
 
-**You are reading the Stage 17 branch.** It carries Stage 17 code and evidence
+**You are reading the Stage 17W integration lineage.** It carries Stage 17 code and evidence
 that `main` deliberately does not. The badge above reports CI on `main`.
 
 | Fact | State |
 | --- | --- |
 | Latest completed release | **`v0.16.0-quota-aware-routing`** |
 | Stages 0 – 16 | **Complete**, one tag per stage |
-| Stage 17 (secure execution backends) | **Gated** — present on this branch, **not merged** to `main`, **not tagged** |
-| Stage 18 | **Blocked** on Stage 17 |
+| Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
+| Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
+| Stage 18 | **Blocked** on Stage 17W |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
 
@@ -40,11 +51,14 @@ Three things are stated plainly because they are easy to assume the other way:
 
 - **Autonomous execution refuses in production, by design.** No built-in sandbox
   backend is classified as genuinely enforcing. See the last section of this file.
-- **Stage 17 is a gated checkpoint, not a released stage.** No native Windows,
-  Linux, or macOS enforcement backend has been proven, the Stage 17 native
-  marshalling layer **has never executed**, the Windows escape corpus is unrun,
-  and no `v0.17` tag exists. **Windows containment is not claimed.**
-- **Stage 18 has not started.** It is blocked on Stage 17 evidence that does not
+- **Stage 17W is a gated checkpoint, not a released stage.** No native Windows
+  enforcement backend has been proven, the Stage 17 native marshalling layer
+  **has never executed**, the Windows escape corpus is unrun, and no `v0.17`
+  tag exists. **Windows containment is not claimed.**
+- **Linux and macOS are deferred, not passing.** Their portable seams and
+  evidence stay intact, while native enforcement, L-02, packaging, and parity
+  move to Stage 25.
+- **Stage 18 has not started.** It is blocked on Stage 17W evidence that does not
   yet exist.
 
 ## Documents
@@ -52,8 +66,11 @@ Three things are stated plainly because they are easy to assume the other way:
 - [Technical design](docs/technical-design.md) — architecture and boundaries
 - [Implementation roadmap](docs/implementation-roadmap.md) — what is delivered, in
   progress, and deliberately not started
+- [Windows product direction](docs/product-direction.md) — Normal/Developer UI,
+  authorized-profile routing, permission profiles, and communications
 - [Architecture decision records](docs/adr/) — why each boundary is where it is,
   and what each decision does **not** authorize
+- [Windows-first scope decision](docs/adr/0019-windows-first-production-scope.md)
 - [Release evidence](docs/release-evidence/) — measured per-checkpoint results,
   including limitations that remain unresolved. Present on this branch.
 - [Product-completeness planning decision](docs/adr/0016-product-completeness-planning-assembly.md)
@@ -115,7 +132,7 @@ maintained branches and on pull requests targeting `main`:
 | --- | --- | --- |
 | `check` | Ubuntu **and** Windows | `npm ci`, `npm run check` |
 | `dependency audit` | Ubuntu | `npm ci --ignore-scripts`, `npm audit --audit-level=high` |
-| `coverage` | Ubuntu | `npm run test:coverage`, uploads reports |
+| `coverage` | Windows | `npm run test:coverage`, uploads reports |
 
 Every action is pinned to a full commit SHA, because a tag is a mutable pointer.
 Top-level permissions are `contents: read`, and pull-request code never runs with

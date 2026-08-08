@@ -1,7 +1,7 @@
 # AI Development OS Implementation Roadmap
 
 Status: Active  
-Last updated: 2026-08-06
+Last updated: 2026-08-08
 
 ## Delivery rule
 
@@ -15,6 +15,13 @@ Implementation proceeds one dependency-ordered module at a time. A module advanc
 | In progress | Current implementation slice |
 | Planned | Contract is identified but implementation has not started |
 | Gated | Requires a prior security, credential, platform, or product decision |
+| Deferred | Deliberately outside the current release target and assigned to a later track |
+
+Release plans use the taxonomy in
+[ADR 0019](adr/0019-windows-first-production-scope.md): implemented, measured,
+verified, supported target, deferred/non-target, and unavailable are independent
+states. A supported target is not automatically available, and a deferred
+platform is never represented as passing.
 
 ## Stage 0: Repository foundation
 
@@ -562,11 +569,19 @@ Tests and gate (Windows NT 10.0.26200.0, Node 24.17.0, npm 11.13.0, Git 2.54.0.w
 
 Limitations and deferred work: Stage 16 profiles and routes fixed evidence; it does not collect provider usage, infer commercial facts, invoke a provider, execute a coding agent, persist a circuit, mutate a task graph/workspace, or durably reserve/reconcile budget. Production estimator registrations and tokenizer/framing evidence remain deployment responsibilities. Evidence may expire immediately after a decision, so Stage 18 must revalidate every declared requirement and apply version-bound commands atomically. Stage 17 must supply and prove real platform isolation before autonomous coding-agent routes can become feasible. Stage 18 adds durable scheduling/application; Stage 19 adds evaluation, disagreement handling, and Git integration. A first-party Anthropic inference adapter and later desktop/API/UI surfaces remain separate future work.
 
-## Stage 17: Production secure-execution backends
+## Stage 17W: Windows production secure-execution backend
 
-Status: Gated on platform primitives. **Blocks production autonomous execution.**
+Status: Gated on Windows production evidence. **Blocks production autonomous execution.**
 
 Package: `@ai-dev-os/process-broker` platform backends
+
+Product scope decision (2026-08-08): the initial desktop product and Stage 17
+production-release target are Windows only. `17W` names the remaining Windows
+closure without renumbering completed history. Linux/macOS native enforcement,
+cross-platform packaging, parity evidence, and L-02 are deferred to Stage 25.
+Portable interfaces, safe denial, POSIX behavior, tests, and evidence remain in
+place. See [ADR 0019](adr/0019-windows-first-production-scope.md) and the
+[Windows product direction](product-direction.md).
 
 Gated checkpoint progress (2026-08-05; not a Stage 17 release):
 
@@ -589,45 +604,117 @@ Gated checkpoint progress (2026-08-05; not a Stage 17 release):
 
 - The native handle-relative proof installer replaced PowerShell as filesystem security authority (ADR 0018), and an independent audit of it returned FAIL with three HIGH findings, every one inside the boundary ADR 0018 section 7a identifies as unverifiable by simulation: an ancestor-chain link the simulation supplied and the adapter did not, two information-class ordinals from the wrong Win32 enum family with a FALSE return read as end-of-enumeration, and a per-handle byte offset that was never reset so a re-measurement hashed zero bytes. All three are fixed with observable regressions, twelve defect proofs were run by reintroducing each guarded defect against a copy of the source, and a second independent audit returned PASS. Measured: sealed 150 vectors and reviewed-proof 190 vectors both passing with verifiably distinct digests; repository-wide 2,684 tests passing with 24 intentional skips; process-broker coverage 92.53/86.00/98.34/93.66 against 90/80/90/90 floors, up on all four axes with no threshold modified. The fix changed no truth state: `docs/release-evidence/stage-17-native-installer-audit-fix.md` records the checkpoint, and the native marshalling layer still has never executed.
 - GitHub became the remote system of record. The repository is private, `main` carries the completed release lineage plus governance and deliberately no Stage 17 code, and the Stage 17 branch is pushed, unmerged, and untagged. The first CI run on Linux — the first this repository has ever had — found exactly two genuine defects across 32 packages, recorded as L-01 and L-02 in `docs/development/github-workflow.md` and deliberately not fixed under CI time pressure: a `provider-claude-code` security assertion that passes on Windows only because Windows takes the other branch of a workspace-scoped-home decision, and `@ai-dev-os/workspace` coverage floors that platform-specific branches make unreachable on Linux. No test was weakened and no threshold lowered. Secret scanning, push protection, and private vulnerability reporting are unavailable for this plan and are recorded as unavailable rather than worked around.
-- The dedicated `fix/stage-17w-l01-l03-integration` tree composes the completed L-03 canonical tool-containment repair, the strengthened L-01 fresh-home/environment/cleanup contract, and its exact lockfile-only audit repair into Stage 17. This integration does not change Stage 17 truth state, run native proof operations, or perform the separately scoped Windows-first product decision; production remains unavailable and fail-closed.
+- Exact two-parent candidate `e06db598bc14238156b8d7b378320e35b2e064cf`
+  composes the completed L-03 canonical tool-containment repair, strengthened
+  L-01 fresh-home/environment/cleanup contract, and exact lockfile-only audit
+  repair into Stage 17W. Its parents are Stage 17
+  `dd5617d04957108b1847d0f1bac4b38ef08a93c7` and stack
+  `bfb06ff54fa0902908a7769d9e4d6a8d18e77604`. It resolves one transitive
+  `nanoid@3.3.18`, has zero audit findings, received an independent Claude Opus
+  4.8/max read-only `PASS` with no findings, and passed Ubuntu check, Windows
+  check, coverage, and dependency audit in hosted run `31275835049`. The
+  candidate is not a production release or target-branch integration;
+  production remains unavailable and fail-closed.
 
-Release consequence: Windows production enforcement remains unimplemented and untested beyond the bounded profile, synthetic identity/Job, structured filesystem/loopback/process-count, and test-helper lifecycle/crash-recovery feasibility observations; general filesystem/network/credential/IPC/quota/production-crash/packaging boundaries and all 40 Windows vectors remain unproved. Linux has no available actual host and no namespace/cgroup implementation or corpus result; macOS has no available actual host or supported tested containment foundation; controlled provider egress is unimplemented and untested. All three backends remain unavailable, production continues to refuse, Stage 17 remains gated, Stage 18 remains blocked, and `v0.17.0-secure-execution-backends` must not be created from this checkpoint.
+Release consequence: Windows production enforcement remains unavailable and
+unverified beyond the bounded profile, synthetic identity/Job, structured
+filesystem/loopback/process-count, and test-helper lifecycle/crash-recovery
+feasibility observations. General filesystem/network/credential/IPC/quota,
+production-crash, installed-artifact, packaging, controlled-egress, and all 40
+Windows vectors remain unproved. Windows therefore remains unavailable,
+production continues to refuse, Stage 17W remains gated, Stage 18 remains
+blocked, and no Stage 17 release tag may be created from this checkpoint.
+Linux and macOS also remain unavailable and unverified, but their absent native
+evidence is assigned to Stage 25 and is not, by itself, an initial Windows-only
+release blocker.
 
 Deliverables:
 
-- Windows Job Object plus restricted-token backend, Linux namespace plus cgroup backend, and a supported macOS sandbox backend, each classified `secure-enforcing` only when it genuinely enforces filesystem, process-tree, network, and quota boundaries.
-- An approved egress path permitting the Claude and Codex service endpoints while denying other network access.
+- A Windows restricted-identity plus creation-time Job backend classified
+  `secure-enforcing` only after it genuinely enforces the complete filesystem,
+  process-tree, credential, IPC, network, cleanup, and quota contract.
+- An approved Windows egress path permitting exact reviewed provider service
+  destinations while denying other network access.
+- Portable platform interfaces and fail-closed Linux/macOS probes retained for
+  Stage 25 rather than treated as Windows-release evidence.
 
 Tests and gate:
 
-- Escape-attempt corpus per platform: filesystem, process tree, network, credential, and quota.
-- The production admission gate admits a backend only after its enforcement is demonstrated, not declared.
-- Until this stage lands, production autonomous execution continues to refuse before any agent process starts.
+- The complete armed 40-vector Windows corpus runs with positive controls on the
+  exact installed supervisor/helper and reviewed production composition.
+- Installed-artifact lifecycle, fail-closed supervisor recovery,
+  handle-relative containment, controlled provider egress, packaging, cleanup,
+  and every existing Windows gate pass on exact reviewed heads.
+- The production admission gate admits the Windows backend only after its
+  enforcement is demonstrated, not declared.
+- Until Stage 17W lands, production autonomous execution continues to refuse
+  before any agent process starts.
 
-## Stage 18: Durable scheduler and application orchestration
+## Stage 18: Durable orchestration and usage-aware authorized-profile routing
 
-Status: Planned.
+Status: Planned; blocked on Stage 17W production admission.
 
-Packages, in implementation order: `@ai-dev-os/provider-anthropic`, `@ai-dev-os/product-planning`, `@ai-dev-os/scheduler`, `@ai-dev-os/application`
+Packages, in implementation order: `@ai-dev-os/provider-anthropic`,
+`@ai-dev-os/product-planning`, `@ai-dev-os/scheduler`,
+`@ai-dev-os/application`, `@ai-dev-os/persistence-postgres`, plus a
+usage-snapshot adapter boundary selected only after the Account Manager
+investigation.
 
 Deliverables:
 
-- Request acceptance, planning commands, bounded dynamic graph mutation, and the complete run lifecycle.
-- A first-party direct Anthropic `InferenceProvider` adapter, separate from Claude Code, with a fixed versioned endpoint/profile, scoped secret references, operator-supplied model catalog facts, strict capability preflight, bounded streaming/structured output, model and role substitution rejection, normalized usage, cancellation, retention disclosure, adversarial transport parsing, and no hard-coded flagship model. This is required only for deployments that choose Anthropic inference aliases; the planning protocol remains provider-neutral.
-- A durable product-completeness planning assembly for material product work with finite `product-discovery`, `specialist-gap-analysis`, `engineering-feasibility`, and `plan-synthesis` operation classes. Simple bounded requests retain the single-pass/rules path.
-- Strict versioned `ProductIntent`, `PlanningContribution`, `ProductSpecification`, requirement-disposition, and coverage-matrix contracts. Every contributed candidate receives an `accepted`, `deferred`, `rejected`, `duplicate-of`, or `needs-user-decision` disposition with provenance; synthesis cannot silently drop or promote it.
-- Capability-based phase routing with configurable aliases and independence requirements. No commercial model name carries a semantic role in production code, and no model output grants scope, execution, approval, budget, or completion authority.
-- Configurable bounds for phases, specialist set, candidate requirements, synthesis rounds, provider calls, graph growth, tokens, money, wall time, and output bytes. Material inferred scope is held behind an exact scope decision rather than scheduled automatically.
-- Requirement-to-task planning: accepted requirements bind to stable task IDs, typed outputs, acceptance criteria, validation evidence, and explicit waivers. The durable state machine resumes each phase idempotently after restart without duplicating contributions or approvals.
-- Durable ready queues, attempt creation, leases, heartbeats, fencing, retries, capacity pools, fairness, cancellation, and reconciliation, consuming the retry dispositions and partial-work evidence the provider adapters already produce.
-- Budget reservation before dispatch and release/reconciliation after terminal attempts.
+- Request acceptance, planning commands, bounded dynamic graph mutation,
+  durable scheduling, application lifecycle, and restart-safe reconciliation.
+- A first-party direct Anthropic `InferenceProvider` adapter, separate from
+  Claude Code, with a fixed versioned endpoint/profile, scoped secret
+  references, operator-supplied catalog facts, strict capability preflight,
+  bounded streaming/structured output, normalized usage, cancellation,
+  retention disclosure, and substitution rejection. Claude Code sessions do
+  not satisfy this inference adapter.
+- The bounded product-completeness planning assembly defined by ADR 0016,
+  including product discovery, specialist gaps, engineering feasibility,
+  synthesis, explicit dispositions, scope decisions, and requirement-to-task
+  coverage.
+- Durable ready queues, attempts, leases, heartbeats, fencing, retries,
+  capacity pools, fairness, cancellation, budget reservation, terminal
+  reconciliation, and exact restart replay.
+- PostgreSQL contract parity for deployments that require multi-process
+  scheduler coordination; the initial Windows single-user desktop remains on
+  SQLite, and this adapter does not authorize the later team deployment.
+- Usage-aware dispatch using task capability, model suitability, five-hour and
+  weekly usage, reset times, source/freshness, ownership, authorization, policy
+  caps, and recent failures. Hard policy runs before scoring.
+- Only explicitly authorized profiles are eligible. Borrowed Claude workspace
+  profiles may serve allowed Claude Code tasks with models such as Opus or
+  Sonnet, but never Fable 5. Weekday 09:00-through-17:00 usage in the configured
+  work timezone (default `Europe/London`) has a hard 50-percent five-hour
+  ceiling; a hard 70-percent weekly ceiling applies at all times. Predicted work
+  may not knowingly cross either active ceiling, and stale, unavailable,
+  ambiguous, or inconsistent capped-profile usage fails closed.
+- Source-attributed normalized usage snapshots carrying profile/window identity,
+  observed/reset times, timezone, freshness, and authoritative-versus-estimated
+  status without credentials or cross-profile leakage.
+- A separately authorized, commit-pinned, all-files review of
+  [`alijabbar04/ai-account-manager`](https://github.com/alijabbar04/ai-account-manager),
+  tracing usage/session/profile data, authority, credentials, isolation,
+  API/IPC/database/export surfaces, and license/reuse constraints. Prefer a
+  read-only adapter; do not scrape its installed UI.
+
+The detailed profile rules are normative in the
+[Windows product direction](product-direction.md).
 
 Tests and gate:
 
-- The Anthropic adapter passes the shared inference-provider contract suite, fixed-profile fake-server and adversarial streaming tests, credential/policy ordering tests, model/role substitution tests, and explicit opt-in budget-capped live canaries. Claude Code credentials or sessions can never satisfy this adapter.
-- Integration tests cover routine single-pass planning; material greenfield planning; specialist discovery of omitted security, accessibility, failure, data-lifecycle, testing, and operations requirements; feasibility objections; contradictory and duplicate contributions; user scope decisions; route independence; phase and requirement ceilings; parallel DAGs; dependency failures; duplicate delivery; expired leases; daemon and worker crashes; cancellation races; provider fallback; and budget exhaustion.
-- Golden and property tests prove permutation-stable dispositions, no silent requirement loss, no inferred-feature authorization, complete source provenance, bounded expansion, conservative behavior when an independent route is unavailable, and exact restart replay.
-- Chaos tests prove restart recovery without duplicate Git integration or external mutation.
+- The Anthropic adapter passes the shared contract, adversarial transport,
+  credential/policy ordering, substitution, cancellation, and explicit opt-in
+  live-canary gates.
+- Integration and chaos tests cover planning dispositions, route independence,
+  bounded growth, parallel DAGs, duplicate delivery, lease expiry, daemon and
+  worker crashes, cancellation, fallback, budgets, and restart without duplicate
+  Git or external mutation.
+- Usage tests cover both time boundaries, weekdays/weekends, timezone and DST,
+  each hard ceiling, predicted overrun, resets, freshness, conflicting sources,
+  ownership, revocation, profile isolation, audit redaction, and fail-closed
+  dispatch. A scoring preference can never revive an ineligible profile.
 
 ## Stage 19: Evaluation, disagreement handling, and integration
 
@@ -649,7 +736,7 @@ Tests and gate:
 - A run cannot reach normal completion while a required or expected-quality coverage entry lacks valid evidence or an authorized waiver. Delight and deferred candidates remain visible without blocking unless explicitly promoted through a scope decision.
 - No model verdict can mark deterministic validation as passed or authorize a merge.
 
-## Stage 20: Local daemon API and client
+## Stage 20: Typed loopback command and notification boundary
 
 Status: Planned.
 
@@ -657,17 +744,33 @@ Packages: `@ai-dev-os/api`, `@ai-dev-os/client`
 
 Deliverables:
 
-- Fastify `/v1` command/query API, OpenAPI document, generated TypeScript client, idempotency middleware, and error envelope.
-- Read-only product-intent, planning-contribution, specification, disposition, and coverage queries plus idempotent exact-digest scope-decision commands. API projections expose model/route provenance and unresolved gaps without exposing hidden reasoning or raw provider bodies.
-- Loopback session authentication, strict origins, request limits, WebSocket/SSE event replay, slow-client handling, and artifact download policy.
-- Daemon lifecycle, single-instance lock, connection descriptor, health, and diagnostics.
+- Fastify `/v1` command/query API, OpenAPI document, generated TypeScript
+  client, finite error envelope, and one typed command/notification contract
+  shared by local and later external adapters.
+- Loopback session authentication, strict origins, request limits, idempotency,
+  replay protection, recipient/channel identity, approval binding, and redacted
+  notifications.
+- Read-only product-intent, planning-contribution, specification, disposition,
+  coverage, routing, profile-usage, and evidence projections plus exact,
+  idempotent scope and approval decisions. Hidden reasoning, credentials, and
+  raw provider bodies are excluded.
+- WebSocket/SSE cursor replay, slow-client handling, artifact download policy,
+  daemon lifecycle, single-instance lock, connection descriptor, health, and
+  diagnostics.
+- A durable emergency-stop state and typed pause/kill command that can be
+  projected consistently into the desktop and future messaging channels.
+- Free-form inbound text remains untrusted task input and cannot directly
+  authorize a side effect, approval, permission change, or recipient.
 
 Tests and gate:
 
-- API contract, auth, origin, schema, idempotency, rate, reconnect, cursor replay, and daemon restart tests.
-- Fuzz tests cover JSON limits and event payload versioning.
+- API and command-boundary tests cover authentication, origin, schema,
+  idempotency, duplicate delivery, replay, approval digest binding, emergency
+  stop, rate limits, reconnect, cursor replay, and daemon restart.
+- Fuzz tests cover JSON limits, event versions, hostile free-form content,
+  recipient substitution, notification redaction, and out-of-order commands.
 
-## Stage 21: Dark desktop application and setup wizard
+## Stage 21: Windows desktop application and setup wizard
 
 Status: Planned.
 
@@ -676,67 +779,169 @@ App: `apps/desktop`
 Deliverables:
 
 - Electron main/preload/renderer split with no Node integration in the renderer.
-- Runs, product blueprint, user journeys, requirement dispositions, scope decisions, coverage matrix, completeness findings, task DAG, attempts, timeline, estimates versus actuals, routing explanation, provider health, quota cards, projects, memory, approvals, conflicts, plugins, and settings.
-- A planning review surface that lets the user accept, defer, reject, or clarify material inferred requirements before execution and shows exactly which approved requirements remain unimplemented, unvalidated, or waived.
-- A setup wizard that manages provider installation, credential configuration through approved mechanisms only, and the opt-in capacity collector.
-- Accessible dense dark operational UI, reconnect/replay behavior, bounded live logs, sanitized Markdown/diffs, cancellation, and exact approval detail.
+- A modern, aesthetic, dark, uncluttered, accessible design system using
+  progressive disclosure.
+- **Normal mode** for everyday tasks, progress, approvals, results, compact
+  health/usage indicators, pause/kill, and essential controls without default
+  exposure of implementation internals.
+- **Developer mode** for routing decisions, provider/profile telemetry, policy
+  traces, process details, logs, evidence, diagnostics, and advanced settings.
+  The mode changes visibility, not authorization or safety policy.
+- Product blueprint, user journeys, dispositions, exact scope decisions,
+  coverage, completeness findings, task DAG, attempts, timeline, estimates
+  versus actuals, projects, memory, approvals, conflicts, and settings.
+- A planning review surface that accepts, defers, rejects, or clarifies material
+  inferred requirements and keeps incomplete, unvalidated, or waived scope
+  visible.
+- A setup wizard using approved provider installation and credential mechanisms
+  only, plus opt-in capacity collection.
+- Reconnect/replay behavior, bounded live logs, sanitized Markdown/diffs,
+  cancellation, exact approval detail, a visible high-risk-authority state, and
+  one-click pause/kill.
+- A future Fable 5 review gate for meaningful wireframes/prototypes and the
+  implemented desktop experience when that capability is available. Fable
+  review remains advisory, and borrowed profiles are never eligible for it.
 
 Tests and gate:
 
-- Component and Playwright Electron tests cover window sizes, long content, reconnect, daemon restart, active cancellation, approvals, unsafe links, IPC sender validation, CSP, and non-overlap screenshots.
-- The wizard never offers a credential mechanism outside the published provider boundaries.
+- Component, accessibility, and Playwright Electron tests cover both modes,
+  progressive disclosure, window sizes, long content, reconnect, daemon
+  restart, active cancellation, emergency stop, approvals, unsafe links, IPC
+  sender validation, CSP, and non-overlap screenshots.
+- Developer mode cannot bypass policy, and the wizard never offers a credential
+  mechanism outside the published provider boundaries.
+- Meaningful design artifacts and the implemented experience carry the required
+  Fable 5 review disposition once an owned, authorized route is available;
+  deterministic accessibility and security gates remain authoritative.
 
-## Stage 22: Provider, tool, MCP, and plugin SDK
+## Stage 22: Discord-first communication adapters
 
-Status: Planned.
-
-Package: `@ai-dev-os/plugins`
+Status: Planned after the Stage 20 typed boundary.
 
 Deliverables:
 
-- Signed manifest validation, versioned JSON-RPC stdio, lifecycle, health, timeouts, cancellation, grants, revocation, and secret broker.
-- Provider, routing-strategy, memory, validator, tool, and MCP extension points with explicit compatibility versions.
-- Admin/user installation and upgrade workflow with capability-diff approval.
+- Discord first: a private allowlisted bot/channel with outbound progress,
+  approval, and completion updates; typed slash commands; idempotency and replay
+  protection; emergency stop; and configurable tone and notification policy.
+- Telegram second behind the exact same typed command/notification,
+  authentication, approval, redaction, and emergency-stop boundary.
+- WhatsApp later only after a separate current API, business, cost, privacy,
+  retention, and operations assessment. No WhatsApp implementation is assumed.
+- Free-form inbound messages remain untrusted task input, never direct
+  authority. Default outbound messages exclude source code, raw logs, secrets,
+  credentials, and sensitive artifacts.
 
 Tests and gate:
 
-- Hostile plugin fixtures cover malformed RPC, crashes, hangs, oversized messages, spoofed identity, permission expansion, secret requests, path escape, and network denial.
-- General third-party installation remains disabled until the Stage 17 sandbox passes its security review.
+- Adapter contract tests cover allowlists, typed command parsing, sender and
+  channel substitution, duplicate delivery, replay, stale approval,
+  notification redaction, delivery failure, emergency stop, and revocation.
+- No adapter can grant authority, widen a Stage 20 command, select a new
+  recipient implicitly, or bypass current production-execution refusal.
 
-## Stage 23: Optional team and remote-worker deployment
+## Stage 23: Windows packaging, update, recovery, and operations
 
 Status: Planned after desktop workflow validation.
 
-Packages: `@ai-dev-os/persistence-postgres`, team deployment assets
-
 Deliverables:
 
-- PostgreSQL implementation of every persistence contract and concurrent lease semantics.
-- S3-compatible encrypted artifact adapter, TLS, OIDC, RBAC, tenant scopes, remote audit export, quotas, backup, restore, and operations runbooks.
-- Remote worker deployment with horizontal API and worker scaling driven by measured need; no change to domain behavior.
+- Windows application packaging and an explicit installed-artifact layout with
+  immutable component identity and no hidden install hooks.
+- Versioned update, side-by-side transition, rollback, removal, quarantine, and
+  crash-recovery behavior that preserves fail-closed execution.
+- Backup/restore, retention/export/delete workflows, support diagnostics,
+  dashboards, alerts, incident runbooks, kill switch, and operational readiness
+  checks.
+- A versioned release-truth schema/generator follow-up if required to represent
+  implemented, measured, verified, supported-target, deferred, and unavailable
+  states independently, while preserving every historical evidence artifact.
+- SBOM, provenance, license, dependency, installer, and update metadata inputs.
+  Signing design may be prepared, but no signing or availability claim follows
+  without separately authorized credentials and measured artifacts.
 
 Tests and gate:
 
-- Cross-adapter contract suite, concurrency/load tests, tenant isolation, rolling migration, backup/restore, failover, and disaster recovery exercises.
-- External penetration test before team general availability.
+- Clean install/update/rollback/removal, interrupted transition, downgrade and
+  replay refusal, quarantine, daemon/worker restart, backup/restore, and
+  deterministic package-identity tests run without weakening Stage 17W.
+- Taxonomy fixtures prove deferred is not passing, target is not availability,
+  and missing or contradictory evidence fails closed; historical evidence bytes
+  and hashes remain unchanged.
 
-## Stage 24: Production hardening, installers, and release
+## Stage 24W: Windows production hardening and readiness
 
 Status: Planned.
 
 Deliverables:
 
-- OpenTelemetry dashboards and alerts, incident runbooks, kill switch, circuit operations, retention/export/delete workflows, and support diagnostics.
-- SBOM, provenance, license report, signed releases, signed installers, verified updates, rollback, and dependency policy.
-- Versioned evaluation suite covering product discovery recall, irrelevant-feature control, specialist gap recovery, synthesis preservation, requirement traceability, implementation evidence, and final completeness; live-provider canaries, routing calibration process, and cost anomaly alerts.
-- Threat-model review and external penetration test focused on repository, process, plugin, desktop, and cross-project boundaries.
+- Windows-only provider hardening, controlled egress, sandbox integration,
+  operational circuit handling, production diagnostics, and cost anomaly alerts.
+- Signed release/installer/update and rollback planning with protected trust-root
+  requirements. Signing execution remains a separately authorized release
+  operation and may not be simulated into a success claim.
+- Versioned evaluation suites for product discovery, irrelevant-feature control,
+  specialist gaps, synthesis preservation, requirement traceability,
+  implementation evidence, routing calibration, and final completeness.
+- Threat-model review and external penetration testing focused on repository,
+  process, desktop, provider/profile, messaging, update, and project-isolation
+  boundaries.
+- Final Windows production-readiness evidence bound to exact reviewed source,
+  package, installer, supervisor/helper, policy, and provider configurations.
 
 Release gate:
 
-- All production release gates in the technical design pass.
-- Secure isolation is available on each advertised platform (Stage 17).
-- Recovery, cancellation, budget, and audit objectives are measured rather than assumed.
-- Documentation covers installation, provider setup, data handling, backups, security limits, and incident recovery.
+- Every applicable production release gate in the technical design passes for
+  the Windows target; recovery, cancellation, budget, audit, accessibility, and
+  operations objectives are measured rather than assumed.
+- Stage 17W secure isolation and controlled egress are available on the exact
+  advertised Windows matrix. No unproved Windows version, architecture,
+  installer, signer, or update channel is advertised.
+- Documentation covers installation, provider setup, profile ownership and
+  budgets, data handling, backups, permission modes, security limits,
+  communication boundaries, and incident recovery.
+- Linux and macOS remain explicit deferred/non-target platforms rather than
+  passing results or Windows-release blockers.
+
+## Stage 25: Deferred portability
+
+Status: Deferred until the Windows product and release gates are complete.
+
+Deliverables:
+
+- Linux namespace/cgroup/filesystem/network/credential/cleanup enforcement on
+  actual supported Linux hosts, plus the complete armed Linux corpus.
+- A supported documented macOS containment and credential-isolation foundation
+  on actual supported macOS hosts, plus the complete armed macOS corpus.
+- L-02 Linux workspace-coverage closure without lowering thresholds, hiding
+  platform branches, or moving failures behind `continue-on-error`.
+- Linux/macOS desktop/native integration, installers, updates, recovery,
+  packaging, accessibility, operations, and parity evidence.
+- Cross-platform release-truth projections using the ADR 0019 taxonomy. A
+  platform becomes a supported target only through an explicit later product
+  decision and becomes available only after its independent gates pass.
+
+Tests and gate:
+
+- Each platform runs its own positive-control escape corpus, packaging lifecycle,
+  provider egress, credential isolation, desktop/API, update/rollback, recovery,
+  and accessibility gates on exact reviewed artifacts.
+- Portable interfaces and Windows behavior remain stable; no platform's result
+  is inferred from compilation, mocks, workflow YAML, or another OS.
+
+## Post-Stage 25 backlog: extensions and team deployment
+
+The former Stage 22 plugin-SDK plan and Stage 23 optional team/remote-worker
+plan remain desired but are moved out of the numbered Windows release path.
+Their stage numbers will be assigned only by a later product decision.
+
+- The extension track retains signed manifests, versioned JSON-RPC, lifecycle,
+  grants/revocation, secret brokering, provider/routing/memory/validator/tool/MCP
+  extension points, capability-diff approval, and hostile-plugin gates.
+- The team track retains production hardening for the Stage 18 PostgreSQL port,
+  encrypted S3-compatible artifacts, TLS/OIDC/RBAC/tenant scopes, remote audit,
+  concurrent workers, backup/restore/failover, and penetration testing.
+- Neither track may bypass platform isolation, add untrusted plugins before a
+  supported sandbox exists, or widen the initial Windows single-user release.
 
 ## Recommended release slices
 
@@ -744,18 +949,36 @@ Release gate:
 | --- | --- | --- |
 | `0.1` orchestration core | 0-7, 11-13 | Durable read-only multi-model planning with local models, cloud inference, and a unified usage ledger |
 | `0.2` isolated coding | 8-10, 14-16 | Claude Code and Codex edits in managed worktrees with context packs and quota-aware routing |
-| `0.3` contained execution | 17-19 | Genuinely sandboxed autonomous execution with durable product-completeness planning, scheduling, requirement coverage, evaluation, and integration |
-| `0.4` daemon and desktop | 20-21 | Persistent multi-project daemon, full API, product blueprint/coverage review, and the dark desktop dashboard with a setup wizard |
-| `0.5` extensions | 22 | Trusted signed provider, tool, MCP, and plugin extensions with explicit grants |
-| `1.0` hardened desktop | 24 | Signed, recoverable, audited single-user production release |
-| `1.x` team | 23 plus team hardening | Authenticated concurrent service and remote-worker deployment |
+| `0.3` contained orchestration | 17W-19 | Windows-gated autonomous execution with durable planning, usage-aware routing, scheduling, evaluation, and integration |
+| `0.4` desktop and communications | 20-22 | Typed local control boundary, Normal/Developer Windows desktop, Discord-first communication, and Telegram follow-up |
+| `1.0` Windows readiness candidate | 23-24W | Packaged, recoverable, reviewed Windows product only after every exact release gate passes |
+| Later portability | 25 | Independently verified Linux/macOS enforcement, packaging, and parity before either platform is advertised |
+| Later extensions/team | Unnumbered post-25 backlog | Plugin SDK and optional authenticated team/remote-worker deployment after separate product decisions |
 
-Release `0.2` delivers coding adapters whose production execution still refuses;
-`0.3` is the first release in which autonomous repository execution can actually
-run, because Stage 17 is what makes containment real.
+Release `0.2` delivers coding adapters whose production execution still refuses.
+No `0.3`, `0.4`, or `1.0` availability is claimed here: autonomous repository
+execution can run only after Stage 17W makes Windows containment and controlled
+egress real on the exact advertised target.
 
 ## Immediate next module after this delivery
 
-Stages 0 through 16 are complete. Stage 17 remains gated. The Windows profile lifecycle, synthetic zero-capability AppContainer plus creation-time private-Job composition, bounded structured filesystem/loopback/child-attempt fixture, and six-scenario test-helper lifecycle/crash-recovery matrix now pass with zero measured residue. The smallest next Windows action requires separate authorization: design and package a reviewed production supervisor/helper with immutable installed-artifact identity and update/removal semantics, then run the armed 40-vector Windows corpus including general filesystem/network/IPC/credential, quota, and production-crash boundaries. Linux, macOS, and controlled service egress still require their own implementations and actual-platform evidence. Platform-specific primitives, privileges, and installation must be measured rather than assumed.
+Stages 0 through 16 are complete. Stage 17W remains gated. The exact integration
+candidate `e06db598bc14238156b8d7b378320e35b2e064cf` is reviewed and hosted-green,
+but that does not advance containment truth. The Windows profile lifecycle,
+synthetic zero-capability AppContainer plus creation-time private-Job
+composition, bounded structured filesystem/loopback/child-attempt fixture, and
+six-scenario test-helper lifecycle/crash-recovery matrix pass only within their
+recorded evidence boundaries.
 
-One execution constraint also carries forward: no built-in sandbox backend is classified secure-enforcing, so production autonomous execution still refuses before any agent process starts. Shipping autonomous repository execution to users requires Stage 17 to deliver a real enforcing backend on each advertised platform first; until then, every coding-adapter result carries the uncontained-execution warning naming the backend and its security class.
+The smallest next action requires separate authorization: run the bounded
+Windows native installed-artifact and production-supervisor lifecycle/recovery
+proof from the exact reviewed documentation head. Production must remain
+unavailable, and the armed 40-vector Windows corpus must not run until that
+stateful lifecycle proof and its preconditions pass. Stage 18 must not start in
+place of that closure.
+
+No built-in backend is currently `secure-enforcing`, so production autonomous
+execution still refuses before any agent process starts. The initial product
+requires a genuinely enforcing Windows backend; Linux/macOS implementations and
+their actual-platform evidence are deferred to Stage 25, not inferred from
+Windows results or represented as passing.

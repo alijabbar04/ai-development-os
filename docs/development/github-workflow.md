@@ -15,7 +15,7 @@ this repository follows.
 | Default branch | `main` |
 | Protected branches | **none** — branch protection is unavailable on this plan, see below |
 | Release lineage | `v0.1.0` … `v0.16.0`, one tag per completed stage |
-| Current work | `feat/stage-17-secure-execution-backends` (gated, unmerged) |
+| Stage 17 integration source | `fix/stage-17w-l01-l03-integration` (gated, unmerged) |
 
 `main` carries the latest completed release lineage plus repository governance.
 It deliberately does **not** carry Stage 17: Stage 17 is a gated checkpoint, and a
@@ -179,8 +179,17 @@ resolution, control, or unrelated lockfile change. On the dedicated
 `npm ls nanoid postcss vite vitest` showed the single chain
 `vitest@4.1.10` -> `vite@8.2.0` -> `postcss@8.5.25` -> `nanoid@3.3.18`, and
 both `npm audit --json` and `npm audit --audit-level=high` reported zero
-findings. These are local integration results; hosted integration results are
-not claimed until the exact merge commit is pushed and its workflow completes.
+findings. Exact two-parent merge
+[`e06db598bc14238156b8d7b378320e35b2e064cf`](https://github.com/alijabbar04/ai-development-os/commit/e06db598bc14238156b8d7b378320e35b2e064cf)
+has parents `dd5617d04957108b1847d0f1bac4b38ef08a93c7` and
+`bfb06ff54fa0902908a7769d9e4d6a8d18e77604`. An independent Claude Opus
+4.8/max read-only security review returned `PASS` with no findings. Exact-head
+hosted run
+[`31275835049`](https://github.com/alijabbar04/ai-development-os/actions/runs/31275835049)
+passed Ubuntu check, Windows check, coverage, and dependency audit. This proves
+the integration and ordinary gates only; it does not establish Stage 17W
+production containment, run the armed corpus, merge to `main`, or create a
+release.
 
 **L-03 — Fixed: `process-broker` canonicalised one side of a containment
 comparison and not the other.**
@@ -308,9 +317,12 @@ floors platform-aware.
 
 L-01 and L-03 are not expected failures on either check platform. L-02 remains
 open and explains the Windows placement of the separate coverage job; no
-threshold is lowered. The independent dependency-audit finding remains visible
-as historical evidence above and is repaired by the exact bounded lockfile-only
-update recorded there.
+threshold is lowered. ADR 0019 assigns L-02 closure to Stage 25 portability. It
+is therefore not, by itself, an initial Windows-only release blocker, but it
+remains a required Linux portability/parity gate and is not represented as
+passing. The independent dependency-audit finding remains visible as historical
+evidence above and is repaired by the exact bounded lockfile-only update
+recorded there.
 
 ## Standing policy for every future task
 
