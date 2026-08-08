@@ -63,11 +63,11 @@ are handled rather than ignored:
 
 CI had never run on this repository before it was created, and the code had only
 ever been validated on Windows. The first runs found three defects across 32
-packages. L-03 is closed below; L-01 has a follow-up exact-head gate pending,
-and L-02 remains open and separately scoped.
+packages. L-03 is closed below; L-01's strengthened home-boundary proof passed
+on both hosted operating systems, but its final gate is blocked by the separate
+dependency-audit finding recorded below. L-02 remains open and separately scoped.
 
-**L-01 — Follow-up validation pending: the Claude child must receive only its
-broker-owned platform home.**
+**L-01 — Home-isolation proof complete; final gate blocked by dependency audit.**
 `packages/provider-claude-code/test/security.test.ts` unconditionally asserted
 that the child environment did not contain `HOME`. The broker deliberately sets
 a broker-owned session home — `HOME` on POSIX, `USERPROFILE` on Windows — so the
@@ -100,8 +100,7 @@ is neither equal to the root nor accepted through a sibling-prefix collision,
 is outside source/managed workspaces and a controlled ambient-home canary, and
 is removed before settlement. Raw stderr is classified only in bounded memory;
 the diagnostics artifact is structural because provider stderr may echo a
-credential. Do not mark this defect closed without a run for the exact repair
-commit on both hosted operating systems.
+credential.
 
 Corrective commit
 [`6bd96c4005f24c575e5e4d849a9d5299e2901a08`](https://github.com/alijabbar04/ai-development-os/commit/6bd96c4005f24c575e5e4d849a9d5299e2901a08)
@@ -142,8 +141,34 @@ strengthened repair refuses distributable macOS operations until Keychain
 isolation exists, suppresses every omitted Windows parent name, gives every
 prepare a unique fail-closed directory, reports cleanup failures, and keeps
 credential fixtures presence-only. The historical run above remains valid
-evidence for commit `6bd96c4`, but it is not final exact-head evidence for the
-strengthened repair.
+evidence for commit `6bd96c4`, but it is superseded for the strengthened repair
+by corrective commit
+[`774802bf575b82611a906f86aeb79e12aebcaba4`](https://github.com/alijabbar04/ai-development-os/commit/774802bf575b82611a906f86aeb79e12aebcaba4)
+and exact-head run
+[`31254868909`](https://github.com/alijabbar04/ai-development-os/actions/runs/31254868909).
+The
+[`Ubuntu check`](https://github.com/alijabbar04/ai-development-os/actions/runs/31254868909/job/93096668090),
+[`Windows check`](https://github.com/alijabbar04/ai-development-os/actions/runs/31254868909/job/93096668148),
+and
+[`coverage job`](https://github.com/alijabbar04/ai-development-os/actions/runs/31254868909/job/93096668068)
+all passed. Each hosted check executed and passed all 45 Claude security tests.
+The Claude package reported 257 passing tests with seven explicit opt-in live
+canaries skipped on each host. Process-broker reported 259 passing tests on
+Ubuntu with only the physically unavailable Windows cross-volume vector skipped,
+and 260 passing tests on Windows. All 19 retained L-03 containment vectors ran on
+Windows; Ubuntu ran the 18 physically applicable vectors. Coverage reran all 45
+Claude security tests and all 19 containment vectors on Windows. Process-broker
+coverage was 91.58% statements, 85.60% branches, 92.03% functions, and 92.20%
+lines; Claude-provider coverage was 90.72%, 83.85%, 94.34%, and 90.74%. The
+90/80/90/90 floors remain unchanged.
+
+The home-isolation execution proof is therefore complete on both required hosted
+operating systems. The workflow's overall conclusion remains failure because the
+[`dependency audit`](https://github.com/alijabbar04/ai-development-os/actions/runs/31254868909/job/93096668101)
+reported one high-severity vulnerability: `GHSA-2v37-7h3g-55p8` in the unchanged
+transitive `nanoid@3.3.16` lock entry (fixed in `3.3.17`). The bounded L-01
+authorization does not include a dependency or lockfile update, so this document
+does not hide the finding or call the final zero-vulnerability gate closed.
 
 **L-03 — Fixed: `process-broker` canonicalised one side of a containment
 comparison and not the other.**
