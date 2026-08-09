@@ -8,22 +8,19 @@ namespace AiDevOs.WindowsSupervisor;
 /// Entry point for a Windows production component candidate. The component's
 /// own identity comes from <see cref="ComponentIdentity"/>.
 ///
-/// Only two commands exist and both are read-only:
+/// Two public inspection commands are read-only:
 ///
 ///   self-test        in-memory conformance over the parser, the state
 ///                    machine, canonical serialization, the recovery-record
 ///                    format, and manifest identity logic;
 ///   describe-artifact the component's own fixed identity.
 ///
-/// There is no shell, no PATH lookup, no environment read, no current-directory
-/// read, no DNS, no network, no registry access, no provider or credential
-/// access, no plugin surface, no repository-workload surface, no runtime
-/// download, no install or registration step, and no embedded secret or signing
-/// key. Both commands are structurally incapable of creating an AppContainer
-/// profile, a Job Object, a process, an ACL change, a registry value, a
-/// recovery record, or any other persistent state: the only code that could do
-/// so lives behind <see cref="MutationGate"/>, which is a compile-time false
-/// constant, and no native implementation exists behind it.
+/// The role-specific operational command is deliberately separate from the
+/// proof capability. It accepts only inherited native handles and identities
+/// derived from the installed closure; it has no arbitrary executable, path,
+/// shell, PATH lookup, plugin, runtime-download, or provider surface. The
+/// proof-only controller owns fault injection. This sealed component owns the
+/// ordinary lifecycle it will also use in production.
 /// </summary>
 internal static class Program
 {
@@ -35,24 +32,32 @@ internal static class Program
 
     internal static int Main(string[] args)
     {
-        if (args is null || args.Length != 1)
+        if (args is null || args.Length == 0)
         {
             return RefuseUnknownCommand();
         }
 
-        return args[0] switch
+        if (args.Length == 1)
         {
-            "self-test" => RunSelfTest(),
-            "describe-artifact" => DescribeArtifact(),
-            _ => RefuseUnknownCommand(),
-        };
+            return args[0] switch
+            {
+                "self-test" => RunSelfTest(),
+                "describe-artifact" => DescribeArtifact(),
+                _ => RefuseUnknownCommand(),
+            };
+        }
+
+        return RoleRuntime.TryDispatch(args, out int exitCode)
+            ? exitCode
+            : RefuseUnknownCommand();
     }
 
     private static int RunSelfTest()
     {
         ConformanceReport core = CoreConformance.Run();
         ConformanceReport role = RoleConformance.Run();
-        bool passed = core.Passed && role.Passed;
+        bool operationalRuntimePassed = RoleRuntime.RunReadOnlySelfTest();
+        bool passed = core.Passed && role.Passed && operationalRuntimePassed;
 
         List<string> failed = [];
         failed.AddRange(core.FailedNames);
@@ -67,7 +72,9 @@ internal static class Program
             .Set("failedVectors", failed)
             .Set("hostStateCreated", false)
             .Set("manifestFixtureFingerprint", CoreConformance.ManifestFixtureFingerprint())
-            .Set("mutatingOperationsPermitted", MutationGate.MutatingOperationsPermitted)
+            .Set("reviewedProofMutationAuthorized", MutationGate.MutatingOperationsPermitted)
+            .Set("operationalLifecycleCompiledIn", true)
+            .Set("operationalRuntimeSelfTestPassed", operationalRuntimePassed)
             .Set("protocolVersion", ProtocolContract.ProtocolVersion)
             .Set("roleConformanceDigest", role.Digest)
             .Set("roleVectorCount", role.Count)
@@ -86,6 +93,7 @@ internal static class Program
             .Set("component", ComponentIdentity.ComponentName)
             .Set("manifestKind", ArtifactManifest.ManifestKind)
             .Set("manifestSchemaVersion", ProtocolContract.SchemaVersion)
+            .Set("operationalLifecycleCompiledIn", true)
             .Set("platform", ComponentIdentity.Platform)
             .Set("productionEligible", false)
             .Set("protocolVersion", ProtocolContract.ProtocolVersion)

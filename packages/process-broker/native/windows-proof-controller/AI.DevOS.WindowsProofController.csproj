@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Environment variables cannot compile the proof capability in. -->
+    <DefineConstants></DefineConstants>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <RootNamespace>AiDevOs.WindowsSandboxFeasibilityProbe</RootNamespace>
+    <AssemblyName>AI.DevOS.WindowsProofController</AssemblyName>
+    <ImplicitUsings>false</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningLevel>9999</WarningLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <Deterministic>true</Deterministic>
+    <DeterministicSourcePaths>true</DeterministicSourcePaths>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <PathMap>$(MSBuildProjectDirectory)=/_/windows-proof-controller,$(BaseIntermediateOutputPath)=/_/windows-proof-controller-obj</PathMap>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <NoWarn>$(NoWarn);CA1032;SYSLIB1054</NoWarn>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <Company>ai-dev-os</Company>
+    <Product>AI Development OS Stage 17W proof-only lifecycle controller</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="bin/**/*.cs" />
+    <Compile Remove="obj/**/*.cs" />
+    <None Remove="bin/**" />
+    <None Remove="obj/**" />
+    <Compile Include="../windows-runtime/RuntimeClosureLease.cs" Link="RuntimeClosureLease.cs" />
+    <Compile Include="../windows-feasibility-probe/SyntheticProcessProof.cs" Link="SyntheticProcessProof.cs" />
+    <Compile Include="../windows-feasibility-probe/StructuredBoundaryProof.cs" Link="StructuredBoundaryProof.cs" />
+    <Compile Include="../windows-feasibility-probe/HelperLifecycleProof.cs" Link="HelperLifecycleProof.cs" />
+  </ItemGroup>
+</Project>

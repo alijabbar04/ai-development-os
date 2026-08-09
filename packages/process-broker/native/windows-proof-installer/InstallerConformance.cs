@@ -754,11 +754,12 @@ internal static class InstallerConformance
 
     private static void AddConfigurationVectors(List<ConformanceVector> vectors)
     {
-        // Empty by decision, exactly as the production pinned bundle
-        // fingerprint table is empty and for the same reason.
+        // Exactly one reviewed Stage 17W runtime candidate is compiled in.
+        // A second entry would expand the installer's trust root and must make
+        // this conformance vector fail until it is explicitly reviewed.
         vectors.Add(new ConformanceVector(
-            "config/installable-candidate-table-is-empty",
-            "0",
+            "config/installable-candidate-table-has-reviewed-runtime",
+            "1",
             ProofConfiguration.Installable.Count.ToString(CultureInfo.InvariantCulture)));
 
         // The self-test fixture is a fixture. If it ever appears in the

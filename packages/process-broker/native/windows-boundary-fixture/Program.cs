@@ -55,6 +55,11 @@ internal static class Program
                 return RunLifecycleHold(args[1], args[2]);
             }
 
+            if (args.Length == 2 && args[0] == "ordinary-control")
+            {
+                return RunOrdinaryControl(args[1]);
+            }
+
             Write(new FixtureError(1, "refused", "invalid-command-shape"));
             return 64;
         }
@@ -117,6 +122,32 @@ internal static class Program
         Console.Out.Flush();
         CurrentStep = "lifecycle-hold";
         System.Threading.Thread.Sleep(holdMilliseconds);
+        return 0;
+    }
+
+    private static int RunOrdinaryControl(string markerPath)
+    {
+        string canonical = Path.GetFullPath(markerPath);
+        string temp = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath()));
+        string name = Path.GetFileName(canonical);
+        const string prefix = "stage17-runtime-control-";
+        const string suffix = ".marker";
+        bool valid =
+            string.Equals(Path.GetDirectoryName(canonical), temp, StringComparison.OrdinalIgnoreCase) &&
+            name.StartsWith(prefix, StringComparison.Ordinal) &&
+            name.EndsWith(suffix, StringComparison.Ordinal) &&
+            name.Length == prefix.Length + 32 + 2 + suffix.Length &&
+            IsLowerHex(name.Substring(prefix.Length, 32)) &&
+            name[prefix.Length + 32] == '-' &&
+            name[prefix.Length + 33] is '1' or '2' &&
+            !File.Exists(canonical);
+        if (!valid)
+        {
+            Write(new FixtureError(1, "refused", "ordinary-control-path-invalid"));
+            return 64;
+        }
+
+        File.WriteAllText(canonical, "stage17-ordinary-control-v1");
         return 0;
     }
 

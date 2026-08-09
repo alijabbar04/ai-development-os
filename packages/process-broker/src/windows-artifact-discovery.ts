@@ -147,6 +147,7 @@ export const PRODUCTION_ELIGIBLE_BUILD_FLAVOR = "sealed" as const;
  * discovered by a production path, whatever flavour they were built with.
  */
 export const PROOF_ONLY_COMPONENTS: readonly string[] = Object.freeze([
+  "windows-proof-controller",
   "windows-proof-installer",
 ]);
 

@@ -1160,7 +1160,11 @@ describe("Stage 17 native component conformance pins (non-enforcement)", () => {
     // checkpoint the constant was unconditionally false, so a reviewed-proof
     // build compiled the authorization constructor and still could not execute
     // anything — the gate was a wall with a door drawn on it.
-    for (const component of NATIVE_COMPONENTS) {
+    for (const component of [
+      "windows-supervisor",
+      "windows-helper",
+      "windows-proof-installer",
+    ] as const) {
       const gate = await readFile(join(packageRoot, "native", component, "MutationGate.cs"), "utf8");
       expect(gate).toContain("#if AIDEVOS_STAGE17_REVIEWED_PROOF_MODE");
       expect(gate).toContain("private const bool MutatingOperationsEnabled = true;");
@@ -1213,7 +1217,17 @@ describe("Stage 17 native component conformance pins (non-enforcement)", () => {
  */
 const INTEROP_ALLOW_LIST: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> =
   Object.freeze({
-    "windows-supervisor": Object.freeze({}),
+    "windows-supervisor": Object.freeze({
+      "RoleRuntime.cs": Object.freeze([
+        "dll-import",
+        "marshal",
+        "create-file-w",
+        "create-process-w",
+        "job",
+        "appcontainer",
+        "durability",
+      ]),
+    }),
     "windows-helper": Object.freeze({}),
     "windows-proof-installer": Object.freeze({
       "NativeFileSystem.cs": Object.freeze([
@@ -1224,6 +1238,33 @@ const INTEROP_ALLOW_LIST: Readonly<Record<string, Readonly<Record<string, readon
         "durability",
         "file-position",
       ]),
+    }),
+    "windows-proof-controller": Object.freeze({
+      "Stage17WProof.cs": Object.freeze(["marshal", "create-file-w", "create-process-w"]),
+    }),
+    "windows-runtime": Object.freeze({
+      "RuntimeNativePrimitives.cs": Object.freeze([
+        "dll-import",
+        "marshal",
+        "create-file-w",
+        "create-process-w",
+        "job",
+        "appcontainer",
+        "security-descriptor",
+        "durability",
+      ]),
+      "RuntimeLifecycleWorker.cs": Object.freeze([
+        "dll-import",
+        "marshal",
+        "create-process-w",
+        "job",
+        "appcontainer",
+        "security-descriptor",
+        "durability",
+      ]),
+    }),
+    "windows-boundary-fixture": Object.freeze({
+      "Program.cs": Object.freeze(["dll-import", "marshal", "create-process-w"]),
     }),
   });
 
@@ -1319,6 +1360,41 @@ const FORBIDDEN_EVERYWHERE: readonly string[] = Object.freeze([
   "unsafe ",
 ]);
 
+/** Exact reviewed lifecycle sites allowed to use an otherwise-forbidden API. */
+const FORBIDDEN_EXACT_EXCEPTIONS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  "windows-proof-installer/ProofConfiguration.cs": Object.freeze([
+    "Registry",
+    "Microsoft.Win32.Registry",
+    "WebClient",
+  ]),
+  "windows-supervisor/RoleRuntime.cs": Object.freeze([
+    "Registry",
+    "RegistryKey",
+    "HttpClient",
+    "Socket(",
+    "Dns.",
+    "Directory.Delete",
+    "File.Delete",
+  ]),
+  "windows-runtime/RuntimeNativePrimitives.cs": Object.freeze([
+    "RegistryKey",
+  ]),
+  "windows-runtime/RuntimeLifecycleWorker.cs": Object.freeze([
+    "RegistryKey",
+    "Directory.CreateDirectory",
+    "Directory.Delete",
+    "File.WriteAllText",
+    "File.Delete",
+  ]),
+  "windows-proof-controller/Stage17WProof.cs": Object.freeze(["File.Delete"]),
+  "windows-boundary-fixture/Program.cs": Object.freeze([
+    "Socket(",
+    "Environment.GetEnvironmentVariable",
+    "File.WriteAllText",
+    "File.Delete",
+  ]),
+});
+
 /** The exact libraries and entry points the allow-listed files may import. */
 const PERMITTED_IMPORTS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   "ntdll.dll": Object.freeze([
@@ -1329,14 +1405,32 @@ const PERMITTED_IMPORTS: Readonly<Record<string, readonly string[]>> = Object.fr
   ]),
   "kernel32.dll": Object.freeze([
     "CloseHandle",
+    "CreateFileW",
+    "CreateJobObjectW",
+    "CreatePipe",
+    "CreateProcessW",
+    "DeleteProcThreadAttributeList",
     "FlushFileBuffers",
     "GetCurrentProcess",
+    "GetExitCodeProcess",
     "GetFileInformationByHandleEx",
     "GetFinalPathNameByHandleW",
     "GetVolumeInformationByHandleW",
+    "InitializeProcThreadAttributeList",
+    "IsProcessInJob",
     "LocalFree",
+    "PeekNamedPipe",
+    "QueryFullProcessImageNameW",
+    "QueryInformationJobObject",
     "ReadFile",
+    "ResumeThread",
+    "SetHandleInformation",
+    "SetInformationJobObject",
     "SetFilePointerEx",
+    "TerminateJobObject",
+    "TerminateProcess",
+    "UpdateProcThreadAttribute",
+    "WaitForSingleObject",
     "WriteFile",
   ]),
   "advapi32.dll": Object.freeze([
@@ -1344,6 +1438,7 @@ const PERMITTED_IMPORTS: Readonly<Record<string, readonly string[]>> = Object.fr
     "ConvertSidToStringSidW",
     "ConvertStringSecurityDescriptorToSecurityDescriptorW",
     "DuplicateTokenEx",
+    "FreeSid",
     "GetAce",
     "GetAclInformation",
     "GetSecurityDescriptorControl",
@@ -1354,6 +1449,12 @@ const PERMITTED_IMPORTS: Readonly<Record<string, readonly string[]>> = Object.fr
   ]),
   "shell32.dll": Object.freeze(["SHGetKnownFolderPath"]),
   "ole32.dll": Object.freeze(["CoTaskMemFree"]),
+  "userenv.dll": Object.freeze([
+    "CreateAppContainerProfile",
+    "DeleteAppContainerProfile",
+    "DeriveAppContainerSidFromAppContainerName",
+    "GetAppContainerFolderPath",
+  ]),
 });
 
 /**
@@ -1364,7 +1465,7 @@ const PERMITTED_IMPORTS: Readonly<Record<string, readonly string[]>> = Object.fr
  * rather than a line nobody notices. ADR 0018 section 5 requires no growth
  * without an ADR change; this is what surfaces the growth.
  */
-const ALLOW_LISTED_FILE_COUNT = 1;
+const ALLOW_LISTED_FILE_COUNT = 6;
 
 /**
  * The reviewed native components the allow-list governs.
@@ -1383,9 +1484,12 @@ const ALLOW_LISTED_FILE_COUNT = 1;
  * carved out". A directory that is neither fails the suite.
  */
 const NATIVE_COMPONENTS = Object.freeze([
+  "windows-boundary-fixture",
   "windows-supervisor",
   "windows-helper",
+  "windows-proof-controller",
   "windows-proof-installer",
+  "windows-runtime",
 ] as const);
 
 /**
@@ -1402,7 +1506,6 @@ const NATIVE_COMPONENTS = Object.freeze([
  * is the reviewable act, and the count below has to change with it.
  */
 const UNGOVERNED_NATIVE_TOOLING = Object.freeze([
-  "windows-boundary-fixture",
   "windows-feasibility-probe",
 ] as const);
 
@@ -1682,10 +1785,13 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
       const sources = await nativeSourceFiles(component);
       for (const name of sources) {
         const text = await readNativeCode(component, name);
+        const file = `${component}/${name}`;
+        const exceptions = FORBIDDEN_EXACT_EXCEPTIONS[file] ?? [];
         for (const forbidden of FORBIDDEN_EVERYWHERE) {
+          if (exceptions.includes(forbidden)) continue;
           expect(
             containsIdentifier(text, forbidden),
-            `${component}/${name} contains ${forbidden}`,
+            `${file} contains ${forbidden}`,
           ).toBe(false);
         }
       }
@@ -1697,6 +1803,22 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
       const project = await readFile(join(directory, projects[0] as string), "utf8");
       expect(project).toContain("<AllowUnsafeBlocks>false</AllowUnsafeBlocks>");
       expect(project).toContain("<TreatWarningsAsErrors>true</TreatWarningsAsErrors>");
+    }
+
+    // An exception is not a wildcard and cannot go stale. Every named token
+    // must still be globally forbidden and must actually occur in its exact
+    // reviewed file, otherwise it is latent authorization for future code.
+    for (const [file, exceptions] of Object.entries(FORBIDDEN_EXACT_EXCEPTIONS)) {
+      const slash = file.indexOf("/");
+      const component = file.slice(0, slash);
+      const name = file.slice(slash + 1);
+      const text = await readNativeCode(component, name);
+      for (const exception of exceptions) {
+        expect(FORBIDDEN_EVERYWHERE).toContain(exception);
+        expect(containsIdentifier(text, exception), `${file} exception ${exception} is stale`).toBe(
+          true,
+        );
+      }
     }
   });
 
@@ -1894,7 +2016,10 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
       }),
     ).toMatchObject({ admitted: false, code: "artifact-component-is-proof-only" });
 
-    expect([...PROOF_ONLY_COMPONENTS]).toEqual(["windows-proof-installer"]);
+    expect([...PROOF_ONLY_COMPONENTS]).toEqual([
+      "windows-proof-controller",
+      "windows-proof-installer",
+    ]);
     for (const component of PROOF_ONLY_COMPONENTS) {
       expect([...WINDOWS_ARTIFACT_COMPONENTS]).not.toContain(component);
     }
@@ -1915,7 +2040,7 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
     expect(JSON.stringify(manifest)).not.toContain("windows-proof-installer");
   });
 
-  it("keeps the retained evidence tooling off every reviewed component's path", async () => {
+  it("keeps retained feasibility source off production component paths", async () => {
     // ADR 0017 section 10.3: no reviewed component may DEPEND on the
     // feasibility probe or the boundary fixture.
     //
@@ -1926,7 +2051,13 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
     // literal would forbid testing the refusal, which is the wrong trade. What
     // is actually forbidden is a project reference, a namespace import, or a
     // type from either assembly.
-    for (const component of NATIVE_COMPONENTS) {
+    const productionComponents = [
+      "windows-boundary-fixture",
+      "windows-helper",
+      "windows-runtime",
+      "windows-supervisor",
+    ] as const;
+    for (const component of productionComponents) {
       const directory = join(packageRoot, "native", component);
       const names = await readdir(directory);
 
@@ -1939,14 +2070,13 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
 
       for (const name of names.filter((entry) => entry.endsWith(".cs"))) {
         const text = await readNativeCode(component, name);
-        expect(text).not.toContain("AiDevOs.WindowsSandboxFeasibilityProbe");
-        expect(text).not.toContain("AiDevOs.WindowsBoundaryFixture");
+        expect(text).not.toContain("using AiDevOs.WindowsSandboxFeasibilityProbe;");
+        expect(text).not.toContain("using AiDevOs.WindowsBoundaryFixture;");
         expect(text).not.toContain("AppContainerSyntheticProcessProof");
         expect(text).not.toContain("AppContainerProfileLifecycleProof");
 
-        // Every namespace import must be a System.* one, so a reference to
-        // either assembly could not be written without the import being
-        // visible here first.
+        // Every non-System import is an exact reviewed BCL or internal runtime
+        // namespace; proof-tool namespaces remain forbidden.
         for (const line of text.split("\n")) {
           const trimmed = line.trim();
           // A namespace import is `using X.Y.Z;` and nothing else. A using
@@ -1959,16 +2089,203 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
           ) {
             continue;
           }
-          // The only non-System namespace any reviewed component imports.
-          // `Microsoft.Win32.SafeHandles` is the BCL handle-wrapper namespace;
-          // `Microsoft.Win32` itself is NOT permitted, because that is where
-          // `Registry` lives and the two differ by one path segment.
-          expect(trimmed, `${component}/${name} imports a non-System namespace`).toBe(
+          const allowed = new Set([
+            "using AiDevOs.WindowsRuntime;",
+            "using Microsoft.Win32;",
             "using Microsoft.Win32.SafeHandles;",
+          ]);
+          expect(allowed, `${component}/${name} imports a non-System namespace`).toContain(
+            trimmed,
           );
         }
       }
     }
+
+    // The proof-only controller deliberately reuses the retained native proof
+    // primitives. Its exact three links are pinned and the component is barred
+    // from production discovery and npm packaging above.
+    const controllerProject = await readFile(
+      join(
+        packageRoot,
+        "native",
+        "windows-proof-controller",
+        "AI.DevOS.WindowsProofController.csproj",
+      ),
+      "utf8",
+    );
+    expect(controllerProject.match(/windows-feasibility-probe\//g)?.length ?? 0).toBe(3);
+    expect(controllerProject).toContain("SyntheticProcessProof.cs");
+    expect(controllerProject).toContain("StructuredBoundaryProof.cs");
+    expect(controllerProject).toContain("HelperLifecycleProof.cs");
+  });
+
+  it("pins the production runtime worker to the reviewed compile-time projection", async () => {
+    const evaluate = (expression: string): boolean => {
+      const value = (name: string): boolean =>
+        name === "AIDEVOS_STAGE17_RUNTIME_WORKER" ||
+        name === "AIDEVOS_STAGE17_RUNTIME_NAMES";
+      return expression.split("||").some((alternative) =>
+        alternative
+          .split("&&")
+          .map((term) => term.trim())
+          .every((term) => (term.startsWith("!") ? !value(term.slice(1)) : value(term))),
+      );
+    };
+    const projectRuntime = (source: string, addImportPolicy: boolean): string => {
+      const output: string[] = [];
+      const stack: { readonly parent: boolean; readonly condition: boolean }[] = [];
+      let enabled = true;
+      for (const line of source.replace(/\r\n/g, "\n").split("\n")) {
+        const directive = line.trim();
+        if (directive.startsWith("#if ")) {
+          const condition = evaluate(directive.slice(4));
+          stack.push({ parent: enabled, condition });
+          enabled = enabled && condition;
+        } else if (directive === "#else") {
+          const branch = stack.at(-1);
+          if (branch === undefined) throw new Error("unbalanced runtime projection");
+          enabled = branch.parent && !branch.condition;
+        } else if (directive === "#endif") {
+          const branch = stack.pop();
+          if (branch === undefined) throw new Error("unbalanced runtime projection");
+          enabled = branch.parent;
+        } else if (enabled) {
+          output.push(line);
+        }
+      }
+      if (stack.length !== 0) throw new Error("unbalanced runtime projection");
+      let projected = output
+        .join("\n")
+        .replace(
+          "namespace AiDevOs.WindowsSandboxFeasibilityProbe;",
+          "namespace AiDevOs.WindowsRuntime;",
+        )
+        .replaceAll("AppContainerSyntheticProcessProof", "WindowsRuntimeBoundary");
+      if (addImportPolicy) {
+        projected = projected.replace(
+          "using Microsoft.Win32;\n",
+          "using Microsoft.Win32;\n\n" +
+            "[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]\n",
+        );
+      }
+      return projected.trimEnd();
+    };
+
+    const pairs = [
+      ["SyntheticProcessProof.cs", "RuntimeNativePrimitives.cs", true],
+      ["HelperLifecycleProof.cs", "RuntimeLifecycleWorker.cs", false],
+    ] as const;
+    for (const [proofName, runtimeName, addImportPolicy] of pairs) {
+      const proof = await readFile(
+        join(packageRoot, "native", "windows-feasibility-probe", proofName),
+        "utf8",
+      );
+      const runtime = await readFile(
+        join(packageRoot, "native", "windows-runtime", runtimeName),
+        "utf8",
+      );
+      expect(runtime.replace(/\r\n/g, "\n").trimEnd()).toBe(
+        projectRuntime(proof, addImportPolicy),
+      );
+      expect(runtime).not.toContain("#if");
+      expect(runtime).not.toContain("AIDEVOS_STAGE17_REVIEWED_PROOF_MODE");
+      expect(runtime).not.toContain("AiDevOs.WindowsSandboxFeasibilityProbe");
+    }
+  });
+
+  it("pins the body-free provider canary to exact endpoints and an installed supervisor", async () => {
+    const supervisor = await readNativeCode("windows-supervisor", "RoleRuntime.cs");
+    const controller = await readNativeCode("windows-proof-controller", "Stage17WProof.cs");
+    const expectedEndpoints = [
+      "https://api.anthropic.com/v1/models",
+      "https://api.openai.com/v1/models",
+    ];
+    const endpoints = (source: string): string[] =>
+      [...source.matchAll(/https:\/\/api\.(?:anthropic|openai)\.com\/v1\/models/g)]
+        .map((match) => match[0])
+        .sort();
+
+    expect(endpoints(supervisor)).toEqual(expectedEndpoints);
+    expect(endpoints(controller)).toEqual(expectedEndpoints);
+    expect(
+      supervisor.match(/RuntimeClosureLease\.AcquireFromCurrentImage\(SupervisorImageName\)/g)
+        ?.length ?? 0,
+    ).toBe(3);
+    expect(supervisor).toContain("AllowAutoRedirect = false");
+    expect(supervisor).toContain("UseProxy = false");
+    expect(supervisor).toContain("UseCookies = false");
+    expect(supervisor).toContain("Credentials = null");
+    expect(supervisor).toContain("DefaultRequestVersion = HttpVersion.Version20");
+    expect(supervisor).toContain("HttpVersionPolicy.RequestVersionOrLower");
+    expect(supervisor).toContain("HttpCompletionOption.ResponseHeadersRead");
+    expect(supervisor).toContain("new HttpRequestMessage(HttpMethod.Get, endpoint)");
+    expect(supervisor).toContain("requestBodyBytes = 0");
+    expect(supervisor).not.toContain("Authorization");
+    expect(supervisor).not.toContain("HttpVersion.Version30");
+    expect(controller).toContain("ExpectedStage17WEgressFingerprint(expectedProvider)");
+    expect(controller).toContain('substitutedEgress.Status == "failed"');
+  });
+
+  it("binds every lifecycle and recovery token to the installed closure token", async () => {
+    const closure = await readNativeCode("windows-runtime", "RuntimeClosureLease.cs");
+    const worker = await readNativeCode("windows-runtime", "RuntimeLifecycleWorker.cs");
+    const helper = await readNativeCode("windows-helper", "RoleRuntime.cs");
+    const supervisor = await readNativeCode("windows-supervisor", "RoleRuntime.cs");
+    const controller = await readNativeCode("windows-proof-controller", "Stage17WProof.cs");
+
+    expect(closure).toContain("internal static string DeriveScenarioToken");
+    expect(closure).toContain('"ai-dev-os/stage17w/scenario/v1/');
+    expect(controller).toContain("RuntimeClosureLease.DeriveScenarioToken(runToken, index)");
+    expect(worker).toContain("IsInstalledRuntimeScenarioToken(installedRunToken, validatedRequest)");
+    expect(worker).toContain("RuntimeClosureLease.DeriveScenarioToken(installedRunToken, index)");
+    expect(helper).toContain("closure.RunToken");
+    expect(supervisor).toContain("RuntimeClosureLease.DeriveScenarioToken(runToken, scenarioIndex)");
+    expect(supervisor).toContain("IsAuthorizedScenarioToken(closure.RunToken, token)");
+    expect(supervisor).toContain("!TryParseRequest(");
+    expect(supervisor).toContain("mismatchedScenario");
+  });
+
+  it("requires the proof controller to pin the measured installed source envelope", async () => {
+    const closure = await readNativeCode("windows-runtime", "RuntimeClosureLease.cs");
+    const controller = await readNativeCode("windows-proof-controller", "Stage17WProof.cs");
+    const installer = await readNativeCode("windows-proof-installer", "ProofConfiguration.cs");
+    const match = controller.match(
+      /Stage17WRuntimeSourceEnvelopeFingerprint\s*=\s*\n?\s*"([a-f0-9]{64})"/,
+    );
+
+    expect(match).not.toBeNull();
+    const fingerprint = match?.[1] ?? "";
+    expect(installer).toContain(`"${fingerprint}"`);
+    expect(closure).toContain("SourceEnvelopeFingerprint(parsed)");
+    expect(closure).toContain("internal static bool RunReadOnlySelfTest()");
+    expect(closure).toContain("d804d19ca6e350c7684f17a67aa14a56ef1ca1377b175eec33f1514d045edad7");
+    expect(closure).toContain('"installed-source-envelope-unreviewed"');
+    expect(closure).toContain('writer.WriteString("buildFlavor", "sealed")');
+    expect(closure).toContain('writer.WriteString("bundleVersion", "1.0.0")');
+    expect(closure).toContain('writer.WriteString("component", "windows-stage17-runtime")');
+    expect(closure).toContain('writer.WriteNumber("schemaVersion", 1)');
+    expect(
+      controller.match(/Stage17WRuntimeSourceEnvelopeFingerprint\);/g)?.length ?? 0,
+    ).toBe(2);
+  });
+
+  it("includes every linked compilation input in the packaging source envelope", async () => {
+    const script = await readFile(
+      join(packageRoot, "scripts", "build-windows-artifacts.mjs"),
+      "utf8",
+    );
+    const occurrences = (value: string): number => script.split(value).length - 1;
+
+    expect(occurrences("linkedSources:")).toBe(4);
+    expect(occurrences('"../windows-runtime/RuntimeClosureLease.cs"')).toBe(3);
+    expect(occurrences('"../windows-runtime/RuntimeNativePrimitives.cs"')).toBe(1);
+    expect(occurrences('"../windows-runtime/RuntimeLifecycleWorker.cs"')).toBe(1);
+    expect(occurrences('"../windows-feasibility-probe/SyntheticProcessProof.cs"')).toBe(1);
+    expect(occurrences('"../windows-feasibility-probe/StructuredBoundaryProof.cs"')).toBe(1);
+    expect(occurrences('"../windows-feasibility-probe/HelperLifecycleProof.cs"')).toBe(1);
+    expect(script).toContain("for (const name of entry.linkedSources)");
+    expect(script).toContain("relative(nativeRoot, path)");
+    expect(script).toContain("duplicate source-envelope name");
   });
 });
 

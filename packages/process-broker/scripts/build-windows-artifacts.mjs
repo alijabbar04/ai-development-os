@@ -100,6 +100,7 @@ const COMPONENTS = [
     project: join(nativeRoot, "windows-supervisor", "AI.DevOS.WindowsSupervisor.csproj"),
     executable: "AI.DevOS.WindowsSupervisor.exe",
     productionShaped: true,
+    linkedSources: ["../windows-runtime/RuntimeClosureLease.cs"],
   },
   {
     component: "windows-helper",
@@ -107,6 +108,11 @@ const COMPONENTS = [
     project: join(nativeRoot, "windows-helper", "AI.DevOS.WindowsHelper.csproj"),
     executable: "AI.DevOS.WindowsHelper.exe",
     productionShaped: true,
+    linkedSources: [
+      "../windows-runtime/RuntimeClosureLease.cs",
+      "../windows-runtime/RuntimeNativePrimitives.cs",
+      "../windows-runtime/RuntimeLifecycleWorker.cs",
+    ],
   },
 ];
 
@@ -125,6 +131,22 @@ const PROOF_ONLY_COMPONENTS = [
     project: join(nativeRoot, "windows-proof-installer", "AI.DevOS.WindowsProofInstaller.csproj"),
     executable: "AI.DevOS.WindowsProofInstaller.exe",
     productionShaped: false,
+    installableCandidateCount: 1,
+    linkedSources: [],
+  },
+  {
+    component: "windows-proof-controller",
+    directory: join(nativeRoot, "windows-proof-controller"),
+    project: join(nativeRoot, "windows-proof-controller", "AI.DevOS.WindowsProofController.csproj"),
+    executable: "AI.DevOS.WindowsProofController.exe",
+    productionShaped: false,
+    installableCandidateCount: 0,
+    linkedSources: [
+      "../windows-runtime/RuntimeClosureLease.cs",
+      "../windows-feasibility-probe/SyntheticProcessProof.cs",
+      "../windows-feasibility-probe/StructuredBoundaryProof.cs",
+      "../windows-feasibility-probe/HelperLifecycleProof.cs",
+    ],
   },
 ];
 
@@ -452,11 +474,37 @@ function differingRegion(firstPath, secondPath) {
 // ------------------------------------------------------------------ manifest
 
 function sourceEnvelope(entry) {
+  const inputs = [];
   const files = [];
   for (const name of readdirSync(entry.directory).sort()) {
     const path = join(entry.directory, name);
     if (!lstatSync(path).isFile()) continue;
-    files.push({ name, sha256: sha256File(path) });
+    inputs.push({ name, path });
+  }
+  for (const name of entry.linkedSources) {
+    const path = resolve(entry.directory, name);
+    const fromNativeRoot = relative(nativeRoot, path);
+    if (
+      fromNativeRoot === "" ||
+      fromNativeRoot === ".." ||
+      fromNativeRoot.startsWith(`..${sep}`) ||
+      resolve(nativeRoot, fromNativeRoot) !== path ||
+      !existsSync(path) ||
+      !lstatSync(path).isFile()
+    ) {
+      fail(`${entry.component}: linked source escapes native root or is not a file: ${name}`);
+    }
+    inputs.push({ name: name.split(sep).join("/"), path });
+  }
+  const seen = new Set();
+  for (const input of inputs.sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+  )) {
+    if (seen.has(input.name)) {
+      fail(`${entry.component}: duplicate source-envelope name: ${input.name}`);
+    }
+    seen.add(input.name);
+    files.push({ name: input.name, sha256: sha256File(input.path) });
   }
   return { files, fingerprint: sha256Text(canonicalJson(files)) };
 }
@@ -633,10 +681,10 @@ function buildProofOnlyComponent(entry, out, flavor) {
   if (describeJson.productionEligible !== false) {
     fail(`${entry.component} describe-artifact does not report productionEligible: false`);
   }
-  if (selfTestJson.installableCandidateCount !== 0) {
+  if (selfTestJson.installableCandidateCount !== entry.installableCandidateCount) {
     fail(
       `${entry.component} reports ${String(selfTestJson.installableCandidateCount)} installable ` +
-        `candidates; the reviewed table is empty by decision (ADR 0018 section 2.4)`,
+        `candidates; reviewed source requires ${String(entry.installableCandidateCount)}`,
     );
   }
   // These two are now MEASUREMENTS in the binary — read from counters the native
@@ -895,7 +943,7 @@ async function main() {
         coreConformanceDigest: selfTestJson.coreConformanceDigest,
         roleConformanceDigest: selfTestJson.roleConformanceDigest,
         manifestFixtureFingerprint: selfTestJson.manifestFixtureFingerprint,
-        mutatingOperationsPermitted: selfTestJson.mutatingOperationsPermitted,
+        reviewedProofMutationAuthorized: selfTestJson.reviewedProofMutationAuthorized,
         hostStateCreated: selfTestJson.hostStateCreated,
       },
       describeArtifact: { exitCode: describe.status, ...describeJson },

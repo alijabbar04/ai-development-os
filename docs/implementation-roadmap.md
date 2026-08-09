@@ -616,6 +616,27 @@ Gated checkpoint progress (2026-08-05; not a Stage 17 release):
   candidate is not a production release or target-branch integration;
   production remains unavailable and fail-closed.
 
+- Defensive Stage 17W implementation checkpoint (2026-08-09; not a release):
+  the sealed supervisor and helper now contain the ordinary installed-closure,
+  exact-handle process topology, target-at-creation containment, bounded
+  journal/cleanup/recovery, and fixed body-free provider-canary paths that a
+  production runtime would need. Fault injection and installation remain in
+  separately identified proof-only components whose mutating commands require
+  an explicit reviewed-proof build and whose identities are excluded from
+  production discovery and npm packaging. A checked runtime projection keeps
+  production code independent of the retained feasibility assembly while a
+  static parity gate prevents drift. Two clean direct publish sets were
+  byte-identical for each affected production artifact; their exact 193-file
+  union is compiled into the proof installer's reviewed candidate table with
+  source-envelope fingerprint
+  `16f327aa858f25e85c9f335d658e1879d1c93729940648df19cd6966326eb5c8`.
+  Pure native self-tests and the 176-test Stage 17 static/security slice pass.
+  No stateful lifecycle or live provider canary ran, no production fingerprint
+  was admitted, and the separately required safety-gated operation remains
+  unrun. ADR 0020 and
+  `docs/release-evidence/stage-17w-defensive-implementation-checkpoint.md`
+  define the exact implementation/evidence boundary.
+
 Release consequence: Windows production enforcement remains unavailable and
 unverified beyond the bounded profile, synthetic identity/Job, structured
 filesystem/loopback/process-count, and test-helper lifecycle/crash-recovery

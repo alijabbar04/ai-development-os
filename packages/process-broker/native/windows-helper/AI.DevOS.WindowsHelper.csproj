@@ -37,6 +37,15 @@
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <!--
+       The runtime worker links a compile-time-pruned reviewed copy of the
+       feasibility primitives from windows-runtime. Its private stable
+       exception/result types are sealed implementation details; the
+       corresponding design-only analyzer warnings do not weaken runtime or
+       interop checks. DllImport search is fixed assembly-wide to System32 in
+       RoleRuntime.cs.
+    -->
+    <NoWarn>$(NoWarn);CA1032;CA1802;CA1812;CA1823;SYSLIB1054</NoWarn>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -85,6 +94,9 @@
     <Compile Remove="obj/**/*.cs" />
     <None Remove="bin/**" />
     <None Remove="obj/**" />
+    <Compile Include="../windows-runtime/RuntimeClosureLease.cs" Link="RuntimeClosureLease.cs" />
+    <Compile Include="../windows-runtime/RuntimeNativePrimitives.cs" Link="RuntimeNativePrimitives.cs" />
+    <Compile Include="../windows-runtime/RuntimeLifecycleWorker.cs" Link="RuntimeLifecycleWorker.cs" />
   </ItemGroup>
 
 </Project>

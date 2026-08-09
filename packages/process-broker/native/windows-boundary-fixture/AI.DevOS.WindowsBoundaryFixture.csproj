@@ -24,4 +24,11 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Out-of-tree deterministic builds must never sweep stale in-tree output. -->
+    <Compile Remove="bin/**/*.cs" />
+    <Compile Remove="obj/**/*.cs" />
+    <None Remove="bin/**" />
+    <None Remove="obj/**" />
+  </ItemGroup>
 </Project>

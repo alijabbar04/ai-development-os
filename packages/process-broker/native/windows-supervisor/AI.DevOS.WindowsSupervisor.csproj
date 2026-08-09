@@ -37,6 +37,7 @@
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CA1032;SYSLIB1054</NoWarn>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -85,6 +86,7 @@
     <Compile Remove="obj/**/*.cs" />
     <None Remove="bin/**" />
     <None Remove="obj/**" />
+    <Compile Include="../windows-runtime/RuntimeClosureLease.cs" Link="RuntimeClosureLease.cs" />
   </ItemGroup>
 
 </Project>
