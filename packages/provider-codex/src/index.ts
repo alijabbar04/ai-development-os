@@ -124,3 +124,25 @@ export {
   type CodexProvider,
   type CreateCodexProviderOptions,
 } from "./provider.js";
+
+export {
+  CODEX_SDK_COMPATIBILITY_ERROR_CODES,
+  CODEX_SDK_COMPATIBILITY_VERSION,
+  CODEX_SDK_EXECUTION_MODES,
+  CODEX_SDK_RUNTIME_DEPENDENCY_ENABLED,
+  CodexSdkCompatibilityError,
+  createCodexSdkCompatibilityAdapter,
+  type CodexSdkClientPort,
+  type CodexSdkCompatibilityAdapterOptions,
+  type CodexSdkCompatibilityErrorCode,
+  type CodexSdkExecutionMode,
+  type CodexSdkItemType,
+  type CodexSdkManagedWorkspace,
+  type CodexSdkThreadEvent,
+  type CodexSdkThreadItem,
+  type CodexSdkThreadOptions,
+  type CodexSdkThreadPort,
+  type CodexSdkUsage,
+  type CodexSdkWorkspaceResolver,
+  type ProductionDisabledCodexSdkAdapter,
+} from "./sdk-seam.js";

@@ -35,6 +35,28 @@ The package exports:
 
 Raw JSONL and App Server wire objects remain internal.
 
+### Stage 18A Codex SDK compatibility seam
+
+The package also exposes an exact declaration-level compatibility seam for
+`@openai/codex-sdk` 0.147.0. Stage 18A does not add the SDK or its optional CLI
+binaries as runtime dependencies and does not dynamically load them. The seam is
+production-disabled by default and accepts execution only from an explicitly
+injected deterministic fake carrying the exact reviewed version marker.
+
+The seam maps `startThread`, repeated streamed turns, and `resumeThread` into the
+provider-neutral scheduler lifecycle. It resolves workspace identity through an
+injected managed-workspace resolver, rejects non-canonical or mismatched paths,
+uses at most `workspace-write`, disables network and web search, keeps approval
+mode `on-request`, and never persists SDK message, reasoning, command, MCP, or
+error content. Only bounded lifecycle checkpoints, normalized usage totals, and
+terminal metadata cross the seam.
+
+`@ai-dev-os/scheduler` remains a declared dependency because the published
+declaration files reference its public lifecycle types and downstream
+TypeScript consumers must be able to resolve them. The emitted seam JavaScript
+has no scheduler import; this is a declaration dependency, not an execution
+path.
+
 ## Telemetry semantics
 
 `account/read`, `account/rateLimits/read`, and `account/usage/read` are read-only. Rate windows remain separate and retain used percentage, duration, reset time, observation time, staleness, credits, and source. The adapter does not invent token balances from percentages and never consumes reset credits or sends account emails. Account usage under API-key or Bedrock authentication is `unsupported`, not zero. Costs remain unknown because App Server does not provide a verified per-turn billed-cost value.

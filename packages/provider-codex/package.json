@@ -12,13 +12,13 @@
   },
   "files": ["dist", "README.md"],
   "scripts": {
-    "prebuild": "npm --prefix ../workspace run build",
+    "prebuild": "npm --prefix ../workspace run build && npm --prefix ../scheduler run build",
     "build": "tsc -p tsconfig.json",
-    "pretest": "npm --prefix ../provider-testkit run build && npm --prefix ../workspace run build",
+    "pretest": "npm --prefix ../provider-testkit run build && npm --prefix ../workspace run build && npm --prefix ../scheduler run build",
     "test": "vitest run",
-    "pretest:coverage": "npm --prefix ../provider-testkit run build && npm --prefix ../workspace run build",
+    "pretest:coverage": "npm --prefix ../provider-testkit run build && npm --prefix ../workspace run build && npm --prefix ../scheduler run build",
     "test:coverage": "vitest run --coverage",
-    "pretypecheck": "npm --prefix ../provider-testkit run build && npm --prefix ../workspace run build",
+    "pretypecheck": "npm --prefix ../provider-testkit run build && npm --prefix ../workspace run build && npm --prefix ../scheduler run build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -26,6 +26,7 @@
     "@ai-dev-os/domain": "^0.1.0",
     "@ai-dev-os/process-broker": "^0.1.0",
     "@ai-dev-os/providers": "^0.1.0",
+    "@ai-dev-os/scheduler": "^0.1.0",
     "@ai-dev-os/workspace": "^0.1.0"
   },
   "devDependencies": {
