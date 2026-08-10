@@ -22,7 +22,11 @@
     <Deterministic>true</Deterministic>
     <DeterministicSourcePaths>true</DeterministicSourcePaths>
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
-    <PathMap>$(MSBuildProjectDirectory)=/_/windows-proof-controller,$(BaseIntermediateOutputPath)=/_/windows-proof-controller-obj</PathMap>
+    <!-- The controller links reviewed sources from two sibling projects. Map the
+         complete native source root so a clean checkout path cannot alter the
+         deterministic assembly identity. -->
+    <NativeSourceRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/..'))</NativeSourceRoot>
+    <PathMap>$(NativeSourceRoot)=/_/windows-native,$(BaseIntermediateOutputPath)=/_/windows-proof-controller-obj</PathMap>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
     <InvariantGlobalization>true</InvariantGlobalization>
