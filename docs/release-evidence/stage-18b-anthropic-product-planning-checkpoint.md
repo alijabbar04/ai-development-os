@@ -1,7 +1,7 @@
 # Stage 18B direct Anthropic and product-planning checkpoint evidence
 
-Status: independently reviewed candidate pending commit, push, and exact-head CI
-Evidence window: 2026-08-09 22:12 BST through 2026-08-10 04:35 BST
+Status: independently reviewed source checkpoint with exact-head CI green
+Evidence window: 2026-08-09 22:12 BST through 2026-08-10 05:01 BST
 Branch: `feat/stage-18b-anthropic-product-planning`
 
 ## Outcome boundary
@@ -326,11 +326,26 @@ rerouted.
 
 ## Commit, remote, and hosted CI
 
-Pending. Before acceptance, only the 48 paths above will be staged explicitly,
-the focused commit will be pushed non-forced to the matching branch, and the
-exact commit must pass the existing dependency-audit, coverage, Windows-check,
-and Ubuntu-check hosted jobs. Local/upstream/remote SHA and tree equality plus
-a clean index/worktree will then be recorded here.
+Only the 48 reviewed paths above were staged explicitly. The focused source
+checkpoint is commit
+`416dca5cc720cf82f074acbd8d59f5e6068c1996`, tree
+`71a484d0e747ab341346155bcb02ad4131850364`, with exact parent
+`ea0ff33cfda9623455755280a25a84a757f88f42`. It was pushed non-forced to
+`origin/feat/stage-18b-anthropic-product-planning`; local, upstream, and remote
+all resolved to that SHA with a clean Git-visible worktree.
+
+Exact-head [CI run 31353230293](https://github.com/alijabbar04/ai-development-os/actions/runs/31353230293)
+completed successfully for that source commit:
+
+- dependency audit: PASS in 13 seconds;
+- Ubuntu check: PASS in 6 minutes 58 seconds;
+- coverage: PASS in 10 minutes 31 seconds; and
+- Windows check: PASS in 20 minutes 14 seconds.
+
+A documentation-only evidence-finalization commit may follow this source
+commit. Because a commit cannot record its own SHA or future run, the final
+handoff records that final branch SHA/tree, equality, cleanliness, and its
+required second exact-head CI result.
 
 ## Deferred work and nonclaims
 
@@ -342,9 +357,12 @@ a clean index/worktree will then be recorded here.
 - Stage 19 retains completeness evaluation, disagreement calibration,
   integration gates, and final audit behavior.
 - No UAC, native lifecycle/proof, live provider/account, credential, quota, UI
-  scraping, browser/account automation, workspace/Git effect, communication,
-  Linux/macOS product integration, PR, merge, tag, release, signing,
-  publication, production registration, or repository-settings change occurred.
+  scraping, browser/account automation, communication, Linux/macOS product
+  integration, PR, merge, tag, release, signing, publication, production
+  registration, or repository-settings change occurred. No product/runtime
+  workspace or Git-effect path was added or exercised.
 
-Stage 18B must not be labelled complete while review, commit/push, or exact-head
-CI is pending.
+The production-disabled Stage 18B source checkpoint is complete at the source
+commit above. Any later evidence-only branch head is accepted only after the
+same four exact-head hosted jobs pass; that self-referential publication proof
+belongs in the final handoff.
