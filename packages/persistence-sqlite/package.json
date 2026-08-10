@@ -28,6 +28,6 @@
     "@ai-dev-os/artifacts": "^0.1.0",
     "@ai-dev-os/domain": "^0.1.0",
     "@ai-dev-os/persistence": "^0.1.0",
-    "better-sqlite3": "^12.4.1"
+    "better-sqlite3": "^13.0.3"
   }
 }
