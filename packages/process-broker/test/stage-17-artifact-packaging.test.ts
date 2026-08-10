@@ -2117,6 +2117,12 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
     expect(controllerProject).toContain("SyntheticProcessProof.cs");
     expect(controllerProject).toContain("StructuredBoundaryProof.cs");
     expect(controllerProject).toContain("HelperLifecycleProof.cs");
+    expect(controllerProject).toContain(
+      "<NativeSourceRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/..'))</NativeSourceRoot>",
+    );
+    expect(controllerProject).toContain(
+      "<PathMap>$(NativeSourceRoot)=/_/windows-native,$(BaseIntermediateOutputPath)=/_/windows-proof-controller-obj</PathMap>",
+    );
   });
 
   it("pins the production runtime worker to the reviewed compile-time projection", async () => {
