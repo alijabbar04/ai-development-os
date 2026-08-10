@@ -1,7 +1,7 @@
 # Stage 18C durable runtime and usage-adapter checkpoint evidence
 
-Status: production-disabled source candidate; local validation and independent
-source review complete, focused commit/push and exact-head hosted CI pending
+Status: independently reviewed production-disabled source checkpoint with
+exact-head source CI green; evidence-finalization publication pending
 Evidence window: 2026-08-10 10:04 BST onward
 Branch: `feat/stage-18c-durable-runtime-usage-adapter`
 
@@ -499,11 +499,28 @@ and are not claimed prematurely.
 
 ## Commit, remote, and hosted CI
 
-The focused Stage 18C commit, non-forced push, exact local/upstream/remote SHA
-and tree equality, clean final status, and exact-head dependency audit, Ubuntu
-check, coverage, and Windows check are pending. They will be recorded without
-amending, rebasing, force-pushing, merging, tagging, signing, releasing, or
-changing repository settings.
+Only the 38 reviewed paths above were staged explicitly. The focused source
+checkpoint is commit
+`654f0995fb683b611e890ffd0cb1c63125923940`, tree
+`3b185543a8957ba4d3abfad9571b7742ef61adfe`, with exact parent
+`b4b0e00d19245e5e4976407d445982f6c183dafc`. It was pushed non-forced to
+`origin/feat/stage-18c-durable-runtime-usage-adapter`; local, upstream, and
+remote all resolved to that SHA with a clean Git-visible worktree.
+
+Exact-head [CI run 31406836621](https://github.com/alijabbar04/ai-development-os/actions/runs/31406836621)
+completed successfully for the source checkpoint:
+
+- dependency audit: PASS in 11 seconds;
+- Ubuntu check: PASS in 437 seconds;
+- coverage: PASS in 681 seconds; and
+- Windows check: PASS in 1,316 seconds.
+
+This commit/CI evidence is being finalized in one evidence-only follow-up.
+Because a commit cannot record its own SHA or a future hosted run, the final
+handoff records the evidence-finalization SHA/tree, exact local/upstream/remote
+equality, cleanliness, and its required second four-job exact-head CI result.
+No amend, rebase, force-push, merge, tag, signing, release, or repository-setting
+change is used.
 
 ## Deferred work and nonclaims
 
