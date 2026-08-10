@@ -11,6 +11,10 @@ const { ensureExactKeys, ensureRecord } = validation;
 const AGGREGATE_TYPE = "task-run" as const;
 const EVENT_SCHEMA_VERSION = 1;
 
+function stableTextCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export type StoreFaultPoint = "after-aggregate-before-event";
 
 export interface OrchestrationStoreOptions {
@@ -136,7 +140,8 @@ export function createOrchestrationStore(options: OrchestrationStoreOptions): Or
           cursor = page.nextCursor;
         } while (cursor !== null);
         return Object.freeze(states.sort((left, right) =>
-          left.task.createdAt.localeCompare(right.task.createdAt) || left.task.taskId.localeCompare(right.task.taskId)));
+          stableTextCompare(left.task.createdAt, right.task.createdAt) ||
+          stableTextCompare(left.task.taskId, right.task.taskId)));
       });
     },
 

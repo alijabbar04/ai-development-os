@@ -1,8 +1,33 @@
-export { SCHEDULER_ERROR_CODES, SchedulerError, isSchedulerError, type SchedulerErrorCode } from "./errors.js";
-export { createOrchestrationEvent, type CreateOrchestrationEventInput } from "./events.js";
-export { applyOrchestrationEvent, replayOrchestrationEvents, stateEquals } from "./state-machine.js";
-export { parseNormalizedUsage, parseOrchestrationEvent, parseOrchestrationTaskEnvelope, parseTerminalResult, taskFingerprint, ZERO_NORMALIZED_USAGE } from "./schema.js";
-export { createOrchestrationStore, type OrchestrationStore, type OrchestrationStoreOptions, type StoreFaultPoint, type SubmitResult } from "./store.js";
+export {
+  SCHEDULER_ERROR_CODES,
+  SchedulerError,
+  isSchedulerError,
+  type SchedulerErrorCode,
+} from "./errors.js";
+export {
+  createOrchestrationEvent,
+  type CreateOrchestrationEventInput,
+} from "./events.js";
+export {
+  applyOrchestrationEvent,
+  replayOrchestrationEvents,
+  stateEquals,
+} from "./state-machine.js";
+export {
+  parseNormalizedUsage,
+  parseOrchestrationEvent,
+  parseOrchestrationTaskEnvelope,
+  parseTerminalResult,
+  taskFingerprint,
+  ZERO_NORMALIZED_USAGE,
+} from "./schema.js";
+export {
+  createOrchestrationStore,
+  type OrchestrationStore,
+  type OrchestrationStoreOptions,
+  type StoreFaultPoint,
+  type SubmitResult,
+} from "./store.js";
 export {
   AGENT_ADAPTER_STATUSES,
   type AgentAdapter,
@@ -13,7 +38,12 @@ export {
   type AgentContinuationRequest,
   type AgentResumeRequest,
 } from "./provider.js";
-export { evaluateDispatchPolicy, policyBlockFromDecision, type DispatchPolicyContext, type DispatchPolicyDecision } from "./policy.js";
+export {
+  evaluateDispatchPolicy,
+  policyBlockFromDecision,
+  type DispatchPolicyContext,
+  type DispatchPolicyDecision,
+} from "./policy.js";
 export {
   ROUTING_PREFERENCES,
   WORKLOAD_CLASSES,
@@ -30,16 +60,89 @@ export {
   BASIS_POINTS_FULL,
   BORROWED_WEEKLY_CAP,
   BORROWED_WORK_HOURS_FIVE_HOUR_CAP,
+  USAGE_AUTHORIZATION_CLASSES,
+  USAGE_REVOCATION_CLASSES,
+  USAGE_SNAPSHOT_SCHEMA_VERSION,
+  USAGE_SOURCE_CLASSES,
   USAGE_TIMEZONE,
   isLondonWorkHours,
   parseCanonicalUsageSnapshot,
   validateUsageFreshness,
   type CanonicalUsageSnapshot,
+  type CanonicalUsageSnapshotInput,
+  type LegacyCanonicalUsageSnapshotV1,
+  type NormalizedCanonicalUsageSnapshot,
+  type NormalizedUsageWindowSnapshot,
+  type UsageAuthorizationClass,
+  type UsageRevocationClass,
+  type UsageSourceClass,
   type UsageSnapshotAdapter,
+  type UsageSnapshotReadRequest,
   type UsageValidity,
   type UsageWindowSnapshot,
 } from "./usage.js";
-export { createProductionDisabledScheduler, DEFAULT_SCHEDULER_CONFIGURATION, type DispatchInput, type DurableScheduler, type ProductionDisabledSchedulerOptions } from "./scheduler.js";
+export {
+  createProductionDisabledScheduler,
+  DEFAULT_SCHEDULER_CONFIGURATION,
+  type DispatchInput,
+  type DurableScheduler,
+  type ProductionDisabledSchedulerOptions,
+} from "./scheduler.js";
+export {
+  DEFAULT_WORKER_RUNTIME_CONFIGURATION,
+  createProductionDisabledWorkerRuntime,
+} from "./worker-runtime.js";
+export {
+  parseWorkerRuntimeCommand,
+  parseWorkerRuntimeIdempotencyKey,
+} from "./worker-runtime-command.js";
+export {
+  applyWorkerRuntimeEvent,
+  createWorkerRuntimeEvent,
+  parseProviderCircuitEvidence,
+  parseRuntimeUsageAdapterBinding,
+  parseWorkerRuntimeConfiguration,
+  parseWorkerRuntimeEvent,
+  parseWorkerWorkDefinition,
+  replayWorkerRuntimeEvents,
+  workerDefinitionFingerprint,
+  workerRuntimeStateEquals,
+} from "./worker-runtime-state.js";
+export {
+  STAGE_18C_PRODUCTION_ENABLED,
+  WORKER_RUNTIME_EVENT_SCHEMA_VERSION,
+  WORKER_RUNTIME_EVENT_TYPES,
+  WORKER_RUNTIME_SCHEMA_VERSION,
+  WORKER_RUNTIME_STATUSES,
+  type CancelWorkCommand,
+  type CapacityPoolConfiguration,
+  type ClaimWorkCommand,
+  type CompleteWorkCommand,
+  type DurableWorkerRuntime,
+  type EnqueueWorkCommand,
+  type FailWorkCommand,
+  type FencedWorkCommand,
+  type MarkDispatchStartedCommand,
+  type PrepareDispatchCommand,
+  type ProviderCircuitEvidence,
+  type ReconcileUsageCommand,
+  type RenewLeaseCommand,
+  type ReserveUsageCommand,
+  type RuntimeDispatchIntent,
+  type RuntimeUsageAdapterBinding,
+  type RuntimeUsageReservation,
+  type WorkerLease,
+  type WorkerRuntimeCommand,
+  type WorkerRuntimeConfiguration,
+  type WorkerRuntimeEvent,
+  type WorkerRuntimeEventType,
+  type WorkerRuntimeFaultPoint,
+  type WorkerRuntimeOptions,
+  type WorkerRuntimeState,
+  type WorkerRuntimeStatus,
+  type WorkerRuntimeTerminal,
+  type WorkerWorkDefinition,
+} from "./worker-runtime-types.js";
 export {
   AGENT_CAPABILITIES,
   FAILURE_CLASSIFICATIONS,

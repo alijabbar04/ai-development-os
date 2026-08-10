@@ -30,7 +30,7 @@ import providers, Electron, HTTP frameworks, or UI code.
 
 One generic **versioned aggregate store** persists every Stage 3 aggregate,
 typed by the closed `AGGREGATE_TYPES` union (`project`, `product-plan`,
-`task-graph`, `task-run`, `budget-account`, `artifact-manifest`,
+`task-graph`, `task-run`, `worker-run`, `budget-account`, `artifact-manifest`,
 `telemetry-ledger`). Each
 envelope carries:
 

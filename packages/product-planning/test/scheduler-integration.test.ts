@@ -4,7 +4,7 @@ import { createInferenceRequest } from "@ai-dev-os/providers";
 import { createFakeInferenceProvider, INTERNAL_DISCLOSURE, TESTKIT_TRACE } from "@ai-dev-os/provider-testkit";
 import { assertAnthropicStructuredSchemaForTesting } from "@ai-dev-os/provider-anthropic/testing";
 import { createTestingScheduler } from "@ai-dev-os/scheduler/testing";
-import type { CanonicalUsageSnapshot, RouteCandidate } from "@ai-dev-os/scheduler";
+import type { NormalizedCanonicalUsageSnapshot, RouteCandidate } from "@ai-dev-os/scheduler";
 import { describe, expect, it } from "vitest";
 import {
   createProductPlanningStore,
@@ -52,7 +52,7 @@ function contributionFor(modelId: string): PlanningContributionDraft {
 
 function routeInputs(snapshot: ProductPlanSnapshot, phaseId: string, clock: ManualPlanningClock): {
   readonly candidate: RouteCandidate;
-  readonly usage: CanonicalUsageSnapshot;
+  readonly usage: NormalizedCanonicalUsageSnapshot;
 } {
   const phase = snapshot.phases.find((item) => item.phaseId === phaseId)!;
   return {
@@ -63,6 +63,9 @@ function routeInputs(snapshot: ProductPlanSnapshot, phaseId: string, clock: Manu
       modelId: phase.route.modelId,
       profileId: phase.route.profileId,
       ownership: phase.route.ownership,
+      borrowedPolicy: phase.route.ownership === "authorized-borrowed"
+        ? { taskClass: "claude-code", taskAuthorized: true, modelAllowed: true }
+        : null,
       authorized: true,
       availability: "available",
       health: "healthy",
@@ -75,19 +78,25 @@ function routeInputs(snapshot: ProductPlanSnapshot, phaseId: string, clock: Manu
       predictedWeeklyBasisPoints: 100,
     },
     usage: {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      compatibility: "native-v2",
       snapshotId: `usage:${phase.phaseId.slice(-16)}`,
       sourceAdapterId: "usage-adapter:test",
-      sourceAdapterVersion: "version:1",
+      sourceAdapterVersion: "version:2",
+      sourceFingerprint: "a".repeat(64),
+      sourceClass: "provider-authoritative",
       authoritative: true,
       confidence: "high",
       profileId: phase.route.profileId,
       providerId: phase.route.providerId,
       ownership: phase.route.ownership,
+      authorization: "authorized",
+      revocation: "not-revoked",
       timezone: "Europe/London",
       observedAt: clock.now().toISOString(),
-      fiveHour: { usedBasisPoints: 100, remainingBasisPoints: 9_900, resetAt: "2026-08-10T13:00:00.000Z" },
-      weekly: { usedBasisPoints: 200, remainingBasisPoints: 9_800, resetAt: "2026-08-17T00:00:00.000Z" },
+      freshUntil: "2026-08-10T10:15:00.000Z",
+      fiveHour: { windowId: "window:five-hour:planning", usedBasisPoints: 100, remainingBasisPoints: 9_900, resetAt: "2026-08-10T13:00:00.000Z" },
+      weekly: { windowId: "window:weekly:planning", usedBasisPoints: 200, remainingBasisPoints: 9_800, resetAt: "2026-08-17T00:00:00.000Z" },
     },
   };
 }

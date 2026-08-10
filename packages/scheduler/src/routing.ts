@@ -19,7 +19,7 @@ import {
   isLondonWorkHours,
   parseCanonicalUsageSnapshot,
   validateUsageFreshness,
-  type CanonicalUsageSnapshot,
+  type CanonicalUsageSnapshotInput,
 } from "./usage.js";
 
 const { ensureArray, ensureBoolean, ensureEnum, ensureEnumArray, ensureExactKeys, ensureRecord, ensureSafeInteger, ensureString, ensureTimestamp, fail } = validation;
@@ -37,6 +37,11 @@ export interface RouteCandidate {
   readonly modelId: string;
   readonly profileId: string;
   readonly ownership: ProfileOwnershipClass;
+  readonly borrowedPolicy?: {
+    readonly taskClass: "claude-code";
+    readonly taskAuthorized: boolean;
+    readonly modelAllowed: boolean;
+  } | null;
   readonly authorized: boolean;
   readonly availability: "available" | "unavailable";
   readonly health: "healthy" | "degraded" | "unavailable";
@@ -73,31 +78,72 @@ export interface RoutingRequest {
   readonly workloadClass: WorkloadClass;
   readonly preference: RoutingPreference;
   readonly candidates: readonly RouteCandidate[];
-  readonly usageSnapshots: readonly CanonicalUsageSnapshot[];
+  readonly usageSnapshots: readonly CanonicalUsageSnapshotInput[];
   readonly now: Date;
   readonly maximumSnapshotAgeMs: number;
+}
+
+export interface StaticRoutingRequest {
+  readonly task: OrchestrationTaskEnvelope;
+  readonly workloadClass: WorkloadClass;
+  readonly candidate: RouteCandidate;
+  readonly now: Date;
+  readonly maximumSnapshotAgeMs: number;
+}
+
+export interface StaticRoutingEvaluation {
+  readonly eligible: boolean;
+  readonly ruleIds: readonly string[];
+  readonly reasons: readonly string[];
 }
 
 function id(value: unknown, path: string): string {
   return ensureString(value, path, { maxLength: 128, pattern: ID, patternName: "identifier" });
 }
 
+function stableTextCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export function parseRouteCandidate(value: unknown, path = "candidate"): RouteCandidate {
   const input = ensureRecord(value, path);
-  ensureExactKeys(input, [
+  const legacyKeys = [
     "schemaVersion", "candidateId", "providerId", "modelId", "profileId", "ownership",
     "authorized", "availability", "health", "healthObservedAt", "capabilities",
     "permissionModes", "qualityScore", "costScore", "predictedFiveHourBasisPoints",
     "predictedWeeklyBasisPoints",
-  ], path);
+  ] as const;
+  ensureExactKeys(
+    input,
+    Object.prototype.hasOwnProperty.call(input, "borrowedPolicy")
+      ? [...legacyKeys, "borrowedPolicy"]
+      : legacyKeys,
+    path,
+  );
   if (input["schemaVersion"] !== ORCHESTRATION_SCHEMA_VERSION) fail(`${path}.schemaVersion`, "unsupported_schema", "must be schema version 1.");
+  const ownership = ensureEnum(input["ownership"], `${path}.ownership`, PROFILE_OWNERSHIP_CLASSES);
+  const borrowedPolicy = input["borrowedPolicy"] === undefined || input["borrowedPolicy"] === null
+    ? null
+    : (() => {
+        const policy = ensureRecord(input["borrowedPolicy"], `${path}.borrowedPolicy`);
+        ensureExactKeys(policy, ["taskClass", "taskAuthorized", "modelAllowed"], `${path}.borrowedPolicy`);
+        return Object.freeze({
+          taskClass: ensureEnum(policy["taskClass"], `${path}.borrowedPolicy.taskClass`, ["claude-code"] as const),
+          taskAuthorized: ensureBoolean(policy["taskAuthorized"], `${path}.borrowedPolicy.taskAuthorized`),
+          modelAllowed: ensureBoolean(policy["modelAllowed"], `${path}.borrowedPolicy.modelAllowed`),
+        });
+      })();
+  if ((ownership === "authorized-borrowed") !== (borrowedPolicy !== null)) {
+    fail(`${path}.borrowedPolicy`, "borrowed_policy_mismatch", "must be present exactly for authorized-borrowed profiles.");
+  }
   return Object.freeze({
     schemaVersion: ORCHESTRATION_SCHEMA_VERSION,
     candidateId: id(input["candidateId"], `${path}.candidateId`),
     providerId: id(input["providerId"], `${path}.providerId`),
     modelId: id(input["modelId"], `${path}.modelId`),
     profileId: id(input["profileId"], `${path}.profileId`),
-    ownership: ensureEnum(input["ownership"], `${path}.ownership`, PROFILE_OWNERSHIP_CLASSES),
+    ownership,
+    borrowedPolicy,
     authorized: ensureBoolean(input["authorized"], `${path}.authorized`),
     availability: ensureEnum(input["availability"], `${path}.availability`, ["available", "unavailable"] as const),
     health: ensureEnum(input["health"], `${path}.health`, ["healthy", "degraded", "unavailable"] as const),
@@ -128,10 +174,16 @@ function score(candidate: RouteCandidate, request: RoutingRequest): number {
   return candidate.qualityScore + candidate.costScore + priorityBoost;
 }
 
-function evaluateCandidate(candidate: RouteCandidate, request: RoutingRequest): ConsideredRoute {
+function staticRoutingEvaluation(
+  candidate: RouteCandidate,
+  task: OrchestrationTaskEnvelope,
+  workloadClass: WorkloadClass,
+  now: Date,
+  maximumSnapshotAgeMs: number,
+): StaticRoutingEvaluation {
   const rules: string[] = [];
   const reasons: string[] = [];
-  const requested = request.task.requestedRoute;
+  const requested = task.requestedRoute;
   if (!candidate.authorized) {
     rules.push("route.profile.authorization.required");
     reasons.push("The profile is not explicitly authorized.");
@@ -143,28 +195,84 @@ function evaluateCandidate(candidate: RouteCandidate, request: RoutingRequest): 
     rules.push("route.explicit-identity.exact");
     reasons.push("The candidate does not match the exact requested provider/model/profile identity.");
   }
-  const missing = request.task.capabilities.filter((capability) => !candidate.capabilities.includes(capability));
+  const missing = task.capabilities.filter((capability) => !candidate.capabilities.includes(capability));
   if (missing.length > 0) {
     rules.push("route.capability.required");
     reasons.push(`Missing required capabilities: ${missing.join(", ")}.`);
   }
-  if (!candidate.permissionModes.includes(request.task.permissionMode)) {
+  if (!candidate.permissionModes.includes(task.permissionMode)) {
     rules.push("route.permission-mode.required");
     reasons.push("The candidate cannot represent the requested permission mode.");
   }
-  const healthAge = request.now.valueOf() - Date.parse(candidate.healthObservedAt);
+  const healthAge = now.valueOf() - Date.parse(candidate.healthObservedAt);
   if (candidate.availability !== "available" || candidate.health === "unavailable") {
     rules.push("route.provider.available");
     reasons.push("The provider/profile is unavailable.");
   }
-  if (healthAge < 0 || healthAge > request.maximumSnapshotAgeMs) {
+  if (healthAge < 0 || healthAge > maximumSnapshotAgeMs) {
     rules.push("route.health.fresh");
     reasons.push("Provider health is stale or future-dated.");
   }
-  if (candidate.ownership === "authorized-borrowed" && request.workloadClass === "fable") {
+  if (candidate.ownership === "authorized-borrowed" && workloadClass === "fable") {
     rules.push("route.borrowed.fable-forbidden");
     reasons.push("Borrowed profiles are never eligible for Fable work.");
   }
+  if (candidate.ownership === "authorized-borrowed" && (
+    candidate.borrowedPolicy?.taskClass !== "claude-code" ||
+    candidate.borrowedPolicy.taskAuthorized !== true ||
+    candidate.borrowedPolicy.modelAllowed !== true
+  )) {
+    rules.push("route.borrowed.explicit-task-model-authorization");
+    reasons.push("Borrowed profiles require an explicitly authorized Claude Code task and allowed model.");
+  }
+  return Object.freeze({
+    eligible: rules.length === 0,
+    ruleIds: Object.freeze(rules),
+    reasons: Object.freeze(reasons),
+  });
+}
+
+export function evaluateStaticRouteEligibility(
+  rawRequest: StaticRoutingRequest,
+): StaticRoutingEvaluation {
+  const task = parseOrchestrationTaskEnvelope(rawRequest.task);
+  const workloadClass = ensureEnum(
+    rawRequest.workloadClass,
+    "routing.workloadClass",
+    WORKLOAD_CLASSES,
+  );
+  const candidate = parseRouteCandidate(rawRequest.candidate);
+  if (
+    !(rawRequest.now instanceof Date) ||
+    Number.isNaN(rawRequest.now.valueOf())
+  ) {
+    throw new SchedulerError("INVALID_TASK", "Routing now must be a valid Date.");
+  }
+  const maximumSnapshotAgeMs = ensureSafeInteger(
+    rawRequest.maximumSnapshotAgeMs,
+    "routing.maximumSnapshotAgeMs",
+    1,
+    86_400_000,
+  );
+  return staticRoutingEvaluation(
+    candidate,
+    task,
+    workloadClass,
+    rawRequest.now,
+    maximumSnapshotAgeMs,
+  );
+}
+
+function evaluateCandidate(candidate: RouteCandidate, request: RoutingRequest): ConsideredRoute {
+  const staticEvaluation = staticRoutingEvaluation(
+    candidate,
+    request.task,
+    request.workloadClass,
+    request.now,
+    request.maximumSnapshotAgeMs,
+  );
+  const rules = [...staticEvaluation.ruleIds];
+  const reasons = [...staticEvaluation.reasons];
   const matchingSnapshots = request.usageSnapshots.filter((snapshot) =>
     snapshot.profileId === candidate.profileId && snapshot.providerId === candidate.providerId && snapshot.ownership === candidate.ownership);
   if (matchingSnapshots.length !== 1) {
@@ -217,9 +325,9 @@ export function routeTask(rawRequest: RoutingRequest): RoutingDecision {
   const usageSnapshots = ensureArray(rawRequest.usageSnapshots, "routing.usageSnapshots", 256).map((item, index) => parseCanonicalUsageSnapshot(item, `routing.usageSnapshots[${index}]`));
   const request: RoutingRequest = Object.freeze({ task, workloadClass, preference, candidates, usageSnapshots, now: new Date(rawRequest.now.valueOf()), maximumSnapshotAgeMs });
   const considered = candidates.map((candidate) => evaluateCandidate(candidate, request))
-    .sort((left, right) => left.candidate.candidateId.localeCompare(right.candidate.candidateId));
+    .sort((left, right) => stableTextCompare(left.candidate.candidateId, right.candidate.candidateId));
   const eligible = considered.filter((item) => item.eligible).sort((left, right) =>
-    (right.score ?? 0) - (left.score ?? 0) || left.candidate.candidateId.localeCompare(right.candidate.candidateId));
+    (right.score ?? 0) - (left.score ?? 0) || stableTextCompare(left.candidate.candidateId, right.candidate.candidateId));
   const selected = eligible[0]?.candidate ?? null;
   const selectedRules = selected === null ? ["route.no-eligible-candidate"] : ["route.deterministic-selection"];
   const reasons = selected === null

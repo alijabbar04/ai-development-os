@@ -10,19 +10,23 @@ import {
   routeTask,
   validateUsageFreshness,
   type CanonicalUsageSnapshot,
+  type NormalizedCanonicalUsageSnapshot,
   type RouteCandidate,
+  type UsageSnapshotAdapter,
+  type UsageWindowSnapshot,
 } from "../src/index.js";
 import { BASE_TIME, candidate, task, usageSnapshot } from "./fixtures.js";
 
 function snapshotAt(
   instant: string,
-  overrides: Partial<CanonicalUsageSnapshot> = {},
-): CanonicalUsageSnapshot {
+  overrides: Partial<NormalizedCanonicalUsageSnapshot> = {},
+): NormalizedCanonicalUsageSnapshot {
   const observed = new Date(Date.parse(instant) - 1_000).toISOString();
   return usageSnapshot({
     observedAt: observed,
-    fiveHour: { usedBasisPoints: 1_000, remainingBasisPoints: 9_000, resetAt: new Date(Date.parse(instant) + 60 * 60_000).toISOString() },
-    weekly: { usedBasisPoints: 2_000, remainingBasisPoints: 8_000, resetAt: new Date(Date.parse(instant) + 7 * 24 * 60 * 60_000).toISOString() },
+    freshUntil: new Date(Date.parse(instant) + 15 * 60_000).toISOString(),
+    fiveHour: { windowId: "window:five-hour:test", usedBasisPoints: 1_000, remainingBasisPoints: 9_000, resetAt: new Date(Date.parse(instant) + 60 * 60_000).toISOString() },
+    weekly: { windowId: "window:weekly:test", usedBasisPoints: 2_000, remainingBasisPoints: 8_000, resetAt: new Date(Date.parse(instant) + 7 * 24 * 60 * 60_000).toISOString() },
     ...overrides,
   });
 }
@@ -30,7 +34,7 @@ function snapshotAt(
 function decision(options: {
   readonly now?: string;
   readonly candidate?: RouteCandidate;
-  readonly snapshots?: readonly CanonicalUsageSnapshot[];
+  readonly snapshots?: readonly NormalizedCanonicalUsageSnapshot[];
   readonly workloadClass?: "general" | "fable";
   readonly preference?: "balanced" | "cost" | "quality";
   readonly candidates?: readonly RouteCandidate[];
@@ -61,11 +65,13 @@ function borrowedAt(now: string, usedFiveHour: number, usedWeekly: number, predi
     profileId: "profile:borrowed",
     ownership: "authorized-borrowed",
     fiveHour: {
+      windowId: "window:five-hour:borrowed",
       usedBasisPoints: usedFiveHour,
       remainingBasisPoints: 10_000 - usedFiveHour,
       resetAt: new Date(Date.parse(now) + 60 * 60_000).toISOString(),
     },
     weekly: {
+      windowId: "window:weekly:borrowed",
       usedBasisPoints: usedWeekly,
       remainingBasisPoints: 10_000 - usedWeekly,
       resetAt: new Date(Date.parse(now) + 7 * 24 * 60 * 60_000).toISOString(),
@@ -87,19 +93,70 @@ describe("canonical usage snapshots", () => {
     ["contradictory total", { ...usageSnapshot(), weekly: { ...usageSnapshot().weekly, remainingBasisPoints: 7_999 } }],
     ["wrong timezone", { ...usageSnapshot(), timezone: "UTC" }],
     ["negative usage", { ...usageSnapshot(), fiveHour: { ...usageSnapshot().fiveHour, usedBasisPoints: -1 } }],
-    ["unsupported schema", { ...usageSnapshot(), schemaVersion: 2 }],
+    ["unsupported schema", { ...usageSnapshot(), schemaVersion: 3 }],
   ])("rejects %s", (_label, value) => {
     expect(() => parseCanonicalUsageSnapshot(value)).toThrow();
   });
 
-  it("fails freshness closed for weak, future, stale, invalid-reset, and expired evidence", () => {
+  it("fails freshness closed for weak, future, stale, and expired evidence", () => {
     const now = new Date(BASE_TIME);
     expect(validateUsageFreshness(usageSnapshot(), now, 60_000).eligible).toBe(true);
-    expect(validateUsageFreshness(usageSnapshot({ authoritative: false, confidence: "low" }), now, 60_000).ruleIds).toContain("usage.authority.required");
+    expect(validateUsageFreshness(usageSnapshot({ authoritative: false, sourceClass: "estimated", confidence: "low" }), now, 60_000).ruleIds).toContain("usage.authority.required");
     expect(validateUsageFreshness(usageSnapshot({ observedAt: "2026-08-10T10:00:01.000Z" }), now, 60_000).ruleIds).toContain("usage.future.refused");
     expect(validateUsageFreshness(usageSnapshot({ observedAt: "2026-08-10T09:58:00.000Z" }), now, 60_000).ruleIds).toContain("usage.stale.refused");
-    expect(validateUsageFreshness(usageSnapshot({ fiveHour: { ...usageSnapshot().fiveHour, resetAt: BASE_TIME } }), now, 60_000).ruleIds).toContain("usage.window.expired");
-    expect(validateUsageFreshness(usageSnapshot({ fiveHour: { ...usageSnapshot().fiveHour, resetAt: "2026-08-10T09:59:00.000Z" } }), now, 60_000).ruleIds).toContain("usage.reset.invalid");
+    expect(validateUsageFreshness(usageSnapshot({ freshUntil: BASE_TIME, fiveHour: { ...usageSnapshot().fiveHour, resetAt: BASE_TIME } }), now, 60_000).ruleIds).toContain("usage.window.expired");
+    expect(() => parseCanonicalUsageSnapshot(usageSnapshot({ fiveHour: { ...usageSnapshot().fiveHour, resetAt: "2026-08-10T09:59:00.000Z" } }))).toThrow();
+  });
+
+  it("migrates legacy snapshots for audit but never treats missing authority fields as dispatch evidence", () => {
+    const current = usageSnapshot();
+    const fiveHour: UsageWindowSnapshot = {
+      usedBasisPoints: 1_000,
+      remainingBasisPoints: 9_000,
+      resetAt: current.fiveHour.resetAt,
+    };
+    const weekly: UsageWindowSnapshot = {
+      usedBasisPoints: 2_000,
+      remainingBasisPoints: 8_000,
+      resetAt: current.weekly.resetAt,
+    };
+    const legacy: CanonicalUsageSnapshot = {
+      schemaVersion: 1,
+      snapshotId: current.snapshotId,
+      sourceAdapterId: current.sourceAdapterId,
+      sourceAdapterVersion: "version:1",
+      authoritative: true,
+      confidence: "high",
+      profileId: current.profileId,
+      providerId: current.providerId,
+      ownership: current.ownership,
+      timezone: current.timezone,
+      observedAt: current.observedAt,
+      fiveHour,
+      weekly,
+    };
+    const legacyAdapter: UsageSnapshotAdapter = {
+      adapterId: "adapter:legacy",
+      schemaVersion: 1,
+      async readAuthorizedSnapshot(_profileId: string) {
+        return legacy;
+      },
+    };
+    const migrated = parseCanonicalUsageSnapshot(legacy);
+    expect(migrated.compatibility).toBe("migrated-v1");
+    expect(validateUsageFreshness(migrated, new Date(BASE_TIME), 60_000).ruleIds).toContain("usage.schema-v2.required");
+    expect(legacyAdapter.schemaVersion).toBe(1);
+    expect(
+      routeTask({
+        task: task(),
+        workloadClass: "general",
+        preference: "balanced",
+        candidates: [candidate()],
+        usageSnapshots: [legacy],
+        now: new Date(BASE_TIME),
+        maximumSnapshotAgeMs: 60_000,
+      }).selected,
+    ).toBeNull();
   });
 });
 
@@ -165,7 +222,11 @@ describe("usage-aware authorized-profile routing", () => {
     ["missing permission", candidate({ permissionModes: ["scoped-autonomous"] }), [usageSnapshot()], "route.permission-mode.required"],
     ["missing usage", candidate(), [], "usage.snapshot.exactly-one"],
     ["duplicate usage", candidate(), [usageSnapshot(), usageSnapshot({ snapshotId: "usage:two" })], "usage.snapshot.exactly-one"],
-    ["non-authoritative", candidate(), [usageSnapshot({ authoritative: false })], "usage.authority.required"],
+    ["non-authoritative", candidate(), [usageSnapshot({ authoritative: false, sourceClass: "provider-cached" })], "usage.authority.required"],
+    ["revoked", candidate(), [usageSnapshot({ revocation: "revoked" })], "usage.revocation.refused"],
+    ["ambiguous authorization", candidate(), [usageSnapshot({ authorization: "ambiguous" })], "usage.authorization.required"],
+    ["borrowed task unauthorized", candidate({ profileId: "profile:borrowed", ownership: "authorized-borrowed", borrowedPolicy: { taskClass: "claude-code", taskAuthorized: false, modelAllowed: true } }), [usageSnapshot({ profileId: "profile:borrowed", ownership: "authorized-borrowed" })], "route.borrowed.explicit-task-model-authorization"],
+    ["borrowed model unauthorized", candidate({ profileId: "profile:borrowed", ownership: "authorized-borrowed", borrowedPolicy: { taskClass: "claude-code", taskAuthorized: true, modelAllowed: false } }), [usageSnapshot({ profileId: "profile:borrowed", ownership: "authorized-borrowed" })], "route.borrowed.explicit-task-model-authorization"],
   ] as const)("fails closed when a candidate is %s", (_label, route, snapshots, rule) => {
     const result = decision({ candidate: route, snapshots });
     expect(result.selected).toBeNull();
@@ -183,8 +244,14 @@ describe("usage-aware authorized-profile routing", () => {
 
   it("validates candidate envelopes and routing request bounds", () => {
     expect(parseRouteCandidate(candidate())).toEqual(candidate());
+    const { borrowedPolicy: _borrowedPolicy, ...legacyOwned } = candidate();
+    expect(parseRouteCandidate(legacyOwned)).toEqual(candidate());
     expect(() => parseRouteCandidate({ ...candidate(), secret: "x" })).toThrow();
     expect(() => parseRouteCandidate({ ...candidate(), predictedWeeklyBasisPoints: 10_001 })).toThrow();
+    expect(() => parseRouteCandidate({ ...candidate(), borrowedPolicy: { taskClass: "claude-code", taskAuthorized: true, modelAllowed: true } })).toThrow();
+    const borrowed = candidate({ ownership: "authorized-borrowed", profileId: "profile:borrowed" });
+    const { borrowedPolicy: _missingPolicy, ...legacyBorrowed } = borrowed;
+    expect(() => parseRouteCandidate(legacyBorrowed)).toThrow();
     expect(() => decision({ candidates: [candidate(), candidate()], snapshots: [usageSnapshot()] })).toThrow(/unique/i);
     expect(() => routeTask({ task: task(), workloadClass: "general", preference: "balanced", candidates: [], usageSnapshots: [], now: new Date("invalid"), maximumSnapshotAgeMs: 60_000 })).toThrow();
     expect(() => routeTask({ task: task(), workloadClass: "general", preference: "balanced", candidates: [], usageSnapshots: [], now: new Date(BASE_TIME), maximumSnapshotAgeMs: 0 })).toThrow();

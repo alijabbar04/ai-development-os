@@ -673,7 +673,11 @@ Tests and gate:
 
 ## Stage 18: Durable orchestration and usage-aware authorized-profile routing
 
-Status: Planned; blocked on Stage 17W production admission.
+Status: In progress, production-disabled. Stage 18A and 18B source checkpoints
+are complete; the Stage 18C durable application/runtime and usage-adapter
+checkpoint is under final review. PostgreSQL parity and the complete Stage 18
+acceptance audit remain open. Production admission remains blocked on Stage
+17W and no Stage 18 checkpoint changes that gate.
 
 Packages, in implementation order: `@ai-dev-os/provider-anthropic`,
 `@ai-dev-os/product-planning`, `@ai-dev-os/scheduler`,

@@ -1,5 +1,5 @@
 import type {
-  CanonicalUsageSnapshot,
+  NormalizedCanonicalUsageSnapshot,
   NormalizedUsage,
   OrchestrationTaskEnvelope,
   OrchestrationTerminalResult,
@@ -71,13 +71,19 @@ export function task(overrides: Partial<OrchestrationTaskEnvelope> = {}): Orches
 }
 
 export function candidate(overrides: Partial<RouteCandidate> = {}): RouteCandidate {
+  const ownership = overrides.ownership ?? "owned";
   return {
     schemaVersion: 1,
     candidateId: "candidate:fake",
     providerId: "provider:fake",
     modelId: "model:fake",
     profileId: "profile:owned",
-    ownership: "owned",
+    ownership,
+    borrowedPolicy: overrides.borrowedPolicy === undefined
+      ? (ownership === "authorized-borrowed"
+          ? { taskClass: "claude-code", taskAuthorized: true, modelAllowed: true }
+          : null)
+      : overrides.borrowedPolicy,
     authorized: true,
     availability: "available",
     health: "healthy",
@@ -89,28 +95,37 @@ export function candidate(overrides: Partial<RouteCandidate> = {}): RouteCandida
     predictedFiveHourBasisPoints: 100,
     predictedWeeklyBasisPoints: 100,
     ...overrides,
+    ownership,
   };
 }
 
-export function usageSnapshot(overrides: Partial<CanonicalUsageSnapshot> = {}): CanonicalUsageSnapshot {
+export function usageSnapshot(overrides: Partial<NormalizedCanonicalUsageSnapshot> = {}): NormalizedCanonicalUsageSnapshot {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    compatibility: "native-v2",
     snapshotId: "usage:owned:1",
     sourceAdapterId: "adapter:usage:test",
-    sourceAdapterVersion: "version:1",
+    sourceAdapterVersion: "version:2",
+    sourceFingerprint: "a".repeat(64),
+    sourceClass: "provider-authoritative",
     authoritative: true,
     confidence: "high",
     profileId: "profile:owned",
     providerId: "provider:fake",
     ownership: "owned",
+    authorization: "authorized",
+    revocation: "not-revoked",
     timezone: "Europe/London",
     observedAt: BASE_TIME,
+    freshUntil: "2026-08-10T10:15:00.000Z",
     fiveHour: {
+      windowId: "window:five-hour:1",
       usedBasisPoints: 1_000,
       remainingBasisPoints: 9_000,
       resetAt: "2026-08-10T13:00:00.000Z",
     },
     weekly: {
+      windowId: "window:weekly:1",
       usedBasisPoints: 2_000,
       remainingBasisPoints: 8_000,
       resetAt: "2026-08-17T00:00:00.000Z",
@@ -161,7 +176,7 @@ export function terminalResult(
 
 export function dispatchInput(overrides: {
   readonly candidates?: readonly RouteCandidate[];
-  readonly usageSnapshots?: readonly CanonicalUsageSnapshot[];
+  readonly usageSnapshots?: readonly NormalizedCanonicalUsageSnapshot[];
 } = {}) {
   return {
     workloadClass: "general" as const,

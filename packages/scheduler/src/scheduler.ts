@@ -18,7 +18,7 @@ import {
   type SchedulerConfiguration,
   type SelectedRoute,
 } from "./types.js";
-import type { CanonicalUsageSnapshot } from "./usage.js";
+import type { CanonicalUsageSnapshotInput } from "./usage.js";
 
 export const DEFAULT_SCHEDULER_CONFIGURATION: SchedulerConfiguration = Object.freeze({
   maximumConcurrency: 4,
@@ -30,7 +30,7 @@ export interface DispatchInput {
   readonly workloadClass: WorkloadClass;
   readonly preference: RoutingPreference;
   readonly candidates: readonly RouteCandidate[];
-  readonly usageSnapshots: readonly CanonicalUsageSnapshot[];
+  readonly usageSnapshots: readonly CanonicalUsageSnapshotInput[];
 }
 
 export interface DurableScheduler {
