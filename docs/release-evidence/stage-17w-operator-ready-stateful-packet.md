@@ -1,6 +1,6 @@
 # Stage 17W operator-ready stateful packet
 
-Date: 2026-08-09
+Date: 2026-08-10
 
 Status: **PREPARED, READ-ONLY VALIDATED, AND NOT EXECUTED**
 
@@ -13,9 +13,9 @@ execute the separately safety-gated operation.
 ## Authority and nonclaims
 
 - Reviewed implementation commit:
-  `7ce5b6ac9c25ad55e8023d130073c87f4c70b161`.
+  `1cd722859800e8c889b1c558afd098bde6ac343f`.
 - Reviewed implementation tree:
-  `c237f0e2635342d4d36b38c1799ffa8099b32d41`.
+  `1861c447d069bf60c08696683f58faf0cafa4e31`.
 - Branch: `feat/stage-17w-complete`.
 - Candidate: `stage17w-runtime-v1`, component
   `windows-stage17-runtime`, bundle `1.0.0`, build flavour `sealed`.
@@ -45,23 +45,24 @@ identity:
 | Merged installed closure | 193 exact ordinal filenames; 149,441,013 bytes; source-envelope fingerprint `16f327aa858f25e85c9f335d658e1879d1c93729940648df19cd6966326eb5c8` |
 | Process-broker npm dry-run | 122 files; 169,073 packed bytes; 772,726 unpacked bytes; only `README.md`, `package.json`, and `dist`; no native or source entry |
 
-As read-only packet-preparation validation, the reviewed-proof controller and
-installer were each rebuilt twice from the checkpoint with .NET SDK `9.0.316`,
+As read-only packet-preparation validation, the reviewed-proof controller was
+rebuilt from the exact implementation commit under two independent checkout
+roots, and the installer was rebuilt from the checkpoint with .NET SDK `9.0.316`,
 isolated `obj`, `bin`, and publish roots, and
 `-p:DefineConstants=AIDEVOS_STAGE17_REVIEWED_PROOF_MODE`. Each repeat had 188
 files and zero ordinal name/size/SHA-256 differences:
 
 | Proof artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `AI.DevOS.WindowsProofController.exe` | 156,672 | `709221dd9101221f5818cc42f024dc80c5d2f8f0ddae386aacdcbe0708b7a567` |
-| `AI.DevOS.WindowsProofController.dll` | 268,800 | `31f2ef9c71cb2fa9bf5f2c82b9d373d708c818c78bf471f7e5923a7bf5e9ff27` |
+| `AI.DevOS.WindowsProofController.exe` | 156,672 | `2678a479e863fc80360ec4371b9b78be96d8588cda1beffe51066012b09e9735` |
+| `AI.DevOS.WindowsProofController.dll` | 268,800 | `31b866dcfa9bc07a239a06ef422863e5df2ba3b08c22230859c8cce2003c2e53` |
 | `AI.DevOS.WindowsProofInstaller.exe` | 156,672 | `09b32936f4dcbcf4dddcbdbcb4b504a7aeb254eb5bec20b0aea4463abf162421` |
 | `AI.DevOS.WindowsProofInstaller.dll` | 159,744 | `befda5f13e986f5f9eab3d964ceb1da27b117a4a291ee80e60f850b6756cb5b5` |
 
 For evidence comparison only, the canonical lines
 `<ordinal-name>|<byte-length>|<lowercase-sha256>`, joined by LF with no final
 LF, hash to
-`18c304907d6c6088689347f41a3e5aabf1a71a36ced25caaa9f35a94c2c45219`
+`35326196c2f03cd5e06964057a210ce40b4bc4d326bb461f4a56714d3c52e6b0`
 for the controller publish and
 `0edbbe71b212638af5d28f2ed74eec73d89b0aa1c78cbf556366ce717ffdb7d0`
 for the installer publish. These comparison digests are not new trust inputs;
@@ -74,6 +75,19 @@ do not replace it with a hand-maintained filename list.
 
 ## Build and pure preflight
 
+The first operator-present pure preflight on 2026-08-10 used implementation
+commit `7ce5b6ac9c25ad55e8023d130073c87f4c70b161` and stopped before any stateful
+action. Three of the four pinned proof artifacts matched. The only mismatch was
+the controller DLL: expected
+`31f2ef9c71cb2fa9bf5f2c82b9d373d708c818c78bf471f7e5923a7bf5e9ff27`,
+observed `242ff9ef30787b97012ae50491523633f37704ddbce5cc17327709c59d53a1ac`.
+The project path-mapped its own directory but not the linked sibling sources.
+Commit `1cd722859800e8c889b1c558afd098bde6ac343f` maps the complete native source
+root and adds a regression. Two independent-root publishes of that exact commit
+now match across all 188 ordinal names, byte lengths, and SHA-256 values. No
+installation, elevation, profile, lifecycle, network, or protected-location
+action occurred during the failed preflight or repair.
+
 Use .NET SDK `9.0.316`, a fresh artifact root, and a separate clean checkout of
 the exact implementation commit. Do not point `$Repository` at a working tree
 that contains this later evidence packet as an uncommitted file. These commands
@@ -81,7 +95,7 @@ build artifacts only; they do not perform native installation or lifecycle
 operations.
 
 ```powershell
-$Repository = '<fresh-clean-checkout-of-7ce5b6ac9c25ad55e8023d130073c87f4c70b161>'
+$Repository = '<fresh-clean-checkout-of-1cd722859800e8c889b1c558afd098bde6ac343f>'
 $ArtifactRoot = '<new-empty-task-owned-artifact-root>'
 $RuntimeSource = Join-Path $ArtifactRoot 'runtime-closure'
 $ControllerRoot = Join-Path $ArtifactRoot 'proof-controller'
