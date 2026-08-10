@@ -31,3 +31,10 @@ console.log(graph.getReadyTasks().map((task) => task.id));
 ```
 
 All returned tasks, snapshots, and events are immutable copies. Read pending events with `peekEvents()`, persist the snapshot and events in one transaction using idempotent event inserts, commit, and then call `acknowledgeEvents(lastSequence)`. A failed transaction leaves the in-memory event queue intact for retry.
+
+Durable consumers can call `replayTaskGraphEvents(events, checkpoint)` to
+validate exact event envelopes, contiguous aggregate-version batches, status
+transitions, immutable task projections, command batch ordering, automatic
+reconciliation, reason bounds, topology changes, and the final checkpoint. The
+checkpoint supplies only the graph creation timestamp, which is not present in
+the event schema.

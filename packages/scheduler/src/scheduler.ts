@@ -243,8 +243,8 @@ function createDurableScheduler(options: InternalSchedulerOptions): DurableSched
           break;
         case "usage":
           current = await append(current.task.idempotencyKey, "usage_snapshot", { usage: signal.usage });
-          if (current.usage.inputTokens > current.task.budget.maximumInputTokens ||
-              current.usage.outputTokens > current.task.budget.maximumOutputTokens ||
+          if (current.usage.inputTokens + current.usage.cachedInputTokens + current.usage.cacheWriteInputTokens > current.task.budget.maximumInputTokens ||
+              current.usage.outputTokens + current.usage.reasoningTokens > current.task.budget.maximumOutputTokens ||
               current.usage.toolCalls > current.task.budget.maximumToolCalls ||
               (current.usage.costMicros !== null && current.usage.costMicros > current.task.budget.maximumCostMicros)) {
             current = await terminalFailure(current, "usage", "usage-budget-exceeded", false);
@@ -276,7 +276,14 @@ function createDurableScheduler(options: InternalSchedulerOptions): DurableSched
     if (adapter.providerId !== state.route.providerId) return terminalFailure(state, "provider", "provider-identity-mismatch", false);
     let current = state;
     try {
-      const session = await adapter.start({ dispatchId: state.dispatch.dispatchId, task: state.task, route: state.route, deadline: state.task.deadline });
+      const session = await adapter.start({
+        dispatchId: state.dispatch.dispatchId,
+        attempt: state.attempt,
+        accumulatedUsage: state.usage,
+        task: state.task,
+        route: state.route,
+        deadline: state.task.deadline,
+      });
       current = await append(state.task.idempotencyKey, "started", { threadId: session.threadId, providerRunId: session.providerRunId, continued: false });
       return consumeSession(current, session);
     } catch {

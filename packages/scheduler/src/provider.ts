@@ -27,11 +27,26 @@ export type AgentAdapterSignal =
 
 export interface AgentAdapterRequest {
   readonly dispatchId: string;
+  /** One-based persisted scheduler attempt for exact provider evidence binding. */
+  readonly attempt?: number;
+  /** Durable usage accumulated by earlier attempts for this task. */
+  readonly accumulatedUsage?: NormalizedUsage;
   readonly task: OrchestrationTaskEnvelope;
   readonly route: SelectedRoute;
   readonly deadline: string;
   readonly signal?: AbortSignal;
 }
+
+type LegacyAgentAdapterRequestShape = {
+  readonly dispatchId: string;
+  readonly task: OrchestrationTaskEnvelope;
+  readonly route: SelectedRoute;
+  readonly deadline: string;
+  readonly signal?: AbortSignal;
+};
+type AssertAgentRequestAssignable<T extends AgentAdapterRequest> = T;
+/** Compile-time fixture: pre-Stage-18B adapter requests remain source compatible. */
+type LegacyAgentAdapterRequestCompatibility = AssertAgentRequestAssignable<LegacyAgentAdapterRequestShape>;
 
 export interface AgentContinuationRequest {
   readonly dispatchId: string;

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   TaskGraph,
   TaskGraphError,
+  replayTaskGraphEvents,
   type TaskGraphErrorCode,
   type TaskGraphSnapshot,
 } from "../src/index.js";
@@ -431,6 +432,57 @@ describe("TaskGraph planning", () => {
 });
 
 describe("TaskGraph execution", () => {
+  it("appends validated tasks atomically while a sealed graph remains active", () => {
+    const graph = createGraph();
+    graph.addTasks([
+      { id: "phase", kind: "planning-phase", title: "Synthesis" },
+      { id: "tail", kind: "gate", title: "Existing tail", dependencies: ["phase"] },
+    ]);
+    graph.seal();
+    graph.startTask("phase");
+    acknowledgeAll(graph);
+    const beforeVersion = graph.version;
+
+    const appended = graph.appendTasks([
+      { id: "requirement-a", kind: "requirement", title: "A", dependencies: ["phase"] },
+      { id: "requirement-b", kind: "requirement", title: "B", dependencies: ["phase", "requirement-a"] },
+    ]);
+
+    expect(appended.map((task) => [task.id, task.status])).toEqual([
+      ["requirement-a", "pending"],
+      ["requirement-b", "pending"],
+    ]);
+    expect(graph.version).toBe(beforeVersion + 1);
+    expect(graph.peekEvents().filter((event) => event.type === "task.added")).toHaveLength(2);
+    graph.succeedTask("phase");
+    expect(graph.getTask("requirement-a").status).toBe("ready");
+    expect(graph.getTask("requirement-b").status).toBe("pending");
+  });
+
+  it("refuses dynamic append before sealing, after terminal state, or on invalid topology", () => {
+    const planning = createGraph();
+    planning.addTask({ id: "root", kind: "phase", title: "Root" });
+    expectGraphError(
+      () => planning.appendTasks([{ id: "late", kind: "requirement", title: "Late" }]),
+      "GRAPH_NOT_SEALED",
+    );
+
+    planning.seal();
+    planning.startTask("root");
+    const snapshot = planning.toSnapshot();
+    expectGraphError(
+      () => planning.appendTasks([{ id: "late", kind: "requirement", title: "Late", dependencies: ["ghost"] }]),
+      "UNKNOWN_TASK",
+    );
+    expect(planning.toSnapshot()).toEqual(snapshot);
+
+    planning.succeedTask("root");
+    expectGraphError(
+      () => planning.appendTasks([{ id: "too-late", kind: "requirement", title: "Too late" }]),
+      "INVALID_TRANSITION",
+    );
+  });
+
   it("requires sealing before any task transition", () => {
     const graph = createGraph();
     graph.addTask({ id: "root", kind: "plan", title: "Root" });
@@ -991,5 +1043,92 @@ describe("TaskGraph hydration", () => {
     expect(Object.isFrozen(tasks)).toBe(true);
     expect(Object.isFrozen(tasks[0])).toBe(true);
     expect(() => (snapshot.tasks as any[]).push({})).toThrow(TypeError);
+  });
+
+  it("replays exact graph events and rejects envelope or payload tampering", () => {
+    const graph = createGraph();
+    graph.addTasks([
+      { id: "root", kind: "plan", title: "Root" },
+      { id: "child", kind: "plan", title: "Child", dependencies: ["root"] },
+    ]);
+    graph.seal();
+    graph.startTask("root");
+    graph.succeedTask("root");
+    const checkpoint = graph.toSnapshot();
+    const events = graph.peekEvents();
+    expect(replayTaskGraphEvents(events, checkpoint)).toEqual(checkpoint);
+    const reordered = JSON.parse(JSON.stringify(events));
+    reordered[1].sequence = 99;
+    expectGraphError(() => replayTaskGraphEvents(reordered, checkpoint), "INVALID_SNAPSHOT");
+    const payload = JSON.parse(JSON.stringify(events));
+    const statusEvent = payload.find((event: { type: string }) => event.type === "task.status_changed");
+    statusEvent.task.status = "failed";
+    expectGraphError(() => replayTaskGraphEvents(payload, checkpoint), "INVALID_SNAPSHOT");
+
+    const changedCheckpoint = cloneSnapshot(checkpoint);
+    changedCheckpoint["tasks"][0]["title"] = "Checkpoint rewrite";
+    expectGraphError(() => replayTaskGraphEvents(events, changedCheckpoint as unknown as TaskGraphSnapshot), "INVALID_SNAPSHOT");
+    const changedVersion = cloneSnapshot(checkpoint);
+    changedVersion["version"] += 1;
+    expectGraphError(() => replayTaskGraphEvents(events, changedVersion as unknown as TaskGraphSnapshot), "INVALID_SNAPSHOT");
+
+    const immutable = JSON.parse(JSON.stringify(events));
+    immutable.find((event: { type: string }) => event.type === "task.status_changed").task.title = "rewritten";
+    expectGraphError(() => replayTaskGraphEvents(immutable, checkpoint), "INVALID_SNAPSHOT");
+
+    const impossible = JSON.parse(JSON.stringify(events));
+    const ready = impossible.find((event: { type: string; to?: string }) => event.type === "task.status_changed" && event.to === "ready");
+    ready.to = "succeeded";
+    ready.task.status = "succeeded";
+    expectGraphError(() => replayTaskGraphEvents(impossible, checkpoint), "INVALID_SNAPSHOT");
+
+    const oversizedReason = JSON.parse(JSON.stringify(events));
+    oversizedReason.find((event: { type: string; to?: string }) => event.type === "task.status_changed" && event.to === "running").reason = "x".repeat(1_001);
+    expectGraphError(() => replayTaskGraphEvents(oversizedReason, checkpoint), "INVALID_SNAPSHOT");
+
+    const postSealDependency = JSON.parse(JSON.stringify(events));
+    const late = postSealDependency.find((event: { type: string; to?: string }) => event.type === "task.status_changed" && event.to === "running");
+    late.type = "dependency.added";
+    late.taskId = "root";
+    late.dependencyId = "child";
+    delete late.from;
+    delete late.to;
+    delete late.reason;
+    delete late.task;
+    expectGraphError(() => replayTaskGraphEvents(postSealDependency, checkpoint), "INVALID_SNAPSHOT");
+  });
+
+  it("replays command-generated long failure and maximum-fanout blocker reasons", () => {
+    const failed = createGraph();
+    failed.addTask({ id: "root", kind: "plan", title: "Root" });
+    failed.seal();
+    failed.failTask("root", { code: "LONG_FAILURE", message: "m".repeat(4_000), retryable: false });
+    expect(replayTaskGraphEvents(failed.peekEvents(), failed.toSnapshot())).toEqual(failed.toSnapshot());
+
+    const graph = createGraph();
+    const dependencyIds = Array.from({ length: 256 }, (_, index) =>
+      `dependency-${String(index).padStart(3, "0")}-${"x".repeat(90)}`);
+    graph.addTasks([
+      { id: "anchor", kind: "plan", title: "Anchor" },
+      ...dependencyIds.map((id) => ({ id, kind: "plan", title: id })),
+    ]);
+    graph.seal();
+    for (const dependencyId of dependencyIds) {
+      graph.failTask(dependencyId, { code: "FAILED", message: "Failed", retryable: false });
+    }
+    graph.appendTasks([{ id: "join", kind: "plan", title: "Join", dependencies: dependencyIds }]);
+    expect(graph.getTask("join").blockedBy).toEqual(dependencyIds);
+    expect(replayTaskGraphEvents(graph.peekEvents(), graph.toSnapshot())).toEqual(graph.toSnapshot());
+  });
+
+  it("replays task appends made while a sealed graph remains active", () => {
+    const graph = createGraph();
+    graph.addTask({ id: "root", kind: "plan", title: "Root" });
+    graph.seal();
+    graph.appendTasks([
+      { id: "late", kind: "requirement", title: "Late bounded work", dependencies: ["root"] },
+    ]);
+    const checkpoint = graph.toSnapshot();
+    expect(replayTaskGraphEvents(graph.peekEvents(), checkpoint)).toEqual(checkpoint);
   });
 });

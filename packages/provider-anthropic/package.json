@@ -1,0 +1,39 @@
+{
+  "name": "@ai-dev-os/provider-anthropic",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production-disabled direct Anthropic Messages API inference-provider foundation for AI Development OS.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../domain run build && npm --prefix ../providers run build && npm --prefix ../secrets run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../domain run build && npm --prefix ../providers run build && npm --prefix ../provider-testkit run build && npm --prefix ../secrets run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../domain run build && npm --prefix ../providers run build && npm --prefix ../provider-testkit run build && npm --prefix ../secrets run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../domain run build && npm --prefix ../providers run build && npm --prefix ../secrets run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/providers": "^0.1.0",
+    "@ai-dev-os/secrets": "^0.1.0"
+  },
+  "devDependencies": {
+    "@ai-dev-os/provider-testkit": "^0.1.0"
+  }
+}

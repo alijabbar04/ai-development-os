@@ -2,6 +2,7 @@ import { TaskGraphError, type TaskGraphErrorCode } from "./errors.js";
 import {
   TASK_GRAPH_SCHEMA_VERSION,
   TASK_GRAPH_LIMITS,
+  GRAPH_STATUSES,
   TASK_STATUSES,
   type GraphStatus,
   type JsonObject,
@@ -69,6 +70,323 @@ interface MutableTask {
   order: number;
   createdAt: string;
   updatedAt: string;
+}
+
+function sameReplayValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((item, index) => sameReplayValue(item, right[index]));
+  }
+  if (typeof left === "object" && left !== null && !Array.isArray(left) &&
+      typeof right === "object" && right !== null && !Array.isArray(right)) {
+    const leftRecord = left as Record<string, unknown>;
+    const rightRecord = right as Record<string, unknown>;
+    const leftKeys = Object.keys(leftRecord).sort();
+    const rightKeys = Object.keys(rightRecord).sort();
+    return leftKeys.length === rightKeys.length &&
+      leftKeys.every((key, index) => key === rightKeys[index]) &&
+      leftKeys.every((key) => sameReplayValue(leftRecord[key], rightRecord[key]));
+  }
+  return false;
+}
+
+function sameReplayIdentifiers(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function nextReplayReconciliation(
+  tasks: Map<string, MutableTask>,
+): { readonly taskId: string; readonly target: "ready" | "blocked"; readonly blockedBy: readonly string[] } | null {
+  const ids = topologicalTaskIds(tasks, "INVALID_SNAPSHOT", "INVALID_SNAPSHOT");
+  for (const taskId of ids) {
+    const task = tasks.get(taskId)!;
+    if (task.status !== "pending") continue;
+    const dependencies = task.dependencies.map((id) => tasks.get(id)!);
+    const blockedBy = dependencies
+      .filter((dependency) => UNSUCCESSFUL_TERMINAL_STATUSES.has(dependency.status))
+      .map((dependency) => dependency.id);
+    if (blockedBy.length > 0) return { taskId, target: "blocked", blockedBy };
+    if (dependencies.every((dependency) => dependency.status === "succeeded")) {
+      return { taskId, target: "ready", blockedBy: [] };
+    }
+  }
+  return null;
+}
+
+function assertExactReplayTransition(
+  prior: MutableTask,
+  next: MutableTask,
+  from: TaskStatus,
+  to: TaskStatus,
+  reason: string | null,
+  occurredAt: string,
+  automatic: { readonly target: "ready" | "blocked"; readonly blockedBy: readonly string[] } | null,
+): void {
+  const code = "INVALID_SNAPSHOT" as const;
+  if (prior.status !== from || next.id !== prior.id || next.status !== to ||
+      next.kind !== prior.kind || next.title !== prior.title || next.description !== prior.description ||
+      !sameReplayIdentifiers(next.dependencies, prior.dependencies) || next.priority !== prior.priority ||
+      !sameReplayValue(next.metadata, prior.metadata) || next.order !== prior.order ||
+      next.createdAt !== prior.createdAt || next.updatedAt !== occurredAt) {
+    throw new TaskGraphError(code, "Task-status event rewrites an immutable field or is inconsistent with replay state.");
+  }
+
+  const unchangedOutcome = sameReplayIdentifiers(next.blockedBy, prior.blockedBy) &&
+    sameReplayIdentifiers(next.outputArtifactIds, prior.outputArtifactIds) &&
+    sameReplayValue(next.failure, prior.failure);
+  if (automatic !== null) {
+    const expectedReason = automatic.target === "blocked"
+      ? `Blocked by unsuccessful dependencies: ${automatic.blockedBy.join(", ")}`
+      : null;
+    if (from !== "pending" || to !== automatic.target || reason !== expectedReason ||
+        !sameReplayIdentifiers(next.blockedBy, automatic.blockedBy) ||
+        next.outputArtifactIds.length !== 0 || next.failure !== null) {
+      throw new TaskGraphError(code, "Automatic task reconciliation event is not command-exact.");
+    }
+    return;
+  }
+
+  const legal = to === "running" ? ["ready", "waiting", "needs_resolution"].includes(from)
+    : to === "waiting" || to === "needs_resolution" ? from === "running"
+      : to === "succeeded" ? from === "running"
+        : to === "failed" ? ["ready", "running", "waiting", "needs_resolution"].includes(from)
+          : to === "cancelled" ? ["pending", "ready", "running", "waiting", "needs_resolution"].includes(from)
+            : false;
+  if (!legal) throw new TaskGraphError(code, "Task-status event encodes a command-impossible transition.");
+
+  if ((to === "running" || to === "waiting" || to === "needs_resolution") && !unchangedOutcome) {
+    throw new TaskGraphError(code, "Nonterminal task transition rewrites outcome data.");
+  }
+  if (to === "succeeded" && (next.failure !== null || next.blockedBy.length !== 0)) {
+    throw new TaskGraphError(code, "Succeeded task transition has invalid outcome data.");
+  }
+  if (to === "failed" && (next.failure === null || next.outputArtifactIds.length !== 0 || next.blockedBy.length !== 0)) {
+    throw new TaskGraphError(code, "Failed task transition has invalid outcome data.");
+  }
+  if (to === "cancelled" && (next.failure !== null || next.outputArtifactIds.length !== 0 || next.blockedBy.length !== 0)) {
+    throw new TaskGraphError(code, "Cancelled task transition has invalid outcome data.");
+  }
+}
+
+/**
+ * Replays and validates an exact task-graph journal against the one field the
+ * journal cannot derive independently: the aggregate creation timestamp.
+ * The returned snapshot is defensively hydrated before it is exposed.
+ */
+export function replayTaskGraphEvents(
+  values: readonly unknown[],
+  checkpoint: TaskGraphSnapshot,
+): TaskGraphSnapshot {
+  const code = "INVALID_SNAPSHOT" as const;
+  const eventValues = copyDenseDataArray(values, "Task graph events", MAX_SEQUENCE, code);
+  if (eventValues.length === 0) throw new TaskGraphError(code, "Task graph replay requires events.");
+  const tasks = new Map<string, MutableTask>();
+  let sealed = false;
+  let version = 0;
+  let updatedAt = checkpoint.createdAt;
+  let expectedEventIndex = 0;
+  let expectedEventCount = 0;
+  let batchBeforeStatus: GraphStatus = "planning";
+  let batchStatusEvent = false;
+  let batchOccurredAt = checkpoint.createdAt;
+  let batchMode: "add" | "append" | "dependency" | "seal" | "transition" | null = null;
+  let batchPrimaryTarget: TaskStatus | null = null;
+  let batchReconciliationStarted = false;
+  let batchExplicitTransitionCount = 0;
+  let batchCancellableIds: string[] = [];
+  let batchCancelledIds: string[] = [];
+
+  const status = (): GraphStatus => {
+    if (!sealed) return "planning";
+    const all = [...tasks.values()];
+    if (all.every((task) => task.status === "succeeded")) return "succeeded";
+    if (all.some((task) => !TERMINAL_STATUSES.has(task.status))) return "active";
+    if (all.some((task) => task.status === "failed")) return "failed";
+    return "cancelled";
+  };
+  const finishBatch = (): void => {
+    if (version === 0) return;
+    if (expectedEventIndex !== expectedEventCount) throw new TaskGraphError(code, "Task graph event batch is incomplete.");
+    assertGraphEdgeLimit(tasks, code);
+    topologicalTaskIds(tasks, code, code);
+    if (batchExplicitTransitionCount > 1 &&
+        (!sameReplayIdentifiers(batchCancelledIds, batchCancellableIds) || batchPrimaryTarget !== "cancelled")) {
+      throw new TaskGraphError(code, "Task graph cancellation batch is not command-exact.");
+    }
+    const reconciles = batchMode === "append" || batchMode === "seal" ||
+      batchMode === "transition" && batchExplicitTransitionCount === 1 &&
+      ["succeeded", "failed", "cancelled"].includes(batchPrimaryTarget ?? "");
+    if (reconciles && nextReplayReconciliation(tasks) !== null) {
+      throw new TaskGraphError(code, "Task graph event batch omitted required reconciliation events.");
+    }
+    if ((batchBeforeStatus !== status()) !== batchStatusEvent) {
+      throw new TaskGraphError(code, "Task graph status transition event does not match its batch.");
+    }
+  };
+
+  for (let index = 0; index < eventValues.length; index += 1) {
+    const record = copyPlainDataRecord(eventValues[index], "Task graph event", code);
+    const type = record["type"];
+    const common = ["graphId", "projectId", "sequence", "aggregateVersion", "eventIndex", "eventCount", "occurredAt", "type"];
+    const fields = type === "task.added" ? ["task"]
+      : type === "dependency.added" ? ["taskId", "dependencyId"]
+        : type === "graph.sealed" ? ["taskCount"]
+          : type === "task.status_changed" ? ["taskId", "from", "to", "reason", "task"]
+            : type === "graph.status_changed" ? ["from", "to"]
+              : null;
+    if (fields === null) throw new TaskGraphError(code, "Task graph event type is invalid.");
+    assertExactKeys(record, [...common, ...fields], "Task graph event", code);
+    if (assertIdentifier(record["graphId"], "Graph ID", code) !== checkpoint.graphId ||
+        assertIdentifier(record["projectId"], "Project ID", code) !== checkpoint.projectId ||
+        assertInteger(record["sequence"], "Event sequence", 1, MAX_SEQUENCE, code) !== index + 1) {
+      throw new TaskGraphError(code, "Task graph event identity or sequence is invalid.");
+    }
+    const eventVersion = assertInteger(record["aggregateVersion"], "Event aggregate version", 1, MAX_SEQUENCE, code);
+    const eventIndex = assertInteger(record["eventIndex"], "Event batch index", 0, MAX_TASKS + 2, code);
+    const eventCount = assertInteger(record["eventCount"], "Event batch count", 1, MAX_TASKS + 3, code);
+    const occurredAt = assertCanonicalTimestamp(record["occurredAt"], "Event occurredAt", code);
+    if (occurredAt < updatedAt) throw new TaskGraphError(code, "Task graph event time moved backwards.");
+    if (eventVersion === version + 1) {
+      finishBatch();
+      version = eventVersion;
+      expectedEventIndex = 0;
+      expectedEventCount = eventCount;
+      batchBeforeStatus = status();
+      batchStatusEvent = false;
+      batchOccurredAt = occurredAt;
+      batchMode = null;
+      batchPrimaryTarget = null;
+      batchReconciliationStarted = false;
+      batchExplicitTransitionCount = 0;
+      batchCancellableIds = [...tasks.values()]
+        .sort((left, right) => left.order - right.order)
+        .filter((task) => !TERMINAL_STATUSES.has(task.status))
+        .map((task) => task.id);
+      batchCancelledIds = [];
+    } else if (eventVersion !== version || eventCount !== expectedEventCount) {
+      throw new TaskGraphError(code, "Task graph aggregate versions or batch counts are not contiguous.");
+    }
+    if (occurredAt !== batchOccurredAt) {
+      throw new TaskGraphError(code, "Task graph events in one command batch must share a timestamp.");
+    }
+    if (eventIndex !== expectedEventIndex || eventCount !== expectedEventCount) {
+      throw new TaskGraphError(code, "Task graph event batch ordering is invalid.");
+    }
+    expectedEventIndex += 1;
+    updatedAt = occurredAt;
+
+    if (type === "task.added") {
+      const task = parseSnapshotTask(record["task"]);
+      const expectedMode = sealed ? "append" : "add";
+      if (batchMode === null) batchMode = expectedMode;
+      if (batchMode !== expectedMode || batchReconciliationStarted || tasks.has(task.id) ||
+          sealed && batchBeforeStatus !== "active" || task.status !== "pending" ||
+          task.order !== tasks.size || task.createdAt !== occurredAt || task.updatedAt !== occurredAt ||
+          task.blockedBy.length !== 0 || task.outputArtifactIds.length !== 0 || task.failure !== null) {
+        throw new TaskGraphError(code, "Task-added event is invalid.");
+      }
+      tasks.set(task.id, task);
+    } else if (type === "dependency.added") {
+      const taskId = assertIdentifier(record["taskId"], "Task ID", code);
+      const dependencyId = assertIdentifier(record["dependencyId"], "Dependency ID", code);
+      const task = tasks.get(taskId);
+      if (batchMode !== null || sealed || eventCount !== 1 || eventIndex !== 0 || task === undefined ||
+          task.status !== "pending" || tasks.get(dependencyId)?.status !== "pending" ||
+          task.dependencies.includes(dependencyId)) {
+        throw new TaskGraphError(code, "Dependency-added event is invalid.");
+      }
+      batchMode = "dependency";
+      task.dependencies.push(dependencyId);
+      task.updatedAt = occurredAt;
+    } else if (type === "graph.sealed") {
+      if (batchMode !== null || eventIndex !== 0 || sealed || batchBeforeStatus !== "planning" ||
+          assertInteger(record["taskCount"], "Task count", 1, MAX_TASKS, code) !== tasks.size) {
+        throw new TaskGraphError(code, "Graph-sealed event is invalid.");
+      }
+      batchMode = "seal";
+      sealed = true;
+    } else if (type === "task.status_changed") {
+      const taskId = assertIdentifier(record["taskId"], "Task ID", code);
+      const prior = tasks.get(taskId);
+      const next = parseSnapshotTask(record["task"]);
+      const from = record["from"];
+      const to = record["to"];
+      if (!sealed || batchStatusEvent || prior === undefined || typeof from !== "string" || !TASK_STATUS_SET.has(from) ||
+          typeof to !== "string" || !TASK_STATUS_SET.has(to)) {
+        throw new TaskGraphError(code, "Task-status event is inconsistent with replay state.");
+      }
+      const parsedFrom = from as TaskStatus;
+      const parsedTo = to as TaskStatus;
+      const isAutomatic = parsedTo === "ready" || parsedTo === "blocked";
+      if (isAutomatic) {
+        if (!(batchMode === "append" || batchMode === "seal" ||
+              batchMode === "transition" && batchExplicitTransitionCount === 1 &&
+              ["succeeded", "failed", "cancelled"].includes(batchPrimaryTarget ?? ""))) {
+          throw new TaskGraphError(code, "Task reconciliation event has no command that could produce it.");
+        }
+        batchReconciliationStarted = true;
+        const expected = nextReplayReconciliation(tasks);
+        if (expected === null || expected.taskId !== taskId || expected.target !== parsedTo) {
+          throw new TaskGraphError(code, "Task reconciliation event is out of order or not required.");
+        }
+        const expectedReason = expected.target === "blocked"
+          ? `Blocked by unsuccessful dependencies: ${expected.blockedBy.join(", ")}`
+          : null;
+        if (record["reason"] !== expectedReason) {
+          throw new TaskGraphError(code, "Automatic task reconciliation reason is not command-exact.");
+        }
+        const reason = expectedReason;
+        assertExactReplayTransition(prior, next, parsedFrom, parsedTo, reason, occurredAt, expected);
+      } else {
+        if (batchMode === null) batchMode = "transition";
+        if (batchMode !== "transition" || batchReconciliationStarted) {
+          throw new TaskGraphError(code, "Task transition event is not ordered like a command batch.");
+        }
+        if (batchExplicitTransitionCount > 0 && (batchPrimaryTarget !== "cancelled" || parsedTo !== "cancelled")) {
+          throw new TaskGraphError(code, "Task event batch contains multiple independent commands.");
+        }
+        batchPrimaryTarget ??= parsedTo;
+        batchExplicitTransitionCount += 1;
+        if (parsedTo === "cancelled") batchCancelledIds.push(taskId);
+        const maximumReasonLength = parsedTo === "failed" ? 4_000 : 1_000;
+        const reason = normalizeOptionalText(record["reason"], "Task status reason", maximumReasonLength, code);
+        if (reason !== record["reason"] || parsedTo === "failed" &&
+            (reason === null || reason.length > 1_000 && reason !== next.failure?.message)) {
+          throw new TaskGraphError(code, "Task status reason is not command-exact.");
+        }
+        assertExactReplayTransition(prior, next, parsedFrom, parsedTo, reason, occurredAt, null);
+      }
+      tasks.set(taskId, next);
+    } else if (type === "graph.status_changed") {
+      const from = record["from"];
+      const to = record["to"];
+      if (batchMode === null || eventIndex !== eventCount - 1 || batchStatusEvent ||
+          typeof from !== "string" || !(GRAPH_STATUSES as readonly string[]).includes(from) ||
+          typeof to !== "string" || !(GRAPH_STATUSES as readonly string[]).includes(to) ||
+          from !== batchBeforeStatus || to !== status()) {
+        throw new TaskGraphError(code, "Graph-status event is inconsistent with replay state.");
+      }
+      batchStatusEvent = true;
+    }
+  }
+  finishBatch();
+  const snapshot: TaskGraphSnapshot = {
+    schemaVersion: TASK_GRAPH_SCHEMA_VERSION,
+    graphId: checkpoint.graphId,
+    projectId: checkpoint.projectId,
+    version,
+    eventSequence: eventValues.length,
+    sealed,
+    createdAt: checkpoint.createdAt,
+    updatedAt,
+    tasks: [...tasks.values()].sort((left, right) => left.order - right.order).map((task) => cloneAndFreezeTask(task)),
+  };
+  const replayed = TaskGraph.hydrate(snapshot).toSnapshot();
+  const supplied = TaskGraph.hydrate(checkpoint).toSnapshot();
+  if (!sameReplayValue(replayed, supplied)) {
+    throw new TaskGraphError(code, "Task graph replay does not match the supplied checkpoint.");
+  }
+  return replayed;
 }
 
 type PendingEvent =
@@ -241,8 +559,40 @@ export class TaskGraph {
     definitions: readonly TaskDefinition[],
     options: VersionedMutationOptions = {},
   ): readonly TaskNode[] {
+    return this.#addTaskDefinitions(definitions, options, false);
+  }
+
+  /**
+   * Appends bounded work to a sealed graph that is still active. This is an
+   * additive topology command for durable planners: it uses the same task and
+   * event schema, validates the complete candidate DAG before mutation, and
+   * reconciles each new node against already-terminal dependencies atomically.
+   */
+  appendTasks(
+    definitions: readonly TaskDefinition[],
+    options: VersionedMutationOptions = {},
+  ): readonly TaskNode[] {
+    return this.#addTaskDefinitions(definitions, options, true);
+  }
+
+  #addTaskDefinitions(
+    definitions: readonly TaskDefinition[],
+    options: VersionedMutationOptions,
+    appendToSealed: boolean,
+  ): readonly TaskNode[] {
     this.#assertNotReentrantMutation();
-    this.#assertPlanning();
+    if (appendToSealed) {
+      this.#assertExecution();
+      if (this.status !== "active") {
+        throw new TaskGraphError(
+          "INVALID_TRANSITION",
+          "Tasks may be appended only while a sealed graph is active.",
+          { graphId: this.#graphId, status: this.status },
+        );
+      }
+    } else {
+      this.#assertPlanning();
+    }
     const parsedOptions = parseVersionedOptions(options);
     this.#assertExpectedVersion(parsedOptions.expectedVersion);
 
@@ -311,6 +661,9 @@ export class TaskGraph {
       pendingEvents.push({ type: "task.added", task: cloneAndFreezeTask(task) });
     }
     this.#nextOrder += parsed.length;
+    if (appendToSealed) {
+      this.#reconcilePendingTasks(timestamp, pendingEvents);
+    }
     this.#commit(timestamp, previousStatus, pendingEvents);
 
     return Object.freeze(parsed.map((task) => cloneAndFreezeTask(task)));

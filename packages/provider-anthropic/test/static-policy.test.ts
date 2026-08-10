@@ -1,0 +1,62 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const packageRoot = resolve(import.meta.dirname, "..");
+
+function read(path: string): string {
+  return readFileSync(path, "utf8");
+}
+
+function productionSource(): string {
+  return readdirSync(resolve(packageRoot, "src"), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+    .map((entry) => read(resolve(packageRoot, "src", entry.name)))
+    .join("\n");
+}
+
+describe("Anthropic package boundary", () => {
+  it("contains no ambient transport, process, SDK, UI, or dynamic-load authority", () => {
+    const source = productionSource().toLowerCase();
+    for (const forbidden of [
+      "node:child_process",
+      "node:http",
+      "node:https",
+      "node:net",
+      "process.env",
+      "fetch(",
+      "import(",
+      "require(",
+      "@anthropic-ai/sdk",
+      "claude code",
+      "playwright",
+      "electron",
+      "browser",
+    ]) {
+      expect(source, forbidden).not.toContain(forbidden);
+    }
+  });
+
+  it("exports the fake factory only from the testing subpath", () => {
+    expect(read(resolve(packageRoot, "src", "index.ts"))).not.toContain("createAnthropicProviderForTesting");
+    expect(read(resolve(packageRoot, "src", "testing", "index.ts"))).toContain("createAnthropicProviderForTesting");
+  });
+
+  it("declares only reviewed first-party dependencies and bounded package files", () => {
+    const manifest = JSON.parse(read(resolve(packageRoot, "package.json"))) as {
+      readonly dependencies: Record<string, string>;
+      readonly files: readonly string[];
+      readonly exports: Record<string, unknown>;
+      readonly scripts: Record<string, string>;
+    };
+    expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "@ai-dev-os/domain",
+      "@ai-dev-os/providers",
+      "@ai-dev-os/secrets",
+    ]);
+    expect(manifest.files).toEqual(["dist", "README.md"]);
+    expect(Object.keys(manifest.exports).sort()).toEqual([".", "./testing"]);
+    expect(JSON.stringify(manifest)).not.toContain("@anthropic-ai/sdk");
+    expect(manifest.scripts["test"]).toBe("vitest run");
+  });
+});

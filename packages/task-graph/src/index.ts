@@ -3,7 +3,7 @@ export {
   TaskGraphError,
   type TaskGraphErrorCode,
 } from "./errors.js";
-export { TaskGraph } from "./task-graph.js";
+export { TaskGraph, replayTaskGraphEvents } from "./task-graph.js";
 export {
   GRAPH_STATUSES,
   TASK_GRAPH_LIMITS,

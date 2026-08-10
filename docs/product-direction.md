@@ -53,8 +53,9 @@ models such as Opus or Sonnet; they must never be used for Fable 5.
 
 For each borrowed profile:
 
-- on weekdays when configured local time is at or after 09:00 and at or before
-  17:00, the default work timezone being `Europe/London`, dispatch must refuse
+- on weekdays when configured local time is at or after 09:00 and before
+  17:00 (the half-open interval `[09:00, 17:00)`), the default work timezone
+  being `Europe/London`, dispatch must refuse
   when five-hour usage is at or above 50 percent and must not knowingly schedule
   work expected to drive it above 50 percent;
 - outside that weekday window and on weekends, the special 50 percent

@@ -29,8 +29,9 @@ import providers, Electron, HTTP frameworks, or UI code.
 ## Persistence model
 
 One generic **versioned aggregate store** persists every Stage 3 aggregate,
-typed by the closed `AGGREGATE_TYPES` union (`project`, `task-graph`,
-`task-run`, `budget-account`, `artifact-manifest`, `telemetry-ledger`). Each
+typed by the closed `AGGREGATE_TYPES` union (`project`, `product-plan`,
+`task-graph`, `task-run`, `budget-account`, `artifact-manifest`,
+`telemetry-ledger`). Each
 envelope carries:
 
 | Field | Meaning |
