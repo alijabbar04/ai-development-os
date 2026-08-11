@@ -1,8 +1,9 @@
 # Stage 19 evaluation and integration foundation checkpoint evidence
 
-Status: Stage 19A production-disabled evaluation candidate passed local gates
-and independent review; publication and exact-head hosted CI remain pending;
-Stage 19B integration is absent
+Status: Stage 19A production-disabled evaluation source checkpoint is
+published and exact-head CI verified; final evidence publication and its
+exact-head hosted reconciliation remain pending; Stage 19B integration is
+absent
 
 Evidence window: 2026-08-11 03:35 BST onward
 
@@ -133,7 +134,7 @@ The deterministic PostgreSQL suite validates the two-entry migration history.
 The hosted-real test additionally writes an `evaluation-run` aggregate and
 event, physically closes, reopens, and checks exact durable identity. The real
 future-migration fixture uses ordinal 3 after asserting the exact 0001/0002
-prefix. That hosted proof remains pending until the branch is published.
+prefix. The exact source-head hosted run recorded below passed that proof.
 
 ## Changed-file inventory
 
@@ -257,20 +258,47 @@ Opposite-family review was unavailable in this environment; model usage/cost
 was not exposed. The review was same-family GPT-5.6 Sol at Max effort and
 read-only throughout.
 
+## Source publication and hosted proof
+
+The exact reviewed 27-path source/evidence candidate was committed and pushed
+non-forced on the existing stacked branch:
+
+- source commit: `4fd90d553378fef8e12b5f6f9df40b9255bc6c4e`;
+- source tree: `d19b8b455e22b431d602c76c7654bb183553ec17`;
+- parent/base: `b928172c2cdf075462ab088b0705164bdb7d3bf1`; and
+- subject: `feat(evaluation): add production-disabled stage 19a foundation`.
+
+Local, upstream, and live remote branch refs were equal at that commit and the
+worktree was clean. Exact-head GitHub Actions run `31458270035` completed
+successfully at the source commit:
+
+| Job | Result | Wall time |
+| --- | --- | ---: |
+| dependency audit | success | 12s |
+| PostgreSQL integration | success | 45s |
+| check (Ubuntu) | success | 435s |
+| coverage | success | 721s |
+| check (Windows) | success | 1,233s |
+
+The PostgreSQL job executed the capability-gated live migration/history,
+evaluation-run write/close/reopen, concurrency, and application contract
+proofs against the pinned hosted service. The other jobs repeated the exact
+dependency, full check, coverage, and Windows/Ubuntu package graph at the same
+source head.
+
 ## Pending definitive gates
 
-The following publication gates remain pending and must not be inferred from
-the local results:
+The following final evidence-publication gates remain pending and must not be
+inferred from the source-head result:
 
-- explicit-path staging and staged diff review;
-- focused checkpoint commit and non-forced push;
+- independent review of this evidence-only delta;
+- explicit staging, one evidence-only commit, and non-forced push;
 - exact-head hosted dependency audit, PostgreSQL integration, Ubuntu,
-  coverage, and Windows jobs; and
-- evidence-only publication reconciliation if the first exact-head run passes;
-  and
+  coverage, and Windows jobs at that final evidence head; and
 - final clean-worktree/ref/tree/lock/residue reconciliation.
 
-Until those gates pass, this document records a source candidate, not a
-published checkpoint. No merge to `main`, tag, release, signing, registry
+Until those gates pass, this document records a CI-verified source checkpoint
+with pending evidence finalization, not the final published Stage 19A
+checkpoint. No merge to `main`, tag, release, signing, registry
 publication, PR merge, production registration, or product Git effect is
 authorized.
