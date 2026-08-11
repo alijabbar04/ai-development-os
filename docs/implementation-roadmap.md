@@ -756,7 +756,8 @@ Tests and gate:
 ## Stage 19: Evaluation, disagreement handling, and integration
 
 Status: Stage 19A evaluation checkpoint published; Stage 19B production-disabled
-implementation candidate present, with acceptance incomplete.
+source checkpoint published and exact-source-head hosted-green, with final
+evidence-head publication/reconciliation pending.
 
 Packages: `@ai-dev-os/evaluation`, `@ai-dev-os/integrator`
 
@@ -769,9 +770,11 @@ production-disabled. `@ai-dev-os/integrator` now supplies a production-disabled
 exact-request domain, serialized durable intent/receipt/recovery protocol, and a
 test-only disposable real-Git port. The full named B3 adversarial repository
 fixture matrix below is implemented against actual disposable Git trees.
-Stage 19B acceptance remains incomplete pending publication and exact-head
-hosted CI; its definitive local gates and independent read-only source review
-are complete.
+Stage 19B implementation acceptance and `INT-01` are proven by definitive local
+gates, independent read-only source review, non-forced source publication, and
+exact-source-head hosted CI. The focused evidence/matrix finalization commit and
+its own exact-head hosted reconciliation remain pending; this does not imply
+Stage 18 development acceptance while `ANT-02` and `AM-02` remain incomplete.
 
 Deliverables:
 

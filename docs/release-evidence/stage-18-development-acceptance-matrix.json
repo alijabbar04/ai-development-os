@@ -183,11 +183,11 @@
       "implementation": ["packages/integrator/src/state.ts", "packages/integrator/src/store.ts", "packages/integrator/src/testing/real-git-port.ts", "packages/workspace/src/git-runner.ts", "packages/persistence-postgres/src/migrations.ts"],
       "tests": ["packages/integrator/test/store.test.ts", "packages/integrator/test/store-failure-paths.test.ts", "packages/integrator/test/real-git.test.ts", "packages/persistence-postgres/test/postgres-live.test.ts"],
       "evidence": ["docs/release-evidence/stage-19b-serialized-git-integration-checkpoint.md"],
-      "status": "incomplete",
+      "status": "proven",
       "ownerStage": "18",
-      "blocksDevelopmentAcceptance": true,
+      "blocksDevelopmentAcceptance": false,
       "blocksProduction": true,
-      "rationale": "The production-disabled external Git effect port, durable intent/effect-start/receipt/reconciliation protocol, real disposable-repository crash seams, and SQLite no-repeat reopen proofs now exist. The row remains incomplete until the exact Stage 19B source head passes hosted dependency, PostgreSQL integration, Ubuntu, coverage, and Windows jobs and publication is reconciled."
+      "rationale": "The production-disabled external Git effect port, durable intent/effect-start/receipt/reconciliation protocol, real disposable-repository crash seams, SQLite no-repeat reopen proofs, and exact-source-head hosted dependency, PostgreSQL integration, Ubuntu, coverage, and Windows jobs all pass. Final evidence-head publication remains a release reconciliation step rather than a missing implementation proof."
     },
     {
       "id": "EVD-01",

@@ -4,37 +4,53 @@ Date: 2026-08-11 (BST)
 
 ## Outcome
 
-This is a **locally validated, production-disabled publication candidate**. It is
-not yet a published or completed Stage 19B checkpoint because its focused source
-commit, non-forced branch push, and exact-head hosted dependency-audit,
-PostgreSQL, Ubuntu, coverage, and Windows jobs remain future facts.
+This is a **hosted-green, production-disabled source checkpoint with final
+evidence publication pending**. Focused source commit
+`db157ad593d9e016aac431422083747a8c5e7bb9` was non-forcibly pushed, and exact
+head run `31537527538` completed successfully on its single bounded retry. This
+finalization delta records those facts; its own commit, non-forced push,
+exact-head hosted CI, and final reconciliation remain self-referential future
+facts.
 
 - The complete final local source gates, exact restoration checks, package and
   consumer checks, and independent read-only source audit pass.
 - `@ai-dev-os/integrator` remains incapable of production Git effects through
   its public production composition. The real Git implementation remains on the
   explicit `./testing` subpath.
-- `INT-01` remains incomplete until the exact source head is hosted-green and
-  the publication/final reconciliation gates pass. `ANT-02` and `AM-02`
-  remain incomplete. `developmentAccepted` and `productionAdmitted` remain
-  false.
-- Stage 17W remains gated by the already disclosed native artifact hash
-  mismatch. No Stage 17 restricted operation ran.
+- `INT-01` is promoted to `proven` in the accompanying matrix because the exact
+  source head now has local, real-disposable-Git, SQLite-reopen, PostgreSQL,
+  and hosted cross-platform proof. `ANT-02` and `AM-02` remain incomplete, so
+  `developmentAccepted` remains false. `productionAdmitted` also remains false.
+- The Stage 17W hash mismatch was diagnosed as a stale revision-bound artifact
+  pin and corrected in exact-head-green documentation commit
+  `311b95a21322b6999a0432c454580c1e9922b12e` (run
+  [`31538818416`](https://github.com/alijabbar04/ai-development-os/actions/runs/31538818416)).
+  Stage 17W remains gated because no generated native boundary candidate was
+  executed and no installation, elevation, lifecycle, egress, or restricted
+  proof ran during this diagnosis.
 - No Stage 20A work started.
 
 The permitted completion label, **Stage 19B production-disabled integration
-checkpoint complete**, is deliberately not claimed by this pre-publication
-packet.
+checkpoint complete**, becomes supportable only after this evidence/matrix
+finalization delta is independently reviewed, committed, non-forcibly pushed,
+hosted-green at its exact head, and reconciled. It is deliberately not
+self-claimed inside this precommit packet.
 
 ## Exact candidate identity
 
-- Base/head: `1dc802748b59612e629f1b3f94d78e91802ef76c`
+- Original base/head: `1dc802748b59612e629f1b3f94d78e91802ef76c`
 - Base tree: `8de239ea21d416eb827aa18ee2dc714ac0fdb7ff`
 - Base parent: `4fd90d553378fef8e12b5f6f9df40b9255bc6c4e`
+- Published source commit: `db157ad593d9e016aac431422083747a8c5e7bb9`
+- Published source tree: `16047f80b85064032fc157ba228436d8ee9cce1d`
+- Published source parent: `1dc802748b59612e629f1b3f94d78e91802ef76c`
+- Published source subject: `feat(integrator): add serialized Git checkpoint`
 - Branch: `feat/stage-19b-serialized-git-integration`
-- Upstream: none
-- Current Git-visible scope: 39 paths, comprising 17 tracked modifications and
-  22 untracked paths; 38 paths precede this evidence file.
+- Upstream/live remote at source verification:
+  `origin/feat/stage-19b-serialized-git-integration`, exactly equal to the
+  published source commit.
+- Published source scope: 39 paths, comprising 17 tracked modifications and 22
+  new paths; 38 paths precede this evidence file.
 - Initial recovered scope: 37 paths, comprising 15 tracked modifications and
   22 untracked paths.
 - Initial handoff evidence: 8,607 bytes; SHA-256
@@ -44,23 +60,28 @@ packet.
 
 The sole product-source change made during this recovery window is the exact
 `CONTRIBUTING.md` workspace count correction from 37 to 39. Status prose and
-the `INT-01` evidence anchors were also refreshed without changing the row's
-incomplete status or derived acceptance booleans. There are independently 39
-package directories and 39 lockfile workspace entries. All other source and
-test changes are the preserved Stage 19B candidate that was reviewed and
-repaired before this recovery window.
+the `INT-01` evidence anchors were refreshed before source publication without
+changing the row's incomplete status or derived acceptance booleans. This
+post-CI finalization delta changes only README/roadmap status, the `INT-01`
+status/rationale, and this evidence packet. There are independently 39 package
+directories and 39 lockfile workspace entries. All other source and test
+changes are the preserved Stage 19B candidate that was reviewed and repaired
+before this recovery window.
 
-There is still no Stage 19B commit, push, PR, merge, tag, release, signing,
-package publication, production registration, or repository-setting change.
+The focused source commit and non-forced feature-branch push now exist. There is
+still no Stage 19B PR, merge, tag, release, signing, package publication,
+production registration, `main` mutation, or repository-setting change. This
+evidence/matrix finalization delta is not yet committed or pushed.
 
-Explicit pre-evidence staging binds 38 cached Git blobs. For each path in
+The published source commit was explicitly staged from 38 pre-evidence cached
+Git blobs. For each path in
 ordinal order, the canonical manifest contains
 `path<TAB>cached-blob-sha256<LF>`. Its 3,987-byte SHA-256 is
 `91299f3fdd01bdcc82b40f001d70af77b64fa8106021f93e3c9754011bcb68ff`.
 This is deliberately the cached commit payload rather than working-tree bytes;
 checkout line-ending filters make those identities differ for some files.
 
-### Git-visible inventory
+### Published source inventory
 
 Tracked modifications:
 
@@ -195,6 +216,35 @@ attempt lost its completion channel when the code-mode host generation expired.
 No matching repository process survived either observation. The durable
 literal pass above is the only claimed final combined-check result.
 
+### Exact-head hosted source verification
+
+Source run
+[`31537527538`](https://github.com/alijabbar04/ai-development-os/actions/runs/31537527538)
+is bound to exact commit `db157ad593d9e016aac431422083747a8c5e7bb9`.
+Attempt 1 passed dependency audit, PostgreSQL integration, Ubuntu, and coverage,
+but its Windows job was cancelled by the configured 45-minute execution cap
+while `npm run check` was still active; the job closed after 55 minutes and no
+usable partial log was retained. This is recorded as a failed hosted attempt,
+not a pass.
+
+A single permitted retry on a fresh runner changed no source, threshold, skip,
+timeout, or workflow setting. Attempt 2 completed `success` at the same exact
+head:
+
+- [dependency audit](https://github.com/alijabbar04/ai-development-os/actions/runs/31537527538/job/93945697519):
+  9 seconds, 2026-08-11 21:21:56Z to 21:22:05Z;
+- [PostgreSQL integration](https://github.com/alijabbar04/ai-development-os/actions/runs/31537527538/job/93945674110):
+  52 seconds, 21:21:56Z to 21:22:48Z;
+- [Ubuntu check](https://github.com/alijabbar04/ai-development-os/actions/runs/31537527538/job/93945673887):
+  8 minutes 8 seconds, 21:22:14Z to 21:30:22Z;
+- [coverage](https://github.com/alijabbar04/ai-development-os/actions/runs/31537527538/job/93945707781):
+  14 minutes 35 seconds, 21:21:57Z to 21:36:32Z; and
+- [Windows check](https://github.com/alijabbar04/ai-development-os/actions/runs/31537527538/job/93945673001):
+  24 minutes 26 seconds, 22:18:10Z to 22:42:36Z.
+
+Local HEAD, upstream, remote-tracking ref, and the live remote branch were all
+exactly `db157ad593d9e016aac431422083747a8c5e7bb9` after the successful retry.
+
 ## Mutation, restoration, and real-Git discrimination
 
 Fourteen load-bearing mutants were killed:
@@ -310,7 +360,7 @@ TypeScript 7's explicit Node ambient `types` entry; the corrected
 
 ## Independent review
 
-The final independent review used GPT-5.6 Sol at Max effort, read-only, through
+The final source review used GPT-5.6 Sol at Max effort, read-only, through
 the existing collaboration boundary. This is a same-family limitation; no
 opposite-family reviewer was available in the authorized environment. Its
 separate verdicts are **source correctness: PASS** and **precommit
@@ -318,23 +368,25 @@ completion/publication readiness: PASS**. No remaining source, test, contract,
 package-boundary, or evidence discrepancy was confirmed. The verdict
 authorizes only staged-blob binding, the focused non-forced source publication,
 and hosted verification; it does not claim Stage 19B complete or permit
-`INT-01` promotion before exact-head CI. Reviewer usage/cost is unavailable.
+`INT-01` promotion before exact-head CI. That source-CI condition is now
+satisfied. A separate exact-delta read-only review remains required before this
+finalization may be committed. Reviewer usage/cost is unavailable.
 
 ## Stage 18 decision
 
-`INT-01` remains `incomplete` in the current matrix. Local evidence now
-proves durable intent/effect-start, exact idempotency, no-repeat crash recovery,
-finite receipt/reconciliation states, stale fencing, real disposable Git
-effects, SQLite reopen, and the hosted-PostgreSQL test implementation. The row
-cannot become `proven` until the exact source-head hosted dependency audit,
-PostgreSQL integration, Ubuntu check, coverage, and Windows check pass, followed
-by final evidence reconciliation. No promotion is made from source inspection
-or local evidence alone.
+`INT-01` is `proven` in the accompanying matrix. Local evidence proves durable
+intent/effect-start, exact idempotency, no-repeat crash recovery, finite
+receipt/reconciliation states, stale fencing, real disposable Git effects, and
+SQLite reopen. Exact source-head run `31537527538` adds successful dependency,
+PostgreSQL integration, Ubuntu, coverage, and Windows evidence. Its
+`blocksDevelopmentAcceptance` flag is therefore false. This promotion is based
+on the exact implementation and hosted source proof, not documentation alone.
 
 `ANT-02` remains incomplete because no owned credential/reference was
 available and no live Anthropic canary ran. `AM-02` remains incomplete because
 no already supported non-interactive authorized Account Manager source was
-available. `PRD-01` remains gated on Stage 17W.
+available. Consequently `developmentAccepted` remains false. `PRD-01` and
+`productionAdmitted` remain gated on Stage 17W.
 
 ## Safety, effects, and residues
 
@@ -344,8 +396,9 @@ available. `PRD-01` remains gated on Stage 17W.
 - No credential discovery, provider response body, account/session data,
   prompt/source payload, or hidden reasoning was recorded.
 - No real AI Development OS target ref, index, or linked-worktree mutation,
-  product integration push, `main` mutation, remote publication, UI/comms
-  work, or Linux/macOS product integration occurred.
+  product integration effect, `main` mutation, registry/package/release
+  publication, UI/comms work, or Linux/macOS product integration occurred. The
+  reviewed feature-branch source push is recorded above.
 - Ordinary build/test subprocesses, ignored coverage output, SQLite file
   fixtures, task-owned disposable Git repositories/worktrees, and packaging
   tarballs were used.
@@ -359,13 +412,21 @@ available. `PRD-01` remains gated on Stage 17W.
 - The exact validated cleanup of the new packed consumer was likewise blocked
   before execution. The consumer path above remains preserved and no alternate
   deletion route was attempted.
+- Two pure-build Stage 17 diagnostic roots created by this run,
+  `C:\Users\mrali\AppData\Local\Temp\ai-dev-os-stage17w-hashdiag-20260811-a`
+  and `...-b`, produced the same reviewed artifact hash. Their exact validated
+  cleanup was blocked before execution in one attempt and was not retried or
+  rerouted; both remain preserved.
 - All pre-existing disclosed residues and ignored coverage directories remain
   preserved.
 
 ## Publication boundary and next action
 
-The highest-value next action is to create and non-forcibly push the focused
-source checkpoint, then require exact-head hosted dependency-audit,
-PostgreSQL, Ubuntu, coverage, and Windows success. Only after that proof may
-`INT-01` be promoted and the evidence/matrix finalization commit be published
-and reconciled at its own exact hosted-green head.
+The source checkpoint, non-forced push, and exact-head hosted source proof are
+complete. The highest-value next action is to independently review and
+explicitly stage this focused evidence/matrix/status delta, commit and
+non-forcibly push it, require dependency-audit, PostgreSQL, Ubuntu, coverage,
+and Windows success at that exact finalization head, then reconcile local,
+upstream, remote-tracking, and live remote identities. Only that external
+handoff may close this packet's self-reference and apply the permitted Stage
+19B completion label.

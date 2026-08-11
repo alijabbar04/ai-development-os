@@ -40,7 +40,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
 | Stage 18 | **Production-disabled checkpoints complete** — 18A/18B/18C/18D published; production remains blocked on Stage 17W |
-| Stage 19 | **19B implementation checkpoint, acceptance incomplete** — deterministic evaluation plus production-disabled serialized local-Git integration; the concrete B3 fixture matrix and definitive local gates are complete, while publication and exact-head hosted CI remain pending |
+| Stage 19 | **19B source checkpoint hosted-green; finalization pending** — deterministic evaluation plus production-disabled serialized local-Git integration; `INT-01`, the concrete B3 fixture matrix, definitive local gates, and exact-source-head hosted CI are proven, while the evidence/matrix finalization commit and its exact-head reconciliation remain pending |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
 
