@@ -1,7 +1,7 @@
 # Stage 18D PostgreSQL and admission-readiness checkpoint evidence
 
-Status: production-disabled source candidate under hosted correction validation;
-corrective commit/push and exact-head hosted PostgreSQL/CI proof pending
+Status: Stage 18D production-disabled source checkpoint published and
+exact-head hosted PostgreSQL/CI verified
 Evidence window: 2026-08-10 21:56 BST onward
 Branch: `feat/stage-18d-postgres-admission-readiness`
 
@@ -160,11 +160,14 @@ job bound. The hosted tests are designed to prove:
 - a synchronized two-adapter write-skew race against one near-cap borrowed
   profile, where at most one reservation may commit.
 
-These remain pending until the exact committed source head completes the hosted
-job. Query-native high-throughput team scheduling, remote deployment, tenant/
-RBAC administration, TLS server operations, backups/restore, and destructive
-migrations remain explicit nonclaims. Any future destructive migration remains
-backup-gated and must be exercised on production-scale fixtures.
+Corrective source head `9281ee0b1cc397a5dff224601efb3be5862fa9db`
+completed exact-head run `31450506575` successfully. The PostgreSQL job passed
+the real server suite, application contract, and focused coverage; the full
+dependency, Ubuntu, coverage, and Windows jobs also passed. Query-native
+high-throughput team scheduling, remote deployment, tenant/RBAC administration,
+TLS server operations, backups/restore, and destructive migrations remain
+explicit nonclaims. Any future destructive migration remains backup-gated and
+must be exercised on production-scale fixtures.
 
 ## Stage 18 acceptance matrix
 
@@ -173,20 +176,19 @@ duplicate IDs and broken/missing anchors, and separates development acceptance
 from production admission. Every row binds authority, implementation, tests,
 evidence, owner stage, blocking dimensions, and rationale.
 
-At this pre-publication checkpoint:
+At this published source checkpoint:
 
-- `ADM-01` is proven;
-- `SCH-02`, `PER-02`, `PER-03`, and `EVD-01` await exact-head hosted/publish
-  evidence;
+- `ADM-01`, `SCH-02`, `PER-02`, `PER-03`, and `EVD-01` are proven;
 - prior Stage 18A–18C implementation rows remain proven by their published
   evidence;
 - `ANT-02`, `AM-02`, and `INT-01` accurately remain incomplete; and
 - `PRD-01` remains production-gated on Stage 17W.
 
 Therefore `developmentAccepted` and `productionAdmitted` remain `false` and the
-current permitted outcome remains `Checkpoint incomplete`. After the Stage 18D
-publication rows become proven, the permitted label may advance only to
-`Stage 18D production-disabled checkpoint complete`.
+permitted outcome is exactly
+`Stage 18D production-disabled checkpoint complete`. Broader Stage 18
+development acceptance and every production claim remain blocked by the
+separate incomplete/production-gated rows.
 
 ## Changed-file inventory
 
@@ -249,7 +251,7 @@ The candidate contains exactly 54 paths including this evidence file:
 
 Before this evidence file, the exact 53 path/SHA-256 rows sorted by path and
 joined as `path<TAB>sha256` with LF have digest
-`2c34eeb60686297e80ecbcdd0d6d985c2079f0ae05f1fba539c2745abdb070c4`.
+`880357468bb56e3f1338a77fec30194fdc6f11c3cb69122f602c161c4bfc2536`.
 
 ## Validation evidence
 
@@ -429,8 +431,24 @@ corruption fixture constructed a display name containing a forbidden colon
 before reaching storage. Neither
 failure is hidden or called a pass. The focused correction explicitly handles
 the surfaced caller retry and uses a valid fixture; its new commit/push and
-exact-head hosted run remain pending. The corrected live-test SHA-256 is
+exact-head hosted run are recorded below. The corrected live-test SHA-256 is
 `8781312f07e7b717258e33022849ab1d3aef5a758b7c385384ea817b63b2a6f4`.
+
+The correction was committed as
+`9281ee0b1cc397a5dff224601efb3be5862fa9db`, tree
+`c49243c506f0c9194efb4e1b8cca607e4c4939ac`, parent
+`1a48adad511bd68184dd308a903c030d9320c6dc`, and pushed non-forced. Local,
+upstream, and live remote were equal and the worktree was clean. Exact-head run
+`31450506575` completed successfully: dependency audit 10s, PostgreSQL
+integration 47s, Ubuntu 7m27s, coverage 10m22s, and Windows 19m5s. The
+PostgreSQL job passed 53/53 live tests, the application contract, and focused
+PostgreSQL coverage at the exact corrective head.
+
+This evidence file and matrix are the only finalization delta after that green
+source head. Their own unavoidable commit/tree/live-remote/run self-reference
+is delegated to the final handoff; embedding those values here would change
+the identity being reported. The finalization must still be an explicit-path,
+non-forced evidence-only publication and exact-head green CI before handoff.
 
 ## Deferred work and nonclaims
 
@@ -452,5 +470,7 @@ exact-head hosted run remain pending. The corrected live-test SHA-256 is
   feature branch was pushed non-forced and its exact-head CI was inspected as
   disclosed. No local PostgreSQL/container effect occurred.
 
-The checkpoint label remains `Checkpoint incomplete` until explicit-path
-commit, non-forced push, and exact-head hosted CI are all present.
+The checkpoint label is exactly
+`Stage 18D production-disabled checkpoint complete`. It does not claim Stage
+17W completion, broader Stage 18 development acceptance, production admission,
+or Stage 19 work.

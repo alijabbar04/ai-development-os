@@ -4,7 +4,7 @@
   "sourceBase": "aa5c62cc9aa56ac3a21e5fd612992b9ea535776d",
   "productionAdmitted": false,
   "developmentAccepted": false,
-  "permittedOutcome": "Checkpoint incomplete",
+  "permittedOutcome": "Stage 18D production-disabled checkpoint complete",
   "checkpointRows": ["ADM-01", "SCH-02", "PER-02", "PER-03", "EVD-01"],
   "rows": [
     {
@@ -91,12 +91,12 @@
       "authority": ["docs/implementation-roadmap.md", "docs/adr/0024-stage-18d-postgres-admission-readiness.md"],
       "implementation": ["packages/application/src/application-runtime.ts", "packages/scheduler/src/worker-runtime.ts", "packages/persistence-postgres/src/postgres-adapter.ts"],
       "tests": ["packages/application/test/postgres-runtime-contract.test.ts", "packages/application/test/runtime-contract.test.ts"],
-      "evidence": [],
-      "status": "incomplete",
+      "evidence": ["docs/release-evidence/stage-18d-postgres-admission-readiness-checkpoint.md"],
+      "status": "proven",
       "ownerStage": "18D",
-      "blocksDevelopmentAcceptance": true,
+      "blocksDevelopmentAcceptance": false,
       "blocksProduction": true,
-      "rationale": "The application retries only effect-free claim-work at most four times; the required hosted job must still prove independent connections and separate Node processes receive distinct leases, while a synchronized two-adapter SERIALIZABLE race must prove shared borrowed-cap write skew fails closed."
+      "rationale": "Exact-head hosted PostgreSQL proves independent connections and separate Node processes receive distinct leases; a synchronized two-adapter SERIALIZABLE race proves shared borrowed-cap write skew fails closed. The application retries only effect-free claim-work at most four times."
     },
     {
       "id": "PER-01",
@@ -117,12 +117,12 @@
       "authority": ["docs/adr/0024-stage-18d-postgres-admission-readiness.md"],
       "implementation": ["packages/persistence-postgres/src/driver.ts", "packages/persistence-postgres/src/postgres-adapter.ts", "packages/persistence-postgres/src/migrations.ts"],
       "tests": ["packages/persistence-postgres/test/postgres-live.test.ts", "packages/application/test/postgres-runtime-contract.test.ts"],
-      "evidence": [],
-      "status": "incomplete",
+      "evidence": ["docs/release-evidence/stage-18d-postgres-admission-readiness-checkpoint.md"],
+      "status": "proven",
       "ownerStage": "18D",
-      "blocksDevelopmentAcceptance": true,
+      "blocksDevelopmentAcceptance": false,
       "blocksProduction": true,
-      "rationale": "Source and deterministic seam are locally green; the required exact-head hosted PostgreSQL service run is pending."
+      "rationale": "Exact-head hosted PostgreSQL passes the complete shared persistence contract, application physical close/reopen contract, and durable no-redispatch checks."
     },
     {
       "id": "PER-03",
@@ -130,12 +130,12 @@
       "authority": ["docs/adr/0024-stage-18d-postgres-admission-readiness.md"],
       "implementation": ["packages/persistence-postgres/src/driver.ts", "packages/persistence-postgres/src/postgres-adapter.ts", "packages/persistence-postgres/src/migrations.ts"],
       "tests": ["packages/persistence-postgres/test/postgres-live.test.ts"],
-      "evidence": [],
-      "status": "incomplete",
+      "evidence": ["docs/release-evidence/stage-18d-postgres-admission-readiness-checkpoint.md"],
+      "status": "proven",
       "ownerStage": "18D",
-      "blocksDevelopmentAcceptance": true,
+      "blocksDevelopmentAcceptance": false,
       "blocksProduction": true,
-      "rationale": "The hosted disposable PostgreSQL job is the definitive database evidence and has not run at this uncommitted checkpoint."
+      "rationale": "The exact-head hosted disposable PostgreSQL job proves migration locking/resume/drift/ahead behavior, SERIALIZABLE conflicts, native SKIP LOCKED claiming with explicit caller retry, commit-ordered identities, finite lock timeout, backend-loss recovery, and redaction."
     },
     {
       "id": "USE-01",
@@ -195,12 +195,12 @@
       "authority": ["docs/adr/0024-stage-18d-postgres-admission-readiness.md", "CONTRIBUTING.md"],
       "implementation": [".github/workflows/ci.yml"],
       "tests": ["packages/persistence-postgres/test/static-policy.test.ts", "packages/application/test/production-admission.test.ts"],
-      "evidence": [],
-      "status": "incomplete",
+      "evidence": ["docs/release-evidence/stage-18d-postgres-admission-readiness-checkpoint.md"],
+      "status": "proven",
       "ownerStage": "18D",
-      "blocksDevelopmentAcceptance": true,
+      "blocksDevelopmentAcceptance": false,
       "blocksProduction": true,
-      "rationale": "Exact local gates and final independent PASS are present; checkpoint publication and exact-head hosted results remain pending."
+      "rationale": "Exact local gates, independent read-only PASS, explicit-path commits, non-forced publication, remote equality, and exact-head dependency/Ubuntu/coverage/Windows/PostgreSQL CI are present."
     },
     {
       "id": "PRD-01",
