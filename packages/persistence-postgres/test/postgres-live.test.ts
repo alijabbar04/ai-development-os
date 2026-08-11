@@ -257,18 +257,32 @@ if (live === null) {
             });
           }
         });
-        const firstClaimPromise = first.transact(async (tx) => {
+        const firstClaimOutcome = first.transact(async (tx) => {
           const claimed = await tx.outbox.claim({ owner: "worker:first", leaseDurationMs: 1_000, limit: 1 });
           firstLocked();
           await holdFirst;
           return claimed;
-        });
+        }).then(
+          (claimed) => ({ status: "fulfilled" as const, claimed }),
+          (error: unknown) => ({ status: "rejected" as const, error }),
+        );
         await locked;
         const secondClaim = await second.transact((tx) => tx.outbox.claim({
           owner: "worker:second", leaseDurationMs: 1_000, limit: 1,
         }));
         releaseFirst();
-        const firstClaim = await firstClaimPromise;
+        const outcome = await firstClaimOutcome;
+        if (outcome.status === "rejected") {
+          expect(outcome.error).toMatchObject({
+            code: "CONCURRENCY_CONFLICT",
+            details: { reason: "serialization-failure", retryable: true },
+          });
+        }
+        const firstClaim = outcome.status === "fulfilled"
+          ? outcome.claimed
+          : await first.transact((tx) => tx.outbox.claim({
+              owner: "worker:first", leaseDurationMs: 1_000, limit: 1,
+            }));
         expect(firstClaim).toHaveLength(1);
         expect(secondClaim).toHaveLength(1);
         expect(firstClaim[0]?.messageId).not.toBe(secondClaim[0]?.messageId);
@@ -497,7 +511,7 @@ if (live === null) {
       const descriptor = (id: string) => ({
         schemaVersion: 1,
         id,
-        displayName: `artifact ${id}`,
+        displayName: "Stored artifact record",
         kind: "structured-data",
         role: "output",
         mediaType: "application/json",

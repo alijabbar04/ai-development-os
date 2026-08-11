@@ -1,7 +1,7 @@
 # Stage 18D PostgreSQL and admission-readiness checkpoint evidence
 
-Status: production-disabled source candidate under final validation; commit,
-push, and exact-head hosted PostgreSQL/CI proof pending
+Status: production-disabled source candidate under hosted correction validation;
+corrective commit/push and exact-head hosted PostgreSQL/CI proof pending
 Evidence window: 2026-08-10 21:56 BST onward
 Branch: `feat/stage-18d-postgres-admission-readiness`
 
@@ -249,7 +249,7 @@ The candidate contains exactly 54 paths including this evidence file:
 
 Before this evidence file, the exact 53 path/SHA-256 rows sorted by path and
 joined as `path<TAB>sha256` with LF have digest
-`c8cc5d0e757e55e2bc86f6e867021ce6ac382ff77bc1ef96b5436e9897e5408a`.
+`2c34eeb60686297e80ecbcdd0d6d985c2079f0ae05f1fba539c2745abdb070c4`.
 
 ## Validation evidence
 
@@ -414,10 +414,23 @@ than relabelled. Reviewer cost/usage is unavailable.
 
 ## Commit, remote, and hosted CI
 
-Focused explicit-path staging, the source/evidence commit, non-forced push,
-local/upstream/live-remote equality, exact commit/tree identities, and
-exact-head hosted dependency/Ubuntu/coverage/Windows/PostgreSQL jobs are
-pending. None is claimed passed in this pre-publication packet.
+The exact 54-path source/evidence candidate was explicitly staged and committed
+as `1a48adad511bd68184dd308a903c030d9320c6dc`, tree
+`4c80114bc1f27c2b4c8b7d77a64c73993de91ceb`, parent
+`aa5c62cc9aa56ac3a21e5fd612992b9ea535776d`. It was pushed non-forced; local,
+upstream, and live remote were equal and the worktree was clean.
+
+Exact-head run `31449225977` completed with an overall failure. Dependency
+audit (10s), Ubuntu (7m20s), coverage (11m30s), and Windows (19m29s) passed.
+The PostgreSQL job failed in 37s after 51/53 live tests passed: one deliberate
+`SKIP LOCKED` overlap surfaced the adapter's documented retryable SERIALIZABLE
+`40001` when the held transaction attempted to commit later, and one
+corruption fixture constructed a display name containing a forbidden colon
+before reaching storage. Neither
+failure is hidden or called a pass. The focused correction explicitly handles
+the surfaced caller retry and uses a valid fixture; its new commit/push and
+exact-head hosted run remain pending. The corrected live-test SHA-256 is
+`8781312f07e7b717258e33022849ab1d3aef5a758b7c385384ea817b63b2a6f4`.
 
 ## Deferred work and nonclaims
 
