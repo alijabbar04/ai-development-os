@@ -16,6 +16,7 @@ export const AGGREGATE_TYPES = Object.freeze([
   "artifact-manifest",
   "budget-account",
   "evaluation-run",
+  "integration-run",
   "project",
   "product-plan",
   "task-graph",

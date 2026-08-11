@@ -21,11 +21,11 @@
   "scripts": {
     "prebuild": "npm --prefix ../persistence run build",
     "build": "tsc -p tsconfig.json",
-    "pretest": "npm run build",
+    "pretest": "npm run build && npm --prefix ../integrator run build",
     "test": "vitest run",
-    "pretest:live": "npm run build",
+    "pretest:live": "npm run build && npm --prefix ../integrator run build",
     "test:live": "vitest run test/postgres-live.test.ts",
-    "pretest:coverage": "npm run build",
+    "pretest:coverage": "npm run build && npm --prefix ../integrator run build",
     "test:coverage": "vitest run --coverage",
     "pretypecheck": "npm --prefix ../persistence run build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -38,6 +38,7 @@
     "pg-pool": "3.14.0"
   },
   "devDependencies": {
+    "@ai-dev-os/integrator": "^0.1.0",
     "@types/pg": "8.21.0"
   }
 }

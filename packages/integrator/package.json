@@ -1,0 +1,40 @@
+{
+  "name": "@ai-dev-os/integrator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production-disabled serialized, evaluation-gated Git integration contracts and durable reconciliation.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../domain run build && npm --prefix ../persistence run build && npm --prefix ../workspace run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm run build && npm --prefix ../workspace run build && npm --prefix ../persistence-memory run build && npm --prefix ../persistence-sqlite run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm run build && npm --prefix ../workspace run build && npm --prefix ../persistence-memory run build && npm --prefix ../persistence-sqlite run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../domain run build && npm --prefix ../persistence run build && npm --prefix ../workspace run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/persistence": "^0.1.0",
+    "@ai-dev-os/workspace": "^0.1.0"
+  },
+  "devDependencies": {
+    "@ai-dev-os/persistence-memory": "^0.1.0",
+    "@ai-dev-os/persistence-sqlite": "^0.1.0"
+  }
+}

@@ -18,7 +18,14 @@
  */
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { WorkspaceError, causeCategory } from "./errors.js";
+
+/** Testable classification for the POSIX process-group existence probe. */
+export function processGroupProbeConfirmsGone(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as NodeJS.ErrnoException).code === "ESRCH";
+}
 
 export const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
 export const DEFAULT_GIT_TIMEOUT_MS = 120_000;
@@ -33,6 +40,7 @@ export interface GitRunOptions {
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
   readonly stdin?: Uint8Array;
+  readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   readonly maxOutputBytes?: number;
   /** Non-zero exit codes that are an expected answer rather than a failure. */
@@ -57,6 +65,21 @@ export function createGitRunner(executablePath: string): GitRunner {
     async run(args: readonly string[], options: GitRunOptions): Promise<GitCommandResult> {
       const timeoutMs = options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS;
       const maxBytes = options.maxOutputBytes ?? MAX_GIT_OUTPUT_BYTES;
+      if (options.signal?.aborted === true) {
+        throw new WorkspaceError("GIT_BACKEND_FAILURE", "A Git command was cancelled.", {
+          reason: "aborted",
+        });
+      }
+      const windowsTreeKiller = (() => {
+        if (process.platform !== "win32") return null;
+        const systemRoot = process.env["SystemRoot"];
+        if (systemRoot === undefined || !isAbsolute(systemRoot)) {
+          throw new WorkspaceError("GIT_UNAVAILABLE", "A verified Windows process-tree terminator is unavailable.", { reason: "tree-termination-unavailable" });
+        }
+        const executable = join(systemRoot, "System32", "taskkill.exe");
+        if (!existsSync(executable)) throw new WorkspaceError("GIT_UNAVAILABLE", "A verified Windows process-tree terminator is unavailable.", { reason: "tree-termination-unavailable" });
+        return Object.freeze({ executable, systemRoot });
+      })();
 
       return await new Promise<GitCommandResult>((resolve, reject) => {
         let child;
@@ -83,53 +106,118 @@ export function createGitRunner(executablePath: string): GitRunner {
         let outBytes = 0;
         let errBytes = 0;
         let settled = false;
-        let overflowed = false;
+        let stopError: WorkspaceError | null = null;
+        let windowsTreeUnconfirmed = false;
+        let removeAbortListener = (): void => undefined;
 
-        const stopTree = (): void => {
+        let timer: ReturnType<typeof setTimeout>;
+        let drainTimer: ReturnType<typeof setTimeout> | undefined;
+
+        const settleCleanup = (): void => {
+          clearTimeout(timer);
+          if (drainTimer !== undefined) clearTimeout(drainTimer);
+          removeAbortListener();
+        };
+
+        const finishRejected = (error: WorkspaceError): void => {
+          if (settled) return;
+          settled = true;
+          settleCleanup();
+          reject(error);
+        };
+
+        const stopTree = async (): Promise<boolean> => {
           const pid = child.pid;
-          if (pid === undefined) {
-            return;
-          }
+          if (pid === undefined) return child.exitCode !== null;
+          const stopDirectChild = (): boolean => {
+            if (child.exitCode !== null || child.signalCode !== null) return true;
+            try {
+              // A successful signal request is not yet proof of termination;
+              // return false so requestStop waits for the child's close event.
+              child.kill("SIGKILL");
+            } catch { /* the bounded drain check below establishes the result */ }
+            return child.exitCode !== null || child.signalCode !== null;
+          };
           try {
             if (process.platform === "win32") {
-              spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
-                windowsHide: true,
-                shell: false,
-                stdio: "ignore",
-              }).on("error", () => undefined);
-            } else {
-              process.kill(-pid, "SIGKILL");
+              if (windowsTreeKiller === null) return false;
+              const treeStopped = await new Promise<boolean>((resolveStop) => {
+                const killer = spawn(windowsTreeKiller.executable, ["/PID", String(pid), "/T", "/F"], {
+                  windowsHide: true,
+                  shell: false,
+                  stdio: "ignore",
+                  cwd: windowsTreeKiller.systemRoot,
+                  env: { SystemRoot: windowsTreeKiller.systemRoot, windir: windowsTreeKiller.systemRoot },
+                });
+                const killerTimer = setTimeout(() => {
+                  try { killer.kill("SIGKILL"); } catch { /* already gone */ }
+                  resolveStop(false);
+                }, 5_000);
+                killerTimer.unref?.();
+                killer.once("error", () => { clearTimeout(killerTimer); resolveStop(false); });
+                killer.once("close", (code) => { clearTimeout(killerTimer); resolveStop(code === 0); });
+              });
+              if (treeStopped) return true;
+              windowsTreeUnconfirmed = true;
+              stopDirectChild();
+              return false;
             }
+            /* v8 ignore start -- POSIX process-group termination is exercised by the POSIX CI job. */
+            process.kill(-pid, "SIGKILL");
+            return false;
           } catch {
-            try {
-              child.kill("SIGKILL");
-            } catch {
-              // Already gone.
-            }
+            return stopDirectChild();
+            /* v8 ignore stop */
           }
         };
 
-        const timer = setTimeout(() => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          stopTree();
-          reject(
-            new WorkspaceError("GIT_BACKEND_FAILURE", "A Git command exceeded its deadline.", {
-              timeoutMs,
-            }),
-          );
-        }, timeoutMs);
+        const requestStop = (error: WorkspaceError): void => {
+          if (settled || stopError !== null) return;
+          stopError = error;
+          clearTimeout(timer);
+          removeAbortListener();
+          void stopTree().then((verified) => {
+            if (settled) return;
+            if (verified) {
+              finishRejected(error);
+              return;
+            }
+            if (windowsTreeUnconfirmed) {
+              drainTimer = setTimeout(() => finishRejected(new WorkspaceError("GIT_BACKEND_FAILURE", "A cancelled Git process tree did not confirm termination within its drain bound.", { reason: "termination-unconfirmed" })), 5_000);
+              return;
+            }
+            /* v8 ignore start -- the post-signal POSIX group probe is exercised by the POSIX CI job. */
+            drainTimer = setTimeout(() => {
+              if (settled) return;
+              const pid = child.pid;
+              let gone = child.exitCode !== null || child.signalCode !== null;
+              if (pid !== undefined && process.platform !== "win32") {
+                // The process-group leader may exit before one of its descendants.
+                // Only ESRCH for the whole group confirms that the cancellation drain
+                // reached every process that inherited the Git operation.
+                gone = false;
+                try { process.kill(-pid, 0); } catch (error) { gone = processGroupProbeConfirmsGone(error); }
+              }
+              finishRejected(gone ? error : new WorkspaceError("GIT_BACKEND_FAILURE", "A cancelled Git process tree did not confirm termination within its drain bound.", { reason: "termination-unconfirmed" }));
+            }, 5_000);
+            /* v8 ignore stop */
+          });
+        };
+
+        timer = setTimeout(() => requestStop(new WorkspaceError("GIT_BACKEND_FAILURE", "A Git command exceeded its deadline.", { timeoutMs })), timeoutMs);
         timer.unref?.();
+
+        const onAbort = (): void => requestStop(new WorkspaceError("GIT_BACKEND_FAILURE", "A Git command was cancelled.", { reason: "aborted" }));
+        if (options.signal !== undefined) {
+          options.signal.addEventListener("abort", onAbort, { once: true });
+          removeAbortListener = (): void => options.signal?.removeEventListener("abort", onAbort);
+          if (options.signal.aborted) onAbort();
+        }
 
         const collect = (target: Buffer[], chunk: Buffer, isStdout: boolean): void => {
           const total = isStdout ? outBytes : errBytes;
           if (total + chunk.byteLength > maxBytes) {
-            if (!overflowed) {
-              overflowed = true;
-              stopTree();
-            }
+            requestStop(new WorkspaceError("OUTPUT_TRUNCATED", "A Git command produced more output than the configured bound.", { maxOutputBytes: maxBytes }));
             return;
           }
           target.push(chunk);
@@ -145,34 +233,20 @@ export function createGitRunner(executablePath: string): GitRunner {
         child.stdin.on("error", () => undefined);
 
         child.on("error", (error) => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          clearTimeout(timer);
-          reject(
-            new WorkspaceError("GIT_UNAVAILABLE", "Git could not be started.", {
-              cause: causeCategory(error),
-            }),
-          );
+          if (settled) return;
+          if (stopError !== null) return;
+          finishRejected(new WorkspaceError("GIT_UNAVAILABLE", "Git could not be started.", {
+            cause: causeCategory(error),
+          }));
         });
 
         child.on("close", (code) => {
-          if (settled) {
+          if (settled) return;
+          if (stopError !== null) {
             return;
           }
           settled = true;
-          clearTimeout(timer);
-          if (overflowed) {
-            reject(
-              new WorkspaceError(
-                "OUTPUT_TRUNCATED",
-                "A Git command produced more output than the configured bound.",
-                { maxOutputBytes: maxBytes },
-              ),
-            );
-            return;
-          }
+          settleCleanup();
           resolve(
             Object.freeze({
               exitCode: code ?? -1,

@@ -5,6 +5,18 @@ import {
   type ContractHarness,
 } from "@ai-dev-os/persistence/testing";
 import { preparePayload, type MigrationDefinition, type OperationRecord, type PersistenceError } from "@ai-dev-os/persistence";
+import type { PersistenceAdapter, TransactionContext } from "@ai-dev-os/persistence";
+import {
+  INTEGRATION_SCHEMA_VERSION,
+  createIntegrationAuthorityConfiguration,
+  createIntegrationRequest,
+  integrationDigest,
+  type IntegrationAuthorityConfiguration,
+  type IntegrationGitPort,
+  type IntegrationRequest,
+  type IntegrationValidationPort,
+} from "@ai-dev-os/integrator";
+import { createIntegrationServiceForTesting } from "@ai-dev-os/integrator/testing";
 import { POSTGRES_MIGRATIONS, createPostgresPersistenceAdapter } from "../src/index.js";
 import { createPostgresPersistenceAdapterForTesting } from "../src/testing.js";
 import {
@@ -16,6 +28,155 @@ import {
 } from "./live-harness.js";
 
 const live = readLivePostgresConfiguration();
+
+const INTEGRATOR_T0 = "2099-08-11T09:00:00.000Z";
+const INTEGRATOR_T1 = "2099-08-11T09:01:00.000Z";
+const INTEGRATOR_LEASE_EXPIRY = "2099-08-11T09:30:00.000Z";
+const INTEGRATOR_DEADLINE = "2099-08-11T10:00:00.000Z";
+const INTEGRATOR_ROUTE = integrationDigest({ route: "postgres-live-integrator" });
+const INTEGRATOR_TARGET = integrationDigest({ target: "postgres-live-shared-target" });
+const INTEGRATOR_VALIDATOR = integrationDigest({ validator: "postgres-live" });
+
+function withIntegrationDigest<T extends Record<string, unknown>, K extends string>(value: T, key: K): T & Record<K, string> {
+  return Object.freeze({ ...value, [key]: integrationDigest(value) }) as T & Record<K, string>;
+}
+
+function postgresIntegrationRequest(runId: string): IntegrationRequest {
+  const admission = withIntegrationDigest({
+    evaluationRunId: `evaluation:${runId}`,
+    evaluationRequestDigest: "1".repeat(64),
+    evaluationResultDigest: "2".repeat(64),
+    evaluationSubjectDigest: "3".repeat(64),
+    evaluationDecision: "accepted" as const,
+    authorityConfigurationFingerprint: "4".repeat(64),
+    criterionManifestDigest: "5".repeat(64),
+    deterministicEvidenceDigest: "6".repeat(64),
+    productSpecificationId: "specification:postgres-live",
+    productSpecificationDigest: "7".repeat(64),
+    requirementIds: Object.freeze(["requirement:postgres-live"]),
+    requirementCoverageDigest: "8".repeat(64),
+    waiverDigests: Object.freeze([]),
+    dissentDigest: "9".repeat(64),
+    securityFindingsDigest: "a".repeat(64),
+    feasibilityFindingsDigest: "b".repeat(64),
+  }, "admissionDigest");
+  const validationPlan = withIntegrationDigest({
+    planId: "validation-plan:postgres-live",
+    validatorId: "validation:postgres-live",
+    validatorSchemaVersion: 1 as const,
+    routeFingerprint: INTEGRATOR_VALIDATOR,
+    configurationDigest: "c".repeat(64),
+    commandIds: Object.freeze(["check:postgres-live"]),
+    requiredCriterionIds: Object.freeze(["criterion:postgres-live"]),
+    thresholdDigest: "d".repeat(64),
+    allowSkips: false as const,
+  }, "planDigest");
+  const candidateArtifact = withIntegrationDigest({
+    taskId: "task:postgres-live",
+    taskResultDigest: "e".repeat(64),
+    artifactId: "artifact:postgres-live",
+    artifactDigest: "f".repeat(64),
+    manifestId: "manifest:postgres-live",
+    manifestDigest: "0".repeat(64),
+  }, "bindingDigest");
+  const projection = {
+    schemaVersion: INTEGRATION_SCHEMA_VERSION,
+    runId,
+    repository: Object.freeze({
+      repositoryId: "repository:postgres-live",
+      objectFormat: "sha1" as const,
+      targetRef: "refs/heads/integration-target",
+      expectedTargetCommit: "1".repeat(40),
+      expectedTargetTree: "2".repeat(40),
+      sourceCommit: "3".repeat(40),
+      sourceTree: "4".repeat(40),
+      expectedIntegratedCommit: "3".repeat(40),
+      expectedIntegratedTree: "4".repeat(40),
+      expectedParents: Object.freeze([]),
+      mergeCommitTimestamp: null,
+    }),
+    gitPortId: "git:postgres-live",
+    gitPortSchemaVersion: 1 as const,
+    gitRouteFingerprint: INTEGRATOR_ROUTE,
+    gitTargetFingerprint: INTEGRATOR_TARGET,
+    strategy: "fast-forward" as const,
+    allowedPaths: Object.freeze(["candidate.txt"]),
+    candidateArtifact,
+    admission,
+    validationPlan,
+    resolutionProposal: null,
+    resolutionAuthorization: null,
+    authorityDigest: "a".repeat(64),
+    idempotencyKey: `idempotency:${runId}`,
+    retryPolicy: Object.freeze({ maximumAttempts: 2, retryableFailureCodes: Object.freeze(["timeout"]), automaticRetryBeforeEffectOnly: true as const }),
+    bounds: Object.freeze({ maximumPaths: 16, maximumFiles: 1_000, maximumBytes: 10_000_000, maximumConflicts: 16, maximumWallTimeMs: 10_000, maximumWorktrees: 1 as const }),
+    createdAt: INTEGRATOR_T0,
+    deadline: INTEGRATOR_DEADLINE,
+  };
+  return createIntegrationRequest(Object.freeze({ ...projection, requestDigest: integrationDigest(projection) }));
+}
+
+function postgresIntegrationAuthority(...requests: readonly IntegrationRequest[]): IntegrationAuthorityConfiguration {
+  const projection = {
+    schemaVersion: INTEGRATION_SCHEMA_VERSION,
+    configurationId: "integration-authority:postgres-live",
+    authorizedRequestDigests: Object.freeze(requests.map((request) => request.requestDigest).sort()),
+    authorizedAuthorityDigests: Object.freeze([...new Set(requests.map((request) => request.authorityDigest))].sort()),
+    authorizedAdmissionDigests: Object.freeze(requests.map((request) => request.admission.admissionDigest).sort()),
+    authorizedResolutionDigests: Object.freeze([]),
+  };
+  return createIntegrationAuthorityConfiguration(Object.freeze({ ...projection, configurationFingerprint: integrationDigest(projection) }));
+}
+
+const POSTGRES_INTEGRATION_GIT: IntegrationGitPort = Object.freeze({
+  portId: "git:postgres-live", schemaVersion: 1, routeFingerprint: INTEGRATOR_ROUTE, targetFingerprint: INTEGRATOR_TARGET,
+  async preflight() { throw new Error("claim-only contract must not invoke Git"); },
+  async integrate() { throw new Error("claim-only contract must not invoke Git"); },
+  async reconcile() { throw new Error("claim-only contract must not invoke Git"); },
+  async cleanup() { throw new Error("claim-only contract must not invoke Git"); },
+});
+const POSTGRES_INTEGRATION_VALIDATOR: IntegrationValidationPort = Object.freeze({
+  portId: "validation:postgres-live", schemaVersion: 1, routeFingerprint: INTEGRATOR_VALIDATOR,
+  async validate() { throw new Error("claim-only contract must not invoke validation"); },
+});
+
+function claimCommand(request: IntegrationRequest, owner: string): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    runId: request.runId,
+    commandId: `claim:${request.runId}`,
+    expectedVersion: 1,
+    owner,
+    leaseId: `lease:${request.runId}`,
+    fencingToken: null,
+    leaseExpiresAt: INTEGRATOR_LEASE_EXPIRY,
+    reasonCode: null,
+    occurredAt: INTEGRATOR_T1,
+  });
+}
+
+function withAggregateListBarrier(adapter: PersistenceAdapter, waitAtList: () => Promise<void>): { readonly adapter: PersistenceAdapter; arm(): void } {
+  let armed = false;
+  return Object.freeze({
+    adapter: Object.freeze({
+      async transact<T>(work: (tx: TransactionContext) => Promise<T> | T): Promise<T> {
+        return await adapter.transact(async (tx) => await work(Object.freeze({
+          ...tx,
+          aggregates: Object.freeze({
+            ...tx.aggregates,
+            async list(input: Parameters<TransactionContext["aggregates"]["list"]>[0]) {
+              const page = await tx.aggregates.list(input);
+              if (armed && input.aggregateType === "integration-run" && input.cursor === null) await waitAtList();
+              return page;
+            },
+          }),
+        })));
+      },
+      migrationStatus: () => adapter.migrationStatus(),
+      close: () => adapter.close(),
+    }),
+    arm() { armed = true; },
+  });
+}
 
 if (live === null) {
   describe("PostgreSQL live integration", () => {
@@ -108,7 +269,7 @@ if (live === null) {
           throw new Error("Expected both migration startups to complete.");
         }
         expect(await first.migrationStatus()).toMatchObject({ pending: [], databaseSchemaAhead: false });
-        expect((await second.migrationStatus()).applied).toHaveLength(2);
+        expect((await second.migrationStatus()).applied).toHaveLength(3);
         await Promise.all([first.close(), second.close()]);
       } finally {
         await Promise.allSettled([first?.close(), second?.close()]);
@@ -184,11 +345,12 @@ if (live === null) {
               expect(prefix.rows.map((row) => row["id"])).toEqual([
                 "0001-initial-schema",
                 "0002-evaluation-run-aggregate",
+                "0003-integration-run-aggregate",
               ]);
               await pool.query(
                 `INSERT INTO "${schema}".schema_migrations
                    (id, checksum_algorithm, checksum_hex, applied_at, ordinal)
-                 VALUES ('9999-future-schema','sha-256',$1,'2026-08-10T22:00:00.000Z',3)`,
+                 VALUES ('9999-future-schema','sha-256',$1,'2026-08-10T22:00:00.000Z',4)`,
                 ["a".repeat(64)],
               );
             }
@@ -257,6 +419,125 @@ if (live === null) {
         });
       } finally {
         await Promise.allSettled([first?.close(), second?.close()]);
+        await dropLiveSchema(live, schema);
+      }
+    });
+
+    it("persists and reopens a real integration-run aggregate and journal", async () => {
+      const schema = uniqueLiveSchema("integration_run");
+      let first: Awaited<ReturnType<typeof createPostgresPersistenceAdapter>> | undefined;
+      let second: Awaited<ReturnType<typeof createPostgresPersistenceAdapter>> | undefined;
+      try {
+        first = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
+        await first.transact(async (tx) => {
+          await tx.aggregates.create({
+            aggregateType: "integration-run",
+            aggregateId: "integration:postgres-live",
+            schemaVersion: 1,
+            payload: { status: "pending" },
+            traceId: null,
+          });
+          await tx.events.append({
+            eventId: "event:integration-postgres-live",
+            aggregateType: "integration-run",
+            aggregateId: "integration:postgres-live",
+            aggregateVersion: 1,
+            eventType: "integration.event",
+            eventSchemaVersion: 1,
+            payload: { status: "pending" },
+            occurredAt: "2026-08-11T09:00:00.000Z",
+            traceId: null,
+            causationId: null,
+          });
+        });
+        await first.close();
+        first = undefined;
+
+        second = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
+        const reopened = await second.transact(async (tx) => ({
+          aggregate: await tx.aggregates.get("integration-run", "integration:postgres-live"),
+          history: await tx.events.list({
+            aggregateType: "integration-run",
+            aggregateId: "integration:postgres-live",
+            limit: 10,
+            cursor: null,
+          }),
+        }));
+        expect(reopened.aggregate).toMatchObject({
+          aggregateType: "integration-run",
+          aggregateId: "integration:postgres-live",
+          aggregateVersion: 1,
+          payload: { status: "pending" },
+        });
+        expect(reopened.history.items).toHaveLength(1);
+        expect(reopened.history.items[0]).toMatchObject({
+          eventId: "event:integration-postgres-live",
+          aggregateType: "integration-run",
+          aggregateId: "integration:postgres-live",
+          aggregateVersion: 1,
+        });
+      } finally {
+        await Promise.allSettled([first?.close(), second?.close()]);
+        await dropLiveSchema(live, schema);
+      }
+    });
+
+    it("serializes two integration services claiming one physical target across independent adapters", async () => {
+      const schema = uniqueLiveSchema("integration_claim_race");
+      const firstBase = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
+      const secondBase = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
+      let reopened: Awaited<ReturnType<typeof createPostgresPersistenceAdapter>> | undefined;
+      let arrivals = 0;
+      let release!: () => void;
+      const bothListed = new Promise<void>((resolve) => { release = resolve; });
+      let released = false;
+      const waitAtList = async (): Promise<void> => {
+        if (released) return;
+        arrivals += 1;
+        if (arrivals === 2) {
+          released = true;
+          release();
+        }
+        await bothListed;
+      };
+      const first = withAggregateListBarrier(firstBase, waitAtList);
+      const second = withAggregateListBarrier(secondBase, waitAtList);
+      const firstRequest = postgresIntegrationRequest("integration:postgres-race-a");
+      const secondRequest = postgresIntegrationRequest("integration:postgres-race-b");
+      const authority = postgresIntegrationAuthority(firstRequest, secondRequest);
+      const clock = Object.freeze({ now: () => new Date(INTEGRATOR_T1) });
+      const serviceFor = (persistence: PersistenceAdapter) => createIntegrationServiceForTesting({
+        persistence,
+        clock,
+        git: POSTGRES_INTEGRATION_GIT,
+        validation: POSTGRES_INTEGRATION_VALIDATOR,
+        authorityConfiguration: authority,
+      });
+      const firstService = serviceFor(first.adapter);
+      const secondService = serviceFor(second.adapter);
+      try {
+        await firstService.accept(firstRequest);
+        await secondService.accept(secondRequest);
+        first.arm();
+        second.arm();
+        const results = await Promise.allSettled([
+          firstService.claim(claimCommand(firstRequest, "worker:postgres-a")),
+          secondService.claim(claimCommand(secondRequest, "worker:postgres-b")),
+        ]);
+        expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+        const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        expect(rejected?.reason).toMatchObject({ code: "LEASE_CONFLICT" });
+
+        reopened = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
+        const reopenedService = serviceFor(reopened);
+        const durable = await Promise.all([reopenedService.get(firstRequest.runId), reopenedService.get(secondRequest.runId)]);
+        expect(durable.filter((snapshot) => snapshot?.status === "leased")).toHaveLength(1);
+        expect(durable.filter((snapshot) => snapshot?.status === "pending")).toHaveLength(1);
+        await expect(
+          reopenedService.claim(claimCommand(durable[0]?.status === "pending" ? firstRequest : secondRequest, "worker:retry")),
+        ).rejects.toMatchObject({ code: "LEASE_CONFLICT" });
+      } finally {
+        await Promise.allSettled([firstBase.close(), secondBase.close(), reopened?.close()]);
         await dropLiveSchema(live, schema);
       }
     });

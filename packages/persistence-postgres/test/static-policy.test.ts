@@ -40,9 +40,10 @@ describe("PostgreSQL package static policy", () => {
   });
 
   it("pins the native locking, sequence, checksum, and migration invariants", () => {
-    expect(POSTGRES_MIGRATIONS).toHaveLength(2);
+    expect(POSTGRES_MIGRATIONS).toHaveLength(3);
     const migration = POSTGRES_MIGRATIONS[0];
     const evaluationMigration = POSTGRES_MIGRATIONS[1];
+    const integrationMigration = POSTGRES_MIGRATIONS[2];
     expect(migration?.id).toBe("0001-initial-schema");
     expect(migrationChecksum(migration!).hex).toBe(
       "34413d60368bc485b1cbdc088d5000baa4ce31829c71ff0947d813aae1545f11",
@@ -52,6 +53,11 @@ describe("PostgreSQL package static policy", () => {
       "aeeee92ba9db56fb762e6f44dfcb782a840897582d3cc135d6b1cfb7a2e594a3",
     );
     expect(evaluationMigration?.content).toContain("'evaluation-run'");
+    expect(integrationMigration?.id).toBe("0003-integration-run-aggregate");
+    expect(migrationChecksum(integrationMigration!).hex).toBe(
+      "595f8bea3d06baae44370aeeca5f1a21f57cadf55f2970fb20b054e9ad29c065",
+    );
+    expect(integrationMigration?.content).toContain("'integration-run'");
     const adapter = read(resolve(packageRoot, "src", "postgres-adapter.ts"));
     const migrations = read(resolve(packageRoot, "src", "migrations.ts"));
     expect(adapter).toContain("FOR UPDATE SKIP LOCKED");
@@ -79,12 +85,15 @@ describe("PostgreSQL package static policy", () => {
       pg: "8.23.0",
       "pg-pool": "3.14.0",
     });
-    expect(manifest.devDependencies).toEqual({ "@types/pg": "8.21.0" });
+    expect(manifest.devDependencies).toEqual({
+      "@ai-dev-os/integrator": "^0.1.0",
+      "@types/pg": "8.21.0",
+    });
     expect(manifest.files).toEqual(["dist", "README.md"]);
     expect(Object.keys(manifest.exports).sort()).toEqual([".", "./testing"]);
-    expect(manifest.scripts["pretest"]).toBe("npm run build");
-    expect(manifest.scripts["pretest:live"]).toBe("npm run build");
-    expect(manifest.scripts["pretest:coverage"]).toBe("npm run build");
+    expect(manifest.scripts["pretest"]).toBe("npm run build && npm --prefix ../integrator run build");
+    expect(manifest.scripts["pretest:live"]).toBe("npm run build && npm --prefix ../integrator run build");
+    expect(manifest.scripts["pretest:coverage"]).toBe("npm run build && npm --prefix ../integrator run build");
 
     const pgManifest = JSON.parse(read(resolve(packageRoot, "..", "..", "node_modules", "pg", "package.json"))) as {
       readonly version: string;

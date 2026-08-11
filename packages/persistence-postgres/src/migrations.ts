@@ -99,6 +99,18 @@ ALTER TABLE events ADD CONSTRAINT events_aggregate_type_check
   CHECK (aggregate_type IN ('artifact-manifest','budget-account','evaluation-run','project','product-plan','task-graph','task-run','telemetry-ledger','worker-run'));
 `,
   }),
+  Object.freeze({
+    id: "0003-integration-run-aggregate",
+    content: `
+ALTER TABLE aggregates DROP CONSTRAINT aggregates_aggregate_type_check;
+ALTER TABLE aggregates ADD CONSTRAINT aggregates_aggregate_type_check
+  CHECK (aggregate_type IN ('artifact-manifest','budget-account','evaluation-run','integration-run','project','product-plan','task-graph','task-run','telemetry-ledger','worker-run'));
+
+ALTER TABLE events DROP CONSTRAINT events_aggregate_type_check;
+ALTER TABLE events ADD CONSTRAINT events_aggregate_type_check
+  CHECK (aggregate_type IN ('artifact-manifest','budget-account','evaluation-run','integration-run','project','product-plan','task-graph','task-run','telemetry-ledger','worker-run'));
+`,
+  }),
 ]);
 
 const MIGRATION_LOCK_NAMESPACE = 1_092_874_307;

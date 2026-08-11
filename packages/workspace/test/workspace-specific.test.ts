@@ -227,6 +227,7 @@ describe("git configuration sanitization", () => {
       "filter.lfs.process",
       "diff.doc.textconv",
       "merge.custom.driver",
+      "protocol.ext.allow",
       "user.name",
     ]);
     const joined = args.join(" ");
@@ -237,7 +238,12 @@ describe("git configuration sanitization", () => {
     expect(joined).toContain("filter.lfs.process=");
     expect(joined).toContain("diff.doc.textconv=");
     expect(joined).toContain("merge.custom.driver=");
+    expect(joined).toContain("protocol.ext.allow=never");
     expect(joined).not.toContain("user.name");
+    expect(() => neutralizingConfigArguments(["merge.evil=x.driver"]))
+      .toThrowError(expect.objectContaining({ code: "INVALID_CONFIGURATION" }));
+    expect(() => neutralizingConfigArguments(["protocol.evil=x.allow"]))
+      .toThrowError(expect.objectContaining({ code: "INVALID_CONFIGURATION" }));
   });
 
   it("builds an environment that inherits no credential or redirection variable", () => {
@@ -262,6 +268,8 @@ describe("git configuration sanitization", () => {
     expect(env["SSH_AUTH_SOCK"]).toBeUndefined();
     expect(env["GIT_CONFIG_GLOBAL"]).toBe("/g");
     expect(env["GIT_CONFIG_NOSYSTEM"]).toBe("1");
+    expect(env["GIT_ATTR_NOSYSTEM"]).toBe("1");
+    expect(env["GIT_NO_LAZY_FETCH"]).toBe("1");
     expect(env["HOME"]).toBe("/home");
     expect(env["GIT_ASKPASS"]).toBe("");
     expect(env["GIT_TERMINAL_PROMPT"]).toBe("0");
@@ -284,6 +292,15 @@ describe("git configuration sanitization", () => {
     expect(env["GIT_INDEX_FILE"]).toBe("/private/index");
     expect(env["GIT_OBJECT_DIRECTORY"]).toBe("/private/objects");
     expect(env["GIT_ALTERNATE_OBJECT_DIRECTORIES"]).toBe("/source/objects:/other/objects");
+    expect(() => buildGitEnvironment({
+      emptyHooksDir: "/h",
+      emptyGlobalConfigFile: "/g",
+      emptyHomeDir: "/home",
+      tempDir: "/tmp",
+      platform: "linux",
+      hostEnvironment: {},
+      alternateObjectDirectories: ["/source/escape:other"],
+    })).toThrowError(expect.objectContaining({ code: "INVALID_CONFIGURATION" }));
   });
 });
 

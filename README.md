@@ -40,7 +40,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
 | Stage 18 | **Production-disabled checkpoints complete** — 18A/18B/18C/18D published; production remains blocked on Stage 17W |
-| Stage 19 | **19A evaluation checkpoint in progress** — deterministic evaluation only; 19B Git integration absent; production remains disabled |
+| Stage 19 | **19B implementation checkpoint, acceptance incomplete** — deterministic evaluation plus production-disabled serialized local-Git integration; the concrete B3 fixture matrix and definitive local gates are complete, while publication and exact-head hosted CI remain pending |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
 
@@ -99,7 +99,7 @@ Every command below was run against this repository.
 
 ```powershell
 npm ci             # lockfile-exact install
-npm run check      # typecheck, then tests, then build, across all 38 packages
+npm run check      # typecheck, then tests, then build, across all 39 packages
 ```
 
 `npm run check` takes roughly 20 to 45 minutes depending on machine load. The individual gates:
@@ -151,7 +151,7 @@ explicit human operation.
 ## Repository layout
 
 ```text
-packages/              38 domain, application, and adapter modules
+packages/              39 domain, application, and adapter modules
 docs/adr/              Architecture decision records
 docs/development/      Contributor and GitHub workflow policy
 .github/workflows/     CI
@@ -193,9 +193,10 @@ most valuable.
 - [`@ai-dev-os/profiler`](packages/profiler/README.md) creates a provenance-separated deterministic task profile from trusted declarations, repository/context/prompt/proposal measurements, conservative rules, and an optional schema-validated untrusted classifier hint. Its estimator registry requires an exact provider, transport profile, contract model, and catalog fingerprint binding.
 - [`@ai-dev-os/router`](packages/router/README.md) applies finite hard rejection codes before bounded integer scoring, then emits deterministic primary/fallback/no-route decisions, pure circuit transitions, and version-bound budget reservation/reconciliation plans. It invokes no provider and performs no durable mutation.
 
-## Stage 19A package
+## Stage 19 packages
 
-- [`@ai-dev-os/evaluation`](packages/evaluation/README.md) validates exact bounded deterministic evidence against externally trusted subject-bound criterion-manifest, evidence-instance, and waiver-digest allowlists, preserves non-authoritative model disagreement, produces authority-free completeness findings, and journals command-equivalent evaluation runs through the persistence port. Production and Git integration remain disabled.
+- [`@ai-dev-os/evaluation`](packages/evaluation/README.md) validates exact bounded deterministic evidence against externally trusted subject-bound criterion-manifest, evidence-instance, and waiver-digest allowlists, preserves non-authoritative model disagreement, produces authority-free completeness findings, and journals command-equivalent evaluation runs through the persistence port.
+- [`@ai-dev-os/integrator`](packages/integrator/README.md) binds an accepted evaluation admission to exact commits, trees, ordered parents, paths, validation and authority; journals a serialized fenced effect intent and exact receipt; refuses ambiguous retry; and exposes a real sanitized Git implementation only through its disposable-fixture testing subpath. Production Git effects remain literally disabled.
 
 Provider/model IDs remain opaque configuration. The router can choose any configured eligible GPT or Claude inference target without name heuristics or a built-in commercial preference. Claude Code and Codex adapters implement the separate coding-agent contract and cannot be used as inference thinkers. A concrete Claude model requires a supported inference-provider registration; this repository does not currently ship a direct first-party Anthropic inference adapter. Usage/reset facts come only from normalized authorized observations, never guessed provider policy.
 

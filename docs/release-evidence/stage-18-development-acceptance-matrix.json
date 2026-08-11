@@ -179,15 +179,15 @@
     {
       "id": "INT-01",
       "requirement": "Crash/restart and duplicate delivery prove no duplicate external workspace, Git or provider mutation after ambiguous process failure.",
-      "authority": ["docs/implementation-roadmap.md", "docs/adr/0023-stage-18c-durable-runtime-usage-adapter.md"],
-      "implementation": [],
-      "tests": [],
-      "evidence": [],
+      "authority": ["docs/implementation-roadmap.md", "docs/adr/0023-stage-18c-durable-runtime-usage-adapter.md", "docs/adr/0026-stage-19b-serialized-git-integration.md"],
+      "implementation": ["packages/integrator/src/state.ts", "packages/integrator/src/store.ts", "packages/integrator/src/testing/real-git-port.ts", "packages/workspace/src/git-runner.ts", "packages/persistence-postgres/src/migrations.ts"],
+      "tests": ["packages/integrator/test/store.test.ts", "packages/integrator/test/store-failure-paths.test.ts", "packages/integrator/test/real-git.test.ts", "packages/persistence-postgres/test/postgres-live.test.ts"],
+      "evidence": ["docs/release-evidence/stage-19b-serialized-git-integration-checkpoint.md"],
       "status": "incomplete",
       "ownerStage": "18",
       "blocksDevelopmentAcceptance": true,
       "blocksProduction": true,
-      "rationale": "Durable intent/no-redispatch is proven, but no external-effect executor or effect receipt exists; zero live effects cannot prove mutation idempotency."
+      "rationale": "The production-disabled external Git effect port, durable intent/effect-start/receipt/reconciliation protocol, real disposable-repository crash seams, and SQLite no-repeat reopen proofs now exist. The row remains incomplete until the exact Stage 19B source head passes hosted dependency, PostgreSQL integration, Ubuntu, coverage, and Windows jobs and publication is reconciled."
     },
     {
       "id": "EVD-01",

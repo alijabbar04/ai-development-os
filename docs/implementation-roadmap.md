@@ -1,7 +1,7 @@
 # AI Development OS Implementation Roadmap
 
 Status: Active  
-Last updated: 2026-08-08
+Last updated: 2026-08-11
 
 ## Delivery rule
 
@@ -755,7 +755,8 @@ Tests and gate:
 
 ## Stage 19: Evaluation, disagreement handling, and integration
 
-Status: Stage 19A evaluation checkpoint implemented; Stage 19B integration remains planned.
+Status: Stage 19A evaluation checkpoint published; Stage 19B production-disabled
+implementation candidate present, with acceptance incomplete.
 
 Packages: `@ai-dev-os/evaluation`, `@ai-dev-os/integrator`
 
@@ -764,9 +765,13 @@ deterministic evidence evaluation, externally configured subject-bound exact
 criterion manifests plus exact evidence-instance and canonical waiver-digest consumption,
 model-disagreement preservation, authority-free completeness findings, and an
 exactly replayed `evaluation-run` persistence aggregate. It remains literal
-production-disabled. `@ai-dev-os/integrator`, all Git effects, conflict
-resolution, serialized integration fencing, and the disposable-repository
-fixture matrix remain incomplete Stage 19B work.
+production-disabled. `@ai-dev-os/integrator` now supplies a production-disabled
+exact-request domain, serialized durable intent/receipt/recovery protocol, and a
+test-only disposable real-Git port. The full named B3 adversarial repository
+fixture matrix below is implemented against actual disposable Git trees.
+Stage 19B acceptance remains incomplete pending publication and exact-head
+hosted CI; its definitive local gates and independent read-only source review
+are complete.
 
 Deliverables:
 

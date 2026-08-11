@@ -13,7 +13,7 @@ npm ci
 npm run check
 ```
 
-`npm run check` runs typecheck, then tests, then build, across all 37 workspace
+`npm run check` runs typecheck, then tests, then build, across all 39 workspace
 packages. It takes roughly 20 to 45 minutes depending on machine load. Every command in this
 document was run against this repository before being written here.
 

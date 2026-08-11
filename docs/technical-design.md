@@ -2,7 +2,7 @@
 
 Status: Accepted baseline  
 Version: 0.3
-Last updated: 2026-08-08
+Last updated: 2026-08-11
 
 ## 1. Executive summary
 
@@ -477,18 +477,19 @@ Retrieved content carries source, commit, path, byte range, trust label, and tok
 
 ### 12.3 Integration and conflict handling
 
-Writing tasks produce a commit or patch, a machine-readable changed-file manifest, validation results, and output artifacts. The integrator serializes candidate commits in task dependency order into a dedicated integration worktree.
+Writing tasks produce a commit or patch, a machine-readable changed-file manifest, validation results, and output artifacts. The integrator serializes candidate commits per repository/target through a durable lease and monotonically fenced intent, then uses one fresh task-owned integration worktree and private index. The effect-start marker is durable before Git; an uncertain outcome is reconciled from exact commit/ref evidence and is never automatically repeated.
 
-Conflict handling has four levels:
+Conflict handling has five levels:
 
 1. **Structural:** Git three-way merge detects overlapping textual conflicts.
 2. **Scope:** Path and ownership policy rejects undeclared or protected changes.
 3. **Semantic:** Dependency impact, type checks, tests, static analysis, and changed API contracts expose non-overlapping incompatibilities.
 4. **Intent:** Independent reviewers compare the combined diff against task acceptance criteria and project decisions.
+5. **Specification:** The combined tree remains bound to the approved product specification, requirement-to-task-to-result coverage, authorized waivers, and unresolved security/feasibility dissent.
 
 For a resolvable conflict, an arbiter receives base/ours/theirs, both task intents, relevant decisions, and failed validation evidence. It proposes a patch in a fresh worktree. Deterministic validation and policy decide whether that patch can be integrated. A second model's agreement is never authorization or proof of correctness.
 
-If the target branch advances during a run, the integrator creates a new candidate on the new head and reruns affected validation. Remote pushes and branch mutations require explicit approval.
+If the target branch advances after validation, the Stage 19B checkpoint fails the compare-and-swap update and requires a new evaluation-bound request on the new head; it never silently rebases or reruns an ambiguous effect. Remote pushes, primary-branch changes, and production registration remain absent and require a later explicit authority decision.
 
 ## 13. Output merging and disagreement resolution
 
@@ -806,7 +807,7 @@ Pricing records are versioned by provider, model, region, effective time, token 
 | Incomplete requirement coverage | Refuse normal completion until evidence is attached, an authorized waiver is recorded, or the run ends with a visible incomplete outcome |
 | Disk full | Stop admission, preserve committed state, surface remediation, avoid destructive cleanup |
 | Database lock/contention | Bounded retry and backpressure; never hold transactions across provider calls |
-| Target branch movement | Reintegrate on current head and rerun affected validations |
+| Target branch movement | Fail the exact compare-and-swap request; require a newly evaluated request on the new head before any later effect |
 | Plugin or CLI drift | Fail capability handshake and quarantine incompatible adapter |
 | Budget exhaustion | Cancel or pause before exceeding reservation; reconcile actual usage and require explicit extension |
 

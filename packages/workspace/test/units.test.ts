@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -28,6 +28,7 @@ import {
   createWorkspaceAuditRecord,
   notifyWorkspaceObserver,
   parseChangedFileEntry,
+  processGroupProbeConfirmsGone,
   readGitmodulesMetadata,
   resolveGitExecutable,
   runGitChecked,
@@ -193,6 +194,12 @@ describe("changed-file manifests", () => {
 });
 
 describe("git runner", () => {
+  it("treats only ESRCH as proof that a POSIX process group is gone", () => {
+    expect(processGroupProbeConfirmsGone(Object.assign(new Error("missing"), { code: "ESRCH" }))).toBe(true);
+    expect(processGroupProbeConfirmsGone(Object.assign(new Error("forbidden"), { code: "EPERM" }))).toBe(false);
+    expect(processGroupProbeConfirmsGone(new Error("unclassified"))).toBe(false);
+  });
+
   it("fails a checked command with a stable code and no Git text", async () => {
     const base = await scratch();
     const runtime = await createGitRuntime({ root: join(base, "runtime") });
@@ -240,17 +247,119 @@ describe("git runner", () => {
     await repo.cleanup();
   });
 
+  it("cancels an already-running Git process through the caller signal", async () => {
+    const runner = createGitRunner(process.execPath);
+    const controller = new AbortController();
+    const running = runner.run(["-e", "setInterval(() => undefined, 1000)"], {
+      cwd: process.cwd(),
+      env: process.env as Readonly<Record<string, string>>,
+      signal: controller.signal,
+      timeoutMs: 60_000,
+    });
+    setTimeout(() => controller.abort(), 20).unref?.();
+    await expect(running).rejects.toMatchObject({
+      code: "GIT_BACKEND_FAILURE",
+      details: { reason: "aborted" },
+    });
+  });
+
+  it("refuses a signal that was already aborted before process creation", async () => {
+    const runner = createGitRunner(process.execPath);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(runner.run(["--version"], {
+      cwd: process.cwd(),
+      env: process.env as Readonly<Record<string, string>>,
+      signal: controller.signal,
+    })).rejects.toMatchObject({ code: "GIT_BACKEND_FAILURE", details: { reason: "aborted" } });
+  });
+
+  it("settles cancellation only after a nested descendant stops writing", async () => {
+    const base = await scratch();
+    const heartbeat = join(base, "descendant-heartbeat.txt");
+    const childScript = `const fs=require("node:fs");const p=${JSON.stringify(heartbeat)};fs.writeFileSync(p,"started\\n");setInterval(()=>fs.appendFileSync(p,"tick\\n"),10);`;
+    const parentScript = `require("node:child_process").spawn(${JSON.stringify(process.execPath)},["-e",${JSON.stringify(childScript)}],{stdio:"ignore"});setInterval(()=>{},1000);`;
+    const runner = createGitRunner(process.execPath);
+    const controller = new AbortController();
+    const running = runner.run(["-e", parentScript], {
+      cwd: base,
+      env: process.env as Readonly<Record<string, string>>,
+      signal: controller.signal,
+      timeoutMs: 60_000,
+    });
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (await access(heartbeat).then(() => true).catch(() => false)) break;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 5));
+    }
+    await expect(access(heartbeat)).resolves.toBeUndefined();
+    controller.abort();
+    await expect(running).rejects.toMatchObject({ code: "GIT_BACKEND_FAILURE", details: { reason: "aborted" } });
+    const stoppedLength = (await readFile(heartbeat)).byteLength;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 150));
+    expect((await readFile(heartbeat)).byteLength).toBe(stoppedLength);
+  }, 15_000);
+
+  it.runIf(process.platform === "win32")("refuses to spawn when the trusted Windows tree killer is unavailable", async () => {
+    const base = await scratch();
+    const heartbeat = join(base, "heartbeat.txt");
+    const originalSystemRoot = process.env["SystemRoot"];
+    try {
+      process.env["SystemRoot"] = "relative-untrusted-root";
+      const runner = createGitRunner(process.execPath);
+      await expect(runner.run([
+        "-e",
+        `require("node:fs").writeFileSync(${JSON.stringify(heartbeat)},"unexpected")`,
+      ], {
+        cwd: base,
+        env: process.env as Readonly<Record<string, string>>,
+        timeoutMs: 60_000,
+      })).rejects.toMatchObject({ code: "GIT_UNAVAILABLE" });
+    } finally {
+      if (originalSystemRoot === undefined) delete process.env["SystemRoot"];
+      else process.env["SystemRoot"] = originalSystemRoot;
+    }
+    await expect(access(heartbeat)).rejects.toBeDefined();
+  });
+
+  it.runIf(process.platform === "win32")("fails closed after a trusted-path tree killer returns failure", async () => {
+    const base = await scratch();
+    const fakeSystemRoot = join(base, "fake-system-root");
+    const fakeSystem32 = join(fakeSystemRoot, "System32");
+    await mkdir(fakeSystem32, { recursive: true });
+    await copyFile(process.execPath, join(fakeSystem32, "taskkill.exe"));
+    const originalSystemRoot = process.env["SystemRoot"];
+    try {
+      process.env["SystemRoot"] = fakeSystemRoot;
+      const runner = createGitRunner(process.execPath);
+      const controller = new AbortController();
+      const running = runner.run(["-e", "setInterval(() => undefined, 1000)"], {
+        cwd: base,
+        env: process.env as Readonly<Record<string, string>>,
+        signal: controller.signal,
+        timeoutMs: 60_000,
+      });
+      setTimeout(() => controller.abort(), 20).unref?.();
+      await expect(running).rejects.toMatchObject({ code: "GIT_BACKEND_FAILURE", details: { reason: "termination-unconfirmed" } });
+    } finally {
+      if (originalSystemRoot === undefined) delete process.env["SystemRoot"];
+      else process.env["SystemRoot"] = originalSystemRoot;
+    }
+  }, 15_000);
+
   it("refuses output beyond the configured bound", async () => {
     const repo = await createTempRepository({ extraCommits: 5 });
     const base = await scratch();
     const runtime = await createGitRuntime({ root: join(base, "runtime") });
-    await expect(
-      runtime.runner.run([...runtime.configArguments(), "log", "--format=%H%n%B"], {
+    const error = await runtime.runner.run([...runtime.configArguments(), "log", "--format=%H%n%B"], {
         cwd: repo.root,
         env: runtime.environment(),
         maxOutputBytes: 8,
-      }),
-    ).rejects.toMatchObject({ code: "OUTPUT_TRUNCATED" });
+      }).catch((failure: unknown) => failure);
+    if (process.platform === "win32") {
+      expect(error).toMatchObject({ code: "GIT_BACKEND_FAILURE", details: { reason: "termination-unconfirmed" } });
+    } else {
+      expect(error).toMatchObject({ code: "OUTPUT_TRUNCATED" });
+    }
     await runtime.dispose();
     await repo.cleanup();
   });
@@ -261,6 +370,11 @@ describe("git runner", () => {
     await expect(
       runner.run(["--version"], { cwd: base, env: {} }),
     ).rejects.toMatchObject({ code: "GIT_UNAVAILABLE" });
+  });
+
+  it("maps a synchronous spawn argument refusal to a finite unavailable error", async () => {
+    const runner = createGitRunner(process.execPath);
+    await expect(runner.run(["\u0000"], { cwd: process.cwd(), env: {} })).rejects.toMatchObject({ code: "GIT_UNAVAILABLE" });
   });
 
   it("locates git and rejects a configured path that does not exist", async () => {

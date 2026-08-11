@@ -178,21 +178,31 @@ export function neutralizingConfigArguments(configKeys: readonly string[]): read
   const filterDrivers = new Set<string>();
   const textconvDrivers = new Set<string>();
   const mergeDrivers = new Set<string>();
+  const protocols = new Set<string>();
 
   for (const key of configKeys) {
     const filter = /^filter\.(.+)\.(clean|smudge|process|required)$/.exec(key);
     if (filter?.[1] !== undefined) {
+      if (!/^[^=\u0000-\u001f\u007f]{1,256}$/u.test(filter[1])) throw invalidConfiguration("Repository driver name cannot be represented by the reviewed Git configuration boundary.");
       filterDrivers.add(filter[1]);
       continue;
     }
     const textconv = /^diff\.(.+)\.textconv$/.exec(key);
     if (textconv?.[1] !== undefined) {
+      if (!/^[^=\u0000-\u001f\u007f]{1,256}$/u.test(textconv[1])) throw invalidConfiguration("Repository driver name cannot be represented by the reviewed Git configuration boundary.");
       textconvDrivers.add(textconv[1]);
       continue;
     }
     const merge = /^merge\.(.+)\.driver$/.exec(key);
     if (merge?.[1] !== undefined) {
+      if (!/^[^=\u0000-\u001f\u007f]{1,256}$/u.test(merge[1])) throw invalidConfiguration("Repository driver name cannot be represented by the reviewed Git configuration boundary.");
       mergeDrivers.add(merge[1]);
+      continue;
+    }
+    const protocol = /^protocol\.(.+)\.allow$/.exec(key);
+    if (protocol?.[1] !== undefined) {
+      if (!/^[^=\u0000-\u001f\u007f]{1,256}$/u.test(protocol[1])) throw invalidConfiguration("Repository protocol name cannot be represented by the reviewed Git configuration boundary.");
+      protocols.add(protocol[1]);
     }
   }
 
@@ -216,6 +226,9 @@ export function neutralizingConfigArguments(configKeys: readonly string[]): read
   }
   for (const driver of [...mergeDrivers].sort()) {
     args.push("-c", `merge.${driver}.driver=`);
+  }
+  for (const protocol of [...protocols].sort()) {
+    args.push("-c", `protocol.${protocol}.allow=never`);
   }
   return Object.freeze(args);
 }
@@ -278,6 +291,7 @@ export function buildGitEnvironment(input: GitEnvironmentInput): Readonly<Record
   // Configuration comes only from files we control. The repository's own
   // config is still read by Git; the `-c` overrides above neutralize it.
   env["GIT_CONFIG_NOSYSTEM"] = "1";
+  env["GIT_ATTR_NOSYSTEM"] = "1";
   env["GIT_CONFIG_GLOBAL"] = input.emptyGlobalConfigFile;
   env["GIT_CONFIG_SYSTEM"] = input.emptyGlobalConfigFile;
   env["HOME"] = input.emptyHomeDir;
@@ -291,6 +305,11 @@ export function buildGitEnvironment(input: GitEnvironmentInput): Readonly<Record
   env["SSH_ASKPASS"] = "";
   env["GIT_PAGER"] = "";
   env["GIT_FLUSH"] = "1";
+  // Replace refs and grafts alter commit/tree reachability without changing
+  // the object IDs supplied by a caller. Exact repository inspection must use
+  // immutable object semantics.
+  env["GIT_NO_REPLACE_OBJECTS"] = "1";
+  env["GIT_NO_LAZY_FETCH"] = "1";
   env["TMPDIR"] = input.tempDir;
   env["TMP"] = input.tempDir;
   env["TEMP"] = input.tempDir;
@@ -309,9 +328,11 @@ export function buildGitEnvironment(input: GitEnvironmentInput): Readonly<Record
   }
   if (input.alternateObjectDirectories !== undefined && input.alternateObjectDirectories.length > 0) {
     // The separator is platform specific: ';' on Windows, ':' elsewhere.
-    env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = input.alternateObjectDirectories.join(
-      platform === "win32" ? ";" : ":",
-    );
+    const separator = platform === "win32" ? ";" : ":";
+    if (input.alternateObjectDirectories.some((item) => item.includes(separator))) {
+      throw invalidConfiguration("An alternate object path contains the platform path-list delimiter.");
+    }
+    env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = input.alternateObjectDirectories.join(separator);
   }
   // Reads never take the opportunistic index lock, so a read cannot write.
   env["GIT_OPTIONAL_LOCKS"] = input.optionalLocks === true ? "1" : "0";

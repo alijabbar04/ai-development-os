@@ -146,6 +146,7 @@ describe("record validation", () => {
     expect(parseAggregateType("telemetry-ledger")).toBe("telemetry-ledger");
     expect(parseAggregateType("worker-run")).toBe("worker-run");
     expect(parseAggregateType("evaluation-run")).toBe("evaluation-run");
+    expect(parseAggregateType("integration-run")).toBe("integration-run");
     expect(() => parseAggregateType("wallet")).toThrow(ValidationError);
   });
 });
