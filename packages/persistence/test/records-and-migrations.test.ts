@@ -145,6 +145,7 @@ describe("record validation", () => {
     expect(parseAggregateType("budget-account")).toBe("budget-account");
     expect(parseAggregateType("telemetry-ledger")).toBe("telemetry-ledger");
     expect(parseAggregateType("worker-run")).toBe("worker-run");
+    expect(parseAggregateType("evaluation-run")).toBe("evaluation-run");
     expect(() => parseAggregateType("wallet")).toThrow(ValidationError);
   });
 });

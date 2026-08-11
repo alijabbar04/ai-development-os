@@ -40,12 +40,18 @@ describe("PostgreSQL package static policy", () => {
   });
 
   it("pins the native locking, sequence, checksum, and migration invariants", () => {
-    expect(POSTGRES_MIGRATIONS).toHaveLength(1);
+    expect(POSTGRES_MIGRATIONS).toHaveLength(2);
     const migration = POSTGRES_MIGRATIONS[0];
+    const evaluationMigration = POSTGRES_MIGRATIONS[1];
     expect(migration?.id).toBe("0001-initial-schema");
     expect(migrationChecksum(migration!).hex).toBe(
       "34413d60368bc485b1cbdc088d5000baa4ce31829c71ff0947d813aae1545f11",
     );
+    expect(evaluationMigration?.id).toBe("0002-evaluation-run-aggregate");
+    expect(migrationChecksum(evaluationMigration!).hex).toBe(
+      "aeeee92ba9db56fb762e6f44dfcb782a840897582d3cc135d6b1cfb7a2e594a3",
+    );
+    expect(evaluationMigration?.content).toContain("'evaluation-run'");
     const adapter = read(resolve(packageRoot, "src", "postgres-adapter.ts"));
     const migrations = read(resolve(packageRoot, "src", "migrations.ts"));
     expect(adapter).toContain("FOR UPDATE SKIP LOCKED");

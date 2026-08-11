@@ -181,7 +181,8 @@ class FakeClient implements DatabaseClient {
       sql.includes("/*ados:transaction-probe*/") ||
       sql.startsWith("CREATE SCHEMA") ||
       sql.startsWith("CREATE TABLE IF NOT EXISTS") ||
-      sql.startsWith("CREATE TABLE aggregates")
+      sql.startsWith("CREATE TABLE aggregates") ||
+      sql.startsWith("ALTER TABLE aggregates")
     ) {
       return result();
     }

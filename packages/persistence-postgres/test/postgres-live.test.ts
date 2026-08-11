@@ -108,7 +108,7 @@ if (live === null) {
           throw new Error("Expected both migration startups to complete.");
         }
         expect(await first.migrationStatus()).toMatchObject({ pending: [], databaseSchemaAhead: false });
-        expect((await second.migrationStatus()).applied).toHaveLength(1);
+        expect((await second.migrationStatus()).applied).toHaveLength(2);
         await Promise.all([first.close(), second.close()]);
       } finally {
         await Promise.allSettled([first?.close(), second?.close()]);
@@ -178,10 +178,17 @@ if (live === null) {
                 ["f".repeat(64)],
               );
             } else {
+              const prefix = await pool.query(
+                `SELECT id FROM "${schema}".schema_migrations ORDER BY ordinal`,
+              );
+              expect(prefix.rows.map((row) => row["id"])).toEqual([
+                "0001-initial-schema",
+                "0002-evaluation-run-aggregate",
+              ]);
               await pool.query(
                 `INSERT INTO "${schema}".schema_migrations
                    (id, checksum_algorithm, checksum_hex, applied_at, ordinal)
-                 VALUES ('9999-future-schema','sha-256',$1,'2026-08-10T22:00:00.000Z',2)`,
+                 VALUES ('9999-future-schema','sha-256',$1,'2026-08-10T22:00:00.000Z',3)`,
                 ["a".repeat(64)],
               );
             }
@@ -192,6 +199,65 @@ if (live === null) {
         } finally {
           await dropLiveSchema(live, schema);
         }
+      }
+    });
+
+    it("persists and reopens a real evaluation-run aggregate and journal", async () => {
+      const schema = uniqueLiveSchema("evaluation_run");
+      let first: Awaited<ReturnType<typeof createPostgresPersistenceAdapter>> | undefined;
+      let second: Awaited<ReturnType<typeof createPostgresPersistenceAdapter>> | undefined;
+      try {
+        first = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
+        await first.transact(async (tx) => {
+          await tx.aggregates.create({
+            aggregateType: "evaluation-run",
+            aggregateId: "evaluation:postgres-live",
+            schemaVersion: 1,
+            payload: { status: "pending" },
+            traceId: null,
+          });
+          await tx.events.append({
+            eventId: "event:evaluation-postgres-live",
+            aggregateType: "evaluation-run",
+            aggregateId: "evaluation:postgres-live",
+            aggregateVersion: 1,
+            eventType: "evaluation.event",
+            eventSchemaVersion: 1,
+            payload: { status: "pending" },
+            occurredAt: "2026-08-11T03:40:00.000Z",
+            traceId: null,
+            causationId: null,
+          });
+        });
+        await first.close();
+        first = undefined;
+
+        second = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
+        const reopened = await second.transact(async (tx) => ({
+          aggregate: await tx.aggregates.get("evaluation-run", "evaluation:postgres-live"),
+          history: await tx.events.list({
+            aggregateType: "evaluation-run",
+            aggregateId: "evaluation:postgres-live",
+            limit: 10,
+            cursor: null,
+          }),
+        }));
+        expect(reopened.aggregate).toMatchObject({
+          aggregateType: "evaluation-run",
+          aggregateId: "evaluation:postgres-live",
+          aggregateVersion: 1,
+          payload: { status: "pending" },
+        });
+        expect(reopened.history.items).toHaveLength(1);
+        expect(reopened.history.items[0]).toMatchObject({
+          eventId: "event:evaluation-postgres-live",
+          aggregateType: "evaluation-run",
+          aggregateId: "evaluation:postgres-live",
+          aggregateVersion: 1,
+        });
+      } finally {
+        await Promise.allSettled([first?.close(), second?.close()]);
+        await dropLiveSchema(live, schema);
       }
     });
 

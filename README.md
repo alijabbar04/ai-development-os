@@ -39,7 +39,8 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Production-disabled checkpoints in progress** — 18A/18B/18C published; 18D PostgreSQL/admission candidate in progress; production remains blocked on Stage 17W |
+| Stage 18 | **Production-disabled checkpoints complete** — 18A/18B/18C/18D published; production remains blocked on Stage 17W |
+| Stage 19 | **19A evaluation checkpoint in progress** — deterministic evaluation only; 19B Git integration absent; production remains disabled |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
 
@@ -59,9 +60,9 @@ Three things are stated plainly because they are easy to assume the other way:
   evidence stay intact, while native enforcement, L-02, packaging, and parity
   move to Stage 25.
 - **Stage 18 checkpoints do not admit production.** Production-disabled 18A,
-  18B, and 18C are published. The 18D candidate adds PostgreSQL parity and the
-  machine-checkable acceptance audit, but its schema has no admitted variant
-  and production stays blocked on Stage 17W.
+  18B, 18C, and 18D are published. PostgreSQL parity and the machine-checkable
+  acceptance audit are present, but the schema has no admitted variant and
+  production stays blocked on Stage 17W.
 
 ## Documents
 
@@ -98,7 +99,7 @@ Every command below was run against this repository.
 
 ```powershell
 npm ci             # lockfile-exact install
-npm run check      # typecheck, then tests, then build, across all 37 packages
+npm run check      # typecheck, then tests, then build, across all 38 packages
 ```
 
 `npm run check` takes roughly 20 to 45 minutes depending on machine load. The individual gates:
@@ -150,7 +151,7 @@ explicit human operation.
 ## Repository layout
 
 ```text
-packages/              37 domain, application, and adapter modules
+packages/              38 domain, application, and adapter modules
 docs/adr/              Architecture decision records
 docs/development/      Contributor and GitHub workflow policy
 .github/workflows/     CI
@@ -191,6 +192,10 @@ most valuable.
 
 - [`@ai-dev-os/profiler`](packages/profiler/README.md) creates a provenance-separated deterministic task profile from trusted declarations, repository/context/prompt/proposal measurements, conservative rules, and an optional schema-validated untrusted classifier hint. Its estimator registry requires an exact provider, transport profile, contract model, and catalog fingerprint binding.
 - [`@ai-dev-os/router`](packages/router/README.md) applies finite hard rejection codes before bounded integer scoring, then emits deterministic primary/fallback/no-route decisions, pure circuit transitions, and version-bound budget reservation/reconciliation plans. It invokes no provider and performs no durable mutation.
+
+## Stage 19A package
+
+- [`@ai-dev-os/evaluation`](packages/evaluation/README.md) validates exact bounded deterministic evidence against externally trusted subject-bound criterion-manifest, evidence-instance, and waiver-digest allowlists, preserves non-authoritative model disagreement, produces authority-free completeness findings, and journals command-equivalent evaluation runs through the persistence port. Production and Git integration remain disabled.
 
 Provider/model IDs remain opaque configuration. The router can choose any configured eligible GPT or Claude inference target without name heuristics or a built-in commercial preference. Claude Code and Codex adapters implement the separate coding-agent contract and cannot be used as inference thinkers. A concrete Claude model requires a supported inference-provider registration; this repository does not currently ship a direct first-party Anthropic inference adapter. Usage/reset facts come only from normalized authorized observations, never guessed provider policy.
 

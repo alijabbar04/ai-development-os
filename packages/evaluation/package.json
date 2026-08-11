@@ -1,0 +1,35 @@
+{
+  "name": "@ai-dev-os/evaluation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production-disabled bounded deterministic evaluation, disagreement preservation, completeness auditing, and durable replay.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../domain run build && npm --prefix ../persistence run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../domain run build && npm --prefix ../persistence run build && npm --prefix ../persistence-memory run build && npm --prefix ../persistence-sqlite run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../domain run build && npm --prefix ../persistence run build && npm --prefix ../persistence-memory run build && npm --prefix ../persistence-sqlite run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../domain run build && npm --prefix ../persistence run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/persistence": "^0.1.0"
+  },
+  "devDependencies": {
+    "@ai-dev-os/persistence-memory": "^0.1.0",
+    "@ai-dev-os/persistence-sqlite": "^0.1.0"
+  }
+}

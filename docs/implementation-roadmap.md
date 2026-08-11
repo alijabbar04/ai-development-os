@@ -755,14 +755,23 @@ Tests and gate:
 
 ## Stage 19: Evaluation, disagreement handling, and integration
 
-Status: Planned.
+Status: Stage 19A evaluation checkpoint implemented; Stage 19B integration remains planned.
 
 Packages: `@ai-dev-os/evaluation`, `@ai-dev-os/integrator`
+
+Stage 19A checkpoint: `@ai-dev-os/evaluation` provides bounded exact-subject
+deterministic evidence evaluation, externally configured subject-bound exact
+criterion manifests plus exact evidence-instance and canonical waiver-digest consumption,
+model-disagreement preservation, authority-free completeness findings, and an
+exactly replayed `evaluation-run` persistence aggregate. It remains literal
+production-disabled. `@ai-dev-os/integrator`, all Git effects, conflict
+resolution, serialized integration fencing, and the disposable-repository
+fixture matrix remain incomplete Stage 19B work.
 
 Deliverables:
 
 - Output-schema, changed-path, compilation, test, static-analysis, and acceptance-criteria evaluators.
-- Requirement-coverage evaluators that reconcile the approved product specification, task results, integrated repository state, deterministic validation, explicit waivers, and unresolved gaps.
+- Requirement-coverage evaluators that reconcile the approved product specification through explicit requirement-to-task-to-result edges, task results, integrated repository state, deterministic validation, externally preauthorized waiver digests, and unresolved gaps.
 - A separately routed final completeness audit for material product work. It may propose missing requirements or corrective tasks, but it cannot mark an unsupported requirement complete, widen scope, authorize execution, or override deterministic evidence.
 - Deterministic structured merge strategies and serialized Git integration.
 - Structural, scope, semantic, intent, and specification conflict detection, plus a rubric-based independent evaluator and fresh-worktree resolution flow. Dissenting security/feasibility findings and all planning dispositions remain visible to arbitration.
