@@ -79,7 +79,20 @@ two clean task-owned roots. Each publish contained 188 files, and ordinal
 filename, size, and SHA-256 comparison found zero differences between repeats.
 The separately published single-file boundary target was 70,923,627 bytes with
 SHA-256
-`5ea8f05a561cc8c2dd99a7ddbef4e5c25ed23e9158a4549669995285a4ea38fa`.
+`79491702137668b6c5addd035f5e6fada0b202f74e7250030b76e86766c4f660`.
+Two isolated publishes from the exact reviewed implementation commit
+`1cd722859800e8c889b1c558afd098bde6ac343f` with .NET SDK 9.0.316 were
+byte-identical at that size and hash. The superseded packet pin
+`5ea8f05a561cc8c2dd99a7ddbef4e5c25ed23e9158a4549669995285a4ea38fa`
+embedded informational version commit `6a65d2d4be69297149fd265573a4655e9f37c9ca`,
+an ancestor rather than the required reviewed revision. Its committed
+boundary-fixture tree differs from the reviewed tree, although the preserved
+artifact alone cannot establish which later working-tree source may have been
+present when that historical publish ran. The old and reviewed binaries differ
+in 161 bytes: the embedded revision strings, their derived PE timestamp/MVID,
+and the single-file bundle digest. This was a stale revision-bound artifact pin,
+not same-reviewed-commit nondeterminism. Neither binary was executed during the
+diagnosis.
 The exact merged install closure contains 193 files and 149,441,013 bytes. Its
 canonical source-envelope fingerprint is
 `16f327aa858f25e85c9f335d658e1879d1c93729940648df19cd6966326eb5c8`,

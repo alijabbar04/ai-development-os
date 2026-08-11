@@ -2,6 +2,8 @@
 
 Date: 2026-08-10
 
+Pure-build identity refreshed: 2026-08-11
+
 Status: **PREPARED, READ-ONLY VALIDATED, AND NOT EXECUTED**
 
 This is the canonical operator handoff for the bounded stateful observations
@@ -41,9 +43,40 @@ identity:
 | --- | --- |
 | Supervisor publish | 188 files; repeated publish matched ordinal name, size, and SHA-256 |
 | Helper publish | 188 files; repeated publish matched ordinal name, size, and SHA-256 |
-| Boundary target | one single-file executable; 70,923,627 bytes; SHA-256 `5ea8f05a561cc8c2dd99a7ddbef4e5c25ed23e9158a4549669995285a4ea38fa` |
+| Boundary target | one single-file executable from reviewed commit `1cd722859800e8c889b1c558afd098bde6ac343f`; 70,923,627 bytes; SHA-256 `79491702137668b6c5addd035f5e6fada0b202f74e7250030b76e86766c4f660` |
 | Merged installed closure | 193 exact ordinal filenames; 149,441,013 bytes; source-envelope fingerprint `16f327aa858f25e85c9f335d658e1879d1c93729940648df19cd6966326eb5c8` |
 | Process-broker npm dry-run | 122 files; 169,073 packed bytes; 772,726 unpacked bytes; only `README.md`, `package.json`, and `dist`; no native or source entry |
+
+The first 2026-08-11 pure preflight correctly stopped before every restricted
+operation because the then-recorded boundary pin was stale. Static byte
+comparison established that the old 70,923,627-byte artifact embedded
+`1.0.0+6a65d2d4be69297149fd265573a4655e9f37c9ca`, while the fresh artifact
+embedded the required
+`1.0.0+1cd722859800e8c889b1c558afd098bde6ac343f`. Commit `6a65d2d4` is
+an ancestor of the reviewed implementation, and its committed
+boundary-fixture tree differs by 38 inserted lines across two files. The
+preserved artifact does not prove which later uncommitted working-tree source
+may have been present during that historical publish. The binaries have the
+same length and differ in 161 bytes: the ASCII/UTF-16 revision identities plus
+their derived PE timestamp, MVID, and bundle digest.
+
+Two new isolated `dotnet publish` runs from the clean detached reviewed commit
+with .NET SDK 9.0.316 independently produced the exact updated hash above. A
+separately preserved intermediate build embeds its own commit `7ce5b6ac` and
+has a third hash, confirming that the single-file identity is deliberately
+source-revision-bound. This correction therefore replaces an artifact whose
+embedded repository revision did not match the packet's required clean
+reviewed commit; it does not accept an unexplained fresh hash or infer
+unrecorded historical working-tree contents. The diagnosis only compiled,
+hashed, and inspected metadata/bytes. It never executed the generated native
+candidate or entered installation, elevation, lifecycle, network, profile, or
+restricted-proof boundaries.
+
+An independent GPT-5.6 Sol reviewer at Max effort rechecked the two preserved
+reviewed-commit builds, old/intermediate/reviewed embedded revisions, exact
+161-byte delta, committed-tree lineage, and both evidence edits read-only. It
+returned `PASS` with no correction. This is a disclosed same-family review;
+opposite-family review and reviewer usage/cost were unavailable.
 
 As read-only packet-preparation validation, the reviewed-proof controller was
 rebuilt from the exact implementation commit under two independent checkout
