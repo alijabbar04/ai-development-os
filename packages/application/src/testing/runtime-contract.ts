@@ -53,7 +53,7 @@ const USAGE: NormalizedUsage = Object.freeze({
   costMicros: 100,
 });
 
-function definition(): WorkerWorkDefinition {
+export function createApplicationContractDefinition(): WorkerWorkDefinition {
   return {
     schemaVersion: 1,
     workId: "work:application-contract",
@@ -124,6 +124,8 @@ function definition(): WorkerWorkDefinition {
     estimatedUsage: USAGE,
   };
 }
+
+const definition = createApplicationContractDefinition;
 
 function usageSnapshot(): NormalizedCanonicalUsageSnapshot {
   return {

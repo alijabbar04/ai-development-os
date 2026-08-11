@@ -689,7 +689,14 @@ The initial schema contains:
 | `approvals` | Action digest, decision, actor, expiry, one-shot consumption |
 | `plugin_installations` | Version, digest, signature, manifest, grants, health |
 
-SQLite uses WAL, foreign keys, busy timeouts, short write transactions, and application-level single-writer scheduling. PostgreSQL uses row-level locks, advisory locks only where ownership is explicit, and transaction isolation tests. Migrations are forward-only in release artifacts, checksummed, backed up before destructive changes, and tested on production-scale fixtures.
+SQLite uses WAL, foreign keys, busy timeouts, short write transactions, and application-level single-writer scheduling. PostgreSQL uses serializable transactions, conditional aggregate writes, row-level locks, `SKIP LOCKED` only for its queue-like outbox, and an explicitly owned advisory session lock only for migration startup. Canonical payload and timestamp identities remain text rather than driver-converted JSON/timestamps. Migrations are forward-only in release artifacts, checksummed, and tested for concurrent startup, rollback, resume, schema-ahead refusal, and checksum drift. Stage 18D contains no destructive migration; any future destructive migration remains backup-gated and must be tested on production-scale fixtures before release. ADR 0024 records the exact adapter and refusal-only application boundary.
+
+The generic aggregate port deliberately does not pretend an opaque scheduler
+document is a queryable PostgreSQL ready queue. Database isolation makes stale
+cross-row transactions fail closed, while a future portable scheduler-claim
+projection must add indexed readiness/priority fields, a bounded conflict-retry
+policy, and memory/SQLite/PostgreSQL parity before efficient multi-process
+scheduler coordination is claimed.
 
 Large transcripts, repository bundles, patches, and model payloads stay outside SQL in content-addressed storage. SQL contains digest, size, encryption metadata, and reference counts. Artifact writes use temp file, hash verification, atomic rename, then metadata transaction; orphan collection is safe and delayed.
 

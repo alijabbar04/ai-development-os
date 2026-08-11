@@ -178,6 +178,53 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Real PostgreSQL parity is deliberately isolated from the ordinary matrix.
+  # GitHub service containers require Linux; this job proves the same shared
+  # persistence and application contracts plus native row-lock contention.
+  # The service is job-scoped, loopback-only, disposable, and carries fixed
+  # test-only credentials. It is not a team deployment or production service.
+  postgres:
+    name: PostgreSQL integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        env:
+          POSTGRES_USER: ados_test
+          POSTGRES_PASSWORD: task-owned-ci-password
+          POSTGRES_DB: ados_test
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ados_test -d ados_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AI_DEV_OS_REQUIRE_POSTGRES_TESTS: "1"
+      AI_DEV_OS_TEST_POSTGRES_HOST: 127.0.0.1
+      AI_DEV_OS_TEST_POSTGRES_PORT: "5432"
+      AI_DEV_OS_TEST_POSTGRES_DATABASE: ados_test
+      AI_DEV_OS_TEST_POSTGRES_USER: ados_test
+      AI_DEV_OS_TEST_POSTGRES_PASSWORD: task-owned-ci-password
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck --workspace @ai-dev-os/persistence-postgres
+      - run: npm run test:live --workspace @ai-dev-os/persistence-postgres
+      - run: npm run test --workspace @ai-dev-os/application
+      - run: npm run test:coverage --workspace @ai-dev-os/persistence-postgres
+
 # What this workflow deliberately does NOT do, recorded so nobody adds it by
 # assuming it was forgotten:
 #

@@ -19,11 +19,11 @@
     "README.md"
   ],
   "scripts": {
-    "prebuild": "npm --prefix ../scheduler run build && npm --prefix ../persistence-sqlite run build",
+    "prebuild": "npm --prefix ../scheduler run build && npm --prefix ../persistence-sqlite run build && npm --prefix ../persistence-postgres run build",
     "build": "tsc -p tsconfig.json",
-    "pretest": "npm run prebuild && npm --prefix ../persistence-memory run build",
+    "pretest": "npm run build && npm --prefix ../persistence-memory run build",
     "test": "vitest run",
-    "pretest:coverage": "npm run prebuild && npm --prefix ../persistence-memory run build",
+    "pretest:coverage": "npm run build && npm --prefix ../persistence-memory run build",
     "test:coverage": "vitest run --coverage",
     "pretypecheck": "npm run prebuild",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -31,11 +31,14 @@
   "dependencies": {
     "@ai-dev-os/domain": "^0.1.0",
     "@ai-dev-os/persistence": "^0.1.0",
+    "@ai-dev-os/persistence-postgres": "^0.1.0",
     "@ai-dev-os/persistence-sqlite": "^0.1.0",
     "@ai-dev-os/scheduler": "^0.1.0"
   },
   "devDependencies": {
-    "@ai-dev-os/persistence-memory": "^0.1.0"
+    "@ai-dev-os/persistence-memory": "^0.1.0",
+    "@types/pg": "8.21.0",
+    "pg": "8.23.0"
   },
   "peerDependencies": {
     "vitest": ">=4.0.0"

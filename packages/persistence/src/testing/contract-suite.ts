@@ -343,6 +343,20 @@ export function runPersistenceContractSuite(
         expect(state.message?.status).toBe("pending");
       });
 
+      it("commits when the callback catches a store rejection and resolves", async () => {
+        const outcome = await adapter.transact(async (tx) => {
+          await createAggregate(tx, "proj-caught-rejection", { committed: true });
+          await expect(
+            createAggregate(tx, "proj-caught-rejection", { duplicate: true }),
+          ).rejects.toMatchObject({ code: "CONCURRENCY_CONFLICT" });
+          return "callback-resolved";
+        });
+        expect(outcome).toBe("callback-resolved");
+        await expect(
+          adapter.transact((tx) => tx.aggregates.get("project", "proj-caught-rejection")),
+        ).resolves.toMatchObject({ payload: { committed: true } });
+      });
+
       it("rolls back every write when the callback throws, preserving the original error", async () => {
         const boom = new Error("boom");
         await expect(

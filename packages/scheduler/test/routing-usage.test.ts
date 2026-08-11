@@ -277,7 +277,10 @@ describe("compiled production policy", () => {
   it("remains blocked even when every runtime input claims readiness", () => {
     const result = evaluateDispatchPolicy(context());
     expect(result.outcome).toBe("blocked");
-    expect(result.ruleIds).toEqual(["orchestration.stage18a.production-disabled"]);
+    expect(result.ruleIds).toEqual([
+      "orchestration.stage18a.production-disabled",
+      "orchestration.stage17-admission.required",
+    ]);
     expect(result.operationFingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(result.humanResumable).toBe(false);
     expect(policyBlockFromDecision(result).blockId).toMatch(/^block:/);
@@ -296,6 +299,21 @@ describe("compiled production policy", () => {
     expect(result.ruleIds).toContain("orchestration.stage17-admission.required");
     expect(result.ruleIds).toContain("orchestration.elevation.forbidden");
     expect(result.ruleIds).toHaveLength(7);
+  });
+
+  it("treats legacy readiness booleans as non-authorizing diagnostics", () => {
+    const claimed = evaluateDispatchPolicy(context({
+      stage17Admitted: true,
+      productionEnabled: true,
+    }));
+    const refused = evaluateDispatchPolicy(context({
+      stage17Admitted: false,
+      productionEnabled: false,
+    }));
+    expect(claimed.ruleIds).toContain("orchestration.stage17-admission.required");
+    expect(refused.ruleIds).toContain("orchestration.stage17-admission.required");
+    expect(claimed.outcome).toBe("blocked");
+    expect(refused.outcome).toBe("blocked");
   });
 
   it("rejects unknown policy fields and cannot make a block from an allowed decision", () => {

@@ -17,14 +17,27 @@ export {
   type AccountManagerUsageAdapterOptions,
 } from "./account-manager-usage.js";
 export {
+  PRODUCTION_ADMISSION_RULE_IDS,
+  PRODUCTION_ADMISSION_SCHEMA_VERSION,
   PRODUCTION_EFFECT_CLASSES,
+  STAGE_18D_APPLICATION_PRODUCTION_ENABLED,
+  createProductionAdmissionGate,
+  type ProductionAdmissionGateV1,
+  type ProductionAdmissionRefusalV1,
+  type ProductionAdmissionRequestV1,
+  type ProductionAdmissionRuleId,
+  type ProductionEffectClass,
+} from "./production-admission.js";
+export {
   STAGE_18C_APPLICATION_PRODUCTION_ENABLED,
+  createPostgresProductionDisabledApplication,
   createProductionDisabledApplication,
   createWindowsLocalProductionDisabledApplication,
   type ApplicationCommand,
   type ApplicationCommandResult,
   type ProductionDisabledApplication,
   type ProductionDisabledApplicationOptions,
-  type ProductionEffectClass,
+  type Stage18DProductionDisabledApplication,
+  type PostgresProductionDisabledApplicationOptions,
   type WindowsLocalApplicationOptions,
 } from "./application-runtime.js";

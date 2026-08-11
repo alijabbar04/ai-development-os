@@ -44,9 +44,12 @@ export function evaluateDispatchPolicy(raw: DispatchPolicyContext): DispatchPoli
     candidateId: operationInput["candidateId"] === null ? null : ensureString(operationInput["candidateId"], "dispatchPolicy.operation.candidateId", { maxLength: 128 }),
     objectiveDigest: ensureString(operationInput["objectiveDigest"], "dispatchPolicy.operation.objectiveDigest", { maxLength: 64, pattern: /^[a-f0-9]{64}$/, patternName: "SHA-256" }),
   });
+  // Retained for source compatibility with the Stage 18A request shape. These
+  // caller assertions are deliberately non-authorizing; a future admitted
+  // schema must consume private verifier evidence rather than booleans.
+  ensureBoolean(input["stage17Admitted"], "dispatchPolicy.stage17Admitted");
+  ensureBoolean(input["productionEnabled"], "dispatchPolicy.productionEnabled");
   const checks = Object.freeze({
-    stage17Admitted: ensureBoolean(input["stage17Admitted"], "dispatchPolicy.stage17Admitted"),
-    productionEnabled: ensureBoolean(input["productionEnabled"], "dispatchPolicy.productionEnabled"),
     credentialsAvailable: ensureBoolean(input["credentialsAvailable"], "dispatchPolicy.credentialsAvailable"),
     operatorPolicyAllows: ensureBoolean(input["operatorPolicyAllows"], "dispatchPolicy.operatorPolicyAllows"),
     providerSafetyAllows: ensureBoolean(input["providerSafetyAllows"], "dispatchPolicy.providerSafetyAllows"),
@@ -55,14 +58,12 @@ export function evaluateDispatchPolicy(raw: DispatchPolicyContext): DispatchPoli
   });
   const ruleIds: string[] = [];
   const reasons: string[] = [];
-  if (!checks.productionEnabled || STAGE_18A_PRODUCTION_ENABLED === false) {
+  if (STAGE_18A_PRODUCTION_ENABLED === false) {
     ruleIds.push("orchestration.stage18a.production-disabled");
     reasons.push("Stage 18A is compiled production-disabled.");
   }
-  if (!checks.stage17Admitted) {
-    ruleIds.push("orchestration.stage17-admission.required");
-    reasons.push("Stage 17 production admission is required before dispatch.");
-  }
+  ruleIds.push("orchestration.stage17-admission.required");
+  reasons.push("Stage 17 production admission is required before dispatch.");
   if (!checks.credentialsAvailable) {
     ruleIds.push("orchestration.credentials.required");
     reasons.push("Provider credentials are unavailable.");

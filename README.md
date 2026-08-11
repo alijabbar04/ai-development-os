@@ -39,7 +39,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Production-disabled checkpoints in progress** — 18A/18B complete, 18C under final review; production remains blocked on Stage 17W |
+| Stage 18 | **Production-disabled checkpoints in progress** — 18A/18B/18C published; 18D PostgreSQL/admission candidate in progress; production remains blocked on Stage 17W |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
 
@@ -58,10 +58,10 @@ Three things are stated plainly because they are easy to assume the other way:
 - **Linux and macOS are deferred, not passing.** Their portable seams and
   evidence stay intact, while native enforcement, L-02, packaging, and parity
   move to Stage 25.
-- **Stage 18 checkpoints do not admit production.** Production-disabled 18A and
-  18B are complete and 18C is under final review; PostgreSQL parity and the
-  complete Stage 18 acceptance audit remain open, while production stays
-  blocked on Stage 17W.
+- **Stage 18 checkpoints do not admit production.** Production-disabled 18A,
+  18B, and 18C are published. The 18D candidate adds PostgreSQL parity and the
+  machine-checkable acceptance audit, but its schema has no admitted variant
+  and production stays blocked on Stage 17W.
 
 ## Documents
 
@@ -98,7 +98,7 @@ Every command below was run against this repository.
 
 ```powershell
 npm ci             # lockfile-exact install
-npm run check      # typecheck, then tests, then build, across all 36 packages
+npm run check      # typecheck, then tests, then build, across all 37 packages
 ```
 
 `npm run check` takes roughly 20 to 45 minutes depending on machine load. The individual gates:
@@ -135,6 +135,7 @@ maintained branches and on pull requests targeting `main`:
 | `check` | Ubuntu **and** Windows | `npm ci`, `npm run check` |
 | `dependency audit` | Ubuntu | `npm ci --ignore-scripts`, `npm audit --audit-level=high` |
 | `coverage` | Windows | `npm run test:coverage`, uploads reports |
+| `PostgreSQL integration` | Ubuntu hosted test infrastructure | pinned disposable PostgreSQL service, real persistence/application contracts and contention |
 
 Every action is pinned to a full commit SHA, because a tag is a mutable pointer.
 Top-level permissions are `contents: read`, and pull-request code never runs with
@@ -149,7 +150,7 @@ explicit human operation.
 ## Repository layout
 
 ```text
-packages/              36 domain, application, and adapter modules
+packages/              37 domain, application, and adapter modules
 docs/adr/              Architecture decision records
 docs/development/      Contributor and GitHub workflow policy
 .github/workflows/     CI

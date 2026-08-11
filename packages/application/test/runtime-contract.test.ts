@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createMemoryPersistenceAdapter } from "@ai-dev-os/persistence-memory";
+import { PersistenceError, type PersistenceAdapter } from "@ai-dev-os/persistence";
 import { createSqlitePersistenceAdapter } from "@ai-dev-os/persistence-sqlite";
 import { DEFAULT_WORKER_RUNTIME_CONFIGURATION } from "@ai-dev-os/scheduler";
 import {
@@ -14,6 +15,8 @@ import {
   isApplicationError,
 } from "../src/index.js";
 import {
+  createApplicationContractDefinition,
+  createApplicationContractClock,
   runApplicationPersistenceContractSuite,
   type ApplicationContractClock,
 } from "../src/testing/index.js";
@@ -35,6 +38,51 @@ runApplicationPersistenceContractSuite("SQLite reopen", (clock: ApplicationContr
 }, { supportsReopen: true });
 
 describe("production-disabled application surface", () => {
+  it("retries only the effect-free claim command under a finite concurrency policy", async () => {
+    const delegate = createMemoryPersistenceAdapter();
+    let conflicts = 0;
+    let remainingConflicts = 0;
+    const persistence: PersistenceAdapter = Object.freeze({
+      async transact<T>(work: Parameters<PersistenceAdapter["transact"]>[0]): Promise<T> {
+        if (remainingConflicts > 0) {
+          remainingConflicts -= 1;
+          conflicts += 1;
+          throw new PersistenceError("CONCURRENCY_CONFLICT", "synthetic claim contention");
+        }
+        return delegate.transact(work) as Promise<T>;
+      },
+      migrationStatus: () => delegate.migrationStatus(),
+      close: () => delegate.close(),
+    });
+    const application = createProductionDisabledApplication({
+      persistence,
+      clock: createApplicationContractClock(),
+      usageAdapter: {
+        adapterId: "adapter:claim-retry",
+        schemaVersion: 2,
+        readAuthorizedSnapshot: async () => null,
+      },
+    });
+    try {
+      await application.execute({
+        type: "enqueue-work",
+        commandId: "command:claim-retry:enqueue",
+        definition: createApplicationContractDefinition(),
+      });
+      remainingConflicts = 2;
+      const claimed = await application.execute({
+        type: "claim-work",
+        commandId: "command:claim-retry:claim",
+        workerId: "worker:claim-retry",
+        allowedCapacityPools: ["default"],
+      });
+      expect(claimed).toMatchObject({ status: "leased", lease: { workerId: "worker:claim-retry" } });
+      expect(conflicts).toBe(2);
+    } finally {
+      await application.close();
+    }
+  });
+
   it("rejects unknown, null, and extra-field commands with finite application errors", async () => {
     const application = createProductionDisabledApplication({
       persistence: createMemoryPersistenceAdapter(),

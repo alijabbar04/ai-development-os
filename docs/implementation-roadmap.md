@@ -673,11 +673,18 @@ Tests and gate:
 
 ## Stage 18: Durable orchestration and usage-aware authorized-profile routing
 
-Status: In progress, production-disabled. Stage 18A and 18B source checkpoints
-are complete; the Stage 18C durable application/runtime and usage-adapter
-checkpoint is under final review. PostgreSQL parity and the complete Stage 18
-acceptance audit remain open. Production admission remains blocked on Stage
-17W and no Stage 18 checkpoint changes that gate.
+Status: In progress, production-disabled. Stage 18A, 18B, and 18C checkpoints
+are published and exact-head green. Stage 18D adds the real PostgreSQL adapter,
+hosted-service contract/concurrency gates, a refusal-only application admission
+schema, and the first machine-checkable full acceptance matrix. Production
+admission remains blocked on Stage 17W and no Stage 18 checkpoint changes that
+gate. The matrix currently keeps the direct live Anthropic canary, supported
+live Account Manager reader, and external-mutation crash proof incomplete;
+Stage 18D's bounded process-separated scheduler claim/retry proof remains
+pending its exact-head hosted PostgreSQL run. Query-native, high-throughput team
+scheduling remains a deployment-scale nonclaim rather than a Stage 18
+development-acceptance item. This is therefore not yet a claim that the entire
+Stage 18 development scope is complete.
 
 Packages, in implementation order: `@ai-dev-os/provider-anthropic`,
 `@ai-dev-os/product-planning`, `@ai-dev-os/scheduler`,
@@ -740,6 +747,11 @@ Tests and gate:
   each hard ceiling, predicted overrun, resets, freshness, conflicting sources,
   ownership, revocation, profile isolation, audit redaction, and fail-closed
   dispatch. A scoring preference can never revive an ineligible profile.
+- The authoritative status is
+  [`stage-18-development-acceptance-matrix.json`](release-evidence/stage-18-development-acceptance-matrix.json).
+  A row can be only `proven`, `production-gated`, or `incomplete`; narrative,
+  review, CI, branch names, and the presence of files cannot substitute for the
+  exact implementation/test/evidence anchors required by a proven row.
 
 ## Stage 19: Evaluation, disagreement handling, and integration
 

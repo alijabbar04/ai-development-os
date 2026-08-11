@@ -148,8 +148,9 @@ The detailed dependency order and acceptance gates remain in the
 
 ## Explicit non-claims
 
-No UI, scheduler, usage adapter, permission profile, messaging integration,
-installer, update mechanism, production sandbox, or Fable review is implemented
-by this document. No borrowed profile is authorized by documentation alone.
-Windows production availability remains false, Linux and macOS remain
-unavailable/deferred, and historical Stage 17 evidence remains unchanged.
+No UI, messaging integration, installer, update mechanism, production sandbox,
+or Fable review is implemented by this document. The Stage 18 scheduler and
+usage contracts remain production-disabled, and no borrowed profile is
+authorized by documentation alone. Windows production availability remains
+false, Linux and macOS remain unavailable/deferred, and historical Stage 17
+evidence remains unchanged.

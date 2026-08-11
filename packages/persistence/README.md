@@ -8,7 +8,8 @@ adapter contract-test suite.
 This package defines *what* durable storage must do. It contains no SQLite,
 no database driver, and no I/O beyond `node:crypto` (checksums) and
 `node:async_hooks` (nested-transaction detection). Concrete adapters live in
-`@ai-dev-os/persistence-memory` and `@ai-dev-os/persistence-sqlite`.
+`@ai-dev-os/persistence-memory`, `@ai-dev-os/persistence-sqlite`, and
+`@ai-dev-os/persistence-postgres`.
 
 ## Responsibilities and non-responsibilities
 
@@ -22,8 +23,9 @@ transitions, and the behavioral contract suite every adapter must pass.
 business aggregates. The aggregate payloads it stores are opaque canonical
 JSON; domain meaning stays in `@ai-dev-os/domain` / `@ai-dev-os/task-graph`.
 
-Dependency rule: `persistence-memory → persistence → domain/artifacts` and
-`persistence-sqlite → persistence → domain/artifacts`. Nothing here may
+Dependency rule: every concrete adapter points toward
+`persistence → domain/artifacts`; no concrete adapter is imported back into
+the port package. Nothing here may
 import providers, Electron, HTTP frameworks, or UI code.
 
 ## Persistence model
@@ -206,8 +208,9 @@ await adapter.transact(async (tx) => {
 
 ## Known limitations
 
-- Single-writer: transactions serialize per adapter instance. Concurrent
-  multi-process access is a PostgreSQL-stage concern (Stage 18).
+- Transactions serialize per adapter instance. PostgreSQL uses independent
+  adapter instances plus database isolation/locks for multi-process contention;
+  SQLite remains the single-user desktop adapter.
 - The event store does not verify that appended events reference existing
   aggregates or contiguous versions; callers own that discipline.
 - No downgrade migrations (per roadmap).

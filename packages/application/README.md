@@ -1,6 +1,6 @@
 # `@ai-dev-os/application`
 
-Stage 18C production-disabled Windows-local application composition. The
+Stage 18D production-disabled Windows application composition. The
 package owns use-case transaction boundaries and composes the canonical
 scheduler and SQLite persistence contracts. It does not own a second task
 graph, scheduler, usage ledger, provider registry, workspace implementation,
@@ -19,9 +19,9 @@ sandbox. A caller is responsible for ensuring its implementation has only the
 authority claimed here.
 
 Production execution remains compiled off. Stage 17 production admission,
-real provider/workspace/Git or native worker-execution effects, PostgreSQL
-parity, a daemon, API, UI, and messaging adapters are not part of this
-checkpoint. The explicit Windows-local composition does create and mutate its
+real provider/workspace/Git or native worker-execution effects, a daemon, API,
+UI, and messaging adapters are not part of this checkpoint. The explicit
+Windows-local composition does create and mutate its
 requested SQLite persistence file; that native storage effect is in scope and
 is not a worker executor.
 
@@ -34,17 +34,31 @@ is not a worker executor.
 - `createWindowsLocalProductionDisabledApplication` requires one explicit
   absolute SQLite file path and uses the existing default WAL desktop adapter. It does
   not discover a home directory or account location.
+- `createPostgresProductionDisabledApplication` is async and requires one fully
+  explicit connection. It may perform bounded database network/persistence
+  effects to open, migrate, transact, and close that database, but wires no live
+  worker/provider/account effect and is not team-deployment admission.
 - `execute` accepts the typed scheduler worker-command union. `tick` performs
   deadline, retry-ready, and lease-expiry reconciliation only. Neither method
   contains a provider/workspace/Git or native worker executor.
-- `assertProductionEffectDisabled` deterministically refuses every finite live
-  effect class.
+- Only `claim-work`, whose transaction is effect-free and idempotent, receives
+  a fixed four-attempt retry on a persistence `CONCURRENCY_CONFLICT`. Hosted tests
+  use independent connections and two separate Node processes to prove distinct
+  leases; reserve/prepare/start and external callbacks are never invisibly
+  retried.
+- The version-1 `admission` gate has no admitted variant. It returns only a
+  diagnostic fingerprint, finite rule IDs, `grantsAuthority: false`, and
+  `productionEnabled: false`; copied JSON, prose, human approval, CI state, or a
+  public Stage 17 projection cannot resume it.
+- `assertProductionEffectDisabled` delegates every finite live effect class to
+  that refusal-only gate.
 
 The `@ai-dev-os/application/testing` export provides one reusable application
-persistence contract. It currently passes against the memory reference adapter
-and a real SQLite close/reopen file. A future PostgreSQL adapter must run the
-same suite plus its database-specific contention and multi-process tests; this
-package contains no fake PostgreSQL implementation.
+persistence contract. It passes against the memory reference adapter, a real
+SQLite close/reopen file, and—only in the dedicated hosted-service job—the real
+PostgreSQL adapter with physical reopen. The PostgreSQL package's deterministic
+driver seam supplies offline unit coverage but is not substituted for that live
+database evidence.
 
 ## Fixture usage protocol
 

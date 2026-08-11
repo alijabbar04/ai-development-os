@@ -75,6 +75,7 @@ export {
 } from "./outbox-logic.js";
 
 export {
+  MAX_MIGRATION_DEFINITIONS,
   parseMigrationId,
   migrationChecksum,
   parseAppliedMigration,

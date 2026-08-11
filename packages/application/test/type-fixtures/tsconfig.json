@@ -1,0 +1,9 @@
+{
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../../..",
+    "types": ["node"]
+  },
+  "include": ["stage18c-consumer.ts", "../../src/**/*.ts"]
+}

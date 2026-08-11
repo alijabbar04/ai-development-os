@@ -1,0 +1,43 @@
+{
+  "name": "@ai-dev-os/persistence-postgres",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production-disabled PostgreSQL implementation of the AI Development OS persistence contract for multi-process coordination testing.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../persistence run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "pretest:live": "npm run build",
+    "test:live": "vitest run test/postgres-live.test.ts",
+    "pretest:coverage": "npm run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../persistence run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/artifacts": "^0.1.0",
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/persistence": "^0.1.0",
+    "pg": "8.23.0",
+    "pg-pool": "3.14.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.21.0"
+  }
+}

@@ -2,6 +2,8 @@ import { validation } from "@ai-dev-os/domain";
 import { computeChecksumOfText, parseChecksum, type Checksum } from "./checksum.js";
 import { PersistenceError } from "./errors.js";
 
+export const MAX_MIGRATION_DEFINITIONS = 1_024;
+
 const { ensureRecord, ensureExactKeys, ensureSafeInteger, ensureString, ensureTimestamp } =
   validation;
 
@@ -60,6 +62,11 @@ export function parseAppliedMigration(value: unknown, path = "appliedMigration")
 function validateDefinitions(
   definitions: readonly MigrationDefinition[],
 ): readonly MigrationDefinition[] {
+  if (!Array.isArray(definitions) || definitions.length > MAX_MIGRATION_DEFINITIONS) {
+    throw new PersistenceError("MIGRATION_FAILED", "The migration definition set is invalid.", {
+      maximumMigrationDefinitions: MAX_MIGRATION_DEFINITIONS,
+    });
+  }
   const seen = new Set<string>();
   definitions.forEach((definition, index) => {
     const id = parseMigrationId(definition.id, `migrations[${index}].id`);
@@ -104,12 +111,12 @@ export function planMigrations(
   const validDefinitions = validateDefinitions(definitions);
   const definitionIds = new Set(validDefinitions.map((definition) => definition.id));
 
-  const ahead = applied.filter((migration) => !definitionIds.has(migration.id));
-  if (ahead.length > 0) {
+  const ahead = applied.find((migration) => !definitionIds.has(migration.id));
+  if (ahead !== undefined) {
     throw new PersistenceError(
       "SCHEMA_TOO_NEW",
       "The database contains migrations newer than this application supports.",
-      { unknownMigrationIds: Object.freeze(ahead.map((migration) => migration.id)) },
+      { unknownMigrationIds: Object.freeze([ahead.id]) },
     );
   }
 

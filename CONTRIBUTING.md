@@ -13,7 +13,7 @@ npm ci
 npm run check
 ```
 
-`npm run check` runs typecheck, then tests, then build, across all 32 workspace
+`npm run check` runs typecheck, then tests, then build, across all 37 workspace
 packages. It takes roughly 20 to 45 minutes depending on machine load. Every command in this
 document was run against this repository before being written here.
 
@@ -27,6 +27,14 @@ npm run typecheck --workspace @ai-dev-os/process-broker
 npm test --workspace @ai-dev-os/process-broker
 npm run test:coverage --workspace @ai-dev-os/process-broker
 ```
+
+Real PostgreSQL tests are a separate explicit gate. They require all five
+`AI_DEV_OS_TEST_POSTGRES_*` fields and
+`AI_DEV_OS_REQUIRE_POSTGRES_TESTS=1`; the dedicated hosted job supplies fixed
+job-only values to a pinned disposable service. Ordinary local and matrix runs
+record two capability skips when no server is configured. A deterministic driver
+seam keeps offline coverage meaningful but is never reported as real-database
+evidence.
 
 ### About `npm ci` and lifecycle scripts
 

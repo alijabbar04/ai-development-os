@@ -50,14 +50,22 @@ describe("Stage 18C application static policy", () => {
       readonly dependencies: Record<string, string>;
       readonly files: readonly string[];
       readonly exports: Record<string, unknown>;
+      readonly scripts: Record<string, string>;
     };
     expect(Object.keys(manifest.dependencies).sort()).toEqual([
       "@ai-dev-os/domain",
       "@ai-dev-os/persistence",
+      "@ai-dev-os/persistence-postgres",
       "@ai-dev-os/persistence-sqlite",
       "@ai-dev-os/scheduler",
     ]);
     expect(manifest.files).toEqual(["dist", "README.md"]);
     expect(Object.keys(manifest.exports).sort()).toEqual([".", "./testing"]);
+    expect(manifest.scripts["pretest"]).toBe(
+      "npm run build && npm --prefix ../persistence-memory run build",
+    );
+    expect(manifest.scripts["pretest:coverage"]).toBe(
+      "npm run build && npm --prefix ../persistence-memory run build",
+    );
   });
 });
