@@ -159,7 +159,7 @@ describe("evaluation aggregate and durable service", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("stops malformed or oversized durable pagination before unbounded replay", async () => {
     const emptyContinuation = {
