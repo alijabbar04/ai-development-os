@@ -6,3 +6,7 @@ export {
   type ApplicationContractClock,
   type ApplicationPersistenceHarness,
 } from "./runtime-contract.js";
+export {
+  createAccountManagerSupportedUsageAdapterForTesting,
+  type AccountManagerSupportedReader,
+} from "../account-manager-usage.js";

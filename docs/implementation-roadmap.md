@@ -1,7 +1,7 @@
 # AI Development OS Implementation Roadmap
 
 Status: Active  
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 ## Delivery rule
 
@@ -509,7 +509,7 @@ Delivered:
 - `@ai-dev-os/thinker` exposes strict configuration/request/proposal parsers, deterministic target resolution, the provider-gateway port, proposal validation/fingerprinting/summaries, one guarded thinker lifecycle, a reusable backend contract suite, and Vitest-free fixtures. It resolves the explicit override alias or the first configured `planning` alias, rejects missing/disabled/non-inference/coding-agent targets, and never advances to another alias.
 - Each think performs one compilation, one preflight, and exactly one guarded inference invocation. Request, gateway snapshot, provider instance/model, operation event, and result substitutions fail closed. Events and results are fully drained; reasoning/text/output bodies and warning bodies are discarded; tool events and non-stop finishes fail closed; close/cancel are idempotent and the post-invoke close race is covered. There is no retry, fallback, routing, quota/cost ranking, telemetry selection, second model call, task-graph mutation, execution, scheduling, or authority grant.
 - Proposals use a closed bounded schema and validate exact evidence identities/digests, unique IDs/edges, an acyclic DAG, capability/edit-scope ceilings, minimum risk, and non-lowered classification. Unknown, prototype-pollution, approval, grant, secret, command, tool, and runtime-state fields fail closed. Successful values are deeply immutable, have a semantic proposal fingerprint separate from operational receipt data, and carry the literal `authority: "none"`.
-- Dependencies remain public, narrow, and acyclic: prompt compiler -> context/domain/policy/providers; thinker -> config/domain/prompt-compiler/provider-gateway/providers. Neither production package imports concrete adapters, coding-agent providers, telemetry, scheduler, application, workspace, process broker, filesystem, network, credentials, or private package source. Model/provider IDs remain opaque configuration data. A concrete Claude model requires an eligible `InferenceProvider` registration; this repository still has no direct first-party Anthropic inference adapter, and Claude Code/Codex remain separate `CodingAgentProvider` surfaces blocked from production execution until Stage 17 isolation.
+- Dependencies remain public, narrow, and acyclic: prompt compiler -> context/domain/policy/providers; thinker -> config/domain/prompt-compiler/provider-gateway/providers. Neither production package imports concrete adapters, coding-agent providers, telemetry, scheduler, application, workspace, process broker, filesystem, network, credentials, or private package source. Model/provider IDs remain opaque configuration data. At the Stage 15 checkpoint a concrete Claude model still required a later eligible `InferenceProvider` registration; Stage 18 subsequently added a production-disabled first-party Anthropic adapter. Claude Code/Codex remain separate `CodingAgentProvider` surfaces blocked from production execution until Stage 17 isolation.
 - Prompt compiler schema, template, authorization schema, proposal-output schema, and prompt fingerprint algorithm are version 1. Thinker configuration/result schema, plan schema, thinker/result fingerprint algorithm, and semantic plan fingerprint algorithm are version 1. The reviewed golden prompt fingerprint is `8e9b5c3af2a61c054a0e8a9d2b21116979da7bdd6fd06b55abcd1e68871d3b83`; golden changes require the explicit review/update script.
 
 Tests and gate (Windows NT 10.0.26200.0, Node 24.17.0, npm 11.13.0, Git 2.54.0.windows.1):
@@ -526,7 +526,7 @@ Tests and gate (Windows NT 10.0.26200.0, Node 24.17.0, npm 11.13.0, Git 2.54.0.w
 - Independent audit used Claude Code CLI 2.1.201 with requested alias `opus`, High effort, plan-mode/read-only tools, and exact base/candidate SHAs. The JSON envelope reported the primary model `claude-opus-4-8` (plus auxiliary `claude-haiku-4-5-20251001` usage), 28 turns, and a $1.91774075 total. It traced all Stage 15 production boundaries and supporting released guards, found no release blocker, recorded only two non-blocking implementation observations, and returned `PASS`. No audit fix or post-fix pass was required; HEAD and clean status were identical before and after.
 - No product live canary or provider/model call was run. Product code sent no prompt, context, repository content, credential, or secret externally; only the explicitly required independent Claude audit received the audit request and repository read access. Linux, macOS, CI, a real inference adapter, and real enforcing isolation were not exercised. No remote is configured, so no push is performed.
 
-Limitations and deferred work: Stage 15 produces bounded proposals and safe receipts only. Provider-specific exact token estimators, task profiling, quota/capacity-aware ranking, cost scoring, fallback, and circuit breakers remain Stage 16; real secure platform isolation remains Stage 17; durable queues, leases, attempts, reservations, scheduling, and application lifecycle remain Stage 18; evaluators, disagreement handling, merging, and Git integration remain Stage 19. A first-party Anthropic inference adapter and later desktop/API/UI surfaces remain separate future work.
+Limitations and deferred work at that checkpoint: Stage 15 produces bounded proposals and safe receipts only. Provider-specific exact token estimators, task profiling, quota/capacity-aware ranking, cost scoring, fallback, and circuit breakers were assigned to Stage 16; real secure platform isolation to Stage 17; durable queues, leases, attempts, reservations, scheduling, application lifecycle, and the first-party Anthropic adapter to Stage 18; evaluators, disagreement handling, merging, and Git integration to Stage 19. Desktop/API/UI surfaces remain later work.
 
 ## Stage 16: Deterministic quota-aware routing engine
 
@@ -567,7 +567,7 @@ Tests and gate (Windows NT 10.0.26200.0, Node 24.17.0, npm 11.13.0, Git 2.54.0.w
 - Independent audit used Claude Code CLI 2.1.201 with requested alias `opus`, High effort, plan-mode/read-only tools, and exact Stage 15 base/candidate SHAs. The first audit of candidate `b12579603eb7e0e99cda9dc7ca57bf9fed2227f1` reported primary model `claude-opus-4-8` (plus a small auxiliary `claude-haiku-4-5-20251001` call), 32 turns, seven valid non-blocking findings, no blocker, and `PASS`. Fixes added request-reserve use, documented soft reserve semantics, quota safety margin, secure-evidence freshness/revalidation, dependency/dead-code cleanup, router-owned estimator accuracy, and per-candidate arithmetic containment with regressions. A 22-turn post-fix pass on `7fb3e1c3f6e242212160f372aa8e2ef047ab9362` used the same requested alias/effort and reported actual `claude-opus-4-8`, no permission denials, all seven fixed, no release blockers, and `PASS`; its three non-blocking cleanup observations were also addressed and the affected package gates rerun. A final 22-turn read-only pass over exact code commit `d5dc401f67065311e867bcdde43447f14cd032cb` plus the pending release evidence again reported actual `claude-opus-4-8`, no permission denials, no evidence inaccuracy, no release blocker, and `PASS`.
 - No product live canary, paid provider call, credential lookup, or privileged installation was performed. Product code sent no prompt, context, repository content, telemetry body, policy prose, credential, or secret externally; only the explicitly required independent Claude audits received their audit instructions and read-only repository access. Linux, macOS, CI, real provider quota/reset observations, production tokenizer claims, and a real enforcing isolation backend were not exercised. No remote is configured, so no push is performed.
 
-Limitations and deferred work: Stage 16 profiles and routes fixed evidence; it does not collect provider usage, infer commercial facts, invoke a provider, execute a coding agent, persist a circuit, mutate a task graph/workspace, or durably reserve/reconcile budget. Production estimator registrations and tokenizer/framing evidence remain deployment responsibilities. Evidence may expire immediately after a decision, so Stage 18 must revalidate every declared requirement and apply version-bound commands atomically. Stage 17 must supply and prove real platform isolation before autonomous coding-agent routes can become feasible. Stage 18 adds durable scheduling/application; Stage 19 adds evaluation, disagreement handling, and Git integration. A first-party Anthropic inference adapter and later desktop/API/UI surfaces remain separate future work.
+Limitations and deferred work at that checkpoint: Stage 16 profiles and routes fixed evidence; it does not collect provider usage, infer commercial facts, invoke a provider, execute a coding agent, persist a circuit, mutate a task graph/workspace, or durably reserve/reconcile budget. Production estimator registrations and tokenizer/framing evidence remain deployment responsibilities. Evidence may expire immediately after a decision, so Stage 18 must revalidate every declared requirement and apply version-bound commands atomically. Stage 17 must supply and prove real platform isolation before autonomous coding-agent routes can become feasible. Stage 18 subsequently added durable scheduling/application and a production-disabled first-party Anthropic adapter; Stage 19 adds evaluation, disagreement handling, and Git integration. Desktop/API/UI surfaces remain later work.
 
 ## Stage 17W: Windows production secure-execution backend
 
@@ -673,18 +673,17 @@ Tests and gate:
 
 ## Stage 18: Durable orchestration and usage-aware authorized-profile routing
 
-Status: In progress, production-disabled. Stage 18A, 18B, and 18C checkpoints
-are published and exact-head green. Stage 18D adds the real PostgreSQL adapter,
-hosted-service contract/concurrency gates, a refusal-only application admission
-schema, and the first machine-checkable full acceptance matrix. Production
-admission remains blocked on Stage 17W and no Stage 18 checkpoint changes that
-gate. The matrix currently keeps the direct live Anthropic canary, supported
-live Account Manager reader, and external-mutation crash proof incomplete;
-Stage 18D's bounded process-separated scheduler claim/retry proof remains
-pending its exact-head hosted PostgreSQL run. Query-native, high-throughput team
-scheduling remains a deployment-scale nonclaim rather than a Stage 18
-development-acceptance item. This is therefore not yet a claim that the entire
-Stage 18 development scope is complete.
+Status: In progress, production-disabled. Stage 18A, 18B, 18C, and 18D are
+published and exact-head green. Stage 19B has since proven the
+external-mutation crash/idempotency row `INT-01`. A reviewed one-attempt
+Anthropic canary and an exact-pinned supported Account Manager reader route now
+exist with deterministic local evidence, but no eligible owned Anthropic secret
+was supplied and no authorized installed-state Account Manager read occurred.
+`ANT-02` and `AM-02` therefore remain incomplete and `developmentAccepted`
+remains false. Production admission remains blocked on Stage 17W and no Stage
+18 checkpoint changes that gate. Query-native, high-throughput team scheduling
+remains a deployment-scale nonclaim rather than a Stage 18
+development-acceptance item.
 
 Packages, in implementation order: `@ai-dev-os/provider-anthropic`,
 `@ai-dev-os/product-planning`, `@ai-dev-os/scheduler`,
@@ -755,9 +754,10 @@ Tests and gate:
 
 ## Stage 19: Evaluation, disagreement handling, and integration
 
-Status: Stage 19A evaluation checkpoint published; Stage 19B production-disabled
-source checkpoint published and exact-source-head hosted-green, with final
-evidence-head publication/reconciliation pending.
+Status: Stage 19A evaluation checkpoint and Stage 19B production-disabled
+integration checkpoint are published. Final Stage 19B head
+`d7fe405745ccd5e1f31a3d702dc70d8095016604` is exact-head hosted-green in run
+`31544573532`.
 
 Packages: `@ai-dev-os/evaluation`, `@ai-dev-os/integrator`
 
@@ -771,10 +771,9 @@ exact-request domain, serialized durable intent/receipt/recovery protocol, and a
 test-only disposable real-Git port. The full named B3 adversarial repository
 fixture matrix below is implemented against actual disposable Git trees.
 Stage 19B implementation acceptance and `INT-01` are proven by definitive local
-gates, independent read-only source review, non-forced source publication, and
-exact-source-head hosted CI. The focused evidence/matrix finalization commit and
-its own exact-head hosted reconciliation remain pending; this does not imply
-Stage 18 development acceptance while `ANT-02` and `AM-02` remain incomplete.
+gates, independent read-only source review, non-forced source and evidence
+publication, and exact-final-head hosted CI. This does not imply Stage 18
+development acceptance while `ANT-02` and `AM-02` remain incomplete.
 
 Deliverables:
 

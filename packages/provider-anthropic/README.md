@@ -7,9 +7,11 @@ consumer session, account UI, or subscription route exists here.
 
 The public provider is compiled production-disabled. Construction performs no
 I/O and `start()` refuses before policy, secret, or transport access. The
-`./testing` entry point accepts only injected deterministic ports and exists to
-exercise request/wire mapping, provider contracts, failure handling, and race
-semantics without a credential or network call.
+`./testing` entry point contains the injected deterministic provider ports plus
+one separately explicit live-canary harness. Normal tests use only the
+deterministic transport. The canary requires its exact opt-in sentinel, fixed
+policy/catalog/authorization preflight, and one scoped `SecretRef`; it is not
+reachable from the production package entry point.
 
 The fixed profile is `POST https://api.anthropic.com/v1/messages` with
 `anthropic-version: 2023-06-01`. Deployments configure one explicit model alias
@@ -42,9 +44,21 @@ unavailable, and reports cost as unknown.
 
 The implementation follows the official Anthropic Messages, streaming,
 structured-output, tool-use, errors, versioning, model-identity, and commercial
-retention documentation reviewed on 2026-08-09. The official SDK is not a
-dependency: this checkpoint has no production transport, and the injected HTTP
-contract is sufficient for deterministic compatibility evidence.
+retention documentation reviewed again on 2026-08-12. The fixed canary uses
+`POST /v1/messages`, `anthropic-version: 2023-06-01`, and the pinned model
+`claude-haiku-4-5-20251001`; standard commercial API inputs/outputs carry the
+documented 30-day deletion period unless a separately contracted zero-data-
+retention arrangement applies. Primary references:
+
+- <https://platform.claude.com/docs/en/api/messages/create>
+- <https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions>
+- <https://platform.claude.com/docs/en/api/errors>
+- <https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data>
+- <https://privacy.claude.com/en/articles/8956058-i-have-a-zero-data-retention-agreement-with-anthropic-what-products-does-it-apply-to>
+
+The official SDK is not a dependency: this checkpoint has no production
+transport, and the injected HTTP contract is sufficient for deterministic
+compatibility evidence.
 
 ```powershell
 npm run typecheck --workspace @ai-dev-os/provider-anthropic
@@ -53,4 +67,6 @@ npm run test:coverage --workspace @ai-dev-os/provider-anthropic
 npm run build --workspace @ai-dev-os/provider-anthropic
 ```
 
-No live canary is supplied or run in Stage 18B.
+The reviewed canary harness is supplied under `./testing`; no live provider call
+was run for this checkpoint because no supported owned secret reference was
+provided, and `ANT-02` therefore remains incomplete.

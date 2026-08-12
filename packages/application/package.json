@@ -2,7 +2,7 @@
   "name": "@ai-dev-os/application",
   "version": "0.1.0",
   "private": true,
-  "description": "Production-disabled Windows-local application composition and fixture-backed normalized usage boundary for AI Development OS.",
+  "description": "Production-disabled Windows-local application composition and exact-pinned normalized usage boundaries for AI Development OS.",
   "type": "module",
   "exports": {
     ".": {

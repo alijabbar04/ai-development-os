@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "branch": "feat/stage-18d-postgres-admission-readiness",
-  "sourceBase": "aa5c62cc9aa56ac3a21e5fd612992b9ea535776d",
+  "branch": "feat/stage-18-live-integration-closure",
+  "sourceBase": "d7fe405745ccd5e1f31a3d702dc70d8095016604",
   "productionAdmitted": false,
   "developmentAccepted": false,
   "permittedOutcome": "Stage 18D production-disabled checkpoint complete",
@@ -36,15 +36,15 @@
     {
       "id": "ANT-02",
       "requirement": "An explicit body-bounded opt-in live Anthropic canary proves the reviewed real transport without repository or credential disclosure.",
-      "authority": ["docs/implementation-roadmap.md"],
-      "implementation": [],
-      "tests": [],
-      "evidence": [],
+      "authority": ["docs/implementation-roadmap.md", "docs/adr/0027-stage-18-live-boundary-checkpoint.md"],
+      "implementation": ["packages/provider-anthropic/src/testing/live-canary.ts"],
+      "tests": ["packages/provider-anthropic/test/anthropic-live-canary.test.ts", "packages/provider-anthropic/test/static-policy.test.ts"],
+      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md"],
       "status": "incomplete",
       "ownerStage": "18",
       "blocksDevelopmentAcceptance": true,
       "blocksProduction": true,
-      "rationale": "No reviewed real transport/canary harness is present; deterministic fake transport is not live-provider evidence."
+      "rationale": "The reviewed test-only one-attempt canary fixes endpoint, API version, model, harmless body, preflight, scoped-secret, response and resource bounds, and deterministic transport tests pass. No supported owned scoped-secret reference was supplied and no live Anthropic request ran, so the row remains incomplete."
     },
     {
       "id": "PLN-01",
@@ -63,14 +63,14 @@
       "id": "PLN-02",
       "requirement": "A separately routed completeness audit proves every required and expected-quality product item or authorized waiver.",
       "authority": ["docs/adr/0016-product-completeness-planning-assembly.md", "docs/implementation-roadmap.md"],
-      "implementation": [],
-      "tests": [],
-      "evidence": [],
+      "implementation": ["packages/evaluation/src/evaluate.ts", "packages/evaluation/src/schema.ts", "packages/evaluation/src/store.ts"],
+      "tests": ["packages/evaluation/test/evaluation.test.ts", "packages/evaluation/test/store.test.ts"],
+      "evidence": ["docs/release-evidence/stage-19-evaluation-integration-foundation-checkpoint.md"],
       "status": "incomplete",
       "ownerStage": "19",
       "blocksDevelopmentAcceptance": false,
       "blocksProduction": true,
-      "rationale": "The roadmap assigns deterministic completeness evaluation and integration admission to Stage 19; Stage 18 must not claim it."
+      "rationale": "Stage 19A now provides the published production-disabled deterministic evaluation and separately routed authority-free completeness-audit boundary with exact replay tests. No exact Stage 18 product-specification criterion manifest, authenticated evidence-instance set and authorized waiver projection has yet proved every required and expected-quality item, and production admission remains disabled, so the row remains incomplete."
     },
     {
       "id": "SCH-01",
@@ -166,15 +166,15 @@
     {
       "id": "AM-02",
       "requirement": "A supported read-only live Account Manager integration supplies authorized profile snapshots without UI or credential extraction.",
-      "authority": ["docs/implementation-roadmap.md", "docs/product-direction.md"],
-      "implementation": [],
-      "tests": [],
-      "evidence": [],
+      "authority": ["docs/implementation-roadmap.md", "docs/product-direction.md", "docs/adr/0027-stage-18-live-boundary-checkpoint.md"],
+      "implementation": ["packages/application/src/account-manager-usage.ts"],
+      "tests": ["packages/application/test/account-manager-usage.test.ts", "packages/application/test/static-policy.test.ts"],
+      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md"],
       "status": "incomplete",
       "ownerStage": "18",
       "blocksDevelopmentAcceptance": true,
       "blocksProduction": true,
-      "rationale": "Only the static investigation and fixture protocol exist; no supported live installed-state reader is bundled or claimed."
+      "rationale": "The separately committed Account Manager reader and exact-pinned AI OS adapter provide a maintained read-only protocol, bounded synthetic cross-repository proof, exact configuration/profile binding and no UI or credential authority. No explicitly authorized installed-state profile read occurred, and the exact Account Manager hosted job was externally blocked before starting, so the row remains incomplete."
     },
     {
       "id": "INT-01",

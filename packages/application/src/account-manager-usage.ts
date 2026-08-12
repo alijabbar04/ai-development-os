@@ -1,10 +1,23 @@
 import { createHash } from "node:crypto";
+import {
+  closeSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  realpathSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, isAbsolute } from "node:path";
+import { types as utilTypes } from "node:util";
+import { Script } from "node:vm";
 import { toCanonicalJson, validation } from "@ai-dev-os/domain";
 import {
   USAGE_SNAPSHOT_SCHEMA_VERSION,
   parseCanonicalUsageSnapshot,
   type NormalizedCanonicalUsageSnapshot,
   type UsageSnapshotAdapter,
+  type UsageSnapshotReadRequest,
 } from "@ai-dev-os/scheduler";
 import { ApplicationError } from "./errors.js";
 
@@ -31,6 +44,17 @@ export const ACCOUNT_MANAGER_INVENTORY_SHA256 =
 export const ACCOUNT_MANAGER_RUNTIME_VERSION = "1.4.1" as const;
 export const ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION = 1 as const;
 export const ACCOUNT_MANAGER_LIVE_ACCESS_ENABLED = false as const;
+export const ACCOUNT_MANAGER_READER_ID =
+  "ai-account-manager.usage-reader" as const;
+export const ACCOUNT_MANAGER_SUPPORTED_READER_ENABLED = true as const;
+export const ACCOUNT_MANAGER_SUPPORTED_COMMIT =
+  "5279113728a344a87a7e49c4222741a618b67dd5" as const;
+export const ACCOUNT_MANAGER_SUPPORTED_TREE =
+  "e8c342a77eaf01535db2bed2819e5ad87e1876df" as const;
+export const ACCOUNT_MANAGER_SUPPORTED_INVENTORY_SHA256 =
+  "df89d81c692f298b56ead07c4822a8efc87113919d5594ec0069df59d1161bf3" as const;
+export const ACCOUNT_MANAGER_SUPPORTED_READER_SHA256 =
+  "7626a6e24a10cf479983de7a1c7882ebf87a4ae45bf442c1b1f5a9d65ed04e40" as const;
 
 export interface AccountManagerFixtureReader {
   readonly fixtureOnly: true;
@@ -39,6 +63,51 @@ export interface AccountManagerFixtureReader {
 
 export interface AccountManagerUsageAdapterOptions {
   readonly reader: AccountManagerFixtureReader;
+}
+
+export interface AccountManagerSupportedReader {
+  readonly fixtureOnly: false;
+  readonly readerId: typeof ACCOUNT_MANAGER_READER_ID;
+  readonly protocolVersion: typeof ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION;
+  readonly runtimeVersion: typeof ACCOUNT_MANAGER_RUNTIME_VERSION;
+  readonly repositoryUrl: typeof ACCOUNT_MANAGER_REPOSITORY_URL;
+  readonly configurationFingerprint: string;
+  readScopedUsage(
+    profileId: string,
+    request?: UsageSnapshotReadRequest,
+  ): Promise<unknown | null>;
+}
+
+export interface AccountManagerReaderConfiguration {
+  readonly schemaVersion: typeof ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION;
+  readonly dataDirectory: string;
+  readonly profileAllowlist: readonly AccountManagerAuthorizedProfile[];
+  readonly freshnessMs: number;
+}
+
+export interface AccountManagerAuthorizedProfile {
+  readonly profileId: string;
+  readonly providerId: "claude-code";
+  readonly ownership: "owned" | "authorized-borrowed";
+  readonly authorization: "authorized" | "unauthorized" | "ambiguous";
+  readonly revocation: "not-revoked" | "revoked" | "unknown";
+}
+
+export interface AccountManagerSupportedUsageAdapterOptions {
+  readonly readerModulePath: string;
+  readonly readerConfiguration: AccountManagerReaderConfiguration;
+  readonly authorizedProfile: AccountManagerAuthorizedProfile;
+  readonly expectedConfigurationFingerprint: string;
+  readonly maximumSourceFreshnessMs: number;
+  readonly now?: () => Date;
+}
+
+interface ParsedSupportedUsageAdapterOptions {
+  readonly reader: AccountManagerSupportedReader;
+  readonly authorizedProfile: AccountManagerAuthorizedProfile;
+  readonly expectedConfigurationFingerprint: string;
+  readonly maximumSourceFreshnessMs: number;
+  readonly now: () => Date;
 }
 
 function finiteId(value: unknown, path: string): string {
@@ -308,4 +377,741 @@ export function createAccountManagerFixtureUsageAdapter(
       }
     },
   });
+}
+
+function supportedSourceFingerprint(options: ParsedSupportedUsageAdapterOptions): string {
+  return createHash("sha256")
+    .update(toCanonicalJson({
+      repositoryUrl: ACCOUNT_MANAGER_REPOSITORY_URL,
+      sourceCommit: ACCOUNT_MANAGER_SUPPORTED_COMMIT,
+      sourceTree: ACCOUNT_MANAGER_SUPPORTED_TREE,
+      sourceInventorySha256: ACCOUNT_MANAGER_SUPPORTED_INVENTORY_SHA256,
+      readerArtifactSha256: ACCOUNT_MANAGER_SUPPORTED_READER_SHA256,
+      readerConfigurationFingerprint:
+        options.expectedConfigurationFingerprint,
+      runtimeVersion: ACCOUNT_MANAGER_RUNTIME_VERSION,
+      readerId: ACCOUNT_MANAGER_READER_ID,
+      protocolVersion: ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION,
+    }))
+    .digest("hex");
+}
+
+function snapshotSupportedReaderInput(value: unknown): unknown {
+  try {
+    let nodes = 0;
+    let textUnits = 0;
+    const active = new WeakSet<object>();
+    const copy = (item: unknown, depth: number): unknown => {
+      nodes += 1;
+      if (nodes > 256 || depth > 12) {
+        throw new ApplicationError(
+          "INVALID_USAGE_FIXTURE",
+          "The Account Manager reader result exceeds its structural bound.",
+        );
+      }
+      if (typeof item === "string") {
+        textUnits += item.length;
+        if (textUnits > 16_384) {
+          throw new ApplicationError(
+            "INVALID_USAGE_FIXTURE",
+            "The Account Manager reader result exceeds its text bound.",
+          );
+        }
+        return item;
+      }
+      if (item === null || typeof item !== "object") return item;
+      if (utilTypes.isProxy(item)) {
+        throw new ApplicationError(
+          "INVALID_USAGE_FIXTURE",
+          "The Account Manager reader result is not plain data.",
+        );
+      }
+      if (active.has(item)) {
+        throw new ApplicationError(
+          "INVALID_USAGE_FIXTURE",
+          "The Account Manager reader result contains a cycle.",
+        );
+      }
+      active.add(item);
+      try {
+        if (Array.isArray(item)) {
+          if (item.length > 64) {
+            throw new ApplicationError(
+              "INVALID_USAGE_FIXTURE",
+              "The Account Manager reader result exceeds its collection bound.",
+            );
+          }
+          const keys = Reflect.ownKeys(item);
+          if (
+            keys.length !== item.length + 1 ||
+            keys.some((key) => typeof key !== "string")
+          ) {
+            throw new ApplicationError(
+              "INVALID_USAGE_FIXTURE",
+              "The Account Manager reader result is not plain data.",
+            );
+          }
+          const descriptors = Object.getOwnPropertyDescriptors(item);
+          const result: unknown[] = [];
+          for (let index = 0; index < item.length; index += 1) {
+            const descriptor = descriptors[String(index)];
+            if (
+              descriptor === undefined ||
+              !("value" in descriptor) ||
+              descriptor.enumerable !== true
+            ) {
+              throw new ApplicationError(
+                "INVALID_USAGE_FIXTURE",
+                "The Account Manager reader result is not plain data.",
+              );
+            }
+            result.push(copy(descriptor.value, depth + 1));
+          }
+          return result;
+        }
+        const prototype = Object.getPrototypeOf(item);
+        if (prototype !== Object.prototype && prototype !== null) {
+          throw new ApplicationError(
+            "INVALID_USAGE_FIXTURE",
+            "The Account Manager reader result is not plain data.",
+          );
+        }
+        const keys = Reflect.ownKeys(item);
+        if (
+          keys.length > 64 ||
+          keys.some((key) => typeof key !== "string")
+        ) {
+          throw new ApplicationError(
+            "INVALID_USAGE_FIXTURE",
+            "The Account Manager reader result exceeds its field bound.",
+          );
+        }
+        const descriptors = Object.getOwnPropertyDescriptors(item);
+        const result = Object.create(null) as Record<string, unknown>;
+        for (const key of keys as string[]) {
+          const descriptor = descriptors[key];
+          if (
+            descriptor === undefined ||
+            !("value" in descriptor) ||
+            descriptor.enumerable !== true
+          ) {
+            throw new ApplicationError(
+              "INVALID_USAGE_FIXTURE",
+              "The Account Manager reader result is not plain data.",
+            );
+          }
+          textUnits += key.length;
+          if (textUnits > 16_384) {
+            throw new ApplicationError(
+              "INVALID_USAGE_FIXTURE",
+              "The Account Manager reader result exceeds its text bound.",
+            );
+          }
+          result[key] = copy(descriptor.value, depth + 1);
+        }
+        return result;
+      } finally {
+        active.delete(item);
+      }
+    };
+    return copy(value, 0);
+  } catch (error) {
+    if (error instanceof ApplicationError) throw error;
+    throw new ApplicationError(
+      "INVALID_USAGE_FIXTURE",
+      "The Account Manager reader result is not safely inspectable.",
+    );
+  }
+}
+
+function parseAuthorizedProfile(value: unknown): AccountManagerAuthorizedProfile {
+  try {
+    const input = ensureRecord(
+      snapshotSupportedReaderInput(value),
+      "options.authorizedProfile",
+    );
+    ensureExactKeys(
+      input,
+      ["profileId", "providerId", "ownership", "authorization", "revocation"],
+      "options.authorizedProfile",
+    );
+    return Object.freeze({
+      profileId: finiteId(input["profileId"], "options.profileId"),
+      providerId: ensureEnum(
+        input["providerId"],
+        "options.providerId",
+        ["claude-code"] as const,
+      ),
+      ownership: ensureEnum(
+        input["ownership"],
+        "options.ownership",
+        ["owned", "authorized-borrowed"] as const,
+      ),
+      authorization: ensureEnum(
+        input["authorization"],
+        "options.authorization",
+        ["authorized", "unauthorized", "ambiguous"] as const,
+      ),
+      revocation: ensureEnum(
+        input["revocation"],
+        "options.revocation",
+        ["not-revoked", "revoked", "unknown"] as const,
+      ),
+    });
+  } catch {
+    throw new ApplicationError(
+      "INVALID_COMMAND",
+      "The Account Manager reader authority configuration is invalid.",
+    );
+  }
+}
+
+function normalizeSupportedReader(
+  value: unknown,
+  options: ParsedSupportedUsageAdapterOptions,
+): NormalizedCanonicalUsageSnapshot {
+  try {
+    const input = ensureRecord(
+      snapshotSupportedReaderInput(value),
+      "readerResult",
+    );
+    ensureExactKeys(
+      input,
+      ["schemaVersion", "reader", "requestedProfileId", "profile", "observation"],
+      "readerResult",
+    );
+    if (input["schemaVersion"] !== ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION) {
+      throw new ApplicationError(
+        "USAGE_SOURCE_MISMATCH",
+        "The Account Manager reader protocol version is unsupported.",
+      );
+    }
+    const reader = ensureRecord(input["reader"], "readerResult.reader");
+    ensureExactKeys(
+      reader,
+      [
+        "readerId",
+        "protocolVersion",
+        "runtimeVersion",
+        "repositoryUrl",
+        "configurationFingerprint",
+      ],
+      "readerResult.reader",
+    );
+    if (
+      reader["readerId"] !== ACCOUNT_MANAGER_READER_ID ||
+      reader["protocolVersion"] !== ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION ||
+      reader["runtimeVersion"] !== ACCOUNT_MANAGER_RUNTIME_VERSION ||
+      reader["repositoryUrl"] !== ACCOUNT_MANAGER_REPOSITORY_URL ||
+      reader["configurationFingerprint"] !==
+        options.expectedConfigurationFingerprint
+    ) {
+      throw new ApplicationError(
+        "USAGE_SOURCE_MISMATCH",
+        "The Account Manager reader identity is not the reviewed protocol.",
+      );
+    }
+    const requestedProfileId = finiteId(
+      input["requestedProfileId"],
+      "readerResult.requestedProfileId",
+    );
+    const profile = ensureRecord(input["profile"], "readerResult.profile");
+    ensureExactKeys(
+      profile,
+      [
+        "scopedProfileId",
+        "providerId",
+        "ownership",
+        "authorization",
+        "revocation",
+        "authorityEstimate",
+      ],
+      "readerResult.profile",
+    );
+    const expected = options.authorizedProfile;
+    if (
+      requestedProfileId !== expected.profileId ||
+      profile["scopedProfileId"] !== expected.profileId ||
+      profile["providerId"] !== expected.providerId ||
+      profile["ownership"] !== expected.ownership ||
+      profile["authorization"] !== expected.authorization ||
+      profile["revocation"] !== expected.revocation ||
+      profile["authorityEstimate"] !== "caller-allowlist"
+    ) {
+      throw new ApplicationError(
+        "USAGE_PROFILE_MISMATCH",
+        "The Account Manager observation does not match the trusted profile authority.",
+      );
+    }
+    const observation = ensureRecord(
+      input["observation"],
+      "readerResult.observation",
+    );
+    ensureExactKeys(
+      observation,
+      [
+        "observationId",
+        "sourceClass",
+        "confidence",
+        "timezone",
+        "observedAt",
+        "freshUntil",
+        "fiveHour",
+        "weekly",
+      ],
+      "readerResult.observation",
+    );
+    const observedAt = ensureTimestamp(
+      observation["observedAt"],
+      "readerResult.observation.observedAt",
+    );
+    const freshUntil = ensureTimestamp(
+      observation["freshUntil"],
+      "readerResult.observation.freshUntil",
+    );
+    if (
+      Date.parse(freshUntil) - Date.parse(observedAt) >
+      options.maximumSourceFreshnessMs
+    ) {
+      throw new ApplicationError(
+        "INVALID_USAGE_FIXTURE",
+        "The Account Manager source freshness exceeds the configured bound.",
+      );
+    }
+    const sourceClass = ensureEnum(
+      observation["sourceClass"],
+      "readerResult.observation.sourceClass",
+      ["provider-authoritative", "provider-cached"] as const,
+    );
+    const observationId = finiteId(
+      observation["observationId"],
+      "readerResult.observation.observationId",
+    );
+    const fiveHour = parseWindow(
+      observation["fiveHour"],
+      "readerResult.observation.fiveHour",
+    );
+    const weekly = parseWindow(
+      observation["weekly"],
+      "readerResult.observation.weekly",
+    );
+    const normalizedObservation = Object.freeze({
+      observationId,
+      sourceClass,
+      confidence: ensureEnum(
+        observation["confidence"],
+        "readerResult.observation.confidence",
+        ["high", "low"] as const,
+      ),
+      timezone: ensureEnum(
+        observation["timezone"],
+        "readerResult.observation.timezone",
+        ["Europe/London"] as const,
+      ),
+      observedAt,
+      freshUntil,
+      fiveHour,
+      weekly,
+    });
+    const sourceFingerprint = supportedSourceFingerprint(options);
+    const projection = Object.freeze({
+      schemaVersion: USAGE_SNAPSHOT_SCHEMA_VERSION,
+      compatibility: "native-v2" as const,
+      sourceAdapterId: "usage:account-manager-reader" as const,
+      sourceAdapterVersion: `v${ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION}:${ACCOUNT_MANAGER_RUNTIME_VERSION}`,
+      sourceFingerprint,
+      sourceClass,
+      authoritative: sourceClass === "provider-authoritative",
+      confidence: normalizedObservation.confidence,
+      profileId: expected.profileId,
+      providerId: expected.providerId,
+      ownership: expected.ownership,
+      authorization: expected.authorization,
+      revocation: expected.revocation,
+      timezone: normalizedObservation.timezone,
+      observedAt,
+      freshUntil,
+      fiveHour,
+      weekly,
+    });
+    const material = Object.freeze({
+      ...projection,
+      snapshotId: `usage:${createHash("sha256")
+        .update(toCanonicalJson(projection))
+        .digest("hex")
+        .slice(0, 40)}`,
+    });
+    return parseCanonicalUsageSnapshot(material);
+  } catch (error) {
+    if (error instanceof ApplicationError) throw error;
+    throw new ApplicationError(
+      "INVALID_USAGE_FIXTURE",
+      "The Account Manager reader result is malformed or outside the reviewed protocol.",
+    );
+  }
+}
+
+interface ReaderBackedSupportedOptions {
+  readonly reader: AccountManagerSupportedReader;
+  readonly authorizedProfile: AccountManagerAuthorizedProfile;
+  readonly expectedConfigurationFingerprint: string;
+  readonly maximumSourceFreshnessMs: number;
+  readonly now?: () => Date;
+}
+
+function parseReaderBackedOptions(
+  rawOptions: ReaderBackedSupportedOptions,
+): ParsedSupportedUsageAdapterOptions {
+  try {
+    if (
+      rawOptions === null ||
+      typeof rawOptions !== "object" ||
+      rawOptions.reader === null ||
+      typeof rawOptions.reader !== "object" ||
+      rawOptions.reader.fixtureOnly !== false ||
+      rawOptions.reader.readerId !== ACCOUNT_MANAGER_READER_ID ||
+      rawOptions.reader.protocolVersion !== ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION ||
+      rawOptions.reader.runtimeVersion !== ACCOUNT_MANAGER_RUNTIME_VERSION ||
+      rawOptions.reader.repositoryUrl !== ACCOUNT_MANAGER_REPOSITORY_URL ||
+      typeof rawOptions.reader.readScopedUsage !== "function"
+    ) {
+      throw new ApplicationError(
+        "INVALID_COMMAND",
+        "The supported Account Manager reader identity is invalid.",
+      );
+    }
+    const expectedConfigurationFingerprint = finiteSha(
+      rawOptions.expectedConfigurationFingerprint,
+      "options.expectedConfigurationFingerprint",
+    );
+    const readerConfigurationFingerprint = finiteSha(
+      rawOptions.reader.configurationFingerprint,
+      "options.reader.configurationFingerprint",
+    );
+    if (readerConfigurationFingerprint !== expectedConfigurationFingerprint) {
+      throw new ApplicationError(
+        "USAGE_SOURCE_MISMATCH",
+        "The Account Manager reader configuration is not the trusted route.",
+      );
+    }
+    const authorizedProfile = parseAuthorizedProfile(rawOptions.authorizedProfile);
+    if (
+      !Number.isSafeInteger(rawOptions.maximumSourceFreshnessMs) ||
+      rawOptions.maximumSourceFreshnessMs < 1_000 ||
+      rawOptions.maximumSourceFreshnessMs > 15 * 60_000 ||
+      (rawOptions.now !== undefined && typeof rawOptions.now !== "function")
+    ) {
+      throw new ApplicationError(
+        "INVALID_COMMAND",
+        "The Account Manager reader authority configuration is invalid.",
+      );
+    }
+    const capturedReader = rawOptions.reader;
+    const originalRead = capturedReader.readScopedUsage;
+    const capturedRead = originalRead.bind(capturedReader);
+    const guardedReader: AccountManagerSupportedReader = Object.freeze({
+      fixtureOnly: false,
+      readerId: ACCOUNT_MANAGER_READER_ID,
+      protocolVersion: ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION,
+      runtimeVersion: ACCOUNT_MANAGER_RUNTIME_VERSION,
+      repositoryUrl: ACCOUNT_MANAGER_REPOSITORY_URL,
+      configurationFingerprint: expectedConfigurationFingerprint,
+      async readScopedUsage(
+        profileId: string,
+        request?: UsageSnapshotReadRequest,
+      ): Promise<unknown | null> {
+        if (
+          capturedReader.fixtureOnly !== false ||
+          capturedReader.readerId !== ACCOUNT_MANAGER_READER_ID ||
+          capturedReader.protocolVersion !== ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION ||
+          capturedReader.runtimeVersion !== ACCOUNT_MANAGER_RUNTIME_VERSION ||
+          capturedReader.repositoryUrl !== ACCOUNT_MANAGER_REPOSITORY_URL ||
+          capturedReader.configurationFingerprint !==
+            expectedConfigurationFingerprint ||
+          capturedReader.readScopedUsage !== originalRead
+        ) {
+          throw new ApplicationError(
+            "USAGE_SOURCE_MISMATCH",
+            "The Account Manager reader identity changed after construction.",
+          );
+        }
+        const result = await capturedRead(profileId, request);
+        if (
+          capturedReader.fixtureOnly !== false ||
+          capturedReader.readerId !== ACCOUNT_MANAGER_READER_ID ||
+          capturedReader.protocolVersion !== ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION ||
+          capturedReader.runtimeVersion !== ACCOUNT_MANAGER_RUNTIME_VERSION ||
+          capturedReader.repositoryUrl !== ACCOUNT_MANAGER_REPOSITORY_URL ||
+          capturedReader.configurationFingerprint !==
+            expectedConfigurationFingerprint ||
+          capturedReader.readScopedUsage !== originalRead
+        ) {
+          throw new ApplicationError(
+            "USAGE_SOURCE_MISMATCH",
+            "The Account Manager reader identity changed during the read.",
+          );
+        }
+        return result;
+      },
+    });
+    return Object.freeze({
+      reader: guardedReader,
+      authorizedProfile,
+      expectedConfigurationFingerprint,
+      maximumSourceFreshnessMs: rawOptions.maximumSourceFreshnessMs,
+      now: rawOptions.now ?? (() => new Date()),
+    });
+  } catch (error) {
+    if (error instanceof ApplicationError) throw error;
+    throw new ApplicationError(
+      "INVALID_COMMAND",
+      "The Account Manager reader configuration is invalid.",
+    );
+  }
+}
+
+function createSupportedAdapter(
+  options: ParsedSupportedUsageAdapterOptions,
+): UsageSnapshotAdapter {
+  const assertActive = (request?: UsageSnapshotReadRequest): void => {
+    if (request === undefined) return;
+    try {
+      if (
+        request.signal === null ||
+        typeof request.signal !== "object" ||
+        typeof request.signal.aborted !== "boolean" ||
+        request.signal.aborted
+      ) {
+        throw new ApplicationError(
+          "USAGE_SOURCE_UNAVAILABLE",
+          "The Account Manager usage read was cancelled.",
+        );
+      }
+      const deadline = ensureTimestamp(request.deadline, "request.deadline");
+      const current = options.now();
+      if (!(current instanceof Date) || !Number.isFinite(current.valueOf())) {
+        throw new ApplicationError(
+          "USAGE_SOURCE_UNAVAILABLE",
+          "The Account Manager usage clock is unavailable.",
+        );
+      }
+      if (current.toISOString() >= deadline) {
+        throw new ApplicationError(
+          "USAGE_SOURCE_UNAVAILABLE",
+          "The Account Manager usage read deadline expired.",
+        );
+      }
+    } catch (error) {
+      if (error instanceof ApplicationError) throw error;
+      throw new ApplicationError(
+        "USAGE_SOURCE_UNAVAILABLE",
+        "The Account Manager usage read boundary is invalid.",
+      );
+    }
+  };
+
+  return Object.freeze({
+    adapterId: "usage:account-manager-reader",
+    schemaVersion: USAGE_SNAPSHOT_SCHEMA_VERSION,
+    async readAuthorizedSnapshot(
+      profileId: string,
+      request?: UsageSnapshotReadRequest,
+    ): Promise<NormalizedCanonicalUsageSnapshot | null> {
+      let requestedProfileId: string;
+      try {
+        requestedProfileId = finiteId(profileId, "profileId");
+      } catch {
+        throw new ApplicationError(
+          "INVALID_COMMAND",
+          "The requested usage profile identity is invalid.",
+        );
+      }
+      if (requestedProfileId !== options.authorizedProfile.profileId) {
+        throw new ApplicationError(
+          "USAGE_PROFILE_MISMATCH",
+          "The requested profile is outside the configured Account Manager scope.",
+        );
+      }
+      assertActive(request);
+      let raw: unknown | null;
+      try {
+        raw = await options.reader.readScopedUsage(requestedProfileId, request);
+      } catch (error) {
+        if (error instanceof ApplicationError) throw error;
+        throw new ApplicationError(
+          "USAGE_SOURCE_UNAVAILABLE",
+          "The Account Manager usage source is unavailable.",
+        );
+      }
+      assertActive(request);
+      if (raw === null) return null;
+      return normalizeSupportedReader(raw, options);
+    },
+  });
+}
+
+export function createAccountManagerSupportedUsageAdapterForTesting(
+  rawOptions: ReaderBackedSupportedOptions,
+): UsageSnapshotAdapter {
+  return createSupportedAdapter(parseReaderBackedOptions(rawOptions));
+}
+
+function loadReviewedAccountManagerReader(
+  modulePath: string,
+  configuration: AccountManagerReaderConfiguration,
+): AccountManagerSupportedReader {
+  try {
+    const parsedPath = ensureString(modulePath, "options.readerModulePath", {
+      maxLength: 1_024,
+    });
+    if (
+      !isAbsolute(parsedPath) ||
+      parsedPath.startsWith("\\\\") ||
+      parsedPath.startsWith("//")
+    ) {
+      throw new ApplicationError(
+        "USAGE_SOURCE_MISMATCH",
+        "The Account Manager reader module path is invalid.",
+      );
+    }
+    const stat = lstatSync(parsedPath);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 64 * 1_024) {
+      throw new ApplicationError(
+        "USAGE_SOURCE_MISMATCH",
+        "The Account Manager reader module is not the reviewed artifact.",
+      );
+    }
+    const canonicalPath = realpathSync.native(parsedPath);
+    const descriptor = openSync(canonicalPath, "r");
+    let sourceBytes: Uint8Array;
+    try {
+      const opened = fstatSync(descriptor);
+      if (!opened.isFile() || opened.size > 64 * 1_024) {
+        throw new ApplicationError(
+          "USAGE_SOURCE_MISMATCH",
+          "The Account Manager reader module is not the reviewed artifact.",
+        );
+      }
+      const bounded = Buffer.alloc(64 * 1_024 + 1);
+      let offset = 0;
+      while (offset < bounded.byteLength) {
+        const count = readSync(
+          descriptor,
+          bounded,
+          offset,
+          bounded.byteLength - offset,
+          null,
+        );
+        if (count === 0) break;
+        offset += count;
+      }
+      if (offset > 64 * 1_024 || offset !== opened.size) {
+        throw new ApplicationError(
+          "USAGE_SOURCE_MISMATCH",
+          "The Account Manager reader module is not the reviewed artifact.",
+        );
+      }
+      sourceBytes = bounded.subarray(0, offset);
+    } finally {
+      closeSync(descriptor);
+    }
+    const source = new TextDecoder("utf-8", { fatal: true })
+      .decode(sourceBytes)
+      .replaceAll("\r\n", "\n");
+    if (
+      source.includes("\r") ||
+      createHash("sha256").update(source).digest("hex") !==
+        ACCOUNT_MANAGER_SUPPORTED_READER_SHA256
+    ) {
+      throw new ApplicationError(
+        "USAGE_SOURCE_MISMATCH",
+        "The Account Manager reader module is not the reviewed artifact.",
+      );
+    }
+    const hostRequire = createRequire(import.meta.url);
+    const allowedModules = new Set(["node:crypto", "node:fs", "node:path"]);
+    const reviewedRequire = (specifier: string): unknown => {
+      if (!allowedModules.has(specifier)) {
+        throw new ApplicationError(
+          "USAGE_SOURCE_MISMATCH",
+          "The Account Manager reader requested an unreviewed dependency.",
+        );
+      }
+      return hostRequire(specifier);
+    };
+    const commonJsModule = { exports: {} as unknown };
+    const wrapper = new Script(
+      `(function (exports, require, module, __filename, __dirname) {${source}\n})`,
+      { filename: "reviewed-account-manager-usage-reader.cjs" },
+    ).runInThisContext() as (
+      exports: object,
+      require: (specifier: string) => unknown,
+      module: { exports: unknown },
+      filename: string,
+      directory: string,
+    ) => void;
+    wrapper(
+      commonJsModule.exports as object,
+      reviewedRequire,
+      commonJsModule,
+      canonicalPath,
+      dirname(canonicalPath),
+    );
+    const exported = ensureRecord(
+      commonJsModule.exports,
+      "accountManagerReaderModule",
+    );
+    if (typeof exported["createScopedUsageReader"] !== "function") {
+      throw new ApplicationError(
+        "USAGE_SOURCE_MISMATCH",
+        "The Account Manager reader module surface is invalid.",
+      );
+    }
+    return exported["createScopedUsageReader"](configuration) as
+      AccountManagerSupportedReader;
+  } catch (error) {
+    if (error instanceof ApplicationError) throw error;
+    throw new ApplicationError(
+      "USAGE_SOURCE_MISMATCH",
+      "The Account Manager reader module could not be verified.",
+    );
+  }
+}
+
+export function createAccountManagerSupportedUsageAdapter(
+  rawOptions: AccountManagerSupportedUsageAdapterOptions,
+): UsageSnapshotAdapter {
+  try {
+    const input = ensureRecord(rawOptions, "options");
+    ensureExactKeys(
+      input,
+      [
+        "readerModulePath",
+        "readerConfiguration",
+        "authorizedProfile",
+        "expectedConfigurationFingerprint",
+        "maximumSourceFreshnessMs",
+        "now",
+      ],
+      "options",
+    );
+    const reader = loadReviewedAccountManagerReader(
+      rawOptions.readerModulePath,
+      rawOptions.readerConfiguration,
+    );
+    return createSupportedAdapter(parseReaderBackedOptions({
+      reader,
+      authorizedProfile: rawOptions.authorizedProfile,
+      expectedConfigurationFingerprint:
+        rawOptions.expectedConfigurationFingerprint,
+      maximumSourceFreshnessMs: rawOptions.maximumSourceFreshnessMs,
+      ...(rawOptions.now === undefined ? {} : { now: rawOptions.now }),
+    }));
+  } catch (error) {
+    if (error instanceof ApplicationError) throw error;
+    throw new ApplicationError(
+      "INVALID_COMMAND",
+      "The Account Manager reader configuration is invalid.",
+    );
+  }
 }

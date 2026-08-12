@@ -1,7 +1,7 @@
 # Windows product direction
 
-Status: Accepted product requirements; implementation not started
-Last updated: 2026-08-08
+Status: Accepted product requirements; bounded implementation checkpoints in progress
+Last updated: 2026-08-12
 
 This document records future product requirements under the Windows-first scope
 accepted by [ADR 0019](adr/0019-windows-first-production-scope.md). It separates
@@ -74,18 +74,22 @@ recording credentials, raw session material, or state from another profile.
 
 ### AI Account Manager integration input
 
-The canonical future source to inspect is
+The reviewed source is
 [`alijabbar04/ai-account-manager`](https://github.com/alijabbar04/ai-account-manager).
-It is a Stage 18 investigation input, not an already-understood or approved
-component.
+The supported reader checkpoint is pinned to commit
+`5279113728a344a87a7e49c4222741a618b67dd5`, tree
+`e8c342a77eaf01535db2bed2819e5ad87e1876df`, its full inventory, and the exact
+reader artifact recorded by ADR 0027. It exposes a versioned read-only library
+and CLI with one explicit profile allowlist and emits only normalized
+`claude-code` usage/authority observations. AI Development OS additionally
+binds the exact reader/store configuration fingerprint and trusted profile
+authority before scheduler eligibility checks.
 
-Before reuse, a separately authorized task must obtain repository access, pin
-the exact inspected commit, inventory every tracked file, trace profile,
-session, reset, and usage data end to end, distinguish authoritative provider
-readings from estimates, review credential and cross-profile isolation
-boundaries, assess API/IPC/database/export surfaces, and confirm license and
-reuse constraints. The preferred integration is a read-only adapter that emits
-a normalized usage snapshot. Scraping an installed UI is not an accepted plan.
+This implementation does not itself prove a live installed-state route. No
+installed UI, browser/session state, credential, or profile store was accessed
+for the checkpoint, and `AM-02` remains incomplete until an explicitly
+authorized read and exact-head hosted evidence exist. UI scraping remains
+prohibited.
 
 ## Future Windows computer and internet authority
 

@@ -6,17 +6,16 @@ scheduler and SQLite persistence contracts. It does not own a second task
 graph, scheduler, usage ledger, provider registry, workspace implementation,
 or policy broker.
 
-The bundled Account Manager implementation is fixture-backed only. It is
-pinned to the reviewed upstream commit and accepts a narrow, body-free protocol
-containing only opaque profile identity, window identity, basis-point usage,
-reset and observation times, source provenance, and
-authorization/revocation classes. This package bundles no Account Manager,
-Codex, Electron, browser, provider, credential, or installed-state reader.
-The fixture reader and the general `UsageSnapshotAdapter` are injected
-executable callbacks, however: they are caller-trusted ports, and the
-`fixtureOnly: true` marker is a validated assertion rather than a capability
-sandbox. A caller is responsible for ensuring its implementation has only the
-authority claimed here.
+The historical Account Manager fixture adapter remains available for
+deterministic compatibility tests. A second supported, production-disabled
+route now loads only the exact reviewed Account Manager usage-reader artifact
+from an explicit absolute module path, verifies its normalized source SHA-256,
+and restricts that fixed source's CommonJS `require` resolution to
+`node:crypto`, `node:fs`, and `node:path`. This is an exact-source boundary,
+not a general VM capability sandbox. The route binds the exact upstream commit/tree/inventory, the
+reader artifact, canonical store/allowlist/freshness configuration fingerprint,
+opaque profile authority, and normalized observation into snapshot identity.
+It has no UI, browser, credential, session-refresh, or provider-call authority.
 
 Production execution remains compiled off. Stage 17 production admission,
 real provider/workspace/Git or native worker-execution effects, a daemon, API,
@@ -71,3 +70,30 @@ duplicates, malformed/partial windows, negative or contradictory totals, and
 cross-profile data fail with finite redacted application errors. Stale,
 future, cached/estimated, unauthorized, ambiguous, or revoked values remain
 ineligible under the scheduler's hard usage policy.
+
+## Supported Account Manager usage reader
+
+`createAccountManagerSupportedUsageAdapter` accepts an explicit path to the
+supported `ai-account-manager-desktop/usage-reader` CommonJS artifact plus its
+reader configuration, one independently authorized profile projection, the
+expected nonsecret configuration fingerprint, and a freshness ceiling. The
+compiled source pin is:
+
+- repository commit `5279113728a344a87a7e49c4222741a618b67dd5`;
+- tree `e8c342a77eaf01535db2bed2819e5ad87e1876df`;
+- 29-path inventory SHA-256
+  `df89d81c692f298b56ead07c4822a8efc87113919d5594ec0069df59d1161bf3`;
+- normalized reader-source SHA-256
+  `7626a6e24a10cf479983de7a1c7882ebf87a4ae45bf442c1b1f5a9d65ed04e40`.
+
+The reader emits only the `claude-code` provider identity. Its cached local
+quota observations must still pass the scheduler's freshness, authority,
+revocation, ownership, and 50%/70% admission rules. Module substitution,
+configuration substitution, reader-method drift, cross-profile results,
+malformed/oversized nested data, cancellation, and expired deadlines fail with
+finite redacted application errors. Lexical UNC/device module paths are refused;
+deployment remains responsible for excluding mapped/network-backed drive roots.
+This checkpoint did not read the installed
+Account Manager store; `ACCOUNT_MANAGER_LIVE_ACCESS_ENABLED` remains literal
+`false`, and `AM-02` remains incomplete pending an explicitly authorized live
+read and exact-head hosted evidence.

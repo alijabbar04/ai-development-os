@@ -59,10 +59,12 @@ describe("machine-checkable Stage 18 development acceptance matrix", () => {
     ]);
     expect(matrix).toMatchObject({
       schemaVersion: 1,
-      branch: "feat/stage-18d-postgres-admission-readiness",
+      branch: "feat/stage-18-live-integration-closure",
       productionAdmitted: false,
     });
-    expect(matrix.sourceBase).toMatch(/^[a-f0-9]{40}$/);
+    expect(matrix.sourceBase).toBe(
+      "d7fe405745ccd5e1f31a3d702dc70d8095016604",
+    );
     expect(matrix.rows.length).toBeGreaterThanOrEqual(15);
   });
 
@@ -110,6 +112,9 @@ describe("machine-checkable Stage 18 development acceptance matrix", () => {
 
   it("derives the only permitted outcome instead of trusting prose", () => {
     const byId = new Map(matrix.rows.map((row) => [row.id, row]));
+    expect(byId.get("ANT-02")?.status).toBe("incomplete");
+    expect(byId.get("AM-02")?.status).toBe("incomplete");
+    expect(byId.get("PLN-02")?.status).toBe("incomplete");
     expect(new Set(matrix.checkpointRows).size).toBe(matrix.checkpointRows.length);
     const checkpointIncomplete = matrix.checkpointRows.some((id) => {
       const row = byId.get(id);

@@ -38,8 +38,13 @@ describe("Anthropic package boundary", () => {
   });
 
   it("exports the fake factory only from the testing subpath", () => {
-    expect(read(resolve(packageRoot, "src", "index.ts"))).not.toContain("createAnthropicProviderForTesting");
-    expect(read(resolve(packageRoot, "src", "testing", "index.ts"))).toContain("createAnthropicProviderForTesting");
+    const productionIndex = read(resolve(packageRoot, "src", "index.ts"));
+    const testingIndex = read(resolve(packageRoot, "src", "testing", "index.ts"));
+    expect(productionIndex).not.toContain("createAnthropicProviderForTesting");
+    expect(productionIndex).not.toContain("createAnthropicLiveCanary");
+    expect(testingIndex).toContain("createAnthropicProviderForTesting");
+    expect(testingIndex).toContain("createAnthropicLiveCanary");
+    expect(testingIndex).not.toContain("createDirectAnthropicLiveCanaryTransportForTesting");
   });
 
   it("declares only reviewed first-party dependencies and bounded package files", () => {

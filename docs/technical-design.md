@@ -2,7 +2,7 @@
 
 Status: Accepted baseline  
 Version: 0.3
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 ## 1. Executive summary
 
@@ -331,6 +331,15 @@ freshness, reset, timezone, and fail-closed rules are normative in the
 rule, never a score term, and a profile identifier never grants credential or
 execution authority.
 
+The supported Account Manager route is an exact-pinned, read-only input to this
+policy rather than an authority source. A bounded reader emits only one
+allowlisted `claude-code` profile observation; the application adapter binds
+the reviewed commit/tree/artifact, a nonsecret canonical reader-configuration
+fingerprint, and a separately trusted ownership/authorization/revocation
+projection before constructing a canonical snapshot. The historical fixture
+route remains for deterministic compatibility. No installed-state read ran in
+the implementation checkpoint, so `AM-02` and all production use remain gated.
+
 A baseline score is:
 
 ```text
@@ -428,6 +437,14 @@ Normalized events cover lifecycle, text deltas, reasoning summaries where policy
 - Pass the shared inference-provider contract suite, adversarial parser/transport tests, deterministic fake-server tests, and explicit opt-in budget-capped live canaries before any concrete model becomes eligible.
 
 This adapter enables configured Anthropic models to participate in discovery, synthesis, review, and other inference operation classes. Claude Code remains a separate coding-agent surface and cannot satisfy an inference alias.
+
+The Stage 18 live-boundary checkpoint keeps the production provider disabled
+and exposes its single-attempt real-service canary only from the testing
+subpath. That canary has a fixed endpoint, API version, pinned model, harmless
+body, scoped-secret reference, exact policy/catalog/retention preflight, and
+finite response/time/result surface; ordinary CI substitutes deterministic
+transport. It is implementation evidence only until an already configured
+owned secret route runs it successfully.
 
 ### 11.3 Claude Code adapter
 

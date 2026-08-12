@@ -39,8 +39,8 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Production-disabled checkpoints complete** — 18A/18B/18C/18D published; production remains blocked on Stage 17W |
-| Stage 19 | **19B source checkpoint hosted-green; finalization pending** — deterministic evaluation plus production-disabled serialized local-Git integration; `INT-01`, the concrete B3 fixture matrix, definitive local gates, and exact-source-head hosted CI are proven, while the evidence/matrix finalization commit and its exact-head reconciliation remain pending |
+| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D are published and `INT-01` is proven; bounded `ANT-02`/`AM-02` implementations exist, but their required live evidence is absent; production remains blocked on Stage 17W |
+| Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
 
@@ -53,15 +53,17 @@ Three things are stated plainly because they are easy to assume the other way:
 - **Autonomous execution refuses in production, by design.** No built-in sandbox
   backend is classified as genuinely enforcing. See the last section of this file.
 - **Stage 17W is a gated checkpoint, not a released stage.** No native Windows
-  enforcement backend has been proven, the Stage 17 native marshalling layer
-  **has never executed**, the Windows escape corpus is unrun, and no `v0.17`
+  enforcement backend has been proven, the generated Stage 17 native boundary
+  candidate **has not executed**, the Windows escape corpus is unrun, and no `v0.17`
   tag exists. **Windows containment is not claimed.**
 - **Linux and macOS are deferred, not passing.** Their portable seams and
   evidence stay intact, while native enforcement, L-02, packaging, and parity
   move to Stage 25.
 - **Stage 18 checkpoints do not admit production.** Production-disabled 18A,
-  18B, 18C, and 18D are published. PostgreSQL parity and the machine-checkable
-  acceptance audit are present, but the schema has no admitted variant and
+  18B, 18C, and 18D are published, and Stage 19B proves `INT-01`. The reviewed
+  Anthropic canary and supported Account Manager reader now exist, but neither
+  required live proof ran, so `ANT-02`, `AM-02`, and development acceptance
+  remain incomplete. The admission schema has no admitted variant and
   production stays blocked on Stage 17W.
 
 ## Documents
@@ -198,7 +200,7 @@ most valuable.
 - [`@ai-dev-os/evaluation`](packages/evaluation/README.md) validates exact bounded deterministic evidence against externally trusted subject-bound criterion-manifest, evidence-instance, and waiver-digest allowlists, preserves non-authoritative model disagreement, produces authority-free completeness findings, and journals command-equivalent evaluation runs through the persistence port.
 - [`@ai-dev-os/integrator`](packages/integrator/README.md) binds an accepted evaluation admission to exact commits, trees, ordered parents, paths, validation and authority; journals a serialized fenced effect intent and exact receipt; refuses ambiguous retry; and exposes a real sanitized Git implementation only through its disposable-fixture testing subpath. Production Git effects remain literally disabled.
 
-Provider/model IDs remain opaque configuration. The router can choose any configured eligible GPT or Claude inference target without name heuristics or a built-in commercial preference. Claude Code and Codex adapters implement the separate coding-agent contract and cannot be used as inference thinkers. A concrete Claude model requires a supported inference-provider registration; this repository does not currently ship a direct first-party Anthropic inference adapter. Usage/reset facts come only from normalized authorized observations, never guessed provider policy.
+Provider/model IDs remain opaque configuration. The router can choose any configured eligible GPT or Claude inference target without name heuristics or a built-in commercial preference. Claude Code and Codex adapters implement the separate coding-agent contract and cannot be used as inference thinkers. The first-party Anthropic inference adapter remains production-disabled; its live canary is isolated to the testing subpath and has not run. Usage/reset facts come only from normalized authorized observations, never guessed provider policy. The exact-pinned Account Manager reader route emits `claude-code` observations and has not read installed state in this checkpoint.
 
 The project is pre-1.0. Live provider calls are explicit opt-in operations with policy and scoped-secret boundaries. Autonomous repository execution remains disabled in production until a genuinely enforcing isolation backend exists.
 

@@ -68,4 +68,11 @@ describe("Stage 18C application static policy", () => {
       "npm run build && npm --prefix ../persistence-memory run build",
     );
   });
+
+  it("exports injected Account Manager readers only through testing", () => {
+    expect(read(resolve(packageRoot, "src", "index.ts")))
+      .not.toContain("createAccountManagerSupportedUsageAdapterForTesting");
+    expect(read(resolve(packageRoot, "src", "testing", "index.ts")))
+      .toContain("createAccountManagerSupportedUsageAdapterForTesting");
+  });
 });
