@@ -527,7 +527,8 @@ describe("supported Account Manager usage-reader protocol", () => {
       }));
 
       const normalizedReader = join(directory, "normalized-reader.cjs");
-      const reviewedSource = readFileSync(modulePath, "utf8");
+      const reviewedSource = readFileSync(modulePath, "utf8")
+        .replaceAll("\r\n", "\n");
       expect(reviewedSource).not.toContain("\r");
       writeFileSync(normalizedReader, reviewedSource.replaceAll("\n", "\r\n"));
       const normalizedAdapter = createAccountManagerSupportedUsageAdapter({
