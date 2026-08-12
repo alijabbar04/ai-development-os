@@ -4,8 +4,9 @@ Date: 2026-08-12 (BST)
 
 ## Outcome
 
-This packet currently records a **production-disabled implementation candidate**,
-not Stage 18 development acceptance.
+This packet records the **Stage 18 live-boundary production-disabled checkpoint
+complete; development acceptance remains blocked by `ANT-02` and `AM-02`**
+outcome. It does not record Stage 18 development acceptance.
 
 - `INT-01` remains proven by the already published Stage 19B final head.
 - `ANT-02` remains incomplete. The explicit bounded canary exists and its
@@ -16,15 +17,16 @@ not Stage 18 development acceptance.
   Account Manager store/profile was read and the Account Manager hosted job was
   prevented from starting by the account's Actions billing/spending limit.
 - `developmentAccepted` and `productionAdmitted` remain `false`.
-- Stage 17W remains gated. No generated native boundary candidate, installation,
-  elevation, lifecycle proof, provider egress proof, or restricted operation
-  ran in this queue.
+- Stage 17W remains gated. Its ordinary pure deterministic preflight passed, but
+  no generated native boundary candidate, installation, elevation, lifecycle
+  proof, provider egress proof, or restricted operation ran in this queue.
 - Stage 20A did not start because Stage 18 development acceptance is false.
 
-Definitive AI Development OS local gates and independent exact-tree review pass.
-The focused source commit/push, exact-head hosted CI, and final evidence
-reconciliation remain pending at this precommit point and must not be inferred
-from this packet.
+Definitive AI Development OS local gates, independent exact-tree review, the
+focused non-forced source publication, and exact-source-head hosted CI pass.
+Only this final evidence commit/push, its exact-head hosted CI, and the
+self-referential final reconciliation remain pending and must not be inferred
+from the packet itself.
 
 ## Starting identities and scope
 
@@ -34,7 +36,10 @@ AI Development OS:
 - base/final published Stage 19B head
   `d7fe405745ccd5e1f31a3d702dc70d8095016604`;
 - base tree `5fc1cec866795509571ed96726aca50cfd5b2110`;
-- upstream intentionally absent before this checkpoint;
+- source-head commit `5d1e6e1ae72000dbc4153282a1689cd8d78aa170`;
+- source-head tree `0a602cbc38fe24acd229ab498230208e81d50132`;
+- local branch, upstream, remote-tracking ref, and live remote branch all equal
+  that source head after non-forced publication;
 - production remains compiled disabled.
 
 Account Manager:
@@ -53,15 +58,28 @@ Account Manager:
 - reader CLI blob SHA-256
   `5a3f32a4f184c326f07a8d3cbe3d7d894989319fa7b18c4aec7fde81b3935db7`.
 
-The reviewed precommit candidate contains exactly 21 Git-visible paths: 16
-tracked modifications and five new paths, including this evidence file. The 20
-pre-evidence working-byte rows, ordered with .NET `StringComparer.Ordinal` and
-encoded as `path<TAB>XY<TAB>size<TAB>sha256<LF>`, have SHA-256
-`40a5621d2e3161ab89d7a8d215e8ff9c737f7c18ee8472733cc245f3fab55e7c`.
-After explicit-path staging, the same 20 pre-evidence paths encoded from cached
-Git blobs as `path<TAB>blob-sha256<LF>` have SHA-256
-`dc23bdaebc683075677db686187e84efd83af26baecbb5828aa4b45822d8d2bf`.
-The committed tree identity remains a future publication fact.
+The published source line contains three focused commits:
+
+- `191fdaf12dc827b90c4fde448c3f80f10d383396`, tree
+  `d8cd8a52f7c0a6815da173c457f25017d23aa659`, adds the reviewed 21-path
+  checkpoint;
+- `b562e4e40684cce49193a5808717ab644dd2833c`, tree
+  `7c186f54c5846f05a6922c0f6df5b96cf07601b1`, corrects the Windows CRLF
+  test fixture without changing the supported normalized-source contract; and
+- `5d1e6e1ae72000dbc4153282a1689cd8d78aa170`, tree
+  `0a602cbc38fe24acd229ab498230208e81d50132`, gives the physical SQLite
+  reopen test the repository-standard bounded 30-second integration-test
+  allowance after hosted Windows measured 8.058 seconds.
+
+Relative to the Stage 19B base, the exact source head contains 22 Git-visible
+paths, including this evidence file. The 21 committed pre-evidence Git blobs,
+ordered with ordinal/code-unit path comparison and encoded as
+`path<TAB>blob-sha256<LF>`, form a 2,297-byte manifest with SHA-256
+`d2a08701d116002c31524ceb3926ced81f03f194bb3dd053439c2d5f1e208078`.
+The source-head evidence blob before finalization is 9,792 bytes with SHA-256
+`aa30a1fae6f112ca859c7e49044cdfd4fce9f7810e6b5c986b6d92b2617b438d`.
+The final evidence blob and final evidence-head tree are intentionally left to
+the post-commit reconciliation, avoiding a recursive self-hash claim.
 
 ## Implemented boundaries
 
@@ -113,7 +131,7 @@ Account Manager exact source commit:
 - independent GPT-5.6 Sol/Max read-only same-family review: PASS, no remaining
   source/package/docs/test blocker.
 
-AI Development OS current precommit source:
+AI Development OS published source line:
 
 - provider Anthropic: typecheck and build exit 0; 6/6 files and 125/125 tests
   pass, zero skipped; coverage is 93.41% statements (752/805), 88.29%
@@ -124,6 +142,13 @@ AI Development OS current precommit source:
   functions (41/42), and 95.08% lines (329/346);
 - focused repaired contracts: Anthropic canary 12/12, Account Manager adapter
   17/17, and acceptance matrix 3/3 pass;
+- the Windows CRLF delta reran the Account Manager adapter 17/17 and application
+  coverage 8 files passed plus one intentionally skipped live file, 50 tests
+  passed plus one live skip, with unchanged 95.05%/92.21%/97.61%/95.08%
+  coverage;
+- the physical SQLite timeout delta passed its focused evaluation file 6/6,
+  the complete evaluation package 3 files/20 tests, and evaluation coverage at
+  90.67% statements, 84.82% branches, 93.28% functions, and 92.48% lines;
 - literal root `npm run check`: exit 0 after 23m00s; 169 test files passed and
   four were skipped, with 3,290 tests passed and 29 skipped across all 39
   workspace manifests;
@@ -149,12 +174,14 @@ AI Development OS current precommit source:
   production roots, passed `npm ls --all`, and audited zero vulnerabilities
   across 130 dependency records; and
 - independent GPT-5.6 Sol/Max same-family, strictly read-only review of the exact
-  21-path tree: PASS after its HTTPS transport, Account Manager fingerprint/
-  CRLF/size, and matrix identity/status discrimination findings were repaired
-  and rerun. No source/package/test/docs blocker remains.
+  initial 21-path tree: PASS after its HTTPS transport, Account Manager
+  fingerprint/CRLF/size, and matrix identity/status discrimination findings
+  were repaired and rerun; focused read-only delta reviews also passed the CRLF
+  repair and the bounded physical SQLite timeout repair. No reviewed
+  source/package/test/docs blocker remains.
 
-These local results do not substitute for the pending source publication,
-exact-head hosted CI, or final evidence-head reconciliation.
+The local results are supplemented by, not substituted for, exact-source-head
+hosted CI. They do not establish the still-pending final evidence-head result.
 
 ## Hosted state
 
@@ -166,15 +193,41 @@ had failed or the spending limit needed to be increased. This is external and
 inconclusive, not a source-test failure and not a passing hosted gate. It was not
 retried without a changed condition.
 
-AI Development OS commit/push/hosted facts remain future-only until they occur.
+AI Development OS publication history is preserved rather than rewritten:
+
+- run [`31589067900`](https://github.com/alijabbar04/ai-development-os/actions/runs/31589067900)
+  targeted source checkpoint `191fdaf12dc827b90c4fde448c3f80f10d383396`.
+  Dependency audit, PostgreSQL integration, and Ubuntu check passed; coverage
+  failed because the Windows checkout fixture contained CRLF while the test
+  asserted LF-only bytes; Windows was cancelled after the corrective push. The
+  run conclusion is `cancelled`, not green;
+- run [`31590321539`](https://github.com/alijabbar04/ai-development-os/actions/runs/31590321539)
+  targeted CRLF repair `b562e4e40684cce49193a5808717ab644dd2833c`.
+  Dependency audit (11 seconds), PostgreSQL integration (57 seconds), Ubuntu
+  check (443 seconds), and coverage (906 seconds) passed. Windows failed after
+  1,178 seconds because the inherited physical evaluation SQLite reopen test
+  took 8.058 seconds under hosted load but retained Vitest's 5-second default;
+- exact-source-head run
+  [`31592192805`](https://github.com/alijabbar04/ai-development-os/actions/runs/31592192805)
+  targeted `5d1e6e1ae72000dbc4153282a1689cd8d78aa170` and completed `success`.
+  Dependency audit passed in 11 seconds, PostgreSQL integration in 59 seconds,
+  Ubuntu check in 477 seconds, coverage in 910 seconds, and Windows check in
+  1,187 seconds. Every mandatory source-head job is green.
+
+The final evidence commit/push and exact-evidence-head hosted run remain future
+facts at this self-reference boundary.
 
 ## Safety, authority, and nonclaims
 
 - No live Anthropic call and no Account Manager installed-state read occurred.
 - No filesystem/browser credential or session discovery, UI automation,
   communication, purchase, or new recipient action occurred.
-- No Stage 17 native candidate execution, restricted operation, installation,
-  removal, UAC/elevation, lifecycle proof, or provider-egress proof occurred.
+- Stage 17's ordinary pure deterministic preflight passed from the exact clean
+  reviewed source: controller self-test 2/2 and installer self-test 190/190,
+  with the packet's controller/installer hashes and production-disablement
+  checks matching. This was not generated native boundary candidate execution;
+  no restricted operation, installation, removal, UAC/elevation, lifecycle
+  proof, or provider-egress proof occurred.
 - No production registration/admission, `main` mutation, merge, force-push,
   history rewrite, tag, release, signing, registry/package publication, or
   Linux/macOS product integration occurred.
@@ -182,8 +235,9 @@ AI Development OS commit/push/hosted facts remain future-only until they occur.
 
 ## Pending exact dependency order
 
-1. Stage and reconcile only the explicit 21-path reviewed candidate.
-2. Commit and non-forcibly push the focused AI Development OS checkpoint, then
-   require exact-head hosted jobs.
-3. Finalize and reconcile evidence without promoting `ANT-02` or `AM-02` unless
-   their missing live/hosted facts actually exist.
+1. Reconcile and independently review this final evidence-only delta without
+   promoting `ANT-02` or `AM-02` absent their missing live facts.
+2. Commit and non-forcibly push only the evidence file, then require all five
+   mandatory jobs at the exact evidence head.
+3. Reconcile final local/upstream/live-remote identity, committed evidence
+   bytes, worktree cleanliness, and hosted conclusions in the handoff.
