@@ -309,7 +309,7 @@ describe("Stage 17 native enforcing-side regressions are pinned from TypeScript"
     const proofEnd = script.indexOf("// ---------------------------------------------------------------------- main", proofStart);
     expect(proofStart).toBeGreaterThanOrEqual(0);
     expect(proofEnd).toBeGreaterThan(proofStart);
-    const proofBody = script.slice(proofStart, proofEnd);
+    const proofBody = script.slice(proofStart, proofEnd).replaceAll("\r\n", "\n");
     expect(proofBody).toContain(
       'if (differing.length > 0) {\n    fail(`${entry.component} proof-only builds were not byte-identical: ${differing.join(", ")}`);\n  }',
     );
