@@ -1,7 +1,7 @@
 # AI Development OS Implementation Roadmap
 
 Status: Active  
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 ## Delivery rule
 
@@ -602,7 +602,7 @@ Gated checkpoint progress (2026-08-05; not a Stage 17 release):
 - After another explicit authorization, protocol version 4 replaced the shell marker with a digest-pinned structured fixture. A fixed staged read succeeded; staged write and protected same-user canary access were denied; eight normal and eight `CREATE_BREAKAWAY_FROM_JOB` attempts were natively denied under the one-process/no-breakaway Job. Live parent TCP/UDP loopback controls passed. The AppContainer TCP connect timed out and neither a TCP connection nor UDP datagram reached the parent, although bind/listen and UDP `SendTo` returned success and are truthfully not represented as denied. Normal cleanup and an independent generic residue scan passed. This is a bounded feasibility slice, not a production helper or any of the 40 Windows corpus vectors; `docs/release-evidence/stage-17-windows-structured-boundary-proof.md` records the exact result.
 - A final explicit bounded authorization advanced the evidence protocol to version 5 and placed the reviewed composition behind a finite test-only helper/controller protocol. Normal lifecycle, client disconnect before target creation, and actual exact-handle helper termination after setup, with the target suspended, while running after READY, and after target exit all passed. The controller-owned private Job drained to zero active processes, no descendant survived, every helper/controller handle closed, and each independent/post-recovery/final residue scan was zero. Three failed development attempts remain recorded as failed and recovered. Cumulative authorization use was 9 profiles, 9 helpers, 7 AppContainer fixtures, and 2 ordinary fixture controls (18 total helper/fixture processes), within 10/10/20 caps. Process-broker typecheck/build, 319/319 tests, 92.36/85.92/98.32/92.99 coverage, and a 102-file package dry run with zero native entries passed. This removes only the bounded test-helper lifecycle/crash-recovery feasibility blocker; it is not a production helper or corpus evidence. `docs/release-evidence/stage-17-windows-helper-lifecycle-crash-proof.md` records the exact result.
 
-- The native handle-relative proof installer replaced PowerShell as filesystem security authority (ADR 0018), and an independent audit of it returned FAIL with three HIGH findings, every one inside the boundary ADR 0018 section 7a identifies as unverifiable by simulation: an ancestor-chain link the simulation supplied and the adapter did not, two information-class ordinals from the wrong Win32 enum family with a FALSE return read as end-of-enumeration, and a per-handle byte offset that was never reset so a re-measurement hashed zero bytes. All three are fixed with observable regressions, twelve defect proofs were run by reintroducing each guarded defect against a copy of the source, and a second independent audit returned PASS. Measured: sealed 150 vectors and reviewed-proof 190 vectors both passing with verifiably distinct digests; repository-wide 2,684 tests passing with 24 intentional skips; process-broker coverage 92.53/86.00/98.34/93.66 against 90/80/90/90 floors, up on all four axes with no threshold modified. The fix changed no truth state: `docs/release-evidence/stage-17-native-installer-audit-fix.md` records the checkpoint, and the native marshalling layer still has never executed.
+- The native handle-relative proof installer replaced PowerShell as filesystem security authority (ADR 0018), and an independent audit of it returned FAIL with three HIGH findings, every one inside the boundary ADR 0018 section 7a identifies as unverifiable by simulation: an ancestor-chain link the simulation supplied and the adapter did not, two information-class ordinals from the wrong Win32 enum family with a FALSE return read as end-of-enumeration, and a per-handle byte offset that was never reset so a re-measurement hashed zero bytes. All three are fixed with observable regressions, twelve defect proofs were run by reintroducing each guarded defect against a copy of the source, and a second independent audit returned PASS. Measured: sealed 150 vectors and reviewed-proof 190 vectors both passing with verifiably distinct digests; repository-wide 2,684 tests passing with 24 intentional skips; process-broker coverage 92.53/86.00/98.34/93.66 against 90/80/90/90 floors, up on all four axes with no threshold modified. The audit fix changed no truth state at that checkpoint, as `docs/release-evidence/stage-17-native-installer-audit-fix.md` records. On 2026-08-13 the exact reviewed installer and remover native paths did execute under separate approved elevations, but both returned exit code `2` and produced no successful proof; one empty token-derived ProgramData leaf remains preserved. The ordinary controller/runtime lifecycle and Windows escape corpus still did not run, so Windows containment remains unproven.
 - GitHub became the remote system of record. The repository is private, `main` carries the completed release lineage plus governance and deliberately no Stage 17 code, and the Stage 17 branch is pushed, unmerged, and untagged. The first CI run on Linux — the first this repository has ever had — found exactly two genuine defects across 32 packages, recorded as L-01 and L-02 in `docs/development/github-workflow.md` and deliberately not fixed under CI time pressure: a `provider-claude-code` security assertion that passes on Windows only because Windows takes the other branch of a workspace-scoped-home decision, and `@ai-dev-os/workspace` coverage floors that platform-specific branches make unreachable on Linux. No test was weakened and no threshold lowered. Secret scanning, push protection, and private vulnerability reporting are unavailable for this plan and are recorded as unavailable rather than worked around.
 - Exact two-parent candidate `e06db598bc14238156b8d7b378320e35b2e064cf`
   composes the completed L-03 canonical tool-containment repair, strengthened
@@ -636,6 +636,17 @@ Gated checkpoint progress (2026-08-05; not a Stage 17 release):
   unrun. ADR 0020 and
   `docs/release-evidence/stage-17w-defensive-implementation-checkpoint.md`
   define the exact implementation/evidence boundary.
+
+- Operator-present Stage 17W attempt (2026-08-13; failed closed, not a
+  lifecycle proof): the corrected pure preflight again matched the reviewed
+  implementation, SDK, 2/2 controller vectors, 190/190 installer vectors,
+  193-file plan, and four proof-artifact hashes. The exact elevated installer
+  and required remover both returned exit code `2` before the ordinary
+  controller ran. Independent post-checks found only an empty token-derived
+  protected leaf and zero process, profile, package, task-directory, marker, or
+  registry residue. The leaf is preserved for manual review; no alternate
+  cleanup, retry, lifecycle, egress, restricted operation, or production
+  evidence is claimed.
 
 Release consequence: Windows production enforcement remains unavailable and
 unverified beyond the bounded profile, synthetic identity/Job, structured
@@ -677,10 +688,13 @@ Status: In progress, production-disabled. Stage 18A, 18B, 18C, and 18D are
 published and exact-head green. Stage 19B has since proven the
 external-mutation crash/idempotency row `INT-01`. A reviewed one-attempt
 Anthropic canary and an exact-pinned supported Account Manager reader route now
-exist with deterministic local evidence, but no eligible owned Anthropic secret
-was supplied and no authorized installed-state Account Manager read occurred.
-`ANT-02` and `AM-02` therefore remain incomplete and `developmentAccepted`
-remains false. Production admission remains blocked on Stage 17W and no Stage
+exist with deterministic local evidence. No eligible owned Anthropic secret was
+supplied, so that canary did not run. One authorized installed-state Account
+Manager read on 2026-08-13 verified the exact route but failed closed with
+`USAGE_SOURCE_UNAVAILABLE`, and its hosted job remains blocked by the exhausted
+included minutes and zero stop-usage Actions budget. `ANT-02` and `AM-02`
+therefore remain incomplete and `developmentAccepted` remains false. Production
+admission remains blocked on Stage 17W and no Stage
 18 checkpoint changes that gate. Query-native, high-throughput team scheduling
 remains a deployment-scale nonclaim rather than a Stage 18
 development-acceptance item.

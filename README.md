@@ -39,7 +39,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D are published and `INT-01` is proven; bounded `ANT-02`/`AM-02` implementations exist, but their required live evidence is absent; production remains blocked on Stage 17W |
+| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D are published and `INT-01` is proven; `ANT-02` had no eligible secret and did not run, while the one authorized `AM-02` read failed closed and its hosted gate remains billing-blocked; production remains blocked on Stage 17W |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
@@ -53,17 +53,20 @@ Three things are stated plainly because they are easy to assume the other way:
 - **Autonomous execution refuses in production, by design.** No built-in sandbox
   backend is classified as genuinely enforcing. See the last section of this file.
 - **Stage 17W is a gated checkpoint, not a released stage.** No native Windows
-  enforcement backend has been proven, the generated Stage 17 native boundary
-  candidate **has not executed**, the Windows escape corpus is unrun, and no `v0.17`
-  tag exists. **Windows containment is not claimed.**
+  enforcement backend has been proven. A 2026-08-13 reviewed installer/remover
+  attempt refused before the ordinary post-install/stateful controller run or
+  lifecycle and left one preserved empty token leaf; the Windows escape corpus
+  is unrun, and no `v0.17` tag exists. **Windows containment is not claimed.**
 - **Linux and macOS are deferred, not passing.** Their portable seams and
   evidence stay intact, while native enforcement, L-02, packaging, and parity
   move to Stage 25.
 - **Stage 18 checkpoints do not admit production.** Production-disabled 18A,
   18B, 18C, and 18D are published, and Stage 19B proves `INT-01`. The reviewed
-  Anthropic canary and supported Account Manager reader now exist, but neither
-  required live proof ran, so `ANT-02`, `AM-02`, and development acceptance
-  remain incomplete. The admission schema has no admitted variant and
+  Anthropic canary and supported Account Manager reader now exist. No eligible
+  Anthropic secret was supplied, and the single authorized Account Manager
+  read failed closed while hosted CI remained budget-blocked, so `ANT-02`,
+  `AM-02`, and development acceptance remain incomplete. The admission schema
+  has no admitted variant and
   production stays blocked on Stage 17W.
 
 ## Documents

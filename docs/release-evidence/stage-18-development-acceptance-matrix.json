@@ -39,12 +39,12 @@
       "authority": ["docs/implementation-roadmap.md", "docs/adr/0027-stage-18-live-boundary-checkpoint.md"],
       "implementation": ["packages/provider-anthropic/src/testing/live-canary.ts"],
       "tests": ["packages/provider-anthropic/test/anthropic-live-canary.test.ts", "packages/provider-anthropic/test/static-policy.test.ts"],
-      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md"],
+      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md"],
       "status": "incomplete",
       "ownerStage": "18",
       "blocksDevelopmentAcceptance": true,
       "blocksProduction": true,
-      "rationale": "The reviewed test-only one-attempt canary fixes endpoint, API version, model, harmless body, preflight, scoped-secret, response and resource bounds, and deterministic transport tests pass. No supported owned scoped-secret reference was supplied and no live Anthropic request ran, so the row remains incomplete."
+      "rationale": "The reviewed test-only one-attempt canary fixes endpoint, API version, model, harmless body, preflight, scoped-secret, response and resource bounds, and deterministic transport tests pass. During the 2026-08-13 operator session no supported owned scoped-secret reference was configured, secret discovery was prohibited, and no live Anthropic request ran, so the row remains incomplete."
     },
     {
       "id": "PLN-01",
@@ -169,12 +169,12 @@
       "authority": ["docs/implementation-roadmap.md", "docs/product-direction.md", "docs/adr/0027-stage-18-live-boundary-checkpoint.md"],
       "implementation": ["packages/application/src/account-manager-usage.ts"],
       "tests": ["packages/application/test/account-manager-usage.test.ts", "packages/application/test/static-policy.test.ts"],
-      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md"],
+      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md"],
       "status": "incomplete",
       "ownerStage": "18",
       "blocksDevelopmentAcceptance": true,
       "blocksProduction": true,
-      "rationale": "The separately committed Account Manager reader and exact-pinned AI OS adapter provide a maintained read-only protocol, bounded synthetic cross-repository proof, exact configuration/profile binding and no UI or credential authority. No explicitly authorized installed-state profile read occurred, and the exact Account Manager hosted job was externally blocked before starting, so the row remains incomplete."
+      "rationale": "The separately committed Account Manager reader and exact-pinned AI OS adapter provide a maintained read-only protocol, bounded synthetic cross-repository proof, exact configuration/profile binding and no UI or credential authority. One explicitly authorized installed-state read on 2026-08-13 verified the exact artifact/configuration, allowlisted one owned profile, and failed closed with USAGE_SOURCE_UNAVAILABLE without store mutation. The exact Account Manager hosted job also remains externally blocked before steps by the exhausted included minutes and zero stop-usage Actions budget, so the row remains incomplete."
     },
     {
       "id": "INT-01",
@@ -208,12 +208,12 @@
       "authority": ["docs/adr/0019-windows-first-production-scope.md", "docs/adr/0024-stage-18d-postgres-admission-readiness.md"],
       "implementation": ["packages/application/src/production-admission.ts", "packages/process-broker/src/production-gate.ts"],
       "tests": ["packages/application/test/production-admission.test.ts", "packages/process-broker/test/stage-17-security.test.ts"],
-      "evidence": ["docs/release-evidence/stage-17-gated-checkpoint.md"],
+      "evidence": ["docs/release-evidence/stage-17-gated-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md"],
       "status": "production-gated",
       "ownerStage": "17W",
       "blocksDevelopmentAcceptance": false,
       "blocksProduction": true,
-      "rationale": "The separately safety-gated operation remains untouched and absent; no Stage 18 artifact can substitute for it."
+      "rationale": "The 2026-08-13 corrected pure preflight matched, but the exact reviewed installer and required remover both refused with exit code 2 before the ordinary post-install/stateful controller run, lifecycle, or separately safety-gated operation ran. One empty token-derived protected leaf remains preserved for manual review. No Stage 18 artifact or failed stateful attempt can substitute for the missing production evidence."
     }
   ]
 }

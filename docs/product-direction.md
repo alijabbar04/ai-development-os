@@ -1,7 +1,7 @@
 # Windows product direction
 
 Status: Accepted product requirements; bounded implementation checkpoints in progress
-Last updated: 2026-08-12
+Last updated: 2026-08-13
 
 This document records future product requirements under the Windows-first scope
 accepted by [ADR 0019](adr/0019-windows-first-production-scope.md). It separates
@@ -90,6 +90,13 @@ installed UI, browser/session state, credential, or profile store was accessed
 for the checkpoint, and `AM-02` remains incomplete until an explicitly
 authorized read and exact-head hosted evidence exist. UI scraping remains
 prohibited.
+
+The 2026-08-13 operator-present follow-up invoked that exact maintained boundary
+once for one explicitly allowlisted owned profile. It failed closed with
+`USAGE_SOURCE_UNAVAILABLE`, changed no store metadata, and disclosed no private
+record; the Account Manager hosted gate also remained Actions-budget blocked.
+This is failed evidence rather than live-route proof, so `AM-02` remains
+incomplete.
 
 ## Future Windows computer and internet authority
 
