@@ -52,9 +52,17 @@ Three things are stated plainly because they are easy to assume the other way:
 - **Autonomous execution refuses in production, by design.** No built-in sandbox
   backend is classified as genuinely enforcing. See the last section of this file.
 - **Stage 17W is a gated checkpoint, not a released stage.** No native Windows
-  enforcement backend has been proven, the Stage 17 native marshalling layer
-  **has never executed**, the Windows escape corpus is unrun, and no `v0.17`
-  tag exists. **Windows containment is not claimed.**
+  enforcement backend has been proven. The exact reviewed installer/remover
+  native paths executed on 2026-08-13 but both returned exit code `2` and
+  produced no successful proof; one empty token-derived ProgramData leaf is
+  preserved. The ordinary controller/runtime lifecycle and Windows escape
+  corpus remain unrun, and no `v0.17` tag exists. **Windows containment is not
+  claimed.**
+- **The 2026-08-13 operator attempt failed closed.** Corrected pure preflight
+  passed, but the reviewed installer and required remover both returned exit
+  code `2` before the ordinary controller ran. One empty token-derived
+  ProgramData leaf remains preserved for manual review; no retry or alternate
+  cleanup is authorized.
 - **Linux and macOS are deferred, not passing.** Their portable seams and
   evidence stay intact, while native enforcement, L-02, packaging, and parity
   move to Stage 25.
