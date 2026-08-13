@@ -212,9 +212,10 @@ describe("Stage 17 native enforcing-side regressions are pinned from TypeScript"
     // `gate/mutating-permitted-couples-to-recipe`, is strictly stronger in the
     // sealed direction and additionally covers the proof direction.
     //
-    // A reviewed-proof build reports a different core digest by construction,
-    // and `scripts/build-windows-artifacts.mjs` fails if it ever reproduces
-    // this one.
+    // A direct reviewed-proof recipe reports a different core digest by
+    // construction. The combined packaging command deliberately keeps these
+    // production-shaped components sealed and requires this exact pin, while
+    // proof-only components are built and checked on their separate branch.
     expect(WINDOWS_COMPONENT_CONFORMANCE.coreVectorCount).toBe(165);
     expect(WINDOWS_COMPONENT_CONFORMANCE.coreConformanceDigest).toBe(
       "3b5ad6e8931cbe129dd5bda1fe8998853260466ea0525680d34276ad0bc77757",
@@ -292,11 +293,35 @@ describe("Stage 17 native enforcing-side regressions are pinned from TypeScript"
     expect(script).toContain('const expectedProofMode = flavor !== "sealed";');
     expect(script).toContain("if (reported !== expected || proofMode !== expectedProofMode)");
 
-    // Only the command line can define the proof constant, and a proof build
-    // must not reproduce the pinned sealed conformance digest.
+    // Only the command line can define the proof constant. Production-shaped
+    // components remain sealed even in a combined proof-artifact build and
+    // must reproduce the sealed pin; proof-only components are checked against
+    // their requested recipe before they can enter the separate proof report.
     expect(script).toContain('const REVIEWED_PROOF_CONSTANT = "AIDEVOS_STAGE17_REVIEWED_PROOF_MODE"');
-    expect(script).toContain("the two recipes are not verifiably distinct");
+    expect(script).toContain("the sealed production self-test results do not match");
+    expect(script).toContain('const entryFlavor = flavorFor(entry, flavor)');
+    expect(script).toContain("buildProofOnlyComponent(entry, out, flavor)");
     expect(script).toContain("reviewed-proof-bundles-are-never-installed");
+    expect(script).toContain('if (flavor === "reviewed-proof" && !includeProofOnly)');
+    expect(script).toContain("--flavor reviewed-proof requires --include-proof-only");
+
+    const proofStart = script.indexOf("function buildProofOnlyComponent(");
+    const proofEnd = script.indexOf("// ---------------------------------------------------------------------- main", proofStart);
+    expect(proofStart).toBeGreaterThanOrEqual(0);
+    expect(proofEnd).toBeGreaterThan(proofStart);
+    const proofBody = script.slice(proofStart, proofEnd);
+    expect(proofBody).toContain(
+      'if (differing.length > 0) {\n    fail(`${entry.component} proof-only builds were not byte-identical: ${differing.join(", ")}`);\n  }',
+    );
+    expect(proofBody).toContain(
+      'describe.status !== 0 ||\n    describeJson.status !== "described" ||\n    describeJson.component !== entry.component',
+    );
+    expect(proofBody).toContain(
+      'fail(`${entry.component} describe-artifact identity/status mismatch`);',
+    );
+    expect(proofBody).toContain(
+      'if (selfTestJson.component !== entry.component) {\n    fail(`${entry.component} self-test component identity mismatch`);\n  }',
+    );
   });
 
   it("keeps the native creation boundary free of any path-taking overload", () => {

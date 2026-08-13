@@ -139,6 +139,7 @@ internal enum RefusalCode
     RemovalWildcardRefused,
     DeleteUnsupported,
     DeleteFailed,
+    RollbackCandidateUnproven,
 
     // ---------------------------------------------- stable native error classes
     NativeAccessDenied,
@@ -244,6 +245,7 @@ internal static class ProtocolNames
             [RefusalCode.RemovalWildcardRefused] = "removal-wildcard-refused",
             [RefusalCode.DeleteUnsupported] = "delete-unsupported",
             [RefusalCode.DeleteFailed] = "delete-failed",
+            [RefusalCode.RollbackCandidateUnproven] = "rollback-candidate-unproven",
             [RefusalCode.NativeAccessDenied] = "native-access-denied",
             [RefusalCode.NativeInvalidHandle] = "native-invalid-handle",
             [RefusalCode.NativeAlreadyExists] = "native-already-exists",

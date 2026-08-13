@@ -153,6 +153,27 @@ internal static class OpenRequests
             RelativeObjectAttributes,
             plan);
 
+    /// <summary>
+    /// Create the token-derived leaf with the same create-only and protected
+    /// posture as every other created directory, plus DELETE on this one exact
+    /// handle. The additional bit exists only so a refused install can remove
+    /// the empty object it just created without reopening a name. Shared
+    /// ancestors never receive this authority.
+    /// </summary>
+    internal static HandleRelativeOpenRequest CreateProtectedLeafDirectory(
+        string name,
+        SecurityDescriptorPlan plan) =>
+        new(
+            "create-protected-leaf-directory",
+            name,
+            DirectoryCreateAccess | NtFlags.DELETE,
+            NtFlags.FILE_ATTRIBUTE_DIRECTORY,
+            DirectoryShareAccess,
+            NtFlags.FILE_CREATE,
+            NtFlags.FILE_DIRECTORY_FILE | NtFlags.FILE_SYNCHRONOUS_IO_NONALERT,
+            RelativeObjectAttributes,
+            plan);
+
     internal static HandleRelativeOpenRequest OpenDirectoryForDeletion(string purpose, string name) =>
         new(
             purpose,
@@ -378,12 +399,14 @@ internal sealed class TransactionReport
         string operation,
         RefusalCode refusal,
         string failedStep,
-        IReadOnlyList<string> completedSteps)
+        IReadOnlyList<string> completedSteps,
+        RollbackReport? rollback = null)
     {
         Operation = operation;
         Refusal = refusal;
         FailedStep = failedStep;
         CompletedSteps = completedSteps;
+        Rollback = rollback ?? RollbackReport.NotRequired;
     }
 
     internal string Operation { get; }
@@ -394,6 +417,8 @@ internal sealed class TransactionReport
 
     internal IReadOnlyList<string> CompletedSteps { get; }
 
+    internal RollbackReport Rollback { get; }
+
     internal bool Succeeded => Refusal == RefusalCode.None;
 
     internal CanonicalObject ToCanonical() =>
@@ -402,7 +427,45 @@ internal sealed class TransactionReport
             .Set("completedSteps", CompletedSteps)
             .Set("failedStep", FailedStep)
             .Set("operation", Operation)
+            .Set("rollbackCode", ProtocolNames.Of(Rollback.Refusal))
+            .Set("rollbackFailedStep", Rollback.FailedStep)
+            .Set("rollbackStatus", Rollback.Status)
             .Set("status", Succeeded ? "completed" : "refused");
+}
+
+/// <summary>
+/// A finite, body-free account of the install rollback path.
+///
+/// The primary transaction refusal remains on <see cref="TransactionReport"/>.
+/// A rollback refusal is deliberately separate so cleanup failure can never
+/// replace or disguise the fault that caused the install to stop.
+/// </summary>
+internal sealed class RollbackReport
+{
+    private RollbackReport(string status, RefusalCode refusal, string failedStep)
+    {
+        Status = status;
+        Refusal = refusal;
+        FailedStep = failedStep;
+    }
+
+    internal static RollbackReport NotRequired { get; } =
+        new("not-required", RefusalCode.None, string.Empty);
+
+    internal static RollbackReport Completed { get; } =
+        new("completed", RefusalCode.None, string.Empty);
+
+    internal static RollbackReport Refused(RefusalCode refusal, string failedStep) =>
+        new(
+            "refused",
+            refusal == RefusalCode.None ? RefusalCode.InternalRefusal : refusal,
+            failedStep);
+
+    internal string Status { get; }
+
+    internal RefusalCode Refusal { get; }
+
+    internal string FailedStep { get; }
 }
 
 /// <summary>
@@ -430,6 +493,31 @@ internal static class InstallTransaction
         NtFlags.DELETE | NtFlags.FILE_DELETE_CHILD | NtFlags.WRITE_DAC | NtFlags.WRITE_OWNER;
 
     internal static TransactionReport Install(
+        IHandleRelativeFileSystem fs,
+        string runToken,
+        ProofCandidate candidate,
+        string sourceRootPath,
+        ReviewedProofModeAuthorization? authorization)
+    {
+        try
+        {
+            return InstallCore(fs, runToken, candidate, sourceRootPath, authorization);
+        }
+        catch
+        {
+            // Covers adapter failures before the stateful inner boundary (for
+            // example proof-identity resolution) and any unforeseen close-time
+            // exception. No exception body, path, or caller text crosses the
+            // command boundary.
+            return new TransactionReport(
+                "install",
+                RefusalCode.InternalRefusal,
+                "install-boundary",
+                []);
+        }
+    }
+
+    private static TransactionReport InstallCore(
         IHandleRelativeFileSystem fs,
         string runToken,
         ProofCandidate candidate,
@@ -502,6 +590,8 @@ internal static class InstallTransaction
         steps.Add("compose-security-descriptors");
 
         List<OpenedObject> retained = [];
+        List<AncestorRecord> ancestors = [];
+        bool tokenLeafCreated = false;
         try
         {
             Outcome<KnownFolderResolution> folder = fs.ResolveCommonApplicationData();
@@ -542,12 +632,21 @@ internal static class InstallTransaction
                 directoryPlan.Value,
                 retained,
                 steps,
-                out List<AncestorRecord> ancestors,
+                out ancestors,
+                out tokenLeafCreated,
                 out RefusalCode ancestorRefusal,
                 out string ancestorStep);
             if (!destinationLeafOutcome.Ok || destinationLeafOutcome.Value is null)
             {
-                return Refuse("install", ancestorRefusal, ancestorStep, steps);
+                return RefuseInstallWithRollback(
+                    fs,
+                    ancestorRefusal,
+                    ancestorStep,
+                    steps,
+                    ancestors,
+                    tokenLeafCreated,
+                    plan,
+                    directoryPlan.Value);
             }
 
             AncestorRecord leaf = destinationLeafOutcome.Value;
@@ -561,7 +660,15 @@ internal static class InstallTransaction
                 RefusalCode protection = VerifyProtection(fs, ancestor);
                 if (protection != RefusalCode.None)
                 {
-                    return Refuse("install", protection, "verify-protection", steps);
+                    return RefuseInstallWithRollback(
+                        fs,
+                        protection,
+                        "verify-protection",
+                        steps,
+                        ancestors,
+                        tokenLeafCreated,
+                        plan,
+                        directoryPlan.Value);
                 }
             }
 
@@ -576,15 +683,19 @@ internal static class InstallTransaction
                 out RefusalCode sourceRefusal);
             if (!sourceRoot.Ok || sourceRoot.Value is null)
             {
-                return Refuse(
-                    "install",
+                return RefuseInstallWithRollback(
+                    fs,
                     sourceRefusal == RefusalCode.NativeReparsePointEncountered
                         ? RefusalCode.SourceRootIsReparsePoint
                         : sourceRefusal == RefusalCode.None
                             ? RefusalCode.SourceRootUnopenable
                             : sourceRefusal,
                     "open-source-root",
-                    steps);
+                    steps,
+                    ancestors,
+                    tokenLeafCreated,
+                    plan,
+                    directoryPlan.Value);
             }
 
             steps.Add("open-source-root");
@@ -598,7 +709,15 @@ internal static class InstallTransaction
                 out RefusalCode measureRefusal);
             if (!measured.Ok || measured.Value is null)
             {
-                return Refuse("install", measureRefusal, "measure-source-closure", steps);
+                return RefuseInstallWithRollback(
+                    fs,
+                    measureRefusal,
+                    "measure-source-closure",
+                    steps,
+                    ancestors,
+                    tokenLeafCreated,
+                    plan,
+                    directoryPlan.Value);
             }
 
             steps.Add("measure-source-closure");
@@ -617,7 +736,15 @@ internal static class InstallTransaction
             RefusalCode unchanged = RequireAncestorIdentitiesUnchanged(fs, ancestors);
             if (unchanged != RefusalCode.None)
             {
-                return Refuse("install", unchanged, "assert-chain-retained-before-create", steps);
+                return RefuseInstallWithRollback(
+                    fs,
+                    unchanged,
+                    "assert-chain-retained-before-create",
+                    steps,
+                    ancestors,
+                    tokenLeafCreated,
+                    plan,
+                    directoryPlan.Value);
             }
 
             RefusalCode copied = CopyClosure(
@@ -629,7 +756,15 @@ internal static class InstallTransaction
                 steps);
             if (copied != RefusalCode.None)
             {
-                return Refuse("install", copied, "copy-closure", steps);
+                return RefuseInstallWithRollback(
+                    fs,
+                    copied,
+                    "copy-closure",
+                    steps,
+                    ancestors,
+                    tokenLeafCreated,
+                    plan,
+                    directoryPlan.Value);
             }
 
             steps.Add("copy-closure");
@@ -637,11 +772,31 @@ internal static class InstallTransaction
             RefusalCode verified = VerifyInstalledClosure(fs, leaf, plan, measured.Value, filePlan.Value);
             if (verified != RefusalCode.None)
             {
-                return Refuse("install", verified, "re-measure-installed-closure", steps);
+                return RefuseInstallWithRollback(
+                    fs,
+                    verified,
+                    "re-measure-installed-closure",
+                    steps,
+                    ancestors,
+                    tokenLeafCreated,
+                    plan,
+                    directoryPlan.Value);
             }
 
             steps.Add("re-measure-installed-closure");
             return new TransactionReport("install", RefusalCode.None, string.Empty, steps);
+        }
+        catch
+        {
+            return RefuseInstallWithRollback(
+                fs,
+                RefusalCode.InternalRefusal,
+                "install-boundary",
+                steps,
+                ancestors,
+                tokenLeafCreated,
+                plan,
+                directoryPlan.Value);
         }
         finally
         {
@@ -657,6 +812,27 @@ internal static class InstallTransaction
     }
 
     internal static TransactionReport Remove(
+        IHandleRelativeFileSystem fs,
+        string runToken,
+        ReviewedProofModeAuthorization? authorization)
+    {
+        try
+        {
+            return RemoveCore(fs, runToken, authorization);
+        }
+        catch
+        {
+            // The public transaction boundary is finite even when an injected
+            // filesystem throws before the inner retained-handle scope exists.
+            return new TransactionReport(
+                "remove",
+                RefusalCode.InternalRefusal,
+                "remove-boundary",
+                []);
+        }
+    }
+
+    private static TransactionReport RemoveCore(
         IHandleRelativeFileSystem fs,
         string runToken,
         ReviewedProofModeAuthorization? authorization)
@@ -683,6 +859,15 @@ internal static class InstallTransaction
             return Refuse("remove", identityOutcome.Refusal, "resolve-proof-identity", steps);
         }
 
+        if (identityOutcome.Value.IsWellKnownPrivileged)
+        {
+            return Refuse(
+                "remove",
+                RefusalCode.ProofIdentityUnacceptable,
+                "resolve-proof-identity",
+                steps);
+        }
+
         Outcome<SecurityDescriptorPlan> directoryPlan =
             SecurityDescriptorPlan.ForDirectory(identityOutcome.Value);
         if (!directoryPlan.Ok || directoryPlan.Value is null)
@@ -699,6 +884,28 @@ internal static class InstallTransaction
                 return Refuse("remove", folder.Refusal, "resolve-known-folder", steps);
             }
 
+            foreach (string component in folder.Value.Components)
+            {
+                if (NameGrammar.Validate(component) != RefusalCode.None)
+                {
+                    return Refuse(
+                        "remove",
+                        RefusalCode.KnownFolderPathNotCanonical,
+                        "resolve-known-folder",
+                        steps);
+                }
+            }
+
+            if (folder.Value.Components.Count == 0 ||
+                folder.Value.DriveLetter < 'A' || folder.Value.DriveLetter > 'Z')
+            {
+                return Refuse(
+                    "remove",
+                    RefusalCode.KnownFolderPathNotDriveRooted,
+                    "resolve-known-folder",
+                    steps);
+            }
+
             Outcome<OpenedObject> programData = WalkAbsolute(
                 fs,
                 folder.Value.DriveLetter,
@@ -711,11 +918,18 @@ internal static class InstallTransaction
                 return Refuse("remove", walkRefusal, "open-known-folder", steps);
             }
 
+            Outcome<ObjectFacts> programDataFacts = fs.QueryFacts(programData.Value);
+            if (!programDataFacts.Ok || programDataFacts.Value is null)
+            {
+                return Refuse("remove", programDataFacts.Refusal, "open-known-folder", steps);
+            }
+
             steps.Add("open-known-folder");
 
-            // The three components below CommonApplicationData, opened with
-            // DELETE so the directory can be removed through its own handle
-            // later. Nothing below is ever named by a path.
+            // The three components below CommonApplicationData. The two shared
+            // ancestors are traverse-only because this protocol never deletes
+            // them; only the exact run-token leaf receives DELETE. Nothing
+            // below is ever named by a path.
             string[] names =
             [
                 ProofConfiguration.InstallRootFirstComponent,
@@ -724,12 +938,25 @@ internal static class InstallTransaction
             ];
 
             List<OpenedObject> chain = [];
+            List<AncestorRecord> removalAncestors =
+            [
+                new AncestorRecord(
+                    folder.Value.Components[^1],
+                    programData.Value,
+                    programDataFacts.Value,
+                    createdByThisTransaction: false,
+                    protectionRequired: false),
+            ];
             OpenedObject parent = programData.Value;
-            foreach (string name in names)
+            for (int index = 0; index < names.Length; index++)
             {
+                string name = names[index];
+                HandleRelativeOpenRequest request = index == names.Length - 1
+                    ? OpenRequests.OpenDirectoryForDeletion("open-removal-component", name)
+                    : OpenRequests.OpenExistingDirectory("open-removal-component", name);
                 Outcome<OpenedObject> opened = fs.OpenRelative(
                     parent,
-                    OpenRequests.OpenDirectoryForDeletion("open-removal-component", name));
+                    request);
                 if (!opened.Ok || opened.Value is null)
                 {
                     return Refuse("remove", opened.Refusal, "open-removal-component", steps);
@@ -742,8 +969,51 @@ internal static class InstallTransaction
                     return Refuse("remove", directoryCheck, "verify-removal-component", steps);
                 }
 
+                Outcome<ObjectFacts> facts = fs.QueryFacts(opened.Value);
+                if (!facts.Ok || facts.Value is null)
+                {
+                    return Refuse("remove", facts.Refusal, "verify-removal-component", steps);
+                }
+
+                if (facts.Value.VolumeSerialNumber != programDataFacts.Value.VolumeSerialNumber)
+                {
+                    return Refuse(
+                        "remove",
+                        RefusalCode.ComponentVolumeMismatch,
+                        "verify-removal-component",
+                        steps);
+                }
+
+                Outcome<SecuritySnapshot> security = fs.QuerySecurity(opened.Value);
+                if (!security.Ok || security.Value is null)
+                {
+                    return Refuse("remove", security.Refusal, "verify-removal-component", steps);
+                }
+
+                RefusalCode exactSecurity = directoryPlan.Value.RequireExactMatch(security.Value);
+                if (exactSecurity != RefusalCode.None)
+                {
+                    return Refuse("remove", exactSecurity, "verify-removal-component", steps);
+                }
+
                 chain.Add(opened.Value);
+                removalAncestors.Add(new AncestorRecord(
+                    name,
+                    opened.Value,
+                    facts.Value,
+                    createdByThisTransaction: false,
+                    protectionRequired: true));
                 parent = opened.Value;
+            }
+
+            RefusalCode removalChain = VerifyExactProtectedChain(
+                fs,
+                removalAncestors,
+                names,
+                directoryPlan.Value);
+            if (removalChain != RefusalCode.None)
+            {
+                return Refuse("remove", removalChain, "verify-removal-chain", steps);
             }
 
             steps.Add("open-removal-chain");
@@ -762,6 +1032,26 @@ internal static class InstallTransaction
                 // cannot explain is how a cleanup routine becomes an
                 // arbitrary-delete primitive.
                 return Refuse("remove", RefusalCode.RemovalUnexpectedEntry, "enumerate-leaf", steps);
+            }
+
+            if (listing.Value.IsEmpty)
+            {
+                RefusalCode recovered = RecoverManifestlessEmptyLeaf(
+                    fs,
+                    leaf,
+                    removalAncestors,
+                    names,
+                    directoryPlan.Value,
+                    out string recoveryStep);
+                if (recovered != RefusalCode.None)
+                {
+                    return Refuse("remove", recovered, recoveryStep, steps);
+                }
+
+                steps.Add("prove-manifestless-empty-leaf");
+                steps.Add("delete-manifestless-empty-leaf");
+                steps.Add("retain-shared-ancestors");
+                return new TransactionReport("remove", RefusalCode.None, string.Empty, steps);
             }
 
             Outcome<InstalledManifest> manifest = ReadInstalledManifest(fs, leaf, runToken);
@@ -846,66 +1136,16 @@ internal static class InstallTransaction
 
             steps.Add("delete-leaf-directory");
 
-            // Shared ancestors are removed only when this transaction's own
-            // record says it created them, their recorded identity still
-            // matches, and they are provably empty. C:\ProgramData is never a
-            // candidate: it is not in `names`, so no code path exists that
-            // could reach it, which is stronger than a check that could be
-            // deleted.
-            //
-            // In this checkpoint the strict manifest reader deliberately
-            // records NO created ancestors, so this loop always takes the
-            // retain branch on its first iteration and both AI-Dev-OS and
-            // Stage17-Proof are always left in place. That is the conservative
-            // direction of the rule rather than a gap in it: "only if this
-            // transaction created them" resolves to "not" whenever creation
-            // cannot be proven, and leaving an empty directory an operator can
-            // inspect is a better outcome than deleting one this transaction
-            // cannot show it owns.
-            for (int index = chain.Count - 2; index >= 0; index--)
-            {
-                OpenedObject ancestor = chain[index];
-                if (!manifest.Value.AncestorCreatedByThisTransaction(ancestor.ComponentName))
-                {
-                    steps.Add("retain-shared-ancestor");
-                    break;
-                }
-
-                if (!manifest.Value.AncestorIdentityMatches(ancestor.ComponentName, FactsKeyOf(fs, ancestor)))
-                {
-                    return Refuse(
-                        "remove",
-                        RefusalCode.ComponentIdentityMismatch,
-                        "delete-created-ancestor",
-                        steps);
-                }
-
-                Outcome<DirectoryListing> ancestorListing = fs.ListDirectory(ancestor);
-                if (!ancestorListing.Ok || ancestorListing.Value is null)
-                {
-                    return Refuse(
-                        "remove",
-                        ancestorListing.Refusal,
-                        "prove-ancestor-empty",
-                        steps);
-                }
-
-                if (!ancestorListing.Value.IsEmpty)
-                {
-                    steps.Add("retain-non-empty-ancestor");
-                    break;
-                }
-
-                RefusalCode ancestorDeleted = fs.DeleteThroughHandle(ancestor);
-                if (ancestorDeleted != RefusalCode.None)
-                {
-                    return Refuse("remove", ancestorDeleted, "delete-created-ancestor", steps);
-                }
-
-                steps.Add("delete-created-ancestor");
-            }
+            // The two shared ancestors are retained unconditionally. Their
+            // handles were deliberately opened without DELETE, so there is no
+            // latent branch that could broaden this leaf-only cleanup later.
+            steps.Add("retain-shared-ancestors");
 
             return new TransactionReport("remove", RefusalCode.None, string.Empty, steps);
+        }
+        catch
+        {
+            return Refuse("remove", RefusalCode.InternalRefusal, "remove-boundary", steps);
         }
         finally
         {
@@ -926,10 +1166,12 @@ internal static class InstallTransaction
         List<OpenedObject> retained,
         List<string> steps,
         out List<AncestorRecord> ancestors,
+        out bool tokenLeafCreated,
         out RefusalCode refusal,
         out string failedStep)
     {
         ancestors = [];
+        tokenLeafCreated = false;
         refusal = RefusalCode.None;
         failedStep = string.Empty;
 
@@ -977,9 +1219,13 @@ internal static class InstallTransaction
             // the leaf it is an existing installed version and is refused
             // outright, and on a shared ancestor it means something already
             // owns that name and has to prove it is the exact approved object.
-            Outcome<OpenedObject> created = fs.OpenRelative(
-                parent,
-                OpenRequests.CreateProtectedDirectory("create-protected-directory", name, directoryPlan));
+            HandleRelativeOpenRequest createRequest = isLeaf
+                ? OpenRequests.CreateProtectedLeafDirectory(name, directoryPlan)
+                : OpenRequests.CreateProtectedDirectory(
+                    "create-protected-directory",
+                    name,
+                    directoryPlan);
+            Outcome<OpenedObject> created = fs.OpenRelative(parent, createRequest);
 
             OpenedObject handle;
             bool createdHere;
@@ -988,6 +1234,10 @@ internal static class InstallTransaction
                 handle = created.Value;
                 createdHere = true;
                 retained.Add(handle);
+                if (isLeaf)
+                {
+                    tokenLeafCreated = true;
+                }
             }
             else if (created.Refusal == RefusalCode.NativeAlreadyExists)
             {
@@ -1902,6 +2152,255 @@ internal static class InstallTransaction
 
             return fs.DeleteThroughHandle(file.Value);
         }
+    }
+
+    private static TransactionReport RefuseInstallWithRollback(
+        IHandleRelativeFileSystem fs,
+        RefusalCode refusal,
+        string step,
+        List<string> steps,
+        List<AncestorRecord> ancestors,
+        bool tokenLeafCreated,
+        InstallPlan plan,
+        SecurityDescriptorPlan directoryPlan)
+    {
+        RollbackReport rollback = RollbackReport.NotRequired;
+        try
+        {
+            if (ancestors.Count == plan.DestinationComponents.Count + 1)
+            {
+                AncestorRecord leaf = ancestors[^1];
+                string expectedLeaf = plan.DestinationComponents[^1];
+                if (leaf.CreatedByThisTransaction &&
+                    string.Equals(leaf.Name, expectedLeaf, StringComparison.Ordinal) &&
+                    string.Equals(leaf.Handle.ComponentName, expectedLeaf, StringComparison.Ordinal))
+                {
+                    RefusalCode rollbackRefusal = RollbackEmptyCreatedLeaf(
+                        fs,
+                        leaf,
+                        ancestors,
+                        plan,
+                        directoryPlan,
+                        out string rollbackStep);
+                    if (rollbackRefusal == RefusalCode.None)
+                    {
+                        steps.Add("rollback-empty-created-leaf");
+                        rollback = RollbackReport.Completed;
+                    }
+                    else
+                    {
+                        rollback = RollbackReport.Refused(rollbackRefusal, rollbackStep);
+                    }
+                }
+            }
+
+            if (ReferenceEquals(rollback, RollbackReport.NotRequired) && tokenLeafCreated)
+            {
+                rollback = RollbackReport.Refused(
+                    RefusalCode.RollbackCandidateUnproven,
+                    "verify-created-leaf-for-rollback");
+            }
+        }
+        catch
+        {
+            // The rollback boundary is finite and body-free. It cannot replace
+            // the primary refusal above, and it cannot escape with exception
+            // text that may contain native or caller-controlled detail.
+            rollback = RollbackReport.Refused(RefusalCode.InternalRefusal, "rollback-boundary");
+        }
+
+        return new TransactionReport(
+            "install",
+            refusal == RefusalCode.None ? RefusalCode.InternalRefusal : refusal,
+            step,
+            steps,
+            rollback);
+    }
+
+    private static RefusalCode RollbackEmptyCreatedLeaf(
+        IHandleRelativeFileSystem fs,
+        AncestorRecord leaf,
+        IReadOnlyList<AncestorRecord> ancestors,
+        InstallPlan plan,
+        SecurityDescriptorPlan directoryPlan,
+        out string failedStep)
+    {
+        failedStep = "verify-created-leaf-for-rollback";
+        if ((leaf.Handle.Request.DesiredAccess & NtFlags.DELETE) == 0)
+        {
+            return RefusalCode.DeleteUnsupported;
+        }
+
+        RefusalCode verified = VerifyExactProtectedChain(
+            fs,
+            ancestors,
+            plan.DestinationComponents,
+            directoryPlan);
+        if (verified != RefusalCode.None)
+        {
+            return verified;
+        }
+
+        failedStep = "prove-created-leaf-empty";
+        Outcome<DirectoryListing> listing = fs.ListDirectory(leaf.Handle);
+        if (!listing.Ok || listing.Value is null)
+        {
+            return listing.Refusal;
+        }
+
+        if (!listing.Value.IsEmpty)
+        {
+            return RefusalCode.RemovalDirectoryNotEmpty;
+        }
+
+        // Enumeration is an asynchronous boundary at which a simulated or
+        // hostile filesystem can change what it reports. Re-run every identity,
+        // DACL, object-type, and access proof immediately before the only delete.
+        failedStep = "reverify-created-leaf-for-rollback";
+        verified = VerifyExactProtectedChain(
+            fs,
+            ancestors,
+            plan.DestinationComponents,
+            directoryPlan);
+        if (verified != RefusalCode.None)
+        {
+            return verified;
+        }
+
+        failedStep = "reprove-created-leaf-empty";
+        Outcome<DirectoryListing> secondListing = fs.ListDirectory(leaf.Handle);
+        if (!secondListing.Ok || secondListing.Value is null)
+        {
+            return secondListing.Refusal;
+        }
+
+        if (!secondListing.Value.IsEmpty)
+        {
+            return RefusalCode.RemovalDirectoryNotEmpty;
+        }
+
+        failedStep = "final-verify-created-leaf-for-rollback";
+        verified = VerifyExactProtectedChain(
+            fs,
+            ancestors,
+            plan.DestinationComponents,
+            directoryPlan);
+        if (verified != RefusalCode.None)
+        {
+            return verified;
+        }
+
+        failedStep = "delete-empty-created-leaf";
+        return fs.DeleteThroughHandle(leaf.Handle);
+    }
+
+    private static RefusalCode RecoverManifestlessEmptyLeaf(
+        IHandleRelativeFileSystem fs,
+        OpenedObject leaf,
+        IReadOnlyList<AncestorRecord> ancestors,
+        IReadOnlyList<string> destinationComponents,
+        SecurityDescriptorPlan directoryPlan,
+        out string failedStep)
+    {
+        failedStep = "verify-manifestless-removal-chain";
+        if ((leaf.Request.DesiredAccess & NtFlags.DELETE) == 0)
+        {
+            return RefusalCode.DeleteUnsupported;
+        }
+
+        RefusalCode verified = VerifyExactProtectedChain(
+            fs,
+            ancestors,
+            destinationComponents,
+            directoryPlan);
+        if (verified != RefusalCode.None)
+        {
+            return verified;
+        }
+
+        failedStep = "prove-manifestless-leaf-empty";
+        Outcome<DirectoryListing> secondListing = fs.ListDirectory(leaf);
+        if (!secondListing.Ok || secondListing.Value is null)
+        {
+            return secondListing.Refusal;
+        }
+
+        if (!secondListing.Value.IsEmpty)
+        {
+            return RefusalCode.RemovalDirectoryNotEmpty;
+        }
+
+        // Nothing above the token leaf is ever a candidate on this path. The
+        // final verification below includes every retained ancestor, but the
+        // only handle passed to deletion is the exact token-leaf handle.
+        failedStep = "reverify-manifestless-removal-chain";
+        verified = VerifyExactProtectedChain(
+            fs,
+            ancestors,
+            destinationComponents,
+            directoryPlan);
+        if (verified != RefusalCode.None)
+        {
+            return verified;
+        }
+
+        failedStep = "delete-manifestless-empty-leaf";
+        return fs.DeleteThroughHandle(leaf);
+    }
+
+    private static RefusalCode VerifyExactProtectedChain(
+        IHandleRelativeFileSystem fs,
+        IReadOnlyList<AncestorRecord> ancestors,
+        IReadOnlyList<string> destinationComponents,
+        SecurityDescriptorPlan directoryPlan)
+    {
+        if (ancestors.Count != destinationComponents.Count + 1)
+        {
+            return RefusalCode.ComponentIdentityMismatch;
+        }
+
+        for (int index = 0; index < destinationComponents.Count; index++)
+        {
+            AncestorRecord current = ancestors[index + 1];
+            string expectedName = destinationComponents[index];
+            if (!string.Equals(current.Name, expectedName, StringComparison.Ordinal) ||
+                !string.Equals(current.Handle.ComponentName, expectedName, StringComparison.Ordinal))
+            {
+                return RefusalCode.ComponentFinalPathMismatch;
+            }
+        }
+
+        RefusalCode unchanged = RequireAncestorIdentitiesUnchanged(fs, ancestors);
+        if (unchanged != RefusalCode.None)
+        {
+            return unchanged;
+        }
+
+        foreach (AncestorRecord ancestor in ancestors)
+        {
+            RefusalCode protection = VerifyProtection(fs, ancestor);
+            if (protection != RefusalCode.None)
+            {
+                return protection;
+            }
+        }
+
+        for (int index = 1; index < ancestors.Count; index++)
+        {
+            Outcome<SecuritySnapshot> security = fs.QuerySecurity(ancestors[index].Handle);
+            if (!security.Ok || security.Value is null)
+            {
+                return security.Refusal;
+            }
+
+            RefusalCode exact = directoryPlan.RequireExactMatch(security.Value);
+            if (exact != RefusalCode.None)
+            {
+                return exact;
+            }
+        }
+
+        return RefusalCode.None;
     }
 
     private static TransactionReport Refuse(

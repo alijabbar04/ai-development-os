@@ -106,6 +106,10 @@ internal static class InstallerConformance
 {
     private const string Token = "0123456789abcdef0123456789abcdef";
     private const string OtherToken = "fedcba9876543210fedcba9876543210";
+#if AIDEVOS_STAGE17_REVIEWED_PROOF_MODE
+    private const string HostileExceptionText =
+        "SECRET_CANARY C:\\private\\operator-state.json";
+#endif
 
     private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
@@ -550,6 +554,8 @@ internal static class InstallerConformance
             ("open-existing-directory", OpenRequests.OpenExistingDirectory("p", "AI-Dev-OS")),
             ("create-protected-directory",
                 OpenRequests.CreateProtectedDirectory("p", "AI-Dev-OS", plan)),
+            ("create-protected-leaf-directory",
+                OpenRequests.CreateProtectedLeafDirectory(Token, plan)),
             ("inspect-without-traversing", OpenRequests.InspectWithoutTraversing("AI-Dev-OS")),
             ("open-directory-for-deletion", OpenRequests.OpenDirectoryForDeletion("p", "AI-Dev-OS")),
             ("open-source-file", OpenRequests.OpenSourceFile("alpha.dll")),
@@ -638,6 +644,16 @@ internal static class InstallerConformance
             "flags/source-file-denies-write-and-delete-sharing",
             "0x00000001",
             NtFlags.Hex(OpenRequests.OpenSourceFile("alpha.dll").ShareAccess)));
+        vectors.Add(new ConformanceVector(
+            "flags/delete-authority-exists-only-on-created-leaf",
+            "ancestor=false leaf=true",
+            string.Concat(
+                "ancestor=",
+                (OpenRequests.CreateProtectedDirectory("p", "AI-Dev-OS", plan).DesiredAccess &
+                    NtFlags.DELETE) != 0 ? "true" : "false",
+                " leaf=",
+                (OpenRequests.CreateProtectedLeafDirectory(Token, plan).DesiredAccess &
+                    NtFlags.DELETE) != 0 ? "true" : "false")));
     }
 
     /// <summary>
@@ -663,6 +679,13 @@ internal static class InstallerConformance
             "{\"createDisposition\":\"FILE_CREATE\",\"createOptions\":\"0x00000021\"," +
             "\"desiredAccess\":\"0x001200a7\",\"fileAttributes\":\"0x00000010\",\"name\":\"AI-Dev-OS\"," +
             "\"objectAttributes\":\"0x00001240\",\"purpose\":\"p\",\"securityDescriptor\":" +
+            "\"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;" +
+            SimulatedFileSystem.ProofIdentitySid + ")\",\"shareAccess\":\"0x00000003\"}",
+        "create-protected-leaf-directory" =>
+            "{\"createDisposition\":\"FILE_CREATE\",\"createOptions\":\"0x00000021\"," +
+            "\"desiredAccess\":\"0x001300a7\",\"fileAttributes\":\"0x00000010\",\"name\":\"" +
+            Token + "\",\"objectAttributes\":\"0x00001240\",\"purpose\":" +
+            "\"create-protected-leaf-directory\",\"securityDescriptor\":" +
             "\"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;" +
             SimulatedFileSystem.ProofIdentitySid + ")\",\"shareAccess\":\"0x00000003\"}",
         "inspect-without-traversing" =>
@@ -944,6 +967,82 @@ internal static class InstallerConformance
 
     private static string StepAndCode(TransactionReport report) =>
         string.Concat(ProtocolNames.Of(report.Refusal), ":", report.FailedStep);
+
+    private static string RollbackStepAndCode(TransactionReport report) =>
+        string.Concat(
+            report.Rollback.Status,
+            ":",
+            ProtocolNames.Of(report.Rollback.Refusal),
+            ":",
+            report.Rollback.FailedStep);
+
+    /// <summary>
+    /// Pins the ordering that makes the two emptiness observations meaningful:
+    /// one complete identity/access/DACL proof between them, another complete
+    /// proof after the second observation, and only then the exact-handle
+    /// delete. Taking the last two listings makes this work for rollback, whose
+    /// primary source scan is also recorded, and for manifestless removal.
+    /// </summary>
+    private static string DoubleEmptyProofTrace(SimulatedFileSystem fs)
+    {
+        string[] operations = fs.OperationSequence().Split(
+            '|',
+            StringSplitOptions.RemoveEmptyEntries);
+        List<int> listings = [];
+        for (int index = 0; index < operations.Length; index++)
+        {
+            if (string.Equals(operations[index], "list-directory", StringComparison.Ordinal))
+            {
+                listings.Add(index);
+            }
+        }
+
+        if (listings.Count < 2)
+        {
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"listings={listings.Count}:proofs-between=0:proofs-after=0:delete-after=false");
+        }
+
+        int first = listings[^2];
+        int second = listings[^1];
+        int delete = -1;
+        for (int index = second + 1; index < operations.Length; index++)
+        {
+            if (string.Equals(
+                    operations[index],
+                    "delete-through-handle",
+                    StringComparison.Ordinal))
+            {
+                delete = index;
+                break;
+            }
+        }
+
+        static int CountProofOperations(string[] values, int start, int end)
+        {
+            int count = 0;
+            for (int index = start; index < end; index++)
+            {
+                if (string.Equals(values[index], "query-facts", StringComparison.Ordinal) ||
+                    string.Equals(values[index], "access-check", StringComparison.Ordinal) ||
+                    string.Equals(values[index], "query-security", StringComparison.Ordinal))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        int afterEnd = delete < 0 ? operations.Length : delete;
+        int proofsBetween = CountProofOperations(operations, first + 1, second);
+        int proofsAfter = CountProofOperations(operations, second + 1, afterEnd);
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"listings={listings.Count}:proofs-between={proofsBetween}:" +
+                $"proofs-after={proofsAfter}:delete-after={(delete > second ? "true" : "false")}");
+    }
 
     /// <summary>
     /// What the native adapter has actually done in this process, read from its
@@ -1327,15 +1426,23 @@ internal static class InstallerConformance
 #if AIDEVOS_STAGE17_REVIEWED_PROOF_MODE
     private static string RunInstall(HostileConditions? conditions, out SimulatedFileSystem fs)
     {
+        TransactionReport report = RunInstallReport(conditions, out fs);
+        return StepAndCode(report);
+    }
+
+    private static TransactionReport RunInstallReport(
+        HostileConditions? conditions,
+        out SimulatedFileSystem fs)
+    {
         fs = new SimulatedFileSystem(conditions);
         fs.PopulateSource(ProofConfiguration.SelfTestFixtureCandidate.FileNames, FixtureContent);
-        TransactionReport report = InstallTransaction.Install(
+        fs.BeginObservedPhase();
+        return InstallTransaction.Install(
             fs,
             Token,
             ProofConfiguration.SelfTestFixtureCandidate,
             SimulatedFileSystem.SourcePath,
             ReviewedProofModeAuthorization.IssueForReviewedBoundedProof());
-        return StepAndCode(report);
     }
 
     private static void AddReviewedProofTransactionVectors(List<ConformanceVector> vectors)
@@ -1496,6 +1603,357 @@ internal static class InstallerConformance
                 RunInstall(conditions, out SimulatedFileSystem _)));
         }
 
+        TransactionReport rolledBack = RunInstallReport(
+            new HostileConditions { EnumerationFailsAt = "closure" },
+            out SimulatedFileSystem rolledBackFs);
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-preserves-the-original-refusal",
+            "native-unexpected-failure:measure-source-closure",
+            StepAndCode(rolledBack)));
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-removes-the-exact-empty-created-leaf",
+            "completed:none:",
+            RollbackStepAndCode(rolledBack)));
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-leaf-is-gone",
+            "true",
+            rolledBackFs.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is null
+                ? "true"
+                : "false"));
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-preserves-shared-ancestors",
+            "true:true",
+            string.Concat(
+                rolledBackFs.Find("ProgramData", "AI-Dev-OS") is not null ? "true" : "false",
+                ":",
+                rolledBackFs.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof") is not null
+                    ? "true"
+                    : "false")));
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-pins-two-empty-proofs-and-final-reverification-before-delete",
+            "listings=3:proofs-between=11:proofs-after=11:delete-after=true",
+            DoubleEmptyProofTrace(rolledBackFs)));
+
+        TransactionReport rollbackLateChild = RunInstallReport(
+            new HostileConditions
+            {
+                ExtraSourceFile = "extra.dll",
+                PlantFileAfterListingAt = Token,
+                PostListingMutationTriggerAt = Token,
+                PostListingMutationAfterSuccessfulListing = 1,
+            },
+            out SimulatedFileSystem rollbackLateChildFs);
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-second-empty-proof-refuses-a-late-child",
+            "source-file-unexpected:measure-source-closure|" +
+                "refused:removal-directory-not-empty:reprove-created-leaf-empty|true",
+            string.Concat(
+                StepAndCode(rollbackLateChild),
+                "|",
+                RollbackStepAndCode(rollbackLateChild),
+                "|",
+                rollbackLateChildFs.Find(
+                    "ProgramData",
+                    "AI-Dev-OS",
+                    "Stage17-Proof",
+                    Token,
+                    "post-listing-state.bin") is not null ? "true" : "false")));
+
+        TransactionReport rollbackChildAfterSecond = RunInstallReport(
+            new HostileConditions
+            {
+                ExtraSourceFile = "extra.dll",
+                PlantFileAfterListingAt = Token,
+                PostListingMutationTriggerAt = Token,
+                PostListingMutationAfterSuccessfulListing = 2,
+            },
+            out SimulatedFileSystem rollbackChildAfterSecondFs);
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-exact-delete-refuses-a-child-after-the-second-proof",
+            "source-file-unexpected:measure-source-closure|" +
+                "refused:removal-directory-not-empty:delete-empty-created-leaf|true",
+            string.Concat(
+                StepAndCode(rollbackChildAfterSecond),
+                "|",
+                RollbackStepAndCode(rollbackChildAfterSecond),
+                "|",
+                rollbackChildAfterSecondFs.Find(
+                    "ProgramData",
+                    "AI-Dev-OS",
+                    "Stage17-Proof",
+                    Token,
+                    "post-listing-state.bin") is not null ? "true" : "false")));
+
+        foreach (string target in new[]
+        {
+            "ProgramData",
+            ProofConfiguration.InstallRootFirstComponent,
+            ProofConfiguration.InstallRootSecondComponent,
+            Token,
+        })
+        {
+            foreach ((string kind, string expectedCode, Action<HostileConditions> configure) in new[]
+            {
+                (
+                    "identity",
+                    "component-identity-mismatch",
+                    (Action<HostileConditions>)(condition =>
+                        condition.ChangeIdentityAfterListingAt = target)),
+                (
+                    "dacl",
+                    "proof-identity-holds-dacl-change",
+                    (Action<HostileConditions>)(condition =>
+                        condition.ChangeDaclAfterListingAt = target)),
+                (
+                    "reparse",
+                    "component-is-reparse-point",
+                    (Action<HostileConditions>)(condition =>
+                        condition.ChangeToReparseAfterListingAt = target)),
+                (
+                    "owner",
+                    "owner-untrusted",
+                    (Action<HostileConditions>)(condition =>
+                        condition.ChangeOwnerAfterListingAt = target)),
+                (
+                    "exact-dacl",
+                    "dacl-unexpected-ace",
+                    (Action<HostileConditions>)(condition =>
+                        condition.ChangeExactDaclAfterListingAt = target)),
+            })
+            {
+                if (string.Equals(target, "ProgramData", StringComparison.Ordinal) &&
+                    (string.Equals(kind, "owner", StringComparison.Ordinal) ||
+                     string.Equals(kind, "exact-dacl", StringComparison.Ordinal)))
+                {
+                    // ProgramData is a shared stock-Windows ancestor. Its exact
+                    // owner/DACL is deliberately not the private directory plan;
+                    // only identity/type and delete/control access are bounded.
+                    continue;
+                }
+
+                HostileConditions condition = new()
+                {
+                    ExtraSourceFile = "extra.dll",
+                    PostListingMutationTriggerAt = Token,
+                    PostListingMutationAfterSuccessfulListing = 2,
+                };
+                configure(condition);
+                TransactionReport report = RunInstallReport(
+                    condition,
+                    out SimulatedFileSystem changedFs);
+                vectors.Add(new ConformanceVector(
+                    string.Concat(
+                        "transaction/rollback-final-reverification-refuses-",
+                        kind,
+                        "-drift-at/",
+                        target),
+                    string.Concat(
+                        "source-file-unexpected:measure-source-closure|refused:",
+                        expectedCode,
+                        ":final-verify-created-leaf-for-rollback|true"),
+                    string.Concat(
+                        StepAndCode(report),
+                        "|",
+                        RollbackStepAndCode(report),
+                        "|",
+                        changedFs.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token)
+                            is not null ? "true" : "false")));
+            }
+        }
+
+        TransactionReport rollbackDeleteFailure = RunInstallReport(
+            new HostileConditions
+            {
+                EnumerationFailsAt = "closure",
+                DeleteFailsAt = Token,
+            },
+            out SimulatedFileSystem rollbackDeleteFailureFs);
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-failure-does-not-hide-the-original-refusal",
+            "native-unexpected-failure:measure-source-closure|refused:delete-failed:" +
+                "delete-empty-created-leaf",
+            string.Concat(
+                StepAndCode(rollbackDeleteFailure),
+                "|",
+                RollbackStepAndCode(rollbackDeleteFailure))));
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-failure-preserves-the-leaf",
+            "true",
+            rollbackDeleteFailureFs.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                ? "true"
+                : "false"));
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-report-is-finite-and-preserves-primary-code",
+            "{\"code\":\"native-unexpected-failure\",\"completedSteps\":[\"derive-plan\"," +
+                "\"parse-source-path\",\"resolve-proof-identity\",\"compose-security-descriptors\"," +
+                "\"resolve-known-folder\",\"open-known-folder\",\"open-destination-chain\"," +
+                "\"verify-protection\"," +
+                "\"open-source-root\"],\"failedStep\":\"measure-source-closure\"," +
+                "\"operation\":\"install\",\"rollbackCode\":\"delete-failed\"," +
+                "\"rollbackFailedStep\":\"delete-empty-created-leaf\"," +
+                "\"rollbackStatus\":\"refused\",\"status\":\"refused\"}",
+            CanonicalJson.SerializeToString(rollbackDeleteFailure.ToCanonical())));
+
+        TransactionReport installBoundary = RunInstallReport(
+            new HostileConditions
+            {
+                ThrowAtOperation = "list-directory",
+                ThrowAtOperationOccurrence = 1,
+                ThrowMessage = HostileExceptionText,
+            },
+            out SimulatedFileSystem installBoundaryFs);
+        string installBoundaryJson = CanonicalJson.SerializeToString(installBoundary.ToCanonical());
+        vectors.Add(new ConformanceVector(
+            "transaction/install-exception-is-finite-and-rolls-back",
+            "internal-refusal:install-boundary|completed:none:|true:0",
+            string.Concat(
+                StepAndCode(installBoundary),
+                "|",
+                RollbackStepAndCode(installBoundary),
+                "|",
+                installBoundaryFs.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token)
+                    is null ? "true" : "false",
+                ":",
+                installBoundaryFs.OpenHandleCount.ToString(CultureInfo.InvariantCulture))));
+        vectors.Add(new ConformanceVector(
+            "transaction/install-exception-output-is-body-free",
+            "true",
+            !installBoundaryJson.Contains(HostileExceptionText, StringComparison.Ordinal) &&
+            !installBoundaryJson.Contains("private", StringComparison.Ordinal)
+                ? "true"
+                : "false"));
+
+        TransactionReport installPreStateException = RunInstallReport(
+            new HostileConditions
+            {
+                ThrowAtOperation = "resolve-proof-identity",
+                ThrowAtOperationOccurrence = 1,
+                ThrowMessage = HostileExceptionText,
+            },
+            out SimulatedFileSystem installPreStateExceptionFs);
+        string installPreStateJson = CanonicalJson.SerializeToString(
+            installPreStateException.ToCanonical());
+        vectors.Add(new ConformanceVector(
+            "transaction/pre-state-adapter-exception-is-finite-and-body-free",
+            "internal-refusal:install-boundary|true:true:0",
+            string.Concat(
+                StepAndCode(installPreStateException),
+                "|",
+                !installPreStateJson.Contains(HostileExceptionText, StringComparison.Ordinal) &&
+                !installPreStateJson.Contains("private", StringComparison.Ordinal)
+                    ? "true"
+                    : "false",
+                ":",
+                installPreStateExceptionFs.Find(
+                    "ProgramData",
+                    "AI-Dev-OS",
+                    "Stage17-Proof",
+                    Token) is null ? "true" : "false",
+                ":",
+                installPreStateExceptionFs.OpenHandleCount.ToString(CultureInfo.InvariantCulture))));
+
+        TransactionReport rollbackBoundary = RunInstallReport(
+            new HostileConditions
+            {
+                ExtraSourceFile = "extra.dll",
+                ThrowAtOperation = "delete-through-handle",
+                ThrowAtOperationOccurrence = 1,
+                ThrowMessage = HostileExceptionText,
+            },
+            out SimulatedFileSystem rollbackBoundaryFs);
+        string rollbackBoundaryJson = CanonicalJson.SerializeToString(rollbackBoundary.ToCanonical());
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-exception-preserves-primary-and-state",
+            "source-file-unexpected:measure-source-closure|" +
+                "refused:internal-refusal:rollback-boundary|true:0",
+            string.Concat(
+                StepAndCode(rollbackBoundary),
+                "|",
+                RollbackStepAndCode(rollbackBoundary),
+                "|",
+                rollbackBoundaryFs.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token)
+                    is not null ? "true" : "false",
+                ":",
+                rollbackBoundaryFs.OpenHandleCount.ToString(CultureInfo.InvariantCulture))));
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-exception-output-is-body-free",
+            "true",
+            !rollbackBoundaryJson.Contains(HostileExceptionText, StringComparison.Ordinal) &&
+            !rollbackBoundaryJson.Contains("private", StringComparison.Ordinal)
+                ? "true"
+                : "false"));
+
+        TransactionReport rollbackUnreviewed = RunInstallReport(
+            new HostileConditions
+            {
+                EnumerationFailsAt = "closure",
+                PlantFileAfterCreationAt = Token,
+            },
+            out SimulatedFileSystem rollbackUnreviewedFs);
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-refuses-a-nonempty-created-leaf",
+            "refused:removal-directory-not-empty:prove-created-leaf-empty",
+            RollbackStepAndCode(rollbackUnreviewed)));
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-preserves-unreviewed-state",
+            "true:true",
+            string.Concat(
+                rollbackUnreviewedFs.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true"
+                    : "false",
+                ":",
+                rollbackUnreviewedFs.Find(
+                    "ProgramData",
+                    "AI-Dev-OS",
+                    "Stage17-Proof",
+                    Token,
+                    "unreviewed-state.bin") is not null ? "true" : "false")));
+
+        TransactionReport rollbackIdentityDrift = RunInstallReport(
+            new HostileConditions
+            {
+                ExtraSourceFile = "extra.dll",
+                ChangeIdentityAfterListingAt = Token,
+                PostListingMutationTriggerAt = Token,
+            },
+            out SimulatedFileSystem rollbackIdentityDriftFs);
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-refuses-identity-drift",
+            "source-file-unexpected:measure-source-closure|" +
+                "refused:component-identity-mismatch:reverify-created-leaf-for-rollback",
+            string.Concat(
+                StepAndCode(rollbackIdentityDrift),
+                "|",
+                RollbackStepAndCode(rollbackIdentityDrift))));
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-identity-drift-preserves-the-leaf",
+            "true",
+            rollbackIdentityDriftFs.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                ? "true"
+                : "false"));
+
+        TransactionReport unprovenCreatedLeaf = RunInstallReport(
+            new HostileConditions
+            {
+                ExtraGrantAt = Token,
+                ExtraGrantMask = NtFlags.FILE_WRITE_DATA,
+            },
+            out SimulatedFileSystem unprovenCreatedLeafFs);
+        vectors.Add(new ConformanceVector(
+            "transaction/rollback-reports-an-unproven-created-leaf-without-deleting-it",
+            "dacl-unexpected-ace:verify-created-directory|" +
+                "refused:rollback-candidate-unproven:verify-created-leaf-for-rollback|true",
+            string.Concat(
+                StepAndCode(unprovenCreatedLeaf),
+                "|",
+                RollbackStepAndCode(unprovenCreatedLeaf),
+                "|",
+                unprovenCreatedLeafFs.Find(
+                    "ProgramData",
+                    "AI-Dev-OS",
+                    "Stage17-Proof",
+                    Token) is not null ? "true" : "false")));
+
         // A junction planted at EACH ancestor position, not just the first.
         foreach (string position in new[]
         {
@@ -1598,6 +2056,464 @@ internal static class InstallerConformance
             ExpectedRemovalDeletionOrder,
             DeletionOrderOf(fs)));
 
+        SimulatedFileSystem empty = ManifestlessEmpty(out SimulatedNode? emptyLeaf);
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-fixture-is-an-exact-empty-leaf",
+            "true:true",
+            string.Concat(
+                emptyLeaf is not null ? "true" : "false",
+                ":",
+                emptyLeaf is not null && emptyLeaf.Children.Count == 0 ? "true" : "false")));
+        TransactionReport emptyRecovered = InstallTransaction.Remove(
+            empty,
+            Token,
+            ReviewedProofModeAuthorization.IssueForReviewedBoundedProof());
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-empty-leaf-recovery",
+            "none:",
+            StepAndCode(emptyRecovered)));
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-empty-leaf-is-gone",
+            "true",
+            empty.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is null
+                ? "true"
+                : "false"));
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-recovery-preserves-every-ancestor",
+            "true:true:true",
+            string.Concat(
+                empty.Find("ProgramData") is not null ? "true" : "false",
+                ":",
+                empty.Find("ProgramData", "AI-Dev-OS") is not null ? "true" : "false",
+                ":",
+                empty.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof") is not null
+                    ? "true"
+                    : "false")));
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-recovery-closes-every-handle",
+            "0",
+            empty.OpenHandleCount.ToString(CultureInfo.InvariantCulture)));
+        vectors.Add(new ConformanceVector(
+            "removal/delete-authority-is-confined-to-the-token-leaf",
+            "AI-Dev-OS=0x001200a1|Stage17-Proof=0x001200a1|" + Token + "=0x001300a1",
+            empty.RemovalDirectoryAccessSequence()));
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-pins-two-empty-proofs-and-final-reverification-before-delete",
+            "listings=2:proofs-between=11:proofs-after=11:delete-after=true",
+            DoubleEmptyProofTrace(empty)));
+
+        HostileConditions lateChildCondition = new()
+        {
+            PlantFileAfterListingAt = Token,
+            PostListingMutationTriggerAt = Token,
+            PostListingMutationAfterSuccessfulListing = 1,
+        };
+        SimulatedFileSystem lateChild = ManifestlessEmpty(
+            out SimulatedNode? _,
+            lateChildCondition);
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-second-empty-proof-refuses-a-late-child",
+            "removal-directory-not-empty:prove-manifestless-leaf-empty|true",
+            string.Concat(
+                StepAndCode(InstallTransaction.Remove(
+                    lateChild,
+                    Token,
+                    ReviewedProofModeAuthorization.IssueForReviewedBoundedProof())),
+                "|",
+                lateChild.Find(
+                    "ProgramData",
+                    "AI-Dev-OS",
+                    "Stage17-Proof",
+                    Token,
+                    "post-listing-state.bin") is not null ? "true" : "false")));
+
+        HostileConditions removalChildAfterSecondCondition = new()
+        {
+            PlantFileAfterListingAt = Token,
+            PostListingMutationTriggerAt = Token,
+            PostListingMutationAfterSuccessfulListing = 2,
+        };
+        SimulatedFileSystem removalChildAfterSecond = ManifestlessEmpty(
+            out SimulatedNode? _,
+            removalChildAfterSecondCondition);
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-exact-delete-refuses-a-child-after-the-second-proof",
+            "removal-directory-not-empty:delete-manifestless-empty-leaf|true",
+            string.Concat(
+                StepAndCode(InstallTransaction.Remove(
+                    removalChildAfterSecond,
+                    Token,
+                    ReviewedProofModeAuthorization.IssueForReviewedBoundedProof())),
+                "|",
+                removalChildAfterSecond.Find(
+                    "ProgramData",
+                    "AI-Dev-OS",
+                    "Stage17-Proof",
+                    Token,
+                    "post-listing-state.bin") is not null ? "true" : "false")));
+
+        foreach (string target in new[]
+        {
+            "ProgramData",
+            ProofConfiguration.InstallRootFirstComponent,
+            ProofConfiguration.InstallRootSecondComponent,
+            Token,
+        })
+        {
+            foreach ((string kind, string expectedCode, Action<HostileConditions> configure) in new[]
+            {
+                (
+                    "identity",
+                    "component-identity-mismatch",
+                    (Action<HostileConditions>)(condition =>
+                        condition.ChangeIdentityAfterListingAt = target)),
+                (
+                    "dacl",
+                    "proof-identity-holds-dacl-change",
+                    (Action<HostileConditions>)(condition =>
+                        condition.ChangeDaclAfterListingAt = target)),
+                (
+                    "reparse",
+                    "component-is-reparse-point",
+                    (Action<HostileConditions>)(condition =>
+                        condition.ChangeToReparseAfterListingAt = target)),
+                (
+                    "owner",
+                    "owner-untrusted",
+                    (Action<HostileConditions>)(condition =>
+                        condition.ChangeOwnerAfterListingAt = target)),
+                (
+                    "exact-dacl",
+                    "dacl-unexpected-ace",
+                    (Action<HostileConditions>)(condition =>
+                        condition.ChangeExactDaclAfterListingAt = target)),
+            })
+            {
+                if (string.Equals(target, "ProgramData", StringComparison.Ordinal) &&
+                    (string.Equals(kind, "owner", StringComparison.Ordinal) ||
+                     string.Equals(kind, "exact-dacl", StringComparison.Ordinal)))
+                {
+                    continue;
+                }
+
+                HostileConditions condition = new()
+                {
+                    PostListingMutationTriggerAt = Token,
+                    PostListingMutationAfterSuccessfulListing = 2,
+                };
+                configure(condition);
+                SimulatedFileSystem changedFs = ManifestlessEmpty(
+                    out SimulatedNode? _,
+                    condition);
+                TransactionReport report = InstallTransaction.Remove(
+                    changedFs,
+                    Token,
+                    ReviewedProofModeAuthorization.IssueForReviewedBoundedProof());
+                vectors.Add(new ConformanceVector(
+                    string.Concat(
+                        "removal/manifestless-final-reverification-refuses-",
+                        kind,
+                        "-drift-at/",
+                        target),
+                    string.Concat(
+                        expectedCode,
+                        ":reverify-manifestless-removal-chain|true"),
+                    string.Concat(
+                        StepAndCode(report),
+                        "|",
+                        changedFs.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token)
+                            is not null ? "true" : "false")));
+            }
+        }
+
+        SimulatedFileSystem nonempty = ManifestlessEmpty(out SimulatedNode? nonemptyLeaf);
+        if (nonemptyLeaf is not null)
+        {
+            nonempty.PlantFile(nonemptyLeaf, "unreviewed-state.bin", [1]);
+        }
+
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-nonempty-leaf-is-refused",
+            "removal-record-unreadable:read-installed-manifest",
+            StepAndCode(InstallTransaction.Remove(
+                nonempty,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-nonempty-state-survives",
+            "true",
+            nonempty.Find(
+                "ProgramData",
+                "AI-Dev-OS",
+                "Stage17-Proof",
+                Token,
+                "unreviewed-state.bin") is not null ? "true" : "false"));
+
+        SimulatedFileSystem nested = ManifestlessEmpty(out SimulatedNode? nestedLeaf);
+        if (nestedLeaf is not null)
+        {
+            nestedLeaf.Children["unreviewed-directory"] = new SimulatedNode(
+                "unreviewed-directory",
+                isDirectory: true,
+                fileId: 0x7000)
+            {
+                Parent = nestedLeaf,
+            };
+        }
+
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-nested-state-is-refused",
+            "removal-unexpected-entry:enumerate-leaf",
+            StepAndCode(InstallTransaction.Remove(
+                nested,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+
+        SimulatedFileSystem wrongType = ManifestlessEmpty(out SimulatedNode? wrongTypeLeaf);
+        if (wrongTypeLeaf?.Parent is SimulatedNode wrongTypeParent)
+        {
+            wrongTypeParent.Children[Token] = new SimulatedNode(
+                Token,
+                isDirectory: false,
+                fileId: 0x7001)
+            {
+                Parent = wrongTypeParent,
+                Content = [4],
+            };
+        }
+
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-wrong-object-type-is-refused",
+            "component-not-directory:open-removal-component",
+            StepAndCode(InstallTransaction.Remove(
+                wrongType,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+
+        SimulatedFileSystem foreignOwner = ManifestlessEmpty(out SimulatedNode? foreignLeaf);
+        if (foreignLeaf is not null)
+        {
+            foreignLeaf.OwnerSid = SimulatedFileSystem.ProofIdentitySid;
+        }
+
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-foreign-owner-is-refused",
+            "owner-untrusted:verify-removal-component",
+            StepAndCode(InstallTransaction.Remove(
+                foreignOwner,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+
+        SimulatedFileSystem daclDrift = ManifestlessEmpty(out SimulatedNode? daclLeaf);
+        if (daclLeaf is not null)
+        {
+            daclLeaf.Aces.Add(new AceSnapshot(
+                NtFlags.ACCESS_ALLOWED_ACE_TYPE,
+                0,
+                NtFlags.FILE_WRITE_DATA,
+                SimulatedFileSystem.ProofIdentitySid));
+        }
+
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-dacl-drift-is-refused",
+            "dacl-unexpected-ace:verify-removal-component",
+            StepAndCode(InstallTransaction.Remove(
+                daclDrift,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+
+        SimulatedFileSystem reparse = ManifestlessEmpty(out SimulatedNode? reparseLeaf);
+        if (reparseLeaf is not null)
+        {
+            reparseLeaf.IsReparsePoint = true;
+            reparseLeaf.ReparseTag = 0xA0000003;
+        }
+
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-reparse-is-refused",
+            "native-reparse-point-encountered:open-removal-component",
+            StepAndCode(InstallTransaction.Remove(
+                reparse,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+
+        HostileConditions identityChange = new();
+        SimulatedFileSystem changed = ManifestlessEmpty(out SimulatedNode? _, identityChange);
+        identityChange.ChangeIdentityAfterListingAt = Token;
+        identityChange.PostListingMutationTriggerAt = Token;
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-identity-change-is-refused",
+            "component-identity-mismatch:verify-manifestless-removal-chain",
+            StepAndCode(InstallTransaction.Remove(
+                changed,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-identity-change-preserves-the-leaf",
+            "true",
+            changed.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                ? "true"
+                : "false"));
+
+        HostileConditions accessChange = new();
+        SimulatedFileSystem accessDrift = ManifestlessEmpty(out SimulatedNode? _, accessChange);
+        accessChange.ChangeSecurityAfterListingAt = Token;
+        accessChange.PostListingMutationTriggerAt = Token;
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-access-change-is-refused",
+            "proof-identity-holds-write:verify-manifestless-removal-chain",
+            StepAndCode(InstallTransaction.Remove(
+                accessDrift,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+
+        HostileConditions reparseChange = new();
+        SimulatedFileSystem reparseDrift = ManifestlessEmpty(out SimulatedNode? _, reparseChange);
+        reparseChange.ChangeToReparseAfterListingAt = Token;
+        reparseChange.PostListingMutationTriggerAt = Token;
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-reparse-change-is-refused",
+            "component-is-reparse-point:verify-manifestless-removal-chain",
+            StepAndCode(InstallTransaction.Remove(
+                reparseDrift,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+
+        HostileConditions ancestorChange = new();
+        SimulatedFileSystem ancestorDrift = ManifestlessEmpty(out SimulatedNode? _, ancestorChange);
+        ancestorChange.ChangeIdentityAfterListingAt = ProofConfiguration.InstallRootSecondComponent;
+        ancestorChange.PostListingMutationTriggerAt = Token;
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-ancestor-change-is-refused",
+            "component-identity-mismatch:verify-manifestless-removal-chain",
+            StepAndCode(InstallTransaction.Remove(
+                ancestorDrift,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+
+        HostileConditions inaccessibleCondition = new();
+        SimulatedFileSystem inaccessible = ManifestlessEmpty(
+            out SimulatedNode? _,
+            inaccessibleCondition);
+        inaccessibleCondition.EnumerationFailsAt = Token;
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-inaccessible-leaf-is-refused",
+            "native-unexpected-failure:enumerate-leaf",
+            StepAndCode(InstallTransaction.Remove(
+                inaccessible,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+
+        HostileConditions deleteFailureCondition = new();
+        SimulatedFileSystem deleteFailure = ManifestlessEmpty(
+            out SimulatedNode? _,
+            deleteFailureCondition);
+        deleteFailureCondition.DeleteFailsAt = Token;
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-delete-failure-is-finite",
+            "delete-failed:delete-manifestless-empty-leaf",
+            StepAndCode(InstallTransaction.Remove(
+                deleteFailure,
+                Token,
+                ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-delete-failure-preserves-the-leaf",
+            "true",
+            deleteFailure.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                ? "true"
+                : "false"));
+
+        HostileConditions removalExceptionCondition = new()
+        {
+            ThrowAtOperation = "delete-through-handle",
+            ThrowAtOperationOccurrence = 1,
+            ThrowMessage = HostileExceptionText,
+        };
+        SimulatedFileSystem removalException = ManifestlessEmpty(
+            out SimulatedNode? _,
+            removalExceptionCondition);
+        TransactionReport removalExceptionReport = InstallTransaction.Remove(
+            removalException,
+            Token,
+            ReviewedProofModeAuthorization.IssueForReviewedBoundedProof());
+        string removalExceptionJson = CanonicalJson.SerializeToString(
+            removalExceptionReport.ToCanonical());
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-exception-is-finite-and-preserves-state",
+            "internal-refusal:remove-boundary|true:0",
+            string.Concat(
+                StepAndCode(removalExceptionReport),
+                "|",
+                removalException.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token)
+                    is not null ? "true" : "false",
+                ":",
+                removalException.OpenHandleCount.ToString(CultureInfo.InvariantCulture))));
+        vectors.Add(new ConformanceVector(
+            "removal/manifestless-exception-output-is-body-free",
+            "true",
+            !removalExceptionJson.Contains(HostileExceptionText, StringComparison.Ordinal) &&
+            !removalExceptionJson.Contains("private", StringComparison.Ordinal)
+                ? "true"
+                : "false"));
+
+        HostileConditions removalPreStateCondition = new()
+        {
+            ThrowAtOperation = "resolve-proof-identity",
+            ThrowAtOperationOccurrence = 1,
+            ThrowMessage = HostileExceptionText,
+        };
+        SimulatedFileSystem removalPreState = ManifestlessEmpty(
+            out SimulatedNode? _,
+            removalPreStateCondition);
+        TransactionReport removalPreStateReport = InstallTransaction.Remove(
+            removalPreState,
+            Token,
+            ReviewedProofModeAuthorization.IssueForReviewedBoundedProof());
+        string removalPreStateJson = CanonicalJson.SerializeToString(
+            removalPreStateReport.ToCanonical());
+        vectors.Add(new ConformanceVector(
+            "removal/pre-state-adapter-exception-is-finite-and-body-free",
+            "internal-refusal:remove-boundary|true:true:0",
+            string.Concat(
+                StepAndCode(removalPreStateReport),
+                "|",
+                !removalPreStateJson.Contains(HostileExceptionText, StringComparison.Ordinal) &&
+                !removalPreStateJson.Contains("private", StringComparison.Ordinal)
+                    ? "true"
+                    : "false",
+                ":",
+                removalPreState.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token)
+                    is not null ? "true" : "false",
+                ":",
+                removalPreState.OpenHandleCount.ToString(CultureInfo.InvariantCulture))));
+        vectors.Add(new ConformanceVector(
+            "removal/every-refused-manifestless-state-remains-present",
+            "true:true:true:true:true:true:true:true:true:true:true",
+            string.Join(
+                ":",
+                nested.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true" : "false",
+                wrongType.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true" : "false",
+                foreignOwner.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true" : "false",
+                daclDrift.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true" : "false",
+                reparse.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true" : "false",
+                changed.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true" : "false",
+                accessDrift.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true" : "false",
+                reparseDrift.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true" : "false",
+                ancestorDrift.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true" : "false",
+                inaccessible.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true" : "false",
+                nonempty.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token) is not null
+                    ? "true" : "false")));
+
         SimulatedFileSystem unexpected = Installed();
         SimulatedNode? leaf = unexpected.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token);
         if (leaf is not null)
@@ -1653,9 +2569,9 @@ internal static class InstallerConformance
                 ReviewedProofModeAuthorization.IssueForReviewedBoundedProof()))));
     }
 
-    private static SimulatedFileSystem Installed()
+    private static SimulatedFileSystem Installed(HostileConditions? conditions = null)
     {
-        SimulatedFileSystem fs = new(null);
+        SimulatedFileSystem fs = new(conditions);
         fs.PopulateSource(ProofConfiguration.SelfTestFixtureCandidate.FileNames, FixtureContent);
         _ = InstallTransaction.Install(
             fs,
@@ -1663,6 +2579,17 @@ internal static class InstallerConformance
             ProofConfiguration.SelfTestFixtureCandidate,
             SimulatedFileSystem.SourcePath,
             ReviewedProofModeAuthorization.IssueForReviewedBoundedProof());
+        fs.BeginObservedPhase();
+        return fs;
+    }
+
+    private static SimulatedFileSystem ManifestlessEmpty(
+        out SimulatedNode? leaf,
+        HostileConditions? conditions = null)
+    {
+        SimulatedFileSystem fs = Installed(conditions);
+        leaf = fs.Find("ProgramData", "AI-Dev-OS", "Stage17-Proof", Token);
+        leaf?.Children.Clear();
         return fs;
     }
 
@@ -1743,8 +2670,10 @@ internal static class InstallerConformance
     /// and re-measure, re-read the DACL of, and AccessCheck every installed
     /// file.
     ///
-    /// There is no delete operation anywhere in an install, and nothing is
-    /// re-opened by name after being created.
+    /// A successful install performs no delete. A refused install may delete
+    /// only the exact token-leaf handle it created, after proving it is still
+    /// the same protected empty object; nothing is re-opened by name for that
+    /// rollback.
     ///
     /// Every <c>rewind-to-start</c> entry below is load-bearing, and the rule that
     /// makes it so is worth stating exactly, because an earlier revision got it

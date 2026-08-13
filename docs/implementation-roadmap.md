@@ -648,6 +648,26 @@ Gated checkpoint progress (2026-08-05; not a Stage 17 release):
   restricted operation, or production evidence is claimed. See
   `docs/release-evidence/stage-17w-operator-attempt-2026-08-13.md`.
 
+- Manifestless partial-install remediation candidate (2026-08-13; source-only,
+  production-disabled, and not an elevated cleanup): static diagnosis linked
+  the preserved empty leaf to a refusal after token-leaf creation and before
+  the first destination file, followed by a remover refusal before deletion
+  because no manifest existed. The candidate gives DELETE authority only to
+  the exact create-only token-leaf handle during install and, among removal's
+  directory-chain handles, the exact token leaf; manifest-listed files retain
+  their pre-existing exact file-deletion authority and both shared removal
+  ancestors are traverse-only. It
+  retains the primary install refusal separately from finite rollback evidence,
+  and allows removal of a
+  manifestless leaf only after repeated handle-bound identity, owner, DACL,
+  access, type, reparse, volume, path-component, and emptiness proofs. Every
+  shared ancestor is preserved. Synthetic hostile vectors cover nonempty,
+  wrong-type, reparse, foreign-owner, DACL/access drift, identity replacement,
+  inaccessible enumeration, delete failure, and ancestor drift without host
+  filesystem access. The preserved ProgramData leaf has not been reread or
+  changed, the old packet remains unsafe to retry, and any future elevation
+  requires the new exact packet plus fresh operator approval.
+
 Release consequence: Windows production enforcement remains unavailable and
 unverified beyond the bounded profile, synthetic identity/Job, structured
 filesystem/loopback/process-count, and test-helper lifecycle/crash-recovery

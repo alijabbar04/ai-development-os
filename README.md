@@ -63,6 +63,12 @@ Three things are stated plainly because they are easy to assume the other way:
   code `2` before the ordinary controller ran. One empty token-derived
   ProgramData leaf remains preserved for manual review; no retry or alternate
   cleanup is authorized.
+- **A source-only manifestless recovery repair is under review.** It adds an
+  exact-handle rollback for a newly created empty token leaf and a strictly
+  bounded remover path for an exact protected manifestless empty leaf. Its
+  tests are synthetic and unelevated; it has not touched the preserved leaf and
+  does not make the existing operator packet safe to retry. A later elevated
+  operation requires a new exact packet and fresh operator authorization.
 - **Linux and macOS are deferred, not passing.** Their portable seams and
   evidence stay intact, while native enforcement, L-02, packaging, and parity
   move to Stage 25.

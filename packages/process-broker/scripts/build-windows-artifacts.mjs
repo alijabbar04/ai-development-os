@@ -211,10 +211,10 @@ function fail(message) {
  * The recipe a component is built with.
  *
  * A production-shaped component is built sealed no matter what `--flavor` says.
- * The switch exists for the proof-only installer, which is the only component
- * with a mutating operation to gate; applying it to the supervisor and helper
- * produced binaries with the mutating branch compiled in AND a manifest that
- * announced itself as a production artifact.
+ * The switch exists for proof-only components. The installer is the only one
+ * with a mutating operation to gate; applying the switch to the supervisor and
+ * helper produced binaries with the mutating branch compiled in AND a manifest
+ * that announced itself as a production artifact.
  */
 function flavorFor(entry, requestedFlavor) {
   return entry.productionShaped === true ? "sealed" : requestedFlavor;
@@ -250,6 +250,9 @@ function parseArguments(argv) {
   if (out === null) fail("--out <absolute-task-owned-directory> is required");
   if (flavor !== "sealed" && flavor !== "reviewed-proof") {
     fail("--flavor must be exactly 'sealed' (default) or 'reviewed-proof'");
+  }
+  if (flavor === "reviewed-proof" && !includeProofOnly) {
+    fail("--flavor reviewed-proof requires --include-proof-only");
   }
   const resolved = resolve(out);
   if (resolved !== out) fail("--out must already be an absolute normalized path");
@@ -653,6 +656,9 @@ function buildProofOnlyComponent(entry, out, flavor) {
   }
 
   const differing = compareClosures(first.files, second.files);
+  if (differing.length > 0) {
+    fail(`${entry.component} proof-only builds were not byte-identical: ${differing.join(", ")}`);
+  }
   const executable = join(firstDir, entry.executable);
   const selfTest = run(executable, ["self-test"], { cwd: firstDir });
   const describe = run(executable, ["describe-artifact"], { cwd: firstDir });
@@ -674,6 +680,16 @@ function buildProofOnlyComponent(entry, out, flavor) {
 
   if (selfTest.status !== 0 || selfTestJson.status !== "passed") {
     fail(`${entry.component} self-test failed`);
+  }
+  if (
+    describe.status !== 0 ||
+    describeJson.status !== "described" ||
+    describeJson.component !== entry.component
+  ) {
+    fail(`${entry.component} describe-artifact identity/status mismatch`);
+  }
+  if (selfTestJson.component !== entry.component) {
+    fail(`${entry.component} self-test component identity mismatch`);
   }
   if (unknown.status === 0 || unknownJson.code !== "unknown-command") {
     fail(`${entry.component} accepted an unknown command`);
@@ -1003,19 +1019,14 @@ async function main() {
       "windows-helper": helper.selfTest,
     },
   };
-  if (flavor === "sealed") {
-    if (!conformanceMatches) {
-      fail("the sealed self-test results do not match the pinned conformance table");
-    }
-  } else if (conformanceMatches) {
-    // ADR 0018 section 4 requires the two recipes to be verifiably distinct.
-    // A reviewed-proof build that reproduced the SEALED conformance digest
-    // would mean the gate vectors are not recipe-aware after all, and the only
-    // remaining difference between the flavours would be a label.
-    fail(
-      "the reviewed-proof self-test reproduced the pinned SEALED conformance digest; " +
-        "the two recipes are not verifiably distinct",
-    );
+  // The two production-shaped components are ALWAYS built sealed by
+  // flavorFor(entry), even when the top-level request additionally asks for
+  // reviewed-proof-only components. Their exact sealed conformance must match
+  // the production pin in both command shapes. Each proof-only component is
+  // checked separately above against the requested reviewed-proof recipe and
+  // is never admitted to this production-shaped manifest/pin path.
+  if (!conformanceMatches) {
+    fail("the sealed production self-test results do not match the pinned conformance table");
   }
 
   // Cross-language check: the C# and TypeScript implementations of canonical

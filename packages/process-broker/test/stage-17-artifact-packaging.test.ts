@@ -2040,6 +2040,72 @@ describe("Stage 17 interop allow-list (ADR 0018 section 5)", () => {
     expect(JSON.stringify(manifest)).not.toContain("windows-proof-installer");
   });
 
+  it("bounds manifestless recovery to one exact protected token-leaf handle", async () => {
+    const transaction = await readNativeCode("windows-proof-installer", "InstallTransaction.cs");
+    const simulation = await readNativeCode("windows-proof-installer", "SimulatedFileSystem.cs");
+    const conformance = await readNativeCode("windows-proof-installer", "InstallerConformance.cs");
+
+    // DELETE is added only to the create-only token-leaf request during install
+    // and to the exact token-leaf open during removal. Both shared removal
+    // ancestors use the traverse-only request and are structurally retained.
+    expect(transaction).toContain("DirectoryCreateAccess | NtFlags.DELETE");
+    expect(transaction).toContain("OpenRequests.CreateProtectedLeafDirectory(name, directoryPlan)");
+    expect(transaction).toContain(
+      '? OpenRequests.OpenDirectoryForDeletion("open-removal-component", name)',
+    );
+    expect(transaction).toContain(
+      ': OpenRequests.OpenExistingDirectory("open-removal-component", name)',
+    );
+    expect(transaction).toContain("steps.Add(\"retain-shared-ancestors\")");
+    expect(transaction).not.toContain("delete-created-ancestor");
+
+    // Both mutation paths terminate in the one handle-only primitive. No path,
+    // wildcard, recursion, shell, ownership repair, or ACL repair is introduced.
+    expect(transaction).toContain("RollbackEmptyCreatedLeaf(");
+    expect(transaction).toContain("RecoverManifestlessEmptyLeaf(");
+    expect(transaction).toContain("return fs.DeleteThroughHandle(leaf.Handle)");
+    expect(transaction).toContain("return fs.DeleteThroughHandle(leaf)");
+    expect(transaction).not.toMatch(/Directory\.Delete|File\.Delete|Remove-Item|-Recurse|-Force/);
+
+    // The simulator makes DELETE access load-bearing instead of granting every
+    // synthetic handle implicit delete authority.
+    expect(simulation).toContain("(handle.Request.DesiredAccess & NtFlags.DELETE) == 0");
+    expect(simulation).toContain("return RefusalCode.NativeAccessDenied");
+    expect(simulation).toContain("internal void BeginObservedPhase()");
+    expect(simulation).toContain("internal string RemovalDirectoryAccessSequence()");
+
+    // Pin the two principal positive vectors and representative no-mutation
+    // refusals so deleting the bounded recovery paths cannot leave TS green.
+    for (const vector of [
+      "transaction/rollback-removes-the-exact-empty-created-leaf",
+      "transaction/rollback-failure-does-not-hide-the-original-refusal",
+      "transaction/rollback-report-is-finite-and-preserves-primary-code",
+      "transaction/rollback-pins-two-empty-proofs-and-final-reverification-before-delete",
+      "transaction/rollback-second-empty-proof-refuses-a-late-child",
+      "transaction/rollback-exact-delete-refuses-a-child-after-the-second-proof",
+      "transaction/rollback-final-reverification-refuses-",
+      "transaction/install-exception-is-finite-and-rolls-back",
+      "transaction/pre-state-adapter-exception-is-finite-and-body-free",
+      "transaction/rollback-exception-preserves-primary-and-state",
+      "transaction/rollback-preserves-unreviewed-state",
+      "transaction/rollback-reports-an-unproven-created-leaf-without-deleting-it",
+      "removal/manifestless-empty-leaf-recovery",
+      "removal/manifestless-recovery-preserves-every-ancestor",
+      "removal/delete-authority-is-confined-to-the-token-leaf",
+      "removal/manifestless-pins-two-empty-proofs-and-final-reverification-before-delete",
+      "removal/manifestless-second-empty-proof-refuses-a-late-child",
+      "removal/manifestless-exact-delete-refuses-a-child-after-the-second-proof",
+      "removal/manifestless-final-reverification-refuses-",
+      "removal/manifestless-exception-is-finite-and-preserves-state",
+      "removal/pre-state-adapter-exception-is-finite-and-body-free",
+      "removal/manifestless-nonempty-state-survives",
+      "removal/manifestless-identity-change-is-refused",
+      "removal/every-refused-manifestless-state-remains-present",
+    ]) {
+      expect(conformance).toContain(`\"${vector}\"`);
+    }
+  });
+
   it("keeps retained feasibility source off production component paths", async () => {
     // ADR 0017 section 10.3: no reviewed component may DEPEND on the
     // feasibility probe or the boundary fixture.

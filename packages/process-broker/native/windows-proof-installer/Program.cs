@@ -31,19 +31,19 @@ namespace AiDevOs.WindowsProofInstaller;
 /// command, because the two are not inert for the same reason and an earlier
 /// version of this comment gave one reason for both:
 ///
-///   install  refuses STRUCTURALLY. The candidate is looked up before any
-///            filesystem object is touched, and the compiled-in installable
-///            table is empty by decision, so every candidate identifier is
-///            unknown and there is nothing an operator can name.
+///   install  accepts only the one exact reviewed candidate compiled into the
+///            installable table. Its source closure, filenames, sizes, and
+///            digests are remeasured through retained handles before any
+///            destination file is created; every other identifier refuses.
 ///
 ///   remove   takes no candidate, so nothing on its path consults that table.
 ///            It resolves the known folder, opens the volume root, and walks
-///            toward the run-token leaf. It finds nothing and refuses, but it
-///            refuses because no matching leaf EXISTS — a fact about the host,
-///            not a property of the build. Its blast radius is bounded
-///            structurally instead: the only deletion candidates are the
-///            components it recomputed from the token, and
-///            <c>C:\ProgramData</c> is not among them.
+///            toward the exact run-token leaf. If absent it refuses. If present,
+///            only a manifest-bound installed leaf or the separately reviewed
+///            exact manifestless-empty recovery state can be removed. Its blast
+///            radius is bounded structurally: the token leaf is the only
+///            directory opened with DELETE, and shared ancestors including
+///            <c>C:\ProgramData</c> are traverse-only and always retained.
 /// </summary>
 internal static class Program
 {
@@ -150,8 +150,8 @@ internal static class Program
             ProofConfiguration.FindInstallable(parsed.Value.CandidateId);
         if (!candidate.Ok || candidate.Value is null)
         {
-            // The expected state in this checkpoint: the installable table is
-            // empty by decision, so every candidate identifier is unknown.
+            // Only an exact identifier from the compiled reviewed table can
+            // reach plan composition; every substitution remains unknown.
             return Refuse(candidate.Refusal, RefusedExitCode);
         }
 

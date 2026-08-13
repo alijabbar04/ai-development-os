@@ -147,6 +147,57 @@ internal sealed class HostileConditions
 
     /// <summary>Grant the proof identity <c>WRITE_DAC</c> on the shared ancestor.</summary>
     internal bool DaclChangeOnKnownFolder { get; set; }
+
+    /// <summary>Plant unreviewed state in a directory immediately after its create-only open.</summary>
+    internal string? PlantFileAfterCreationAt { get; set; }
+
+    /// <summary>Plant unreviewed state after the selected successful directory listing.</summary>
+    internal string? PlantFileAfterListingAt { get; set; }
+
+    /// <summary>
+    /// Exact directory name whose successful listings count toward the
+    /// post-listing mutation occurrence. Keeping this explicit prevents a
+    /// source-fixture scan from consuming a removal or rollback mutation.
+    /// </summary>
+    internal string? PostListingMutationTriggerAt { get; set; }
+
+    /// <summary>
+    /// One-based successful listing of the trigger directory after which all
+    /// configured post-listing mutations fire. The default is immediately
+    /// after the trigger's first successful listing.
+    /// </summary>
+    internal int PostListingMutationAfterSuccessfulListing { get; set; } = 1;
+
+    /// <summary>Fail deletion of the named exact handle.</summary>
+    internal string? DeleteFailsAt { get; set; }
+
+    /// <summary>Change the named object's identity after a directory listing returns.</summary>
+    internal string? ChangeIdentityAfterListingAt { get; set; }
+
+    /// <summary>Drift the named object's DACL after a directory listing returns.</summary>
+    internal string? ChangeSecurityAfterListingAt { get; set; }
+
+    /// <summary>Grant WRITE_DAC after a listing so DACL drift is independently observable.</summary>
+    internal string? ChangeDaclAfterListingAt { get; set; }
+
+    /// <summary>Change the owner after a listing without otherwise changing access.</summary>
+    internal string? ChangeOwnerAfterListingAt { get; set; }
+
+    /// <summary>Change the exact DACL using an access-neutral zero-mask ACE.</summary>
+    internal string? ChangeExactDaclAfterListingAt { get; set; }
+
+    /// <summary>Turn the named object into a reparse point after a listing returns.</summary>
+    internal string? ChangeToReparseAfterListingAt { get; set; }
+
+    /// <summary>Throw from this recorded filesystem operation.</summary>
+    internal string? ThrowAtOperation { get; set; }
+
+    /// <summary>One-based occurrence of the selected operation that throws.</summary>
+    internal int ThrowAtOperationOccurrence { get; set; } = 1;
+
+    /// <summary>Hostile text that must never cross the transaction boundary.</summary>
+    internal string ThrowMessage { get; set; } =
+        "SECRET_CANARY C:\\private\\operator-state.json";
 }
 
 /// <summary>
@@ -194,6 +245,10 @@ internal sealed class SimulatedFileSystem : HandleRelativeFileSystem
     private readonly Dictionary<long, long> offsets = [];
     private readonly SimulatedNode volumeRoot;
     private readonly HashSet<string> swappedAlready = new(StringComparer.Ordinal);
+    private readonly HashSet<string> postListingChanges = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> operationOccurrences = new(StringComparer.Ordinal);
+    private int successfulListingCount;
+    private bool observedPhaseStarted;
     private long nextFileId = 0x1000;
 
     internal SimulatedFileSystem(HostileConditions? conditions)
@@ -271,6 +326,63 @@ internal sealed class SimulatedFileSystem : HandleRelativeFileSystem
         }
 
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// Exact runtime access requested for the three removal-chain components,
+    /// extracted from the operations the transaction actually issued.
+    /// </summary>
+    internal string RemovalDirectoryAccessSequence()
+    {
+        List<string> access = [];
+        foreach (CanonicalObject entry in log)
+        {
+            string? operation = null;
+            string? purpose = null;
+            string? name = null;
+            string? desiredAccess = null;
+            foreach (KeyValuePair<string, CanonicalValue> member in entry.Members)
+            {
+                if (string.Equals(member.Key, "op", StringComparison.Ordinal))
+                {
+                    operation = member.Value.Text;
+                }
+                else if (string.Equals(member.Key, "purpose", StringComparison.Ordinal))
+                {
+                    purpose = member.Value.Text;
+                }
+                else if (string.Equals(member.Key, "name", StringComparison.Ordinal))
+                {
+                    name = member.Value.Text;
+                }
+                else if (string.Equals(member.Key, "desiredAccess", StringComparison.Ordinal))
+                {
+                    desiredAccess = member.Value.Text;
+                }
+            }
+
+            if (string.Equals(operation, "open-relative", StringComparison.Ordinal) &&
+                string.Equals(purpose, "open-removal-component", StringComparison.Ordinal))
+            {
+                access.Add(string.Concat(name, "=", desiredAccess));
+            }
+        }
+
+        return string.Join('|', access);
+    }
+
+    /// <summary>
+    /// Starts one explicitly observed conformance phase. Fixture construction
+    /// happens before this call, so it cannot consume a hostile occurrence or
+    /// pollute a phase-specific operation trace.
+    /// </summary>
+    internal void BeginObservedPhase()
+    {
+        successfulListingCount = 0;
+        operationOccurrences.Clear();
+        postListingChanges.Clear();
+        log.Clear();
+        observedPhaseStarted = true;
     }
 
     /// <summary>Populates the source closure with the named files.</summary>
@@ -405,6 +517,14 @@ internal sealed class SimulatedFileSystem : HandleRelativeFileSystem
             };
             parentNode.Children[request.Name] = created;
             MaybeExtraGrant(created);
+            if (string.Equals(
+                    hostile.PlantFileAfterCreationAt,
+                    request.Name,
+                    StringComparison.Ordinal))
+            {
+                PlantFile(created, "unreviewed-state.bin", [9, 9, 9]);
+            }
+
             Register(ordinal, created, request);
             return RefusalCode.None;
         }
@@ -542,7 +662,9 @@ internal sealed class SimulatedFileSystem : HandleRelativeFileSystem
 
         files.Sort(StringComparer.Ordinal);
         directories.Sort(StringComparer.Ordinal);
-        return Outcome<DirectoryListing>.Success(new DirectoryListing(files, directories));
+        DirectoryListing result = new(files, directories);
+        ApplyPostListingChanges(node);
+        return Outcome<DirectoryListing>.Success(result);
     }
 
     public override RefusalCode RewindToStart(OpenedObject handle)
@@ -698,6 +820,16 @@ internal sealed class SimulatedFileSystem : HandleRelativeFileSystem
             return RefusalCode.NativeInvalidHandle;
         }
 
+        if (string.Equals(hostile.DeleteFailsAt, node.Name, StringComparison.Ordinal))
+        {
+            return RefusalCode.DeleteFailed;
+        }
+
+        if ((handle.Request.DesiredAccess & NtFlags.DELETE) == 0)
+        {
+            return RefusalCode.NativeAccessDenied;
+        }
+
         if (node.IsDirectory)
         {
             foreach (KeyValuePair<string, SimulatedNode> child in node.Children)
@@ -712,6 +844,88 @@ internal sealed class SimulatedFileSystem : HandleRelativeFileSystem
         node.Deleted = true;
         node.Parent?.Children.Remove(node.Name);
         return RefusalCode.None;
+    }
+
+    private void ApplyPostListingChanges(SimulatedNode listedNode)
+    {
+        if (!observedPhaseStarted ||
+            hostile.PostListingMutationTriggerAt is not string trigger ||
+            !string.Equals(listedNode.Name, trigger, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        successfulListingCount++;
+        if (successfulListingCount != hostile.PostListingMutationAfterSuccessfulListing)
+        {
+            return;
+        }
+
+        ApplyPostListingChange(
+            hostile.PlantFileAfterListingAt,
+            "child",
+            node =>
+            {
+                if (node.IsDirectory)
+                {
+                    PlantFile(node, "post-listing-state.bin", [7, 7, 7]);
+                }
+            });
+        ApplyPostListingChange(hostile.ChangeIdentityAfterListingAt, "identity", node => node.FileId++);
+        ApplyPostListingChange(
+            hostile.ChangeSecurityAfterListingAt,
+            "security",
+            node => node.Aces.Add(new AceSnapshot(
+                NtFlags.ACCESS_ALLOWED_ACE_TYPE,
+                0,
+                NtFlags.FILE_WRITE_DATA,
+                ProofIdentitySid)));
+        ApplyPostListingChange(
+            hostile.ChangeDaclAfterListingAt,
+            "dacl",
+            node => node.Aces.Add(new AceSnapshot(
+                NtFlags.ACCESS_ALLOWED_ACE_TYPE,
+                0,
+                NtFlags.WRITE_DAC,
+                ProofIdentitySid)));
+        ApplyPostListingChange(
+            hostile.ChangeOwnerAfterListingAt,
+            "owner",
+            node => node.OwnerSid = WellKnownSids.LocalSystem);
+        ApplyPostListingChange(
+            hostile.ChangeExactDaclAfterListingAt,
+            "exact-dacl",
+            node => node.Aces.Add(new AceSnapshot(
+                NtFlags.ACCESS_ALLOWED_ACE_TYPE,
+                0,
+                0,
+                WellKnownSids.BuiltinUsers)));
+        ApplyPostListingChange(
+            hostile.ChangeToReparseAfterListingAt,
+            "reparse",
+            node =>
+            {
+                node.IsReparsePoint = true;
+                node.ReparseTag = 0xA0000003;
+            });
+    }
+
+    private void ApplyPostListingChange(
+        string? component,
+        string kind,
+        Action<SimulatedNode> change)
+    {
+        if (component is null ||
+            !postListingChanges.Add(string.Concat(kind, ":", component)))
+        {
+            return;
+        }
+
+        SimulatedNode? node = FindByName(volumeRoot, component);
+        if (node is not null)
+        {
+            change(node);
+        }
     }
 
     public override void CloseHandle(OpenedObject handle)
@@ -1061,6 +1275,19 @@ internal sealed class SimulatedFileSystem : HandleRelativeFileSystem
         }
     }
 
-    private void Record(string operation, CanonicalObject detail) =>
+    private void Record(string operation, CanonicalObject detail)
+    {
+        int occurrence = operationOccurrences.TryGetValue(operation, out int current)
+            ? current + 1
+            : 1;
+        operationOccurrences[operation] = occurrence;
+        if (observedPhaseStarted &&
+            string.Equals(hostile.ThrowAtOperation, operation, StringComparison.Ordinal) &&
+            hostile.ThrowAtOperationOccurrence == occurrence)
+        {
+            throw new InvalidOperationException(hostile.ThrowMessage);
+        }
+
         log.Add(detail.Set("op", operation));
+    }
 }

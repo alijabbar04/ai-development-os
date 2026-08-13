@@ -3,7 +3,7 @@
 Status: Accepted as the reviewed design for a readiness checkpoint. No UAC
 transaction, no stateful proof, and no production promotion is authorized by
 this decision.
-Date: 2026-08-06
+Date: 2026-08-06; amended 2026-08-13 after the failed-closed operator attempt
 
 Extends ADR 0017. Does not supersede it. ADR 0014 (trust boundary) and ADR 0015
 (Windows feasibility) remain in force.
@@ -220,6 +220,43 @@ An unrecognized object is a refusal requiring operator review, not something to
 clean up. That is deliberate: silently deleting an object you cannot explain is
 how a cleanup routine becomes an arbitrary-delete primitive.
 
+**Manifestless partial-install recovery, added after the first operator
+attempt.** The reviewed installer created the token leaf and then refused before
+the first destination file. Because the install path had no rollback and the
+remover required the manifest before deletion, the remover also refused and an
+empty protected leaf remained. The correction is deliberately narrower than a
+general cleanup facility:
+
+- during install, only the create-only token-leaf request receives `DELETE`, on
+  the exact handle returned by that creation; among removal's directory-chain
+  handles, only the exact token-leaf open receives `DELETE` (the pre-existing
+  manifest-bound file opens retain their exact file-deletion authority).
+  Created or existing shared-ancestor directory handles use traverse-only
+  access and cannot be deletion candidates;
+- an install refusal may roll back only when the leaf is recorded as created by
+  that invocation, the full retained chain still has the same object identities,
+  every private component still has the exact approved owner and DACL, the
+  standard proof identity still lacks the forbidden access, the leaf is still a
+  non-reparse directory, and two bounded handle enumerations prove it empty;
+- the primary install refusal is immutable. Rollback has a separate finite
+  `rollbackStatus`, `rollbackCode`, and `rollbackFailedStep`; a rollback refusal
+  never replaces the original code or emits native/caller text;
+- removal may recognize an exact manifestless empty token leaf only after the
+  same chain, identity, type, reparse, volume, owner, DACL, access, and repeated
+  emptiness proofs. It deletes only the leaf through its already-open deletion
+  handle and always retains `Stage17-Proof`, `AI-Dev-OS`, and
+  `CommonApplicationData`; and
+- any file or child directory, private-component owner/exact-DACL drift,
+  forbidden delete/control access drift on any retained ancestor, reparse,
+  wrong object type, identity replacement, inaccessible enumeration, ancestor
+  drift, unsupported delete, or ambiguous state refuses without mutation.
+
+The API still exposes no arbitrary path, prefix, wildcard, recursion, force
+switch, ownership-taking, ACL-changing, shell, service, task, registry, or
+network authority. The conformance suite exercises only its in-memory
+filesystem. This amendment does not authorize another elevated attempt and does
+not make the historical operator packet safe to retry.
+
 ## 3. Real lifecycle call sites
 
 The supervisor and helper currently contain no `CreateProcessW` at all. This
@@ -315,13 +352,14 @@ sealed one. The honest end state, stated per mechanism:
   self-reported flavour against the requested recipe in both directions and
   refuses to package a disagreement.
 
-`--flavor` applies **only to the proof-only installer**. Every production-shaped
-component is built sealed regardless of it. That too is a correction: the switch
-previously applied to every component, so a reviewed-proof run produced supervisor
-and helper binaries with the mutating branch compiled in, alongside a manifest
-declaring `manifestKind: "…production-artifact-manifest"` with no flavour field,
-written before any flavour assertion ran. A production-shaped binary has no
-legitimate reason to exist in proof mode, so the combination is now refused.
+`--flavor` applies **only to proof-only components**: currently the installer and
+controller. Every production-shaped component is built sealed regardless of it.
+That too is a correction: the switch previously applied to every component, so a
+reviewed-proof run produced supervisor and helper binaries with the mutating branch
+compiled in, alongside a manifest declaring
+`manifestKind: "…production-artifact-manifest"` with no flavour field, written
+before any flavour assertion ran. A production-shaped binary has no legitimate
+reason to exist in proof mode, so the combination is now refused.
 
 The proof controller refuses a sealed binary — it cannot perform the proof.
 Production discovery refuses a proof binary — it must never be promoted.
