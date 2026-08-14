@@ -339,6 +339,10 @@ fingerprint, and a separately trusted ownership/authorization/revocation
 projection before constructing a canonical snapshot. The historical fixture
 route remains for deterministic compatibility. No installed-state read ran in
 the implementation checkpoint, so `AM-02` and all production use remain gated.
+One later authorized read failed closed on the pre-repair route. The reader
+repair is published exact-head green, but the preserved AI Development OS
+consumer candidate was safety-blocked before publication and no post-repair
+installed-state read ran; `AM-02` therefore remains incomplete.
 
 A baseline score is:
 
@@ -445,6 +449,11 @@ body, scoped-secret reference, exact policy/catalog/retention preflight, and
 finite response/time/result surface; ordinary CI substitutes deterministic
 transport. It is implementation evidence only until an already configured
 owned secret route runs it successfully.
+
+On 2026-08-14 one exact owned-reference canary ran under a separate one-attempt
+approval and returned the finite but ambiguous code `TRANSPORT_FAILURE`. It was
+not retried and does not prove the reviewed transport, so `ANT-02` remains
+incomplete and the general provider stays production-disabled.
 
 The subsequent Windows credential checkpoint supplies the missing persistent
 resolution infrastructure without enabling that canary. One exact schema-v1

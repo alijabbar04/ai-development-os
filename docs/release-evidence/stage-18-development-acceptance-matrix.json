@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "branch": "feat/stage-18-windows-secret-broker",
+  "branch": "feat/stage-18-pln-completeness-audit",
   "sourceBase": "c50c4725981013f123ebef0d0a87082f085b333d",
   "productionAdmitted": false,
   "developmentAccepted": false,
@@ -39,12 +39,12 @@
       "authority": ["docs/implementation-roadmap.md", "docs/adr/0027-stage-18-live-boundary-checkpoint.md", "docs/adr/0028-stage-18-windows-credential-secret-broker.md"],
       "implementation": ["packages/provider-anthropic/src/testing/live-canary.ts", "packages/provider-anthropic/src/credential-port.ts", "packages/provider-gemini/src/access.ts", "packages/provider-openai-compatible/src/access.ts", "packages/provider-openai/src/composition.ts", "packages/secrets/src/secrets.ts", "packages/secrets-windows/src/broker.ts", "packages/secrets-windows/src/real-native.ts", "packages/secrets-windows/native/credential-reader.c"],
       "tests": ["packages/provider-anthropic/test/anthropic-live-canary.test.ts", "packages/provider-anthropic/test/credential-port.test.ts", "packages/provider-anthropic/test/static-policy.test.ts", "packages/provider-gemini/src/gemini.test.ts", "packages/provider-openai-compatible/src/adapter.test.ts", "packages/provider-openai/test/policy-secrets.test.ts", "packages/secrets/test/secrets.test.ts", "packages/secrets-windows/test/broker.test.ts", "packages/secrets-windows/test/real-native.test.ts", "packages/secrets-windows/test/static-policy.test.ts"],
-      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md", "docs/release-evidence/stage-18-windows-credential-secret-broker-checkpoint.md"],
+      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md", "docs/release-evidence/stage-18-windows-credential-secret-broker-checkpoint.md", "docs/release-evidence/stage-18-operator-continuation-2026-08-14.md"],
       "status": "incomplete",
       "ownerStage": "18",
       "blocksDevelopmentAcceptance": true,
       "blocksProduction": true,
-      "rationale": "The reviewed test-only one-attempt canary fixes endpoint, API version, model, harmless body, preflight, scoped-secret, response and resource bounds, and deterministic transport tests pass. The production-disabled Windows checkpoint now supplies an exact-reference, policy-before-read Credential Manager broker and Anthropic credential composition without enumeration or mutation. No supported owned scoped-secret reference was configured, secret discovery remained prohibited, and no live Anthropic request ran, so this enabling infrastructure does not complete the row."
+      "rationale": "The reviewed test-only one-attempt canary fixes endpoint, API version, model, harmless body, preflight, scoped-secret, response and resource bounds, and deterministic transport tests pass. The published production-disabled Windows checkpoint supplies an exact-reference, policy-before-read Credential Manager broker and Anthropic credential composition without enumeration. One owned reference was provisioned through a separate reviewed helper and one approved canary ran, but it returned an ambiguous finite TRANSPORT_FAILURE and was not retried. No successful live transport proof exists, so the row remains incomplete."
     },
     {
       "id": "PLN-01",
@@ -169,12 +169,12 @@
       "authority": ["docs/implementation-roadmap.md", "docs/product-direction.md", "docs/adr/0027-stage-18-live-boundary-checkpoint.md"],
       "implementation": ["packages/application/src/account-manager-usage.ts"],
       "tests": ["packages/application/test/account-manager-usage.test.ts", "packages/application/test/static-policy.test.ts"],
-      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md"],
+      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md", "docs/release-evidence/stage-18-operator-continuation-2026-08-14.md"],
       "status": "incomplete",
       "ownerStage": "18",
       "blocksDevelopmentAcceptance": true,
       "blocksProduction": true,
-      "rationale": "The separately committed Account Manager reader and exact-pinned AI OS adapter provide a maintained read-only protocol, bounded synthetic cross-repository proof, exact configuration/profile binding and no UI or credential authority. One explicitly authorized installed-state read on 2026-08-13 verified the exact artifact/configuration, allowlisted one owned profile, and failed closed with USAGE_SOURCE_UNAVAILABLE without store mutation. The exact Account Manager hosted job also remains externally blocked before steps by the exhausted included minutes and zero stop-usage Actions budget, so the row remains incomplete."
+      "rationale": "The separately committed Account Manager reader and exact-pinned AI OS adapter provide a maintained read-only protocol, bounded synthetic cross-repository proof, exact configuration/profile binding and no UI or credential authority. One authorized pre-repair read failed closed without store mutation. The reader repair and its hosted gate are now exact-head green, but the preserved AI Development OS inactive-window packed-consumer gate was safety-blocked before execution and publication, so no post-repair installed-state read occurred and the row remains incomplete."
     },
     {
       "id": "INT-01",
@@ -208,12 +208,12 @@
       "authority": ["docs/adr/0019-windows-first-production-scope.md", "docs/adr/0024-stage-18d-postgres-admission-readiness.md"],
       "implementation": ["packages/application/src/production-admission.ts", "packages/process-broker/src/production-gate.ts"],
       "tests": ["packages/application/test/production-admission.test.ts", "packages/process-broker/test/stage-17-security.test.ts"],
-      "evidence": ["docs/release-evidence/stage-17-gated-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md"],
+      "evidence": ["docs/release-evidence/stage-17-gated-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md", "docs/release-evidence/stage-18-operator-continuation-2026-08-14.md"],
       "status": "production-gated",
       "ownerStage": "17W",
       "blocksDevelopmentAcceptance": false,
       "blocksProduction": true,
-      "rationale": "The 2026-08-13 corrected pure preflight matched, but the exact reviewed installer and required remover both refused with exit code 2 before the ordinary post-install/stateful controller run, lifecycle, or separately safety-gated operation ran. One empty token-derived protected leaf remains preserved for manual review. No Stage 18 artifact or failed stateful attempt can substitute for the missing production evidence."
+      "rationale": "The 2026-08-13 installer/remover attempt and the separately approved 2026-08-14 remover-only follow-up both failed closed with exit code 2 before the ordinary post-install/stateful controller lifecycle. The later packet authorized no retry or protected-state post-observation, so current residue is not claimed. No Stage 18 artifact or failed/ambiguous stateful attempt can substitute for the missing production evidence."
     }
   ]
 }

@@ -59,7 +59,7 @@ describe("machine-checkable Stage 18 development acceptance matrix", () => {
     ]);
     expect(matrix).toMatchObject({
       schemaVersion: 1,
-      branch: "feat/stage-18-windows-secret-broker",
+      branch: "feat/stage-18-pln-completeness-audit",
       productionAdmitted: false,
     });
     expect(matrix.sourceBase).toBe(

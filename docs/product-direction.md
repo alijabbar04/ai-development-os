@@ -1,7 +1,7 @@
 # Windows product direction
 
 Status: Accepted product requirements; bounded implementation checkpoints in progress
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 This document records future product requirements under the Windows-first scope
 accepted by [ADR 0019](adr/0019-windows-first-production-scope.md). It separates
@@ -94,9 +94,11 @@ prohibited.
 The 2026-08-13 operator-present follow-up invoked that exact maintained boundary
 once for one explicitly allowlisted owned profile. It failed closed with
 `USAGE_SOURCE_UNAVAILABLE`, changed no store metadata, and disclosed no private
-record; the Account Manager hosted gate also remained Actions-budget blocked.
-This is failed evidence rather than live-route proof, so `AM-02` remains
-incomplete.
+record. The Account Manager reader repair is now published and exact-head
+hosted-green, but the corresponding AI Development OS inactive-window
+packed-consumer gate was safety-blocked before execution and publication. No
+post-repair installed-state read ran. These are failed/incomplete evidence
+rather than live-route proof, so `AM-02` remains incomplete.
 
 ## Future Windows computer and internet authority
 

@@ -39,7 +39,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D are published, the production-disabled exact-reference Windows credential-broker candidate is pending exact-head publication, and `INT-01` is proven; `ANT-02` had no eligible secret and did not run, while the one authorized `AM-02` read failed closed and its hosted gate remains billing-blocked; production remains blocked on Stage 17W |
+| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D and the production-disabled exact-reference Windows credential broker are published exact-head green, and `INT-01` is proven; one owned-reference Anthropic canary ended ambiguously with `TRANSPORT_FAILURE`, while the inactive-window candidate is safety-blocked before its packed-consumer/publication gate and no repaired installed-state read ran; production remains blocked on Stage 17W |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
@@ -53,22 +53,23 @@ Three things are stated plainly because they are easy to assume the other way:
 - **Autonomous execution refuses in production, by design.** No built-in sandbox
   backend is classified as genuinely enforcing. See the last section of this file.
 - **Stage 17W is a gated checkpoint, not a released stage.** No native Windows
-  enforcement backend has been proven. A 2026-08-13 reviewed installer/remover
-  attempt refused before the ordinary post-install/stateful controller run or
-  lifecycle and left one preserved empty token leaf; the Windows escape corpus
-  is unrun, and no `v0.17` tag exists. **Windows containment is not claimed.**
+  enforcement backend has been proven. A 2026-08-14 remover-only follow-up
+  reproduced the reviewed artifact but returned exit code `2`; it did not
+  authorize a retry or protected-state observation, so current residue is
+  unknown. The ordinary lifecycle and Windows escape corpus remain unrun, and
+  no `v0.17` tag exists. **Windows containment is not claimed.**
 - **Linux and macOS are deferred, not passing.** Their portable seams and
   evidence stay intact, while native enforcement, L-02, packaging, and parity
   move to Stage 25.
 - **Stage 18 checkpoints do not admit production.** Production-disabled 18A,
   18B, 18C, and 18D are published, and Stage 19B proves `INT-01`. The reviewed
-  Anthropic canary and supported Account Manager reader exist; the policy-aware
-  exact-reference Windows credential broker is a pending publication candidate. No eligible
-  Anthropic secret was supplied, and the single authorized Account Manager
-  read failed closed while hosted CI remained budget-blocked, so `ANT-02`,
-  `AM-02`, and development acceptance remain incomplete. The admission schema
-  has no admitted variant and
-  production stays blocked on Stage 17W.
+  Anthropic canary, supported Account Manager reader, and policy-aware
+  exact-reference Windows credential broker exist and the broker is published
+  exact-head green. One owned-reference canary ran once and ended ambiguously;
+  the repaired inactive-window consumer gate was safety-blocked before
+  publication, so no repaired installed-state read ran. `ANT-02`, `AM-02`, and
+  development acceptance remain incomplete. The admission schema has no
+  admitted variant and production stays blocked on Stage 17W.
 
 ## Documents
 
@@ -207,7 +208,7 @@ most valuable.
 - [`@ai-dev-os/evaluation`](packages/evaluation/README.md) validates exact bounded deterministic evidence against externally trusted subject-bound criterion-manifest, evidence-instance, and waiver-digest allowlists, preserves non-authoritative model disagreement, produces authority-free completeness findings, and journals command-equivalent evaluation runs through the persistence port.
 - [`@ai-dev-os/integrator`](packages/integrator/README.md) binds an accepted evaluation admission to exact commits, trees, ordered parents, paths, validation and authority; journals a serialized fenced effect intent and exact receipt; refuses ambiguous retry; and exposes a real sanitized Git implementation only through its disposable-fixture testing subpath. Production Git effects remain literally disabled.
 
-Provider/model IDs remain opaque configuration. The router can choose any configured eligible GPT or Claude inference target without name heuristics or a built-in commercial preference. Claude Code and Codex adapters implement the separate coding-agent contract and cannot be used as inference thinkers. The first-party Anthropic inference adapter remains production-disabled; its live canary is isolated to the testing subpath and has not run. Usage/reset facts come only from normalized authorized observations, never guessed provider policy. The exact-pinned Account Manager reader route emits `claude-code` observations and has not read installed state in this checkpoint.
+Provider/model IDs remain opaque configuration. The router can choose any configured eligible GPT or Claude inference target without name heuristics or a built-in commercial preference. Claude Code and Codex adapters implement the separate coding-agent contract and cannot be used as inference thinkers. The first-party Anthropic inference adapter remains production-disabled; its isolated testing canary ran exactly once against an owned reference and returned an ambiguous finite transport failure, with no retry. Usage/reset facts come only from normalized authorized observations, never guessed provider policy. The exact-pinned Account Manager reader emits `claude-code` observations, but the repaired AI Development OS consumer checkpoint is unpublished and no post-repair installed-state read has run.
 
 The project is pre-1.0. Live provider calls are explicit opt-in operations with policy and scoped-secret boundaries. Autonomous repository execution remains disabled in production until a genuinely enforcing isolation backend exists.
 
