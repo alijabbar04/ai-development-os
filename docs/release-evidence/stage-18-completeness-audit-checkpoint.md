@@ -1,7 +1,8 @@
 # Stage 18 audit-overlay-bound completeness audit
 
-Status: deterministic audit executed; local gates and independent source review
-pass; decision **rejected**; commit, publication, and hosted CI pending
+Status: source checkpoint published and exact-head CI green; deterministic
+decision **rejected**; evidence-only finalization externally verifiable; no
+acceptance promotion
 
 Date: 2026-08-14
 
@@ -162,8 +163,40 @@ authenticate the declared route, create authority, rerun aggregate coverage,
 or exercise any private, installed, protected, credential, provider, or live
 boundary.
 
-The explicit-path commit, non-forced feature-branch publication, and exact-head
-hosted CI remain future-only. This checkpoint is not yet published.
+## Source publication and hosted proof
+
+The explicit nine-path source checkpoint is commit
+`98a55ae9fdbc17747a12874dc3951e84dd7a00f5`, tree
+`a4da035bb6c02a37b0d2f526c243a0748107c3f7`, with subject baseline
+`f5372fece6371385e15b6cbb2edd2f4063c7eac3` as its parent. It was pushed once,
+without force, to
+`origin/feat/stage-18-pln-completeness-audit`; the remote branch was verified at
+that exact commit.
+
+Push-triggered GitHub Actions run
+[`31809456386`](https://github.com/alijabbar04/ai-development-os/actions/runs/31809456386)
+evaluated that exact source head and completed successfully. It started at
+`2026-08-14T14:25:51Z` and completed at `2026-08-14T14:50:25Z`:
+
+| Job | Job ID | Conclusion | Duration |
+| --- | ---: | --- | ---: |
+| dependency audit | `94796281996` | success | 10s |
+| PostgreSQL integration | `94796281963` | success | 51s |
+| check (ubuntu-latest) | `94796282067` | success | 8m24s |
+| coverage | `94796281862` | success | 14m08s |
+| check (windows-latest) | `94796282022` | success | 24m28s |
+
+The Windows job completed the root check, explicit credential-addon native
+build, and absent-target native smoke. The Ubuntu native-only steps were
+intentionally skipped by their platform condition. GitHub emitted non-failing
+warning annotations that the pinned checkout/setup-node actions, and
+upload-artifact in coverage, target Node.js 20 and were forced onto Node.js 24;
+no job or step failed.
+
+The evidence-only commit containing this finalized packet cannot durably
+self-record its own future hash or its own exact-head CI result. Those two facts
+must therefore be verified from the remote branch and Actions run reported in
+the external handover; this file does not manufacture a self-referential claim.
 
 ## Consequence
 
