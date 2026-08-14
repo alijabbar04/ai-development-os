@@ -26,11 +26,16 @@ admission remain unchanged.
 - Exact base commit: `c50c4725981013f123ebef0d0a87082f085b333d`.
 - Exact base tree: `eaf01bc25651033c9bc4e32428b04151caea8e9b`.
 - Candidate branch: `feat/stage-18-windows-secret-broker`.
-- Current scope is exactly 46 Git-visible paths: 24 modified tracked paths and
-  22 untracked paths. The ordinal LF-terminated path list is 1,933 bytes with
-  SHA-256 `ab12d2ac36ae9852a522a4d9d7b5a5bc0f02f8f67a385f1d471077e961994ac0`.
-- Final commit/tree, staged identity, upstream, remote, and exact-head CI remain
-  publication boundaries and are recorded only after they occur.
+- The published source delta relative to the bound base comprises exactly 46
+  paths: 24 modified paths and 22 added paths. Its ordinal LF-terminated path
+  list is 1,933 bytes with SHA-256
+  `ab12d2ac36ae9852a522a4d9d7b5a5bc0f02f8f67a385f1d471077e961994ac0`.
+- Published source head before this evidence-only reconciliation is commit
+  `2668bf195b7ebd5c0cbc63ecf9ec5246a5ee072d`, tree
+  `5049caaffc3d485563b204e805d428be3f490dc5`; local HEAD, upstream,
+  remote-tracking ref, and live remote agreed with a clean worktree/index.
+- This packet's later evidence-only commit and its exact-head CI are recorded in
+  the external final handover after they occur; they are not self-claimed here.
 
 The implementation adds `@ai-dev-os/secrets-windows`, updates the generic
 Anthropic credential port, pins the Windows native compile in CI, and updates
@@ -140,26 +145,48 @@ workload, Windows SDK libraries, MSVC linker, or LLVM linker. The exact local
 source, with the finite requirement for Visual Studio Desktop Development with
 C++. No UAC or toolchain installation was attempted.
 
-Hosted Windows CI explicitly builds the addon with MSVC `/W4 /WX`, SDL, and CFG,
-proves a bounded malformed-target table refuses before native work is queued,
-then requires actual `not-found` results through both availability and read for
-one fresh random synthetic target that the project never creates. Those results
-and the run/job identity are required before final checkpoint completion. If an
-unexpected matching generic credential existed, exact `CredReadW` would access
-and zero its returned blob before the script failed; therefore no native
-credential access is claimed until both hosted `not-found` results exist. The
-probes create, mutate, delete, and enumerate nothing. A test-only native
+The first published source run
+[`31767078075`](https://github.com/alijabbar04/ai-development-os/actions/runs/31767078075)
+passed dependency audit, PostgreSQL integration, coverage, Ubuntu check, and the
+Windows root check, then failed the Windows native build under `/WX`: MSVC
+C4701/C4703 reported that local `resource_name` might be uninitialized. Native
+smoke correctly did not run. The workflow was not rerun. One dedicated reviewed
+repair commit initialized that local to `NULL`; the Windows package reran 48/48
+tests plus typecheck and static/syntax checks before publication.
+
+Exact repaired-source run
+[`31768502573`](https://github.com/alijabbar04/ai-development-os/actions/runs/31768502573)
+targets commit `2668bf195b7ebd5c0cbc63ecf9ec5246a5ee072d` and passes all
+five jobs:
+
+| Job | Job ID | Duration | Conclusion |
+| --- | ---: | ---: | --- |
+| Windows check | `94669294535` | 1,606 s | success |
+| PostgreSQL integration | `94669294574` | 51 s | success |
+| dependency audit | `94669294588` | 9 s | success |
+| Ubuntu check | `94669294593` | 511 s | success |
+| coverage | `94669294618` | 819 s | success |
+
+The Windows job compiled the addon with MSVC `/W4 /WX`, SDL, and CFG, then its
+successful native-smoke step proved the bounded malformed-target table refuses
+through both raw exports before native work is queued and required actual
+`not-found` results through both availability and read for one fresh random
+synthetic target that the project never creates. If an unexpected matching
+generic credential had existed, exact `CredReadW` would have accessed and
+zeroed its returned blob and the step would have failed; the successful result
+therefore establishes the stated absent-target condition for this run. The
+probes created, mutated, deleted, and enumerated nothing. A test-only native
 writer/deleter was intentionally not created because it would widen credential
 authority solely for testing.
 
 ## Final reconciliation
 
 Local source, tests, coverage, dependency, audit, package, consumer, scan, and
-independent source-review gates are complete on the frozen bytes. No path is
-staged and no candidate commit, upstream push, or hosted run exists yet. Final
-commit/tree identity, local/upstream/live-remote equality, and exact-head hosted
-CI remain future publication facts and are not claimed by this pre-publication
-packet.
+independent source/evidence-review gates are complete. The two source commits
+are published and exact repaired-source CI is green as recorded above. This
+document update is the final evidence-only delta; its commit/tree,
+local/upstream/live-remote equality, and exact-head hosted run remain external
+post-commit reconciliation facts and are not self-claimed by this packet.
 
 ## Acceptance truth
 
