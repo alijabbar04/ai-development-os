@@ -165,7 +165,7 @@ static napi_value start_operation(napi_env env, napi_callback_info info, operati
   size_t argument_count = 1U;
   napi_value arguments[1];
   napi_value promise;
-  napi_value resource_name;
+  napi_value resource_name = NULL;
   napi_valuetype type;
   credential_work *request;
   size_t target_length = 0U;
