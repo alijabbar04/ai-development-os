@@ -39,7 +39,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D and the production-disabled exact-reference Windows credential broker are published exact-head green, and `INT-01` is proven; one owned-reference Anthropic canary ended ambiguously with `TRANSPORT_FAILURE`, while the inactive-window candidate is safety-blocked before its packed-consumer/publication gate and no repaired installed-state read ran; production remains blocked on Stage 17W |
+| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D and the production-disabled exact-reference Windows credential broker are published exact-head green, and `INT-01` is proven; one owned-reference Anthropic canary ended ambiguously with `TRANSPORT_FAILURE`, the inactive-window candidate is safety-blocked before its packed-consumer/publication gate, and the unapproved completeness-audit overlay has no externally authorized manifest/evidence while its semantic status projection retains `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01`; production remains blocked on Stage 17W |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |

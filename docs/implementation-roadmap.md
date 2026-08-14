@@ -705,6 +705,17 @@ Stage 17W and no Stage 18 checkpoint changes that gate. Query-native,
 high-throughput team scheduling remains a deployment-scale nonclaim rather than
 a Stage 18 development-acceptance item.
 
+A 2026-08-14 production-disabled completeness-audit candidate now binds one
+exact baseline head/tree, all 16 matrix rows, explicit
+requirement-task-result edges, all ten ADR 0016 specialist concerns, and exact
+subject blobs. It deliberately has zero externally authorized criterion
+manifests, evidence instances, or waivers, so the authority-free evaluation
+rejects every criterion plus manifest authorization. A separately labeled
+semantic status projection retains the narrower current gaps `ANT-02`,
+`AM-02`, `PLN-02`, and `PRD-01`. The audit cannot certify itself, so it records
+the gap without promoting `PLN-02`, development acceptance, or production
+admission.
+
 The 2026-08-14 published production-disabled Windows credential checkpoint adds
 `@ai-dev-os/secrets-windows`: one exact keychain/text reference, a SHA-256-derived
 Credential Manager target, policy-before-read composition, a two-operation

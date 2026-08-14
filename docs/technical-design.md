@@ -551,6 +551,18 @@ Disagreement is detected through schema conflicts, contradictory claims with sha
 
 Product-planning synthesis uses the same evidence rule at requirement granularity. Every contributed candidate must appear in an immutable disposition ledger, including duplicates, rejections, deferrals, and questions returned to the user. Synthesis cannot silently drop a feature, convert a delight candidate into approved scope, lower an acceptance criterion, or erase a dissenting security or feasibility finding. The final completeness evaluator reads the approved specification and coverage matrix rather than trusting planning or implementation narratives.
 
+The 2026-08-14 Stage 18 audit candidate applies that boundary to an immutable
+baseline: all 16 acceptance-matrix rows and all ten ADR 0016 specialist
+concerns are explicitly dispositioned and connected by requirement-task-result
+edges. It is an unapproved checkpoint-specific overlay, not the shipped
+product-planning `ProductSpecification` schema. Its 16 candidate evidence
+instances and exact manifest have no external authorization, so the official
+authority-free result rejects every criterion and manifest authorization. The
+separate semantic projection retains the narrower status gaps `ANT-02`,
+`AM-02`, `PLN-02`, and `PRD-01`. Route metadata is declared but unauthenticated,
+with a same-family limitation; neither projection can promote itself or begin
+Stage 20.
+
 ## 14. Memory, preferences, and cache
 
 ### 14.1 Memory classes

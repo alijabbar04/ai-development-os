@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 1,
+  "artifactKind": "stage18-audit-specification-overlay",
+  "specificationId": "audit-specification-overlay:stage-18:1",
+  "status": "unapproved-production-disabled-audit-candidate",
+  "repositoryId": "repository:ai-development-os",
+  "branch": "feat/stage-18-pln-completeness-audit",
+  "sourceHeadSha": "f5372fece6371385e15b6cbb2edd2f4063c7eac3",
+  "sourceTreeSha": "9f5a842192bb9317127cc4b57af5fbf50d0d36dc",
+  "matrixPath": "docs/release-evidence/stage-18-development-acceptance-matrix.json",
+  "provenancePath": "docs/release-evidence/stage-18-operator-continuation-2026-08-14.md",
+  "authorityStatus": "unapproved-repository-bound-candidate",
+  "subjectAnchorPaths": [
+    "docs/adr/0016-product-completeness-planning-assembly.md",
+    "docs/adr/0021-stage-18a-production-disabled-orchestration-foundation.md",
+    "docs/adr/0022-stage-18b-anthropic-product-planning.md",
+    "docs/adr/0023-stage-18c-durable-runtime-usage-adapter.md",
+    "docs/adr/0024-stage-18d-postgres-admission-readiness.md",
+    "docs/adr/0025-stage-19a-production-disabled-evaluation.md",
+    "docs/adr/0027-stage-18-live-boundary-checkpoint.md",
+    "docs/adr/0028-stage-18-windows-credential-secret-broker.md",
+    "docs/implementation-roadmap.md",
+    "docs/product-direction.md",
+    "docs/technical-design.md",
+    "docs/release-evidence/stage-18-development-acceptance-matrix.json",
+    "docs/release-evidence/stage-18-operator-continuation-2026-08-14.md"
+  ],
+  "authoringRoute": {
+    "routeId": "route:stage18:pln-author",
+    "routeIndependenceKey": "3a033ed72a0d8c2a10b0066bb4aad72df3536e539e0459d04b64ac4dff887e59",
+    "family": "gpt-5.6-sol",
+    "claim": "declared-implementation-route-unauthenticated"
+  },
+  "auditRoute": {
+    "routeId": "route:stage18:pln-audit",
+    "routeIndependenceKey": "4b4a251aafa676d4de63401567746597528582797e0b9441bb0bcb97fa2851a8",
+    "family": "gpt-5.6-sol",
+    "claim": "declared-separate-read-only-route-same-family-unauthenticated"
+  },
+  "journeys": [
+    {
+      "journeyId": "journey:stage18:plan",
+      "description": "Frame, plan, challenge, approve, and audit bounded product work without transferring authority to a model."
+    },
+    {
+      "journeyId": "journey:stage18:schedule",
+      "description": "Schedule durable work against authorized profiles while preserving exact usage and concurrency evidence."
+    },
+    {
+      "journeyId": "journey:stage18:provider",
+      "description": "Use reviewed provider and credential boundaries only when exact policy, identity, and live evidence permit them."
+    },
+    {
+      "journeyId": "journey:stage18:persist",
+      "description": "Persist and replay orchestration state across supported local and shared database backends."
+    },
+    {
+      "journeyId": "journey:stage18:admit",
+      "description": "Refuse production unless every development and production admission gate is proven."
+    }
+  ],
+  "requirements": [
+    {
+      "requirementId": "requirement:stage18:ADM-01",
+      "matrixRowId": "ADM-01",
+      "criticality": "required",
+      "taskId": "task:stage18:ADM-01",
+      "resultId": "result:stage18:ADM-01",
+      "journeyIds": ["journey:stage18:admit"],
+      "concerns": ["operations", "security"]
+    },
+    {
+      "requirementId": "requirement:stage18:ANT-01",
+      "matrixRowId": "ANT-01",
+      "criticality": "required",
+      "taskId": "task:stage18:ANT-01",
+      "resultId": "result:stage18:ANT-01",
+      "journeyIds": ["journey:stage18:provider"],
+      "concerns": ["testing"]
+    },
+    {
+      "requirementId": "requirement:stage18:ANT-02",
+      "matrixRowId": "ANT-02",
+      "criticality": "required",
+      "taskId": "task:stage18:ANT-02",
+      "resultId": "result:stage18:ANT-02",
+      "journeyIds": ["journey:stage18:provider", "journey:stage18:admit"],
+      "concerns": ["privacy", "security"]
+    },
+    {
+      "requirementId": "requirement:stage18:PLN-01",
+      "matrixRowId": "PLN-01",
+      "criticality": "required",
+      "taskId": "task:stage18:PLN-01",
+      "resultId": "result:stage18:PLN-01",
+      "journeyIds": ["journey:stage18:plan"],
+      "concerns": ["documentation", "maintainability"]
+    },
+    {
+      "requirementId": "requirement:stage18:PLN-02",
+      "matrixRowId": "PLN-02",
+      "criticality": "required",
+      "taskId": "task:stage18:PLN-02",
+      "resultId": "result:stage18:PLN-02",
+      "journeyIds": ["journey:stage18:plan", "journey:stage18:admit"],
+      "concerns": ["documentation", "maintainability"]
+    },
+    {
+      "requirementId": "requirement:stage18:SCH-01",
+      "matrixRowId": "SCH-01",
+      "criticality": "required",
+      "taskId": "task:stage18:SCH-01",
+      "resultId": "result:stage18:SCH-01",
+      "journeyIds": ["journey:stage18:schedule"],
+      "concerns": ["failure-recovery"]
+    },
+    {
+      "requirementId": "requirement:stage18:SCH-02",
+      "matrixRowId": "SCH-02",
+      "criticality": "expected-quality",
+      "taskId": "task:stage18:SCH-02",
+      "resultId": "result:stage18:SCH-02",
+      "journeyIds": ["journey:stage18:schedule"],
+      "concerns": ["performance", "testing"]
+    },
+    {
+      "requirementId": "requirement:stage18:PER-01",
+      "matrixRowId": "PER-01",
+      "criticality": "required",
+      "taskId": "task:stage18:PER-01",
+      "resultId": "result:stage18:PER-01",
+      "journeyIds": ["journey:stage18:persist"],
+      "concerns": ["data-lifecycle"]
+    },
+    {
+      "requirementId": "requirement:stage18:PER-02",
+      "matrixRowId": "PER-02",
+      "criticality": "expected-quality",
+      "taskId": "task:stage18:PER-02",
+      "resultId": "result:stage18:PER-02",
+      "journeyIds": ["journey:stage18:persist", "journey:stage18:schedule"],
+      "concerns": ["data-lifecycle", "failure-recovery", "performance"]
+    },
+    {
+      "requirementId": "requirement:stage18:PER-03",
+      "matrixRowId": "PER-03",
+      "criticality": "expected-quality",
+      "taskId": "task:stage18:PER-03",
+      "resultId": "result:stage18:PER-03",
+      "journeyIds": ["journey:stage18:persist", "journey:stage18:admit"],
+      "concerns": ["data-lifecycle", "failure-recovery", "operations", "performance"]
+    },
+    {
+      "requirementId": "requirement:stage18:USE-01",
+      "matrixRowId": "USE-01",
+      "criticality": "required",
+      "taskId": "task:stage18:USE-01",
+      "resultId": "result:stage18:USE-01",
+      "journeyIds": ["journey:stage18:schedule"],
+      "concerns": ["privacy", "security"]
+    },
+    {
+      "requirementId": "requirement:stage18:AM-01",
+      "matrixRowId": "AM-01",
+      "criticality": "expected-quality",
+      "taskId": "task:stage18:AM-01",
+      "resultId": "result:stage18:AM-01",
+      "journeyIds": ["journey:stage18:schedule"],
+      "concerns": ["maintainability"]
+    },
+    {
+      "requirementId": "requirement:stage18:AM-02",
+      "matrixRowId": "AM-02",
+      "criticality": "required",
+      "taskId": "task:stage18:AM-02",
+      "resultId": "result:stage18:AM-02",
+      "journeyIds": ["journey:stage18:schedule", "journey:stage18:admit"],
+      "concerns": ["data-lifecycle", "privacy"]
+    },
+    {
+      "requirementId": "requirement:stage18:INT-01",
+      "matrixRowId": "INT-01",
+      "criticality": "required",
+      "taskId": "task:stage18:INT-01",
+      "resultId": "result:stage18:INT-01",
+      "journeyIds": ["journey:stage18:admit"],
+      "concerns": ["failure-recovery", "operations"]
+    },
+    {
+      "requirementId": "requirement:stage18:EVD-01",
+      "matrixRowId": "EVD-01",
+      "criticality": "expected-quality",
+      "taskId": "task:stage18:EVD-01",
+      "resultId": "result:stage18:EVD-01",
+      "journeyIds": ["journey:stage18:plan", "journey:stage18:admit"],
+      "concerns": ["documentation", "maintainability", "testing"]
+    },
+    {
+      "requirementId": "requirement:stage18:PRD-01",
+      "matrixRowId": "PRD-01",
+      "criticality": "required",
+      "taskId": "task:stage18:PRD-01",
+      "resultId": "result:stage18:PRD-01",
+      "journeyIds": ["journey:stage18:admit"],
+      "concerns": ["operations", "security"]
+    }
+  ],
+  "concernDispositions": [
+    {
+      "concern": "security",
+      "disposition": "accepted",
+      "requirementIds": ["requirement:stage18:ADM-01", "requirement:stage18:ANT-02", "requirement:stage18:USE-01", "requirement:stage18:PRD-01"],
+      "reason": "Exact policy, credential, admission, and native containment boundaries are explicit Stage 18 requirements."
+    },
+    {
+      "concern": "privacy",
+      "disposition": "accepted",
+      "requirementIds": ["requirement:stage18:ANT-02", "requirement:stage18:USE-01", "requirement:stage18:AM-02"],
+      "reason": "Provider secrets, normalized usage, and installed-state observations require exact redacted boundaries."
+    },
+    {
+      "concern": "data-lifecycle",
+      "disposition": "accepted",
+      "requirementIds": ["requirement:stage18:PER-01", "requirement:stage18:PER-02", "requirement:stage18:PER-03", "requirement:stage18:AM-02"],
+      "reason": "Durable state, migrations, replay, and cache observation lifecycles are explicitly covered."
+    },
+    {
+      "concern": "accessibility",
+      "disposition": "deferred",
+      "requirementIds": [],
+      "reason": "Stage 18 exposes no production UI; deterministic accessibility and desktop UI evidence remain assigned to Stages 21 and 25."
+    },
+    {
+      "concern": "failure-recovery",
+      "disposition": "accepted",
+      "requirementIds": ["requirement:stage18:SCH-01", "requirement:stage18:PER-02", "requirement:stage18:PER-03", "requirement:stage18:INT-01"],
+      "reason": "Durable lifecycle, reopen, conflict, migration, and external-effect recovery are explicit requirements."
+    },
+    {
+      "concern": "testing",
+      "disposition": "accepted",
+      "requirementIds": ["requirement:stage18:ANT-01", "requirement:stage18:SCH-02", "requirement:stage18:EVD-01"],
+      "reason": "Deterministic provider, concurrency, and exact-evidence gates are required."
+    },
+    {
+      "concern": "performance",
+      "disposition": "accepted",
+      "requirementIds": ["requirement:stage18:SCH-02", "requirement:stage18:PER-02", "requirement:stage18:PER-03"],
+      "reason": "Bounded scheduling and shared persistence concurrency are covered; team-scale throughput remains an explicit nonclaim."
+    },
+    {
+      "concern": "operations",
+      "disposition": "accepted",
+      "requirementIds": ["requirement:stage18:ADM-01", "requirement:stage18:PER-03", "requirement:stage18:INT-01", "requirement:stage18:PRD-01"],
+      "reason": "Admission, migrations, exact effects, and platform gating are operationally explicit."
+    },
+    {
+      "concern": "maintainability",
+      "disposition": "accepted",
+      "requirementIds": ["requirement:stage18:PLN-01", "requirement:stage18:PLN-02", "requirement:stage18:AM-01", "requirement:stage18:EVD-01"],
+      "reason": "Planning traceability, supported boundaries, and exact evidence are maintained contracts."
+    },
+    {
+      "concern": "documentation",
+      "disposition": "accepted",
+      "requirementIds": ["requirement:stage18:PLN-01", "requirement:stage18:PLN-02", "requirement:stage18:EVD-01"],
+      "reason": "Specification, coverage, nonclaims, and final evidence require durable documentation."
+    }
+  ],
+  "candidateDispositions": [
+    {
+      "candidateId": "candidate:stage18:accessibility-ui",
+      "disposition": "deferred",
+      "sourcePath": "docs/implementation-roadmap.md",
+      "reason": "The production UI and its accessibility evidence are assigned to later UI/platform stages."
+    },
+    {
+      "candidateId": "candidate:stage18:linux-macos-production",
+      "disposition": "deferred",
+      "sourcePath": "docs/adr/0019-windows-first-production-scope.md",
+      "reason": "Linux and macOS native production enforcement are explicitly deferred to Stage 25."
+    },
+    {
+      "candidateId": "candidate:stage18:query-native-team-scale",
+      "disposition": "deferred",
+      "sourcePath": "docs/implementation-roadmap.md",
+      "reason": "High-throughput query-native team scheduling remains a deployment-scale nonclaim."
+    },
+    {
+      "candidateId": "candidate:stage18:production-activation",
+      "disposition": "needs-user-decision",
+      "sourcePath": "docs/release-evidence/stage-18-development-acceptance-matrix.json",
+      "reason": "Production activation cannot be considered while Stage 17W and live Stage 18 gates remain incomplete."
+    }
+  ]
+}

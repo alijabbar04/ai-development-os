@@ -89,6 +89,11 @@ jobs:
           # the job. Nothing here pushes, so leaving one available to any step or
           # dependency script is avoidable risk.
           persist-credentials: false
+          # Exact-subject evaluation tests inspect a deliberately immutable
+          # earlier commit/tree. Full read-only history keeps that proof valid on
+          # the feature branch and ancestry-preserving merge checkouts; squash or
+          # rebase publication would require a newly bound subject.
+          fetch-depth: 0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -176,6 +181,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
