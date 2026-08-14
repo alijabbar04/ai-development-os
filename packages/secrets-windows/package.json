@@ -1,0 +1,40 @@
+{
+  "name": "@ai-dev-os/secrets-windows",
+  "version": "0.1.0",
+  "private": true,
+  "gypfile": false,
+  "description": "Production-disabled exact-reference Windows Credential Manager secret broker for AI Development OS.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "native/credential-reader.c",
+    "binding.gyp",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../domain run build && npm --prefix ../secrets run build",
+    "build": "tsc -p tsconfig.json",
+    "build:native": "node-gyp rebuild",
+    "test:native-smoke": "node scripts/native-smoke.mjs",
+    "pretest": "npm --prefix ../domain run build && npm --prefix ../secrets run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../domain run build && npm --prefix ../secrets run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../domain run build && npm --prefix ../secrets run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/secrets": "^0.1.0"
+  }
+}

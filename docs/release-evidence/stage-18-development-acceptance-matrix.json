@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "branch": "feat/stage-18-live-integration-closure",
-  "sourceBase": "d7fe405745ccd5e1f31a3d702dc70d8095016604",
+  "branch": "feat/stage-18-windows-secret-broker",
+  "sourceBase": "c50c4725981013f123ebef0d0a87082f085b333d",
   "productionAdmitted": false,
   "developmentAccepted": false,
   "permittedOutcome": "Stage 18D production-disabled checkpoint complete",
@@ -36,15 +36,15 @@
     {
       "id": "ANT-02",
       "requirement": "An explicit body-bounded opt-in live Anthropic canary proves the reviewed real transport without repository or credential disclosure.",
-      "authority": ["docs/implementation-roadmap.md", "docs/adr/0027-stage-18-live-boundary-checkpoint.md"],
-      "implementation": ["packages/provider-anthropic/src/testing/live-canary.ts"],
-      "tests": ["packages/provider-anthropic/test/anthropic-live-canary.test.ts", "packages/provider-anthropic/test/static-policy.test.ts"],
-      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md"],
+      "authority": ["docs/implementation-roadmap.md", "docs/adr/0027-stage-18-live-boundary-checkpoint.md", "docs/adr/0028-stage-18-windows-credential-secret-broker.md"],
+      "implementation": ["packages/provider-anthropic/src/testing/live-canary.ts", "packages/provider-anthropic/src/credential-port.ts", "packages/provider-gemini/src/access.ts", "packages/provider-openai-compatible/src/access.ts", "packages/provider-openai/src/composition.ts", "packages/secrets/src/secrets.ts", "packages/secrets-windows/src/broker.ts", "packages/secrets-windows/src/real-native.ts", "packages/secrets-windows/native/credential-reader.c"],
+      "tests": ["packages/provider-anthropic/test/anthropic-live-canary.test.ts", "packages/provider-anthropic/test/credential-port.test.ts", "packages/provider-anthropic/test/static-policy.test.ts", "packages/provider-gemini/src/gemini.test.ts", "packages/provider-openai-compatible/src/adapter.test.ts", "packages/provider-openai/test/policy-secrets.test.ts", "packages/secrets/test/secrets.test.ts", "packages/secrets-windows/test/broker.test.ts", "packages/secrets-windows/test/real-native.test.ts", "packages/secrets-windows/test/static-policy.test.ts"],
+      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md", "docs/release-evidence/stage-18-windows-credential-secret-broker-checkpoint.md"],
       "status": "incomplete",
       "ownerStage": "18",
       "blocksDevelopmentAcceptance": true,
       "blocksProduction": true,
-      "rationale": "The reviewed test-only one-attempt canary fixes endpoint, API version, model, harmless body, preflight, scoped-secret, response and resource bounds, and deterministic transport tests pass. During the 2026-08-13 operator session no supported owned scoped-secret reference was configured, secret discovery was prohibited, and no live Anthropic request ran, so the row remains incomplete."
+      "rationale": "The reviewed test-only one-attempt canary fixes endpoint, API version, model, harmless body, preflight, scoped-secret, response and resource bounds, and deterministic transport tests pass. The production-disabled Windows checkpoint now supplies an exact-reference, policy-before-read Credential Manager broker and Anthropic credential composition without enumeration or mutation. No supported owned scoped-secret reference was configured, secret discovery remained prohibited, and no live Anthropic request ran, so this enabling infrastructure does not complete the row."
     },
     {
       "id": "PLN-01",

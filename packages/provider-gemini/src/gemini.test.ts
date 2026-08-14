@@ -273,9 +273,28 @@ describe("policy-aware Gemini access and fetch transport", () => {
     await expect(denied.authorization.authorize(accessRequest)).rejects.toMatchObject({ code: "POLICY_DENIED" }); expect(resolverCalls).toBe(0); await h.provider.close();
 
     const observed: any[] = [];
-    const allowed = createPolicyAwareGeminiAccess({ policy: { evaluate: (value: any) => ({ outcome: "allowed", code: "ALLOWED", fingerprint: "b".repeat(64), value } as any) }, resolver: { async withSecret(input: any, callback: any) { observed.push(input); return { value: await callback({ useText: (use: any) => use("key") }), decisionFingerprint: "c".repeat(64) }; } }, apiKeyRef: ref, context: { handlingPolicy: defaultDataHandlingPolicy, risk: "low", projectId: null } });
+    const allowed = createPolicyAwareGeminiAccess({ policy: { evaluate: (value: any) => ({ outcome: "allowed", code: "ALLOWED", fingerprint: "b".repeat(64), value } as any) }, resolver: { async withSecret(input: any, callback: any) { observed.push(input); return { value: await callback({ useText: (use: any) => use("key") }, "c".repeat(64)), decisionFingerprint: "c".repeat(64) }; } }, apiKeyRef: ref, context: { handlingPolicy: defaultDataHandlingPolicy, risk: "low", projectId: null } });
     const authorization = await allowed.authorization.authorize(accessRequest); await allowed.credentials.withApiKey({ ...accessRequest, authorization }, async () => "ok");
     expect(observed[0].policyRequest).toMatchObject({ action: "secret-access", subjectDigest: secretRefFingerprint(ref), model: { modelId: "gemini-3.5-flash" } });
+  });
+
+  it("refuses an invalid resolver decision fingerprint before secret material use", async () => {
+    const ref = parseSecretRef({ schemaVersion: 1, type: "named", namespace: "provider", version: null, expectedKind: "text", providerInstanceId: "gemini-never", name: "gemini-key" });
+    const h = harness("never");
+    const accessRequest: any = { descriptor: h.provider.describe(), model: (await h.provider.listModels())[0]!.model, request: req("invalid-secret-decision"), operationId: "op-invalid-secret-decision", requestedCapabilities: ["network-access"] };
+    for (const decisionFingerprint of ["invalid", "A".repeat(64)]) {
+      let materialUses = 0;
+      const access = createPolicyAwareGeminiAccess({
+        policy: { evaluate: () => ({ outcome: "allowed", code: "ALLOWED", fingerprint: "a".repeat(64) } as any) },
+        resolver: { async withSecret(_input: any, callback: any) { return { value: await callback({ useText: () => { materialUses += 1; return "must-not-run"; } }, decisionFingerprint), decisionFingerprint }; } },
+        apiKeyRef: ref,
+        context: { handlingPolicy: defaultDataHandlingPolicy, risk: "low", projectId: null },
+      });
+      const authorization = await access.authorization.authorize(accessRequest);
+      await expect(access.credentials.withApiKey({ ...accessRequest, authorization }, async () => "unused")).rejects.toMatchObject({ code: "POLICY_DENIED", details: { decisionCode: "invalid-secret-policy-decision" } });
+      expect(materialUses).toBe(0);
+    }
+    await h.provider.close();
   });
 
   it("normalizes expected secret-access denials without swallowing unexpected resolver failures", async () => {

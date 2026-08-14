@@ -39,7 +39,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D are published and `INT-01` is proven; `ANT-02` had no eligible secret and did not run, while the one authorized `AM-02` read failed closed and its hosted gate remains billing-blocked; production remains blocked on Stage 17W |
+| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D are published, the production-disabled exact-reference Windows credential-broker candidate is pending exact-head publication, and `INT-01` is proven; `ANT-02` had no eligible secret and did not run, while the one authorized `AM-02` read failed closed and its hosted gate remains billing-blocked; production remains blocked on Stage 17W |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
@@ -62,7 +62,8 @@ Three things are stated plainly because they are easy to assume the other way:
   move to Stage 25.
 - **Stage 18 checkpoints do not admit production.** Production-disabled 18A,
   18B, 18C, and 18D are published, and Stage 19B proves `INT-01`. The reviewed
-  Anthropic canary and supported Account Manager reader now exist. No eligible
+  Anthropic canary and supported Account Manager reader exist; the policy-aware
+  exact-reference Windows credential broker is a pending publication candidate. No eligible
   Anthropic secret was supplied, and the single authorized Account Manager
   read failed closed while hosted CI remained budget-blocked, so `ANT-02`,
   `AM-02`, and development acceptance remain incomplete. The admission schema
@@ -95,7 +96,7 @@ code.
 
 ## Requirements
 
-- Node.js 22 or newer (CI runs Node 24)
+- Node.js 22.9 or newer (CI runs Node 24)
 - npm 10 or newer
 
 ## Commands
@@ -104,7 +105,7 @@ Every command below was run against this repository.
 
 ```powershell
 npm ci             # lockfile-exact install
-npm run check      # typecheck, then tests, then build, across all 39 packages
+npm run check      # typecheck, then tests, then build, across all 40 packages
 ```
 
 `npm run check` takes roughly 20 to 45 minutes depending on machine load. The individual gates:
@@ -138,7 +139,7 @@ maintained branches and on pull requests targeting `main`:
 
 | Job | Platform | Runs |
 | --- | --- | --- |
-| `check` | Ubuntu **and** Windows | `npm ci`, `npm run check` |
+| `check` | Ubuntu **and** Windows | `npm ci`, `npm run check`; Windows additionally builds the production-disabled exact-read credential addon and requires malformed-target refusal plus fresh-random-target `not-found` through availability and read |
 | `dependency audit` | Ubuntu | `npm ci --ignore-scripts`, `npm audit --audit-level=high` |
 | `coverage` | Windows | `npm run test:coverage`, uploads reports |
 | `PostgreSQL integration` | Ubuntu hosted test infrastructure | pinned disposable PostgreSQL service, real persistence/application contracts and contention |
@@ -148,15 +149,18 @@ Top-level permissions are `contents: read`, and pull-request code never runs wit
 a writable token.
 
 CI deliberately performs no elevation, no writes to protected locations, no
-AppContainer or Job object creation, no proof-mode native build or execution, no
-live provider calls, and no publication, and it configures no secrets. The native
-components are built and self-tested only by the local packaging script under
-explicit human operation.
+AppContainer or Job object creation, no Stage 17 proof-mode native build or
+execution, no live provider calls, and no publication. It configures no
+provider/operator credential secret; GitHub supplies only the normal ephemeral
+read-only job token and checkout does not persist it. Stage 17 native components
+remain local explicit-operator packaging only. The separate production-disabled
+credential addon is built on hosted Windows and probes one fresh random target;
+only exact `not-found` results support the no-credential-access claim.
 
 ## Repository layout
 
 ```text
-packages/              39 domain, application, and adapter modules
+packages/              40 domain, application, and adapter modules
 docs/adr/              Architecture decision records
 docs/development/      Contributor and GitHub workflow policy
 .github/workflows/     CI

@@ -13,11 +13,11 @@ npm ci
 npm run check
 ```
 
-`npm run check` runs typecheck, then tests, then build, across all 39 workspace
+`npm run check` runs typecheck, then tests, then build, across all 40 workspace
 packages. It takes roughly 20 to 45 minutes depending on machine load. Every command in this
 document was run against this repository before being written here.
 
-Requirements: Node.js 22 or newer and npm 10 or newer, as declared in the root
+Requirements: Node.js 22.9 or newer and npm 10 or newer, as declared in the root
 `package.json` `engines` field. CI runs Node 24 on both Ubuntu and Windows.
 
 Individual package:
@@ -27,6 +27,21 @@ npm run typecheck --workspace @ai-dev-os/process-broker
 npm test --workspace @ai-dev-os/process-broker
 npm run test:coverage --workspace @ai-dev-os/process-broker
 ```
+
+`@ai-dev-os/secrets-windows` also owns one explicit Windows-only native compile:
+
+```powershell
+npm run build:native --workspace @ai-dev-os/secrets-windows
+```
+
+The package pins `gypfile: false`, so npm cannot synthesize an install hook from
+`binding.gyp`; the root pins dev-only `node-gyp@12.3.0` for this explicit command.
+The build emits only ignored task-local output. CI compiles it on Windows with warnings as errors, refuses a bounded malformed
+target table before native work, then requires observed `not-found` results from
+availability and read for one fresh random synthetic target that this project
+never creates. An unexpected matching credential would be accessed before the
+smoke failed. The source and package expose no native write, delete, or
+enumeration operation.
 
 Real PostgreSQL tests are a separate explicit gate. They require all five
 `AI_DEV_OS_TEST_POSTGRES_*` fields and

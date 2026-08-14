@@ -6,6 +6,7 @@ import {
   createPolicyAwareSecretResolver,
   createSecretMaterial,
   parseSecretRef,
+  type PolicyAwareSecretResolver,
   type SecretAccessContext,
   type SecretBroker,
   type SecretRef,
@@ -62,6 +63,31 @@ describe("credential resolution ordering", () => {
     expect(credentials.resolveCount).toBe(1);
     expect(credentials.requests[0]!.operationId).toBe(operation.operationId);
     await provider.close();
+  });
+
+  it("refuses an invalid callback decision fingerprint before exposing key text or invoking the consumer", async () => {
+    let materialUses = 0;
+    let consumerUses = 0;
+    const resolver: PolicyAwareSecretResolver = {
+      async withSecret(_input, callback) {
+        const material = createSecretMaterial("text", new TextEncoder().encode(TEST_API_KEY));
+        const guarded = Object.freeze({
+          ...material,
+          useText: async <T>(use: (value: string) => T | Promise<T>) => { materialUses += 1; return material.useText(use); },
+        });
+        try { return { value: await callback(guarded, "invalid"), decisionFingerprint: "invalid" }; }
+        finally { material.dispose(); }
+      },
+    };
+    const credentials = createPolicyAwareCredentialPort({
+      resolver,
+      apiKeyRef: TEST_API_KEY_REF,
+      context: { handlingPolicy: (classification) => defaultDataHandlingPolicy(classification), risk: "low", projectId: null },
+      descriptor: () => ({ id: "openai", displayName: "OpenAI" } as never),
+    });
+    await expect(credentials.withApiKey({ providerInstanceId: "openai-test-1", operationId: "operation-1", classification: "internal", disclosureDecisionFingerprint: "a".repeat(64), deadline: null, trace: { traceId: "trace-1", runId: "run-1", taskId: "task-1", taskRunId: "attempt-1" } }, async () => { consumerUses += 1; })).rejects.toMatchObject({ code: "POLICY_DENIED" });
+    expect(materialUses).toBe(0);
+    expect(consumerUses).toBe(0);
   });
 });
 

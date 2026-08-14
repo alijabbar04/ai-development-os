@@ -2,7 +2,7 @@
 
 Status: Accepted baseline  
 Version: 0.3
-Last updated: 2026-08-12
+Last updated: 2026-08-14
 
 ## 1. Executive summary
 
@@ -105,7 +105,7 @@ The Electron main process launches or discovers exactly one local daemon using a
 
 | Concern | Choice | Rationale |
 | --- | --- | --- |
-| Language | Strict TypeScript on Node.js 22+ | Shared contracts across daemon, workers, adapters, and desktop; mature process and SDK support |
+| Language | Strict TypeScript on Node.js 22.9+ | Shared contracts across daemon, workers, adapters, and desktop; mature process and SDK support |
 | Control API | Fastify with JSON Schema/OpenAPI | Low overhead, explicit validation, streaming support, testable injection model |
 | Desktop | Electron, React, Vite, TanStack Query | Direct local process integration and a thin recoverable UI projection |
 | Local database | SQLite in WAL mode | Zero-administration, transactional desktop persistence |
@@ -445,6 +445,26 @@ body, scoped-secret reference, exact policy/catalog/retention preflight, and
 finite response/time/result surface; ordinary CI substitutes deterministic
 transport. It is implementation evidence only until an already configured
 owned secret route runs it successfully.
+
+The subsequent Windows credential checkpoint supplies the missing persistent
+resolution infrastructure without enabling that canary. One exact schema-v1
+`keychain` reference is allowlisted by namespace, service, account, text kind,
+null version, and provider instance. A canonical projection hashes to the sole
+bounded Credential Manager target, so raw account, user, and path text never
+reaches Win32. `@ai-dev-os/secrets-windows` exposes availability/read only
+through a repository-owned asynchronous C/N-API `CredReadW` boundary; it has no
+enumeration, write/delete, environment/credential-file/arbitrary-path/process/
+browser/network, or fallback authority; it lazily loads one fixed package-relative
+reviewed addon. The provider credential port uses the central policy-aware resolver,
+so secret-access subject/scope/approval policy completes before the OS read and
+before transport. Native and Node mutable copies are overwritten where
+controlled, while immutable strings and runtime/OS copies remain an explicit
+erasure nonclaim. Imports and fake-backed tests remain cross-platform; only the
+hosted Windows job compiles the addon, proves malformed native targets refuse,
+and requires observed `not-found` through availability and read for one fresh
+random synthetic target the project never creates. An unexpected exact-target
+collision would access that credential before failing. ADR 0028 records the
+exact security and packaging boundary.
 
 ### 11.3 Claude Code adapter
 

@@ -36,6 +36,11 @@ export {
 export { createProductionDisabledAnthropicProvider } from "./provider.js";
 
 export {
+  createPolicyAwareAnthropicCredentialPort,
+  type PolicyAwareAnthropicCredentialPortOptions,
+} from "./credential-port.js";
+
+export {
   buildAnthropicRequestBody,
   parseAnthropicWireEvent,
   type AnthropicWireContentBlock,

@@ -16,13 +16,14 @@
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "engines": {
-    "node": ">=22.0.0",
+    "node": ">=22.9.0",
     "npm": ">=10.0.0"
   },
   "packageManager": "npm@11.13.0",
   "devDependencies": {
     "@types/node": "24.13.3",
     "@vitest/coverage-v8": "4.1.10",
+    "node-gyp": "12.3.0",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
   }

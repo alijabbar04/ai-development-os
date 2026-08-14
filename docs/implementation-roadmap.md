@@ -1,7 +1,7 @@
 # AI Development OS Implementation Roadmap
 
 Status: Active  
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 ## Delivery rule
 
@@ -193,7 +193,7 @@ Tests and gate (passing):
 - 59 Stage 6 tests (repository total 603 passing, with 5 additional platform/capability cases skipped): exact layer precedence/replay, merge/provenance/locks, hostile and bounded config, canonical/redacted change plans, all reference forms, serialization/inspection/error leakage, text/byte and empty/missing distinctions, concurrent replace/close/zeroing, audit attempts/outcomes, full finite-action normalization, conservative rule ordering, disclosure/capability/logging/retention restrictions, subject-digest approval binding, structured evidence expiry/revocation/scope/one-shot behavior, and policy-before-broker counters.
 - Coverage gates met: config 95.83% statements / 83.8% branches / 100% functions; policy 95.16% / 90.47% / 100%; secrets 97.72% / 96.29% / 100%; secrets-memory 96.45% / 82.82% / 100%. `npm ci`, the full typecheck/test/build `npm run check`, repository coverage, `npm audit` (0 vulnerabilities), dependency/security/console scans, all four package dry-runs, and a packed-tarball consumer smoke test pass on Windows. Linux remains covered by the configured CI matrix but was not claimed for this unpushed local commit.
 
-Noted deviations: the requested six-layer contract uses explicit system and environment/launch layers in addition to compiled/user/project/runtime rather than separate hidden profile/run merge rules. `@ai-dev-os/secrets-memory` was added as the deterministic reference adapter requested for this stage. OS-keychain/environment/encrypted-file/vault forms are contracts only; concrete platform adapters and sanitized process-specific injection remain with the later provider/workspace/plugin stages so provider-neutral packages never read ambient environment values or construct process environments. The broker decides capability constraints and validates normalized-subject digests but does not mint execution grants, normalize platform paths/commands, or mutate budget ledgers; those enforcing mechanisms remain in the Stage 8 workspace and Stage 12 scheduler where the necessary platform and reservation state exists.
+Noted deviations: the requested six-layer contract uses explicit system and environment/launch layers in addition to compiled/user/project/runtime rather than separate hidden profile/run merge rules. `@ai-dev-os/secrets-memory` was added as the deterministic reference adapter requested for this stage. At that checkpoint OS-keychain/environment/encrypted-file/vault forms were contracts only. Stage 18 later added the separate production-disabled `@ai-dev-os/secrets-windows` exact-reference Credential Manager text reader; the provider-neutral package still reads no ambient platform state. Environment, encrypted-file, vault, and sanitized process-specific injection remain deferred. The broker decides capability constraints and validates normalized-subject digests but does not mint execution grants, normalize platform paths/commands, or mutate budget ledgers; those enforcing mechanisms remain in the Stage 8 workspace and Stage 12 scheduler where the necessary platform and reservation state exists.
 
 ## Stage 7: Ollama provider and local capacity manager
 
@@ -699,7 +699,18 @@ admission remains blocked on Stage 17W and no Stage
 remains a deployment-scale nonclaim rather than a Stage 18
 development-acceptance item.
 
+The 2026-08-14 production-disabled Windows credential checkpoint adds
+`@ai-dev-os/secrets-windows`: one exact keychain/text reference, a SHA-256-derived
+Credential Manager target, policy-before-read composition, a two-operation
+repository-owned N-API reader, fake-backed cross-platform tests, and explicit
+CI gates requiring hosted Windows native compilation, malformed-target refusal,
+and fresh-random-target `not-found` through both operations. That hosted proof
+remains pending until this candidate is committed and exact-head CI completes.
+It adds no credential, enumeration, mutation, real provider call, application
+registration, or production authority, so `ANT-02` remains incomplete.
+
 Packages, in implementation order: `@ai-dev-os/provider-anthropic`,
+`@ai-dev-os/secrets-windows`,
 `@ai-dev-os/product-planning`, `@ai-dev-os/scheduler`,
 `@ai-dev-os/application`, `@ai-dev-os/persistence-postgres`, plus a
 usage-snapshot adapter boundary selected only after the Account Manager

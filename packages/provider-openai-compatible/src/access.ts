@@ -6,6 +6,11 @@ import type { PolicyRequest } from "@ai-dev-os/policy";
 import type { CreatePolicyAwareProviderAccessOptions, ProviderAccessPort, ProviderAccessRequest } from "./types.js";
 
 function digest(value: Record<string, unknown>): string { return createHash("sha256").update(toCanonicalJson(value)).digest("hex"); }
+function assertSecretDecisionFingerprint(value: unknown): asserts value is string {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new ProviderError("POLICY_DENIED", "Provider credential access was denied.", { decisionCode: "invalid-secret-policy-decision" });
+  }
+}
 
 export function createPolicyAwareProviderAccess(options: CreatePolicyAwareProviderAccessOptions): ProviderAccessPort {
   const lifetime = options.requestedLifetimeMs ?? 60_000;
@@ -30,7 +35,10 @@ export function createPolicyAwareProviderAccess(options: CreatePolicyAwareProvid
             ...(request.signal === undefined ? {} : { signal: request.signal }),
           },
           policyRequest: secretRequest,
-        }, async (secret) => secret.useText(use));
+        }, async (secret, decisionFingerprint) => {
+          assertSecretDecisionFingerprint(decisionFingerprint);
+          return secret.useText(use);
+        });
         return result.value;
       } catch (error) {
         const code = (error as { readonly code?: unknown }).code;

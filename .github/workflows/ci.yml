@@ -92,7 +92,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          # Satisfies the repository's declared engines (node >= 22) and matches
+          # Satisfies the repository's declared engines (node >= 22.9) and matches
           # the version the delivered stages were measured on.
           node-version: 24
           cache: npm
@@ -113,6 +113,21 @@ jobs:
       - run: npm ci
 
       - run: npm run check
+
+      # The production-disabled Windows credential package owns a two-operation
+      # exact-read N-API boundary. gypfile:false prevents an npm-synthesized
+      # install hook, and it has no committed
+      # binary, so compile it explicitly only on Windows, with /W4 /WX pinned in
+      # binding.gyp, refuse malformed native targets before work, then require
+      # not-found through availability and read for one fresh random synthetic
+      # target that this project never creates. The smoke performs no write,
+      # delete, enumeration, or provider call; absence of credential access is
+      # claimed only when both observed results are not-found.
+      - if: runner.os == 'Windows'
+        run: npm run build:native --workspace @ai-dev-os/secrets-windows
+
+      - if: runner.os == 'Windows'
+        run: npm run test:native-smoke --workspace @ai-dev-os/secrets-windows
 
   # Dependency vulnerability policy, at the severity the repository already uses.
   #
@@ -231,11 +246,15 @@ jobs:
 #   - no elevation or UAC transaction;
 #   - no write to C:\ProgramData or any protected location;
 #   - no AppContainer profile, Job object, or supervisor/helper process creation;
-#   - no native proof-mode build and no execution of any proof-mode binary;
-#   - no live provider or model calls, and no provider credentials;
-#   - no secrets of any kind — no job here reads one, so none is configured;
+#   - no Stage 17 native proof-mode build and no execution of any proof-mode binary;
+#   - the only native compile is the production-disabled exact-read Credential
+#     Manager addon; its smoke probes one fresh random synthetic target and must
+#     observe not-found through both exact operations;
+#   - no live provider or model calls, and no provider/operator credentials;
+#   - GitHub supplies only its normal ephemeral read-only job token; checkout
+#     does not persist it, and no provider/operator credential secret is used;
 #   - no package publication, release creation, or tag creation.
 #
-# The native components are built and self-tested only by the local packaging
-# script, under explicit human operation. Stage 17 remains gated and the Windows
-# escape corpus remains unrun; CI is not a place to change either.
+# Stage 17 native components are built and self-tested only by the local
+# packaging script, under explicit human operation. Stage 17 remains gated and
+# the Windows escape corpus remains unrun; CI is not a place to change either.

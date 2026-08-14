@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 .vitest/
+packages/secrets-windows/build/
 **/bin/
 **/obj/
 *.tsbuildinfo

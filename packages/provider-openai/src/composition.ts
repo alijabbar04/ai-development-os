@@ -249,7 +249,12 @@ export function createPolicyAwareCredentialPort(options: CredentialPortOptions):
             context: accessContext as never,
             policyRequest,
           },
-          async (secret) => secret.useText(async (apiKey) => use(apiKey)),
+          async (secret, decisionFingerprint) => {
+            if (typeof decisionFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(decisionFingerprint)) {
+              throw policyDeniedError("secret-access-denied", { decisionCode: "INVALID_POLICY_DECISION" });
+            }
+            return secret.useText(async (apiKey) => use(apiKey));
+          },
         );
         return outcome.value;
       } catch (error) {

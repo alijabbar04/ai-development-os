@@ -24,6 +24,18 @@ enters configuration, events, errors, results, or observations. Standard API
 retention and separately contracted zero-data-retention are explicit profile
 modes. A no-retention disclosure cannot use a standard-retention profile.
 
+`createPolicyAwareAnthropicCredentialPort` is the production composition for a
+`PolicyAwareSecretResolver`. It converts the already-authorized provider request
+into an exact cloud-locality `secret-access` context, preserves the provider disclosure
+decision fingerprint, and requires the central resolver's subject, scope, and
+approval checks before material enters `SecretMaterial.useText`. The
+operation/provider/task/trace fields are bound to the provider request;
+`projectId` is explicitly trusted from the injected `policyRequestFor` builder
+because `AnthropicCredentialRequest` has no independent project field. The
+production-disabled Windows checkpoint composes it with
+`@ai-dev-os/secrets-windows`; there is no environment, file, browser, or CLI
+fallback.
+
 Policy and credential preflight are covered by caller cancellation, provider
 close, wall-time, and deadline from the moment policy work starts. Streaming is
 bounded by event, byte, output, tool-argument, wall-time, and deadline ceilings.
@@ -67,6 +79,7 @@ npm run test:coverage --workspace @ai-dev-os/provider-anthropic
 npm run build --workspace @ai-dev-os/provider-anthropic
 ```
 
-The reviewed canary harness is supplied under `./testing`; no live provider call
-was run for this checkpoint because no supported owned secret reference was
-provided, and `ANT-02` therefore remains incomplete.
+The reviewed canary harness is supplied under `./testing`; the Windows broker
+checkpoint adds no eligible real reference. No live provider call was run
+because no supported owned secret reference was provided, and `ANT-02`
+therefore remains incomplete.

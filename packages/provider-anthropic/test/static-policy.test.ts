@@ -56,6 +56,7 @@ describe("Anthropic package boundary", () => {
     };
     expect(Object.keys(manifest.dependencies).sort()).toEqual([
       "@ai-dev-os/domain",
+      "@ai-dev-os/policy",
       "@ai-dev-os/providers",
       "@ai-dev-os/secrets",
     ]);

@@ -273,7 +273,7 @@ describe("policy-aware access composition", () => {
     const resolverCalls: any[] = [];
     const access = createPolicyAwareProviderAccess({
       policy: { evaluate(value: any) { decisions.push(value); return { outcome: "allowed", code: "ALLOWED", fingerprint: "a".repeat(64) } as any; } },
-      resolver: { async withSecret(input: any, callback: any) { resolverCalls.push(input); const value = await callback({ useText: (use: any) => use("scoped-key") }); return { value, decisionFingerprint: "b".repeat(64) }; } },
+      resolver: { async withSecret(input: any, callback: any) { resolverCalls.push(input); const value = await callback({ useText: (use: any) => use("scoped-key") }, "b".repeat(64)); return { value, decisionFingerprint: "b".repeat(64) }; } },
       apiKeyRef: ref, context: { handlingPolicy: defaultDataHandlingPolicy, risk: "low", projectId: "project-1" },
     });
     const h = providerHarness("never", access);
@@ -284,6 +284,25 @@ describe("policy-aware access composition", () => {
     expect(resolverCalls[0].policyRequest).toMatchObject({ action: "secret-access", subjectDigest: secretRefFingerprint(ref), requestedCapabilities: ["network-access"] });
     expect(h.transport.requests[0]?.headers["Authorization"]).toBe("Bearer scoped-key");
     await h.provider.close();
+  });
+
+  it("refuses an invalid resolver decision fingerprint before secret material use", async () => {
+    const ref = parseSecretRef({ schemaVersion: 1, type: "named", namespace: "provider", version: null, expectedKind: "text", providerInstanceId: "groq-test", name: "groq-key" });
+    for (const decisionFingerprint of ["invalid", "A".repeat(64)]) {
+      let materialUses = 0;
+      const access = createPolicyAwareProviderAccess({
+        policy: { evaluate: () => ({ outcome: "allowed", code: "ALLOWED", fingerprint: "a".repeat(64) } as any) },
+        resolver: { async withSecret(_input: any, callback: any) { return { value: await callback({ useText: () => { materialUses += 1; return "must-not-run"; } }, decisionFingerprint), decisionFingerprint }; } },
+        apiKeyRef: ref,
+        context: { handlingPolicy: defaultDataHandlingPolicy, risk: "low", projectId: null },
+      });
+      const h = providerHarness("never", access);
+      const operation = await h.provider.start(request(`invalid-secret-decision-${decisionFingerprint.length}`));
+      await expect(operation.result).rejects.toMatchObject({ code: "POLICY_DENIED", details: { decisionCode: "invalid-secret-policy-decision" } });
+      expect(materialUses).toBe(0);
+      expect(h.transport.requests).toHaveLength(0);
+      await h.provider.close();
+    }
   });
 
   it("does not touch the secret resolver when cloud policy denies", async () => {

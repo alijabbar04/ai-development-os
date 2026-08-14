@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { types } from "node:util";
 import { toCanonicalJson, validation, type DataClassification } from "@ai-dev-os/domain";
 import { DATA_CLASSIFICATIONS } from "@ai-dev-os/domain";
 import { parseExecutionTraceMetadata, type AbortSignalLike, type ExecutionTraceMetadata } from "@ai-dev-os/providers";
@@ -213,22 +214,85 @@ export interface SecretBroker {
   close(): Promise<void>;
 }
 
-export interface PolicyAwareSecretResolver { withSecret<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial) => T | Promise<T>): Promise<{ readonly value: T; readonly decisionFingerprint: string }> }
-export function createPolicyAwareSecretResolver(options: { readonly policy: PolicyBroker; readonly broker: SecretBroker }): PolicyAwareSecretResolver {
+export interface PolicyAwareSecretResolver { withSecret<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>): Promise<{ readonly value: T; readonly decisionFingerprint: string }> }
+function captureResolverMethod<T extends (...args: never[]) => unknown>(value: unknown, name: string): T {
+  if (typeof value !== "object" || value === null || types.isProxy(value)) throw new SecretBrokerError("INVALID_REFERENCE", `Secret resolver ${name} port is invalid.`);
+  const descriptor = Object.getOwnPropertyDescriptor(value, name);
+  if (descriptor === undefined || !("value" in descriptor) || typeof descriptor.value !== "function") throw new SecretBrokerError("INVALID_REFERENCE", `Secret resolver ${name} method is invalid.`);
+  const method = descriptor.value as (...args: unknown[]) => unknown;
+  return ((...args: unknown[]) => Reflect.apply(method, value, args)) as unknown as T;
+}
+
+function policyDecisionProjection(value: unknown): Readonly<{ outcome: "allowed" | "conditional" | "denied"; code: string; fingerprint: string }> {
+  try {
+    if (typeof value !== "object" || value === null || types.isProxy(value)) throw new Error("invalid-decision");
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error("invalid-decision");
+    const outcomeDescriptor = Object.getOwnPropertyDescriptor(value, "outcome");
+    const codeDescriptor = Object.getOwnPropertyDescriptor(value, "code");
+    const fingerprintDescriptor = Object.getOwnPropertyDescriptor(value, "fingerprint");
+    if (outcomeDescriptor === undefined || !("value" in outcomeDescriptor) || codeDescriptor === undefined || !("value" in codeDescriptor) || fingerprintDescriptor === undefined || !("value" in fingerprintDescriptor)) throw new Error("invalid-decision");
+    const outcome = outcomeDescriptor.value;
+    const code = codeDescriptor.value;
+    const fingerprint = fingerprintDescriptor.value;
+    const expectedCode = outcome === "allowed" ? "POLICY_ALLOWED" : outcome === "conditional" ? "POLICY_CONDITIONS_REQUIRED" : outcome === "denied" ? "POLICY_DENIED" : null;
+    if (expectedCode === null || code !== expectedCode || typeof fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(fingerprint)) throw new Error("invalid-decision");
+    return Object.freeze({ outcome, code, fingerprint });
+  } catch {
+    throw new SecretBrokerError("ACCESS_DENIED", "The secret access policy decision is invalid.");
+  }
+}
+
+function resolverInputProjection(value: unknown): Readonly<{ ref: unknown; context: unknown; policyRequest: unknown }> {
+  try {
+    if (typeof value !== "object" || value === null || types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new Error("invalid-input");
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== 3 || keys.some((key) => typeof key !== "string" || (key !== "ref" && key !== "context" && key !== "policyRequest"))) throw new Error("invalid-input");
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ref = descriptors["ref"];
+    const context = descriptors["context"];
+    const policyRequest = descriptors["policyRequest"];
+    if (ref === undefined || !("value" in ref) || context === undefined || !("value" in context) || policyRequest === undefined || !("value" in policyRequest)) throw new Error("invalid-input");
+    return Object.freeze({ ref: ref.value, context: context.value, policyRequest: policyRequest.value });
+  } catch {
+    throw new SecretBrokerError("INVALID_REFERENCE", "The secret resolver input is invalid.");
+  }
+}
+
+export function createPolicyAwareSecretResolver(rawOptions: { readonly policy: PolicyBroker; readonly broker: SecretBroker }): PolicyAwareSecretResolver {
+  if (typeof rawOptions !== "object" || rawOptions === null || types.isProxy(rawOptions) || Object.getPrototypeOf(rawOptions) !== Object.prototype) throw new SecretBrokerError("INVALID_REFERENCE", "Secret resolver options are invalid.");
+  const keys = Reflect.ownKeys(rawOptions);
+  const descriptors = Object.getOwnPropertyDescriptors(rawOptions);
+  if (keys.length !== 2 || keys.some((key) => typeof key !== "string" || (key !== "policy" && key !== "broker")) || descriptors["policy"] === undefined || !("value" in descriptors["policy"]) || descriptors["broker"] === undefined || !("value" in descriptors["broker"])) throw new SecretBrokerError("INVALID_REFERENCE", "Secret resolver options are invalid.");
+  const evaluate = captureResolverMethod<PolicyBroker["evaluate"]>(descriptors["policy"].value, "evaluate");
+  const withSecret = captureResolverMethod<SecretBroker["withSecret"]>(descriptors["broker"].value, "withSecret");
   return Object.freeze({
-    async withSecret<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial) => T | Promise<T>): Promise<{ readonly value: T; readonly decisionFingerprint: string }> {
-      const request = parsePolicyRequest(input.policyRequest);
-      const context = parseSecretAccessContext(input.context);
-      const ref = parseSecretRef(input.ref);
+    async withSecret<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>): Promise<{ readonly value: T; readonly decisionFingerprint: string }> {
+      if (typeof callback !== "function") throw new SecretBrokerError("INVALID_REFERENCE", "The secret resolver callback is invalid.");
+      const projected = resolverInputProjection(input);
+      let request: PolicyRequest;
+      let context: SecretAccessContext;
+      let ref: SecretRef;
+      try {
+        if (types.isProxy(projected.policyRequest) || types.isProxy(projected.context) || types.isProxy(projected.ref)) throw new Error("invalid-input");
+        request = parsePolicyRequest(projected.policyRequest);
+        context = parseSecretAccessContext(projected.context);
+        ref = parseSecretRef(projected.ref);
+      } catch {
+        throw new SecretBrokerError("INVALID_REFERENCE", "The secret resolver input is invalid.");
+      }
       if (request.action !== "secret-access") throw new SecretBrokerError("ACCESS_DENIED", "Secret access requires a secret-access policy decision.");
-      if (request.trace.traceId !== context.trace.traceId || request.classification !== context.classification || request.scope.operationId !== context.operationId || request.scope.providerInstanceId !== context.providerInstanceId || request.subjectDigest !== secretRefFingerprint(ref) || (ref.providerInstanceId !== null && ref.providerInstanceId !== context.providerInstanceId)) {
+      if (toCanonicalJson(request.trace) !== toCanonicalJson(context.trace) || request.classification !== context.classification || request.locality !== context.locality || request.scope.operationId !== context.operationId || request.scope.providerInstanceId !== context.providerInstanceId || request.scope.projectId !== context.projectId || request.scope.taskId !== context.taskId || request.scope.taskId !== context.trace.taskId || request.scope.traceId !== context.trace.traceId || request.scope.workspaceId !== null || request.subjectDigest !== secretRefFingerprint(ref) || (ref.providerInstanceId !== null && ref.providerInstanceId !== context.providerInstanceId)) {
         throw new SecretBrokerError("ACCESS_DENIED", "Secret access policy scope does not match the broker context.");
       }
       const evidenceRefs = request.approvalEvidence.map((item) => item.evidenceRef).sort();
       if (toCanonicalJson(evidenceRefs) !== toCanonicalJson(context.approvalEvidenceRefs)) throw new SecretBrokerError("ACCESS_DENIED", "Secret access approval evidence does not match the broker context.");
-      const decision = options.policy.evaluate(request);
+      let rawDecision: unknown;
+      try { rawDecision = evaluate(request); }
+      catch { throw new SecretBrokerError("ACCESS_DENIED", "The secret access policy evaluation failed."); }
+      const decision = policyDecisionProjection(rawDecision);
       if (decision.outcome !== "allowed") throw new SecretBrokerError("ACCESS_DENIED", decision.outcome === "conditional" ? "Secret access conditions are not satisfied." : "Secret access was denied.", { decisionCode: decision.code });
-      const value = await options.broker.withSecret(ref, context, callback);
+      const value = await withSecret(ref, context, (secret) => callback(secret, decision.fingerprint));
       return Object.freeze({ value, decisionFingerprint: decision.fingerprint });
     },
   });

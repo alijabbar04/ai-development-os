@@ -46,10 +46,19 @@ classification, project/task, approval evidence references, disclosure
 decision fingerprint, locality, trace, optional deadline, and cancellation
 signal.
 
-`createPolicyAwareSecretResolver` validates this binding and evaluates the
-central policy broker before invoking an adapter. Denied and unresolved
-conditional decisions guarantee the adapter is not called. It returns the
-allowed decision fingerprint alongside the callback result.
+`createPolicyAwareSecretResolver` parses the reference, context, and request,
+then exact-compares the policy-comparable subject, classification, locality,
+complete trace, operation/provider/project/task/trace scope, and approval
+evidence before invoking an adapter. Purpose, requested lifetime, access form,
+and disclosure-decision fingerprint remain validated context fields fixed or
+preserved by the provider adapter; they are not misrepresented as fields in the
+policy request. Denied, malformed, throwing, and unresolved conditional
+decisions guarantee the adapter is not called. The resolver captures a finite
+allowed decision with an exact lowercase SHA-256 fingerprint before broker
+access, supplies that fingerprint as the secret callback's second argument
+before material use, and also returns it alongside the callback result.
+Maintained credential consumers validate the callback fingerprint before
+entering their transport callback.
 
 Stable `SecretBrokerError` codes distinguish malformed references, missing or
 unavailable versions, denial, expiry/revocation, close/timeout, unsupported
@@ -70,5 +79,8 @@ failure is reported as `AUDIT_FAILURE` after any already-completed callback or
 mutation. Audit persistence belongs to the event/persistence layer.
 
 `@ai-dev-os/secrets/testing` exports the reusable secret-broker contract suite.
-Concrete environment, keychain, encrypted-file, and vault adapters are deferred
-until their platform stages; config never performs environment interpolation.
+The provider-neutral package still contains no concrete adapter. Stage 18 adds
+the separate production-disabled `@ai-dev-os/secrets-windows` exact-reference
+Credential Manager reader for one allowlisted text `keychain` reference.
+Environment, encrypted-file, and vault adapters remain deferred; config never
+performs environment interpolation.

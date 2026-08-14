@@ -21,19 +21,21 @@
   "scripts": {
     "prebuild": "npm --prefix ../domain run build && npm --prefix ../providers run build && npm --prefix ../secrets run build",
     "build": "tsc -p tsconfig.json",
-    "pretest": "npm --prefix ../domain run build && npm --prefix ../providers run build && npm --prefix ../provider-testkit run build && npm --prefix ../secrets run build",
+    "pretest": "npm --prefix ../domain run build && npm --prefix ../providers run build && npm --prefix ../provider-testkit run build && npm --prefix ../secrets run build && npm --prefix ../secrets-windows run build",
     "test": "vitest run",
-    "pretest:coverage": "npm --prefix ../domain run build && npm --prefix ../providers run build && npm --prefix ../provider-testkit run build && npm --prefix ../secrets run build",
+    "pretest:coverage": "npm --prefix ../domain run build && npm --prefix ../providers run build && npm --prefix ../provider-testkit run build && npm --prefix ../secrets run build && npm --prefix ../secrets-windows run build",
     "test:coverage": "vitest run --coverage",
     "pretypecheck": "npm --prefix ../domain run build && npm --prefix ../providers run build && npm --prefix ../secrets run build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/policy": "^0.1.0",
     "@ai-dev-os/providers": "^0.1.0",
     "@ai-dev-os/secrets": "^0.1.0"
   },
   "devDependencies": {
-    "@ai-dev-os/provider-testkit": "^0.1.0"
+    "@ai-dev-os/provider-testkit": "^0.1.0",
+    "@ai-dev-os/secrets-windows": "^0.1.0"
   }
 }

@@ -34,7 +34,7 @@ Alternatives considered:
 
 - **`node:sqlite`** — zero-dependency and attractive, but still marked
   experimental and unavailable/flagged on the older Node 22 releases this
-  repository's `engines` floor (`>=22.0.0`) permits. Worth revisiting once
+  repository's `engines` floor (`>=22.9.0`) permits. Worth revisiting once
   it is stable across the supported engine range.
 - **Kysely** (mentioned in the technical-design baseline) — a typed query
   builder adds abstraction without value at this schema size (a handful of
