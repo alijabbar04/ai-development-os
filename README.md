@@ -39,7 +39,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D and the production-disabled exact-reference Windows credential broker are published exact-head green, and `INT-01` is proven; one owned-reference Anthropic canary ended ambiguously with `TRANSPORT_FAILURE`, the inactive-window candidate is safety-blocked before its packed-consumer/publication gate, and the unapproved completeness-audit overlay has no externally authorized manifest/evidence while its semantic status projection retains `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01`; production remains blocked on Stage 17W |
+| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D and the production-disabled exact-reference Windows credential broker are published exact-head green, and `INT-01` is proven; one owned-reference Anthropic canary ended ambiguously with `TRANSPORT_FAILURE`, and the inactive-window candidate is safety-blocked before its packed-consumer/publication gate. A pending fixed-subject audit checkpoint records exact operator authorization for its manifest and 16 evidence instances without authorizing their outcomes: 12 frozen proven rows pass, while `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01` remain failed audit criteria. `ANT-02` and `AM-02` remain the development blockers; `PRD-01` correctly remains a production gate; `PLN-02` still requires separately published post-result bootstrap evidence. Production remains blocked on Stage 17W. |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
@@ -84,6 +84,7 @@ Three things are stated plainly because they are easy to assume the other way:
 - [Release evidence](docs/release-evidence/) — measured per-checkpoint results,
   including limitations that remain unresolved. Present on this branch.
 - [Product-completeness planning decision](docs/adr/0016-product-completeness-planning-assembly.md)
+- [Operator-authorized fixed-subject audit decision](docs/adr/0029-stage-18-operator-authorized-fixed-subject-audit.md)
 - [Stage 8 completion report](docs/stage-8-completion.md)
 - [Contributing](CONTRIBUTING.md) — including the testing standards, which are
   stricter than most projects' and are explained

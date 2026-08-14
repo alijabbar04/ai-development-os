@@ -59,7 +59,7 @@ describe("machine-checkable Stage 18 development acceptance matrix", () => {
     ]);
     expect(matrix).toMatchObject({
       schemaVersion: 1,
-      branch: "feat/stage-18-pln-completeness-audit",
+      branch: "feat/stage-18-authorized-completeness-audit",
       productionAdmitted: false,
     });
     expect(matrix.sourceBase).toBe(

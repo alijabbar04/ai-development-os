@@ -33,11 +33,17 @@ const auditSummaryPath = resolve(
   "release-evidence",
   "stage-18-completeness-audit-untrusted-summary.json",
 );
+const operatorAuthorizationPath = resolve(
+  repositoryRoot,
+  "docs",
+  "release-evidence",
+  "stage-18-completeness-audit-operator-authorization.json",
+);
 
 const SUBJECT_HEAD = "f5372fece6371385e15b6cbb2edd2f4063c7eac3";
 const SUBJECT_TREE = "9f5a842192bb9317127cc4b57af5fbf50d0d36dc";
 const CREATED_AT = "2026-08-14T13:19:40.000Z";
-const EVALUATED_AT = "2026-08-14T13:20:00.000Z";
+const EVALUATED_AT = "2026-08-14T19:47:00.000Z";
 const DEADLINE = "2026-08-15T13:19:40.000Z";
 const MATRIX_SOURCE_BASE = "c50c4725981013f123ebef0d0a87082f085b333d";
 const MATRIX_PERMITTED_OUTCOME = "Stage 18D production-disabled checkpoint complete";
@@ -115,6 +121,16 @@ const SUBJECT_ANCHOR_PATHS = Object.freeze([
   "docs/technical-design.md",
   "docs/release-evidence/stage-18-development-acceptance-matrix.json",
   "docs/release-evidence/stage-18-operator-continuation-2026-08-14.md",
+] as const);
+
+const OPERATOR_STATEMENT = "The operator authorizes the exact Stage 18 overlay, criterion manifest, and frozen-subject candidate evidence digests as audit inputs only; this grants no pass, waiver, execution authority, production admission, or independence claim.";
+const AUTHENTICATION_LIMITATION = "The repository records the exact prompt digest and finite statement but cannot cryptographically authenticate the chat transport. The evaluation contract accepts externally configured exact digest allowlists and does not treat this packet as evidence of a criterion outcome.";
+const AUTHORIZATION_NONCLAIMS = Object.freeze([
+  "No incomplete or production-gated criterion is promoted by this authorization.",
+  "No waiver is authorized.",
+  "No model output or audit result authorizes its own input.",
+  "No production, credential, provider, installed-state, protected-state, or execution authority is granted.",
+  "The same-family read-only review route is not model-family-independent.",
 ] as const);
 
 type MatrixStatus = (typeof MATRIX_STATUSES)[keyof typeof MATRIX_STATUSES];
@@ -206,14 +222,57 @@ interface AuditBundle {
   readonly subject: ReturnType<typeof createEvaluationSubject>;
   readonly criteria: readonly EvaluationCriterion[];
   readonly evidence: readonly EvaluationEvidence[];
+  readonly operatorAuthorization: OperatorAuthorizationPacket;
   readonly authorityConfiguration: ReturnType<typeof createEvaluationAuthorityConfiguration>;
   readonly request: EvaluationRequest;
   readonly result: ReturnType<typeof evaluateDeterministically>;
   readonly audit: ReturnType<typeof createCompletenessAudit>;
 }
 
+interface OperatorAuthorizationPacket {
+  readonly schemaVersion: number;
+  readonly artifactKind: string;
+  readonly authorizationId: string;
+  readonly status: string;
+  readonly recordedAt: string;
+  readonly repositoryId: string;
+  readonly repositorySlug: string;
+  readonly prompt: {
+    readonly bytes: number;
+    readonly sha256: string;
+  };
+  readonly subject: {
+    readonly headSha: string;
+    readonly treeSha: string;
+    readonly subjectDigest: string;
+    readonly productSpecificationId: string;
+    readonly productSpecificationDigest: string;
+  };
+  readonly criterionManifestDigest: string;
+  readonly candidateEvidence: readonly {
+    readonly criterionId: string;
+    readonly evidenceId: string;
+    readonly evidenceDigest: string;
+  }[];
+  readonly authorityConfiguration: {
+    readonly configurationId: string;
+    readonly authorizedCriterionManifestDigests: readonly string[];
+    readonly authorizedEvidenceDigests: readonly string[];
+    readonly authorizedWaiverDigests: readonly string[];
+  };
+  readonly operatorStatement: string;
+  readonly authentication: {
+    readonly kind: string;
+    readonly cryptographicallyVerified: boolean;
+    readonly limitation: string;
+  };
+  readonly nonclaims: readonly string[];
+  readonly packetDigest: string;
+}
+
 const specificationInput = JSON.parse(readFileSync(specificationPath, "utf8")) as unknown;
 const recordedAuditSummary = JSON.parse(readFileSync(auditSummaryPath, "utf8")) as unknown;
+const operatorAuthorizationInput = JSON.parse(readFileSync(operatorAuthorizationPath, "utf8")) as unknown;
 const blobCache = new Map<string, Buffer>();
 
 function keys(value: object): readonly string[] {
@@ -463,7 +522,146 @@ function artifactProjection(row: MatrixRow): readonly { readonly path: string; r
   return Object.freeze(paths.map((path) => Object.freeze({ path, sha256: sha256(subjectBlob(path)) })));
 }
 
-function compileAudit(specificationValue: unknown = specificationInput, matrixValue?: unknown): AuditBundle {
+function validateOperatorAuthorization(
+  value: unknown,
+  specificationDigest: string,
+  subject: ReturnType<typeof createEvaluationSubject>,
+  criterionManifestDigest: string,
+  evidence: readonly EvaluationEvidence[],
+): OperatorAuthorizationPacket {
+  const packet = dataRecord(value, "operator authorization");
+  exactKeys(packet, [
+    "schemaVersion", "artifactKind", "authorizationId", "status", "recordedAt", "repositoryId",
+    "repositorySlug", "prompt", "subject", "criterionManifestDigest", "candidateEvidence",
+    "authorityConfiguration", "operatorStatement", "authentication", "nonclaims", "packetDigest",
+  ], "operator authorization");
+  if (
+    packet["schemaVersion"] !== 1 ||
+    packet["artifactKind"] !== "stage18-completeness-audit-operator-authorization" ||
+    packet["authorizationId"] !== "operator-authorization:stage18-completeness:2026-08-14:1" ||
+    packet["status"] !== "operator-authorized-inputs-only" ||
+    packet["recordedAt"] !== "2026-08-14T19:46:02.343Z" ||
+    packet["recordedAt"] > EVALUATED_AT ||
+    packet["repositoryId"] !== subject.repositoryId ||
+    packet["repositorySlug"] !== "alijabbar04/ai-development-os" ||
+    packet["criterionManifestDigest"] !== criterionManifestDigest ||
+    packet["operatorStatement"] !== OPERATOR_STATEMENT ||
+    JSON.stringify(packet["nonclaims"]) !== JSON.stringify(AUTHORIZATION_NONCLAIMS)
+  ) {
+    throw new Error("Operator authorization identity or bounded nonclaims differ from the exact record.");
+  }
+
+  const prompt = dataRecord(packet["prompt"], "operator authorization prompt");
+  exactKeys(prompt, ["bytes", "sha256"], "operator authorization prompt");
+  if (prompt["bytes"] !== 33_745 || prompt["sha256"] !== "7fa830c9eecf02df28a2e1f52056257949cbb7e365d791e978e5e8d42ceccaf6") {
+    throw new Error("Operator authorization prompt identity differs from the exact external record.");
+  }
+
+  const packetSubject = dataRecord(packet["subject"], "operator authorization subject");
+  exactKeys(packetSubject, [
+    "headSha", "treeSha", "subjectDigest", "productSpecificationId", "productSpecificationDigest",
+  ], "operator authorization subject");
+  if (
+    packetSubject["headSha"] !== subject.headSha ||
+    packetSubject["treeSha"] !== subject.treeSha ||
+    packetSubject["subjectDigest"] !== subject.subjectDigest ||
+    packetSubject["productSpecificationId"] !== subject.productSpecificationId ||
+    packetSubject["productSpecificationDigest"] !== specificationDigest
+  ) {
+    throw new Error("Operator authorization subject differs from the frozen audit subject.");
+  }
+
+  if (!Array.isArray(packet["candidateEvidence"])) {
+    throw new Error("Operator authorization candidate evidence is absent.");
+  }
+  const expectedEvidence = evidence.map((item) => ({
+    criterionId: item.criterionId,
+    evidenceId: item.evidenceId,
+    evidenceDigest: evaluationDigest(item),
+  }));
+  const candidateEvidence = (packet["candidateEvidence"] as unknown[]).map((item, index) => {
+    const entry = dataRecord(item, `operator authorization candidateEvidence[${index}]`);
+    exactKeys(entry, ["criterionId", "evidenceId", "evidenceDigest"], `operator authorization candidateEvidence[${index}]`);
+    return entry;
+  });
+  if (JSON.stringify(candidateEvidence) !== JSON.stringify(expectedEvidence)) {
+    throw new Error("Operator authorization evidence list is reordered, incomplete, colliding, or substituted.");
+  }
+
+  const authority = dataRecord(packet["authorityConfiguration"], "operator authorization configuration");
+  exactKeys(authority, [
+    "configurationId", "authorizedCriterionManifestDigests", "authorizedEvidenceDigests",
+    "authorizedWaiverDigests",
+  ], "operator authorization configuration");
+  const expectedEvidenceDigests = expectedEvidence.map((item) => item.evidenceDigest).sort();
+  if (
+    authority["configurationId"] !== "evaluation-authority:stage18:operator-chat:2026-08-14:1" ||
+    JSON.stringify(authority["authorizedCriterionManifestDigests"]) !== JSON.stringify([criterionManifestDigest]) ||
+    JSON.stringify(authority["authorizedEvidenceDigests"]) !== JSON.stringify(expectedEvidenceDigests) ||
+    JSON.stringify(authority["authorizedWaiverDigests"]) !== JSON.stringify([]) ||
+    expectedEvidenceDigests.includes(packet["packetDigest"] as string)
+  ) {
+    throw new Error("Operator authorization allowlists differ from the exact non-self-authorizing inputs.");
+  }
+
+  const authentication = dataRecord(packet["authentication"], "operator authorization authentication");
+  exactKeys(authentication, ["kind", "cryptographicallyVerified", "limitation"], "operator authorization authentication");
+  if (
+    authentication["kind"] !== "operator-chat-record" ||
+    authentication["cryptographicallyVerified"] !== false ||
+    authentication["limitation"] !== AUTHENTICATION_LIMITATION
+  ) {
+    throw new Error("Operator authorization authentication limitation is not exact.");
+  }
+
+  const packetDigest = packet["packetDigest"];
+  const { packetDigest: _packetDigest, ...packetBody } = packet;
+  if (typeof packetDigest !== "string" || !/^[a-f0-9]{64}$/.test(packetDigest) || evaluationDigest(packetBody) !== packetDigest) {
+    throw new Error("Operator authorization packet digest does not bind its exact finite body.");
+  }
+  return Object.freeze({
+    schemaVersion: 1,
+    artifactKind: "stage18-completeness-audit-operator-authorization",
+    authorizationId: "operator-authorization:stage18-completeness:2026-08-14:1",
+    status: "operator-authorized-inputs-only",
+    recordedAt: "2026-08-14T19:46:02.343Z",
+    repositoryId: subject.repositoryId,
+    repositorySlug: "alijabbar04/ai-development-os",
+    prompt: Object.freeze({
+      bytes: 33_745,
+      sha256: "7fa830c9eecf02df28a2e1f52056257949cbb7e365d791e978e5e8d42ceccaf6",
+    }),
+    subject: Object.freeze({
+      headSha: subject.headSha,
+      treeSha: subject.treeSha,
+      subjectDigest: subject.subjectDigest,
+      productSpecificationId: subject.productSpecificationId,
+      productSpecificationDigest: specificationDigest,
+    }),
+    criterionManifestDigest,
+    candidateEvidence: Object.freeze(expectedEvidence.map((item) => Object.freeze(item))),
+    authorityConfiguration: Object.freeze({
+      configurationId: "evaluation-authority:stage18:operator-chat:2026-08-14:1",
+      authorizedCriterionManifestDigests: Object.freeze([criterionManifestDigest]),
+      authorizedEvidenceDigests: Object.freeze(expectedEvidenceDigests),
+      authorizedWaiverDigests: Object.freeze([] as string[]),
+    }),
+    operatorStatement: OPERATOR_STATEMENT,
+    authentication: Object.freeze({
+      kind: "operator-chat-record",
+      cryptographicallyVerified: false,
+      limitation: AUTHENTICATION_LIMITATION,
+    }),
+    nonclaims: AUTHORIZATION_NONCLAIMS,
+    packetDigest,
+  });
+}
+
+function compileAudit(
+  specificationValue: unknown = specificationInput,
+  matrixValue?: unknown,
+  operatorAuthorizationValue: unknown = operatorAuthorizationInput,
+): AuditBundle {
   const preliminary = dataRecord(specificationValue, "specification");
   const matrixPath = typeof preliminary["matrixPath"] === "string"
     ? preliminary["matrixPath"]
@@ -556,12 +754,20 @@ function compileAudit(specificationValue: unknown = specificationInput, matrixVa
     });
   });
   const criterionManifestDigest = evaluationCriterionManifestDigest(subject.subjectDigest, criteria);
+  const operatorAuthorization = validateOperatorAuthorization(
+    operatorAuthorizationValue,
+    specificationDigest,
+    subject,
+    criterionManifestDigest,
+    evidence,
+  );
   const authorityConfiguration = createEvaluationAuthorityConfiguration({
     schemaVersion: 1,
-    configurationId: "evaluation-authority:stage18:unavailable",
-    authorizedCriterionManifestDigests: [],
-    authorizedEvidenceDigests: [],
-    authorizedWaiverDigests: [],
+    configurationId: operatorAuthorization.authorityConfiguration.configurationId,
+    authorizedCriterionManifestDigests:
+      operatorAuthorization.authorityConfiguration.authorizedCriterionManifestDigests,
+    authorizedEvidenceDigests: operatorAuthorization.authorityConfiguration.authorizedEvidenceDigests,
+    authorizedWaiverDigests: operatorAuthorization.authorityConfiguration.authorizedWaiverDigests,
   });
   const request = createEvaluationRequest({
     schemaVersion: 1,
@@ -575,7 +781,7 @@ function compileAudit(specificationValue: unknown = specificationInput, matrixVa
       criterionId: "criterion:stage18:PLN-02",
       routeIndependenceKey: specification.auditRoute.routeIndependenceKey,
       recommendation: "fail",
-      summary: "A separate read-only same-family route found an exact audit-overlay-bound rejection, but no approved ProductSpecification, externally authorized manifest and evidence set, or authenticated fully independent route is available.",
+      summary: "A separate read-only same-family route found that the exact operator-authorized frozen-subject audit remains rejected on ANT-02, AM-02, PLN-02, and PRD-01; the route is not model-family-independent and cannot authorize a result.",
       observedAt: CREATED_AT,
     }],
     createdAt: CREATED_AT,
@@ -591,6 +797,7 @@ function compileAudit(specificationValue: unknown = specificationInput, matrixVa
     subject,
     criteria,
     evidence,
+    operatorAuthorization,
     authorityConfiguration,
     request,
     result,
@@ -619,6 +826,10 @@ function auditSummary(bundle: AuditBundle): Record<string, unknown> {
     authorizedCriterionManifestCount: bundle.authorityConfiguration.authorizedCriterionManifestDigests.length,
     authorizedEvidenceCount: bundle.authorityConfiguration.authorizedEvidenceDigests.length,
     authorizedWaiverCount: bundle.authorityConfiguration.authorizedWaiverDigests.length,
+    operatorAuthorizationId: bundle.operatorAuthorization.authorizationId,
+    operatorAuthorizationPacketDigest: bundle.operatorAuthorization.packetDigest,
+    operatorAuthorizationCryptographicallyVerified:
+      bundle.operatorAuthorization.authentication.cryptographicallyVerified,
     criterionManifestDigest: bundle.result.criterionManifestDigest,
     authorityConfigurationFingerprint: bundle.authorityConfiguration.configurationFingerprint,
     requestDigest: bundle.request.requestDigest,
@@ -629,6 +840,16 @@ function auditSummary(bundle: AuditBundle): Record<string, unknown> {
       .filter((row) => row.status !== "proven")
       .map((row) => `criterion:stage18:${row.id}`)
       .sort(),
+    developmentBlockerIds: bundle.matrix.rows
+      .filter((row) => row.blocksDevelopmentAcceptance && row.status !== "proven")
+      .map((row) => `criterion:stage18:${row.id}`)
+      .sort(),
+    correctlyProductionGatedIds: bundle.matrix.rows
+      .filter((row) => row.status === "production-gated" && !row.blocksDevelopmentAcceptance && row.blocksProduction)
+      .map((row) => `criterion:stage18:${row.id}`)
+      .sort(),
+    postResultBootstrapCriterionIds: ["criterion:stage18:PLN-02"],
+    postResultBootstrapState: "requires-separate-authenticated-result-evidence",
     blockingCriterionIds: bundle.result.blockingCriterionIds,
     resultDigest: bundle.result.resultDigest,
     auditId: bundle.audit.auditId,
@@ -675,28 +896,136 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
     expect(postgres).not.toContain("fetch-depth:");
   });
 
-  it("binds every matrix row and specialist concern to one exact rejected subject", () => {
+  it("binds operator-authorized inputs to every row without authorizing their outcome", () => {
     const bundle = compiledAudit;
     expect(bundle.criteria).toHaveLength(16);
     expect(bundle.evidence).toHaveLength(16);
-    expect(bundle.authorityConfiguration.authorizedCriterionManifestDigests).toEqual([]);
-    expect(bundle.authorityConfiguration.authorizedEvidenceDigests).toEqual([]);
+    expect(bundle.authorityConfiguration.authorizedCriterionManifestDigests).toEqual([
+      "b43af73b399f23e0922543efacd4830a7e9aa7ca71219931cf89638a761d03ea",
+    ]);
+    expect(bundle.authorityConfiguration.authorizedEvidenceDigests).toHaveLength(16);
     expect(bundle.authorityConfiguration.authorizedWaiverDigests).toEqual([]);
     expect(bundle.result.decision).toBe("rejected");
-    expect(bundle.result.requestRuleCodes).toEqual(["CRITERION_MANIFEST_UNAUTHORIZED"]);
-    expect(bundle.result.criteria.every((item) => item.outcome === "missing")).toBe(true);
-    expect(bundle.result.blockingCriterionIds).toEqual(
-      bundle.criteria.map((item) => item.criterionId).sort(),
-    );
+    expect(bundle.result.requestRuleCodes).toEqual([]);
+    expect(bundle.result.criteria.filter((item) => item.outcome === "passed")).toHaveLength(12);
+    expect(bundle.result.criteria.filter((item) => item.outcome === "failed").map((item) => item.criterionId)).toEqual([
+      "criterion:stage18:AM-02",
+      "criterion:stage18:ANT-02",
+      "criterion:stage18:PLN-02",
+      "criterion:stage18:PRD-01",
+    ]);
+    expect(bundle.result.blockingCriterionIds).toEqual([
+      "criterion:stage18:AM-02",
+      "criterion:stage18:ANT-02",
+      "criterion:stage18:PLN-02",
+      "criterion:stage18:PRD-01",
+    ]);
     expect(bundle.audit.authority).toBe("none");
     expect(bundle.audit.mayAuthorizeExecution).toBe(false);
     expect(bundle.audit.mayApproveWaiver).toBe(false);
     expect(bundle.audit.mayWidenScope).toBe(false);
-    expect(bundle.audit.findings).toHaveLength(17);
+    expect(bundle.audit.findings).toHaveLength(4);
     expect(auditSummary(bundle)).toEqual(recordedAuditSummary);
   });
 
-  it("persists, replays, and exactly retries the authority-free rejected audit", async () => {
+  it("rejects substituted, reordered, colliding, or self-referential authorization packets", () => {
+    const wrongPrompt = clone(operatorAuthorizationInput) as OperatorAuthorizationPacket;
+    (wrongPrompt.prompt as { sha256: string }).sha256 = "0".repeat(64);
+    expect(() => compileAudit(specificationInput, undefined, wrongPrompt)).toThrow(/prompt identity/);
+
+    const wrongRepository = clone(operatorAuthorizationInput) as OperatorAuthorizationPacket;
+    (wrongRepository as { repositorySlug: string }).repositorySlug = "example/substituted";
+    expect(() => compileAudit(specificationInput, undefined, wrongRepository)).toThrow(/identity or bounded nonclaims/);
+
+    const wrongSubject = clone(operatorAuthorizationInput) as OperatorAuthorizationPacket;
+    (wrongSubject.subject as { headSha: string }).headSha = "0".repeat(40);
+    expect(() => compileAudit(specificationInput, undefined, wrongSubject)).toThrow(/subject differs/);
+
+    const reordered = clone(operatorAuthorizationInput) as OperatorAuthorizationPacket;
+    (reordered.candidateEvidence as OperatorAuthorizationPacket["candidateEvidence"][number][]).reverse();
+    expect(() => compileAudit(specificationInput, undefined, reordered)).toThrow(/reordered/);
+
+    const colliding = clone(operatorAuthorizationInput) as OperatorAuthorizationPacket;
+    (colliding.authorityConfiguration.authorizedEvidenceDigests as string[])[1] =
+      colliding.authorityConfiguration.authorizedEvidenceDigests[0]!;
+    expect(() => compileAudit(specificationInput, undefined, colliding)).toThrow(/allowlists differ/);
+
+    const selfReferential = clone(operatorAuthorizationInput) as OperatorAuthorizationPacket;
+    (selfReferential.authorityConfiguration.authorizedEvidenceDigests as string[])[0] = selfReferential.packetDigest;
+    expect(() => compileAudit(specificationInput, undefined, selfReferential)).toThrow(/allowlists differ/);
+
+    const unauthorizedWaiver = clone(operatorAuthorizationInput) as OperatorAuthorizationPacket;
+    (unauthorizedWaiver.authorityConfiguration.authorizedWaiverDigests as string[]).push("a".repeat(64));
+    expect(() => compileAudit(specificationInput, undefined, unauthorizedWaiver)).toThrow(/allowlists differ/);
+
+    const falseAuthentication = clone(operatorAuthorizationInput) as OperatorAuthorizationPacket;
+    (falseAuthentication.authentication as { cryptographicallyVerified: boolean }).cryptographicallyVerified = true;
+    expect(() => compileAudit(specificationInput, undefined, falseAuthentication)).toThrow(/authentication limitation/);
+
+    const wrongPacketDigest = clone(operatorAuthorizationInput) as OperatorAuthorizationPacket;
+    (wrongPacketDigest as { packetDigest: string }).packetDigest = "f".repeat(64);
+    expect(() => compileAudit(specificationInput, undefined, wrongPacketDigest)).toThrow(/packet digest/);
+  });
+
+  it("keeps partial authorization fail-closed before deterministic status evaluation", () => {
+    const bundle = compiledAudit;
+    const omittedDigest = evaluationDigest(bundle.evidence.find((item) => item.criterionId === "criterion:stage18:ANT-02")!);
+    const partialAuthority = createEvaluationAuthorityConfiguration({
+      schemaVersion: 1,
+      configurationId: "evaluation-authority:stage18:partial-negative-control",
+      authorizedCriterionManifestDigests: [bundle.result.criterionManifestDigest],
+      authorizedEvidenceDigests: bundle.authorityConfiguration.authorizedEvidenceDigests
+        .filter((digest) => digest !== omittedDigest),
+      authorizedWaiverDigests: [],
+    });
+    const result = evaluateDeterministically(bundle.request, EVALUATED_AT, partialAuthority);
+    expect(result.requestRuleCodes).toEqual([]);
+    expect(result.criteria.find((item) => item.criterionId === "criterion:stage18:ANT-02")!.outcome).toBe("missing");
+    expect(result.criteria.find((item) => item.criterionId === "criterion:stage18:ANT-02")!.ruleCodes).toContain(
+      "EVIDENCE_INSTANCE_UNAUTHORIZED",
+    );
+
+    const unauthorizedResult = evaluateDeterministically(bundle.request, EVALUATED_AT, createEvaluationAuthorityConfiguration({
+      schemaVersion: 1,
+      configurationId: "evaluation-authority:stage18:fully-unauthorized-negative-control",
+      authorizedCriterionManifestDigests: [],
+      authorizedEvidenceDigests: [],
+      authorizedWaiverDigests: [],
+    }));
+    expect(unauthorizedResult.decision).toBe("rejected");
+    expect(unauthorizedResult.requestRuleCodes).toEqual(["CRITERION_MANIFEST_UNAUTHORIZED"]);
+    expect(unauthorizedResult.criteria.every((item) => item.outcome === "missing")).toBe(true);
+    expect(unauthorizedResult.criteria.every((item) => item.ruleCodes.includes("EVIDENCE_INSTANCE_UNAUTHORIZED"))).toBe(true);
+  });
+
+  it("separates development blockers, the correct production gate, and post-result bootstrap", () => {
+    const bundle = compiledAudit;
+    expect(bundle.matrix.rows
+      .filter((row) => row.blocksDevelopmentAcceptance && row.status !== "proven")
+      .map((row) => row.id)).toEqual(["ANT-02", "AM-02"]);
+    const productionGate = bundle.matrix.rows.find((row) => row.id === "PRD-01")!;
+    expect(productionGate).toMatchObject({
+      status: "production-gated",
+      blocksDevelopmentAcceptance: false,
+      blocksProduction: true,
+    });
+    expect(bundle.result.criteria.find((item) => item.criterionId === "criterion:stage18:PRD-01")!.outcome).toBe("failed");
+    expect(bundle.result.criteria.find((item) => item.criterionId === "criterion:stage18:PLN-02")!.outcome).toBe("failed");
+    expect(bundle.operatorAuthorization.candidateEvidence.map((item) => item.evidenceDigest)).not.toContain(
+      bundle.result.resultDigest,
+    );
+    expect(bundle.operatorAuthorization.candidateEvidence.map((item) => item.evidenceDigest)).not.toContain(
+      bundle.audit.auditDigest,
+    );
+    expect(auditSummary(bundle)).toMatchObject({
+      developmentBlockerIds: ["criterion:stage18:AM-02", "criterion:stage18:ANT-02"],
+      correctlyProductionGatedIds: ["criterion:stage18:PRD-01"],
+      postResultBootstrapCriterionIds: ["criterion:stage18:PLN-02"],
+      postResultBootstrapState: "requires-separate-authenticated-result-evidence",
+    });
+  });
+
+  it("persists, replays, and exactly retries the operator-authorized rejected audit", async () => {
     const bundle = compiledAudit;
     const persistence = createMemoryPersistenceAdapter({ clock: { now: () => new Date(CREATED_AT) } });
     try {
@@ -854,7 +1183,7 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
     const waivedResult = evaluateDeterministically(waivedRequest, EVALUATED_AT, bundle.authorityConfiguration);
     const anthropicResult = waivedResult.criteria.find((item) => item.criterionId === criterion.criterionId)!;
     expect(waivedResult.decision).toBe("rejected");
-    expect(anthropicResult.outcome).toBe("missing");
+    expect(anthropicResult.outcome).toBe("failed");
     expect(anthropicResult.ruleCodes).toContain("UNVERIFIED_WAIVER_IGNORED");
   });
 

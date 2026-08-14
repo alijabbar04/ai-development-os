@@ -10,44 +10,57 @@
   "requirementCount": 16,
   "criterionCount": 16,
   "evidenceCount": 16,
-  "authorizedCriterionManifestCount": 0,
-  "authorizedEvidenceCount": 0,
+  "authorizedCriterionManifestCount": 1,
+  "authorizedEvidenceCount": 16,
   "authorizedWaiverCount": 0,
+  "operatorAuthorizationId": "operator-authorization:stage18-completeness:2026-08-14:1",
+  "operatorAuthorizationPacketDigest": "273bdcffcbabbe7019788f32f686dc554d30d3435cd135d82fd250adc51eede4",
+  "operatorAuthorizationCryptographicallyVerified": false,
   "criterionManifestDigest": "b43af73b399f23e0922543efacd4830a7e9aa7ca71219931cf89638a761d03ea",
-  "authorityConfigurationFingerprint": "3ebe80101f3af5a2b115048ff47469ad5d7a8082905b3f8436b519dfc0dc46c0",
-  "requestDigest": "23aac0d14c0dbd16ef677f4fdb044ebb58a0e545bf30d42f6b76947373409b1e",
+  "authorityConfigurationFingerprint": "14a7126e87c2a980df4b9c79f634e442571c7bf1d8364dc98bbd077e9172d90f",
+  "requestDigest": "e27c2313120d6d795f3777c09e913cef1bb2ad0695ca664cb345b10103cd82ca",
   "decision": "rejected",
-  "requestRuleCodes": [
-    "CRITERION_MANIFEST_UNAUTHORIZED"
-  ],
-  "passedCriterionIds": [],
-  "semanticStatusBlockerIds": [
-    "criterion:stage18:AM-02",
-    "criterion:stage18:ANT-02",
-    "criterion:stage18:PLN-02",
-    "criterion:stage18:PRD-01"
-  ],
-  "blockingCriterionIds": [
+  "requestRuleCodes": [],
+  "passedCriterionIds": [
     "criterion:stage18:ADM-01",
     "criterion:stage18:AM-01",
-    "criterion:stage18:AM-02",
     "criterion:stage18:ANT-01",
-    "criterion:stage18:ANT-02",
     "criterion:stage18:EVD-01",
     "criterion:stage18:INT-01",
     "criterion:stage18:PER-01",
     "criterion:stage18:PER-02",
     "criterion:stage18:PER-03",
     "criterion:stage18:PLN-01",
-    "criterion:stage18:PLN-02",
-    "criterion:stage18:PRD-01",
     "criterion:stage18:SCH-01",
     "criterion:stage18:SCH-02",
     "criterion:stage18:USE-01"
   ],
-  "resultDigest": "b5e19ef8e5c8808349abda988753a3d474412fc3df432050f0c18dd3f4c329fc",
-  "auditId": "completeness-audit:aa448c4cb5fafe1cb1cbc6320d2a0b30",
-  "auditDigest": "b30aae9f9a9f42a1935f60bfc7703a9ae7fe4871ac070ee758f5b038d903695b",
+  "semanticStatusBlockerIds": [
+    "criterion:stage18:AM-02",
+    "criterion:stage18:ANT-02",
+    "criterion:stage18:PLN-02",
+    "criterion:stage18:PRD-01"
+  ],
+  "developmentBlockerIds": [
+    "criterion:stage18:AM-02",
+    "criterion:stage18:ANT-02"
+  ],
+  "correctlyProductionGatedIds": [
+    "criterion:stage18:PRD-01"
+  ],
+  "postResultBootstrapCriterionIds": [
+    "criterion:stage18:PLN-02"
+  ],
+  "postResultBootstrapState": "requires-separate-authenticated-result-evidence",
+  "blockingCriterionIds": [
+    "criterion:stage18:AM-02",
+    "criterion:stage18:ANT-02",
+    "criterion:stage18:PLN-02",
+    "criterion:stage18:PRD-01"
+  ],
+  "resultDigest": "a06671a036124610726088d156ec6c9fbbd9ef3b3036e264972e16c1b0af24d0",
+  "auditId": "completeness-audit:d2ccddd4f9342145df34b39a047c8382",
+  "auditDigest": "26f96d2bf786c66e6d1f711f58356a35d7a19677b2badd9120e9d938c0af4c77",
   "auditAuthority": "none",
   "mayAuthorizeExecution": false,
   "mayApproveWaiver": false,

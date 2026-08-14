@@ -705,16 +705,20 @@ Stage 17W and no Stage 18 checkpoint changes that gate. Query-native,
 high-throughput team scheduling remains a deployment-scale nonclaim rather than
 a Stage 18 development-acceptance item.
 
-A 2026-08-14 production-disabled completeness-audit candidate now binds one
-exact baseline head/tree, all 16 matrix rows, explicit
-requirement-task-result edges, all ten ADR 0016 specialist concerns, and exact
-subject blobs. It deliberately has zero externally authorized criterion
-manifests, evidence instances, or waivers, so the authority-free evaluation
-rejects every criterion plus manifest authorization. A separately labeled
-semantic status projection retains the narrower current gaps `ANT-02`,
-`AM-02`, `PLN-02`, and `PRD-01`. The audit cannot certify itself, so it records
-the gap without promoting `PLN-02`, development acceptance, or production
-admission.
+A 2026-08-14 production-disabled completeness-audit candidate binds one exact
+baseline head/tree, all 16 matrix rows, explicit requirement-task-result edges,
+all ten ADR 0016 specialist concerns, and exact subject blobs. A later pending
+checkpoint records the operator's exact input authorization in a finite packet:
+one criterion manifest, all 16 candidate evidence digests, and zero waivers.
+The packet authorizes only eligibility for deterministic evaluation. Twelve
+frozen proven rows pass; `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01` retain failed
+criterion outcomes, so the official result remains rejected. `ANT-02` and
+`AM-02` are the actual development blockers, while `PRD-01` remains the correct
+fail-closed production gate. The audit cannot consume its own result; `PLN-02`
+therefore remains incomplete until that exact result is separately committed,
+published, reviewed within its limitations, and exact-head green. ADR 0029
+records the fixed-subject two-phase boundary. Development acceptance and
+production admission remain false.
 
 The 2026-08-14 published production-disabled Windows credential checkpoint adds
 `@ai-dev-os/secrets-windows`: one exact keychain/text reference, a SHA-256-derived

@@ -45,6 +45,23 @@ configuration. The package does not execute or authenticate evaluators,
 authenticate humans, or mint approvals; reviewed evidence production and
 configuration of those digests are external trusted responsibilities.
 
+The Stage 18 fixed-subject checkpoint demonstrates that distinction with a
+finite operator packet. The packet records the exact external prompt digest,
+subject, criterion manifest, ordered evidence digests, zero waivers, and
+nonclaims. Repository code does not pretend to cryptographically authenticate
+the chat transport; it validates only the exact recorded projection and then
+constructs the normal trusted digest allowlists. Allowlists make an evidence
+instance eligible for deterministic evaluation. They do not change its
+`satisfied` field, authorize a criterion outcome, or grant authority to the
+result.
+
+The same checkpoint keeps bootstrap evidence outside the frozen request. Its
+audit cannot consume its own result as evidence for `PLN-02`; only a later
+published subject may cite that exact result. `PRD-01` also remains a separate
+production-gate semantic: correct fail-closed production gating does not become
+development acceptance or production admission. ADR 0029 records the complete
+two-phase boundary.
+
 ## Disagreement and completeness
 
 Model advisories carry an independent route key and a recommendation, but no

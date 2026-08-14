@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "branch": "feat/stage-18-pln-completeness-audit",
+  "branch": "feat/stage-18-authorized-completeness-audit",
   "sourceBase": "c50c4725981013f123ebef0d0a87082f085b333d",
   "productionAdmitted": false,
   "developmentAccepted": false,
@@ -62,15 +62,15 @@
     {
       "id": "PLN-02",
       "requirement": "A separately routed completeness audit proves every required and expected-quality product item or authorized waiver.",
-      "authority": ["docs/adr/0016-product-completeness-planning-assembly.md", "docs/implementation-roadmap.md"],
+      "authority": ["docs/adr/0016-product-completeness-planning-assembly.md", "docs/adr/0029-stage-18-operator-authorized-fixed-subject-audit.md", "docs/implementation-roadmap.md"],
       "implementation": ["packages/evaluation/src/evaluate.ts", "packages/evaluation/src/schema.ts", "packages/evaluation/src/store.ts"],
       "tests": ["packages/evaluation/test/evaluation.test.ts", "packages/evaluation/test/store.test.ts", "packages/evaluation/test/stage-18-completeness-audit.test.ts"],
-      "evidence": ["docs/release-evidence/stage-19-evaluation-integration-foundation-checkpoint.md", "docs/release-evidence/stage-18-audit-specification-overlay-v1.json", "docs/release-evidence/stage-18-completeness-audit-untrusted-summary.json", "docs/release-evidence/stage-18-completeness-audit-checkpoint.md"],
+      "evidence": ["docs/release-evidence/stage-19-evaluation-integration-foundation-checkpoint.md", "docs/release-evidence/stage-18-audit-specification-overlay-v1.json", "docs/release-evidence/stage-18-completeness-audit-operator-authorization.json", "docs/release-evidence/stage-18-completeness-audit-untrusted-summary.json", "docs/release-evidence/stage-18-completeness-audit-checkpoint.md", "docs/release-evidence/stage-18-operator-authorized-completeness-audit-checkpoint.md"],
       "status": "incomplete",
       "ownerStage": "19",
       "blocksDevelopmentAcceptance": false,
       "blocksProduction": true,
-      "rationale": "The production-disabled Stage 18 audit candidate binds one exact baseline head/tree, all 16 matrix rows, 16 requirement-task-result edges, every ADR 0016 specialist concern, exact source blobs, durable replay, and declared same-family route metadata. It is an unapproved checkpoint overlay rather than the shipped ProductSpecification contract, and it has zero externally authorized criterion manifests, evidence instances, or waivers. The official authority-free result therefore rejects every criterion plus manifest authorization; a separately labeled semantic projection retains ANT-02, AM-02, PLN-02, and PRD-01. The candidate cannot certify or promote itself, so PLN-02 remains incomplete."
+      "rationale": "The exact external operator packet authorizes the frozen overlay, criterion manifest, and all 16 candidate evidence digests as inputs only, with zero waivers and explicit authentication and independence limitations. The deterministic result now passes the 12 frozen proven rows and remains rejected on ANT-02, AM-02, PLN-02, and PRD-01. The fixed-subject audit cannot consume its own result; only a later committed, published, reviewed, exact-head-green result may become separate bootstrap evidence for PLN-02. That later evidence boundary is not yet complete, so this row remains incomplete."
     },
     {
       "id": "SCH-01",
