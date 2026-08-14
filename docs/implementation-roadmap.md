@@ -705,20 +705,21 @@ Stage 17W and no Stage 18 checkpoint changes that gate. Query-native,
 high-throughput team scheduling remains a deployment-scale nonclaim rather than
 a Stage 18 development-acceptance item.
 
-A 2026-08-14 production-disabled completeness-audit candidate binds one exact
+A 2026-08-14 production-disabled completeness-audit checkpoint binds one exact
 baseline head/tree, all 16 matrix rows, explicit requirement-task-result edges,
-all ten ADR 0016 specialist concerns, and exact subject blobs. A later pending
-checkpoint records the operator's exact input authorization in a finite packet:
-one criterion manifest, all 16 candidate evidence digests, and zero waivers.
+all ten ADR 0016 specialist concerns, and exact subject blobs. Its published,
+source-head-green packet records the operator's exact input authorization: one
+criterion manifest, all 16 candidate evidence digests, and zero waivers.
 The packet authorizes only eligibility for deterministic evaluation. Twelve
 frozen proven rows pass; `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01` retain failed
 criterion outcomes, so the official result remains rejected. `ANT-02` and
 `AM-02` are the actual development blockers, while `PRD-01` remains the correct
-fail-closed production gate. The audit cannot consume its own result; `PLN-02`
-therefore remains incomplete until that exact result is separately committed,
-published, reviewed within its limitations, and exact-head green. ADR 0029
-records the fixed-subject two-phase boundary. Development acceptance and
-production admission remain false.
+fail-closed production gate. The audit cannot consume its own result. Phase A
+is now separately committed, published, reviewed within its stated same-family
+limitations, and source-head hosted-green, but no separately authorized later
+subject consumes that result as evidence. `PLN-02` therefore remains
+incomplete. ADR 0029 records the fixed-subject two-phase boundary. Development
+acceptance and production admission remain false.
 
 The 2026-08-14 published production-disabled Windows credential checkpoint adds
 `@ai-dev-os/secrets-windows`: one exact keychain/text reference, a SHA-256-derived

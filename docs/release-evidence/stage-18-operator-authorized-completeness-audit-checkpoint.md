@@ -1,8 +1,7 @@
 # Stage 18 operator-authorized fixed-subject completeness audit
 
-Status: candidate; deterministic audit rejected; definitive local gates and
-same-family read-only review pass; commit, publication, and exact-head CI
-pending
+Status: deterministic audit rejected; source checkpoint published and
+exact-head hosted-green; final evidence reconciliation candidate
 
 Date: 2026-08-14
 
@@ -133,8 +132,40 @@ transport, create authority, run aggregate coverage, or exercise any private,
 installed, protected, credential, provider, or live boundary. Same-family
 review is not model-family independence.
 
-Source commit, non-forced publication, and exact-head hosted CI remain future
-at this candidate checkpoint.
+## Source publication and hosted proof
+
+The explicit 11-path source checkpoint is commit
+`1cd2155bcf419a00381db9c0650b9606871a7c67`, tree
+`b57d2dce14a29d8e7c3238d7e91ca656302b7c15`, with published evidence head
+`911152c570f24d1405cc4eb82a5417dcb01625ab` as its parent. It was pushed once,
+without force, to
+`origin/feat/stage-18-authorized-completeness-audit`; local HEAD, upstream, and
+the live remote ref were verified equal at that source commit.
+
+Push-triggered GitHub Actions run
+[`31843163828`](https://github.com/alijabbar04/ai-development-os/actions/runs/31843163828)
+evaluated that exact source head on attempt 1 and completed successfully. It
+started at `2026-08-14T21:36:34Z` and completed at
+`2026-08-14T22:02:36Z`:
+
+| Job | Job ID | Conclusion | Duration |
+| --- | ---: | --- | ---: |
+| dependency audit | `94904148887` | success | 13s |
+| PostgreSQL integration | `94904148933` | success | 1m04s |
+| check (ubuntu-latest) | `94904148972` | success | 8m17s |
+| coverage | `94904148919` | success | 14m36s |
+| check (windows-latest) | `94904148854` | success | 25m57s |
+
+GitHub emitted one non-failing warning annotation per job: the pinned
+`actions/checkout` and `actions/setup-node` releases target Node.js 20 and were
+forced onto Node.js 24; the coverage warning also names the pinned
+`actions/upload-artifact` release. No job or step failed.
+
+The present evidence/status reconciliation is intentionally a separate
+candidate commit. Its own exact-head hosted outcome is not predicted inside
+these bytes; the external execution ledger and final handover bind that later
+observation. This packet does not promote `PLN-02`: no separately authorized
+later subject consumes the Phase A result.
 
 An initial diagnostic `npm exec` invocation before the clean install attempted
 to resolve Vitest from the npm cache and then failed on an invalid reporter

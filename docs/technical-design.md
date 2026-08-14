@@ -555,15 +555,16 @@ The 2026-08-14 Stage 18 audit candidate applies that boundary to an immutable
 baseline: all 16 acceptance-matrix rows and all ten ADR 0016 specialist
 concerns are explicitly dispositioned and connected by requirement-task-result
 edges. The checkpoint-specific overlay is not the shipped product-planning
-`ProductSpecification` schema. A later pending packet records exact external
+`ProductSpecification` schema. The published packet records exact external
 operator authorization for the frozen manifest and all 16 candidate evidence
 digests, with zero waivers and no outcome authority. Deterministic evaluation
 then passes the 12 frozen proven rows and retains failed outcomes for `ANT-02`,
 `AM-02`, `PLN-02`, and `PRD-01`; the result remains rejected and permanently
 non-authorizing. Development projection treats only `ANT-02` and `AM-02` as
 development blockers and retains `PRD-01` as the correct production gate. The
-fixed audit cannot consume its own result, so a later published result must
-become separate evidence before `PLN-02` can change. Route metadata remains
+fixed audit cannot consume its own result. Phase A is now published and
+source-head hosted-green, but no separately authorized later subject consumes
+that result as evidence, so `PLN-02` cannot change. Route metadata remains
 unauthenticated and same-family. ADR 0029 records this two-phase boundary;
 neither phase can activate production or begin Stage 20 while development
 acceptance is false.
