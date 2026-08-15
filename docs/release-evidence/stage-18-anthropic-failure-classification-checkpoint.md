@@ -1,11 +1,14 @@
 # Stage 18 Anthropic failure-classification checkpoint
 
 - Date: 2026-08-15
-- Status: source candidate; deterministic repair only; publication, exact-head
-  hosted CI, and any newly authorized live attempt remain future boundaries
+- Status: deterministic repair source published and exact-source-head hosted
+  green; final evidence publication and any newly authorized live attempt remain
+  future boundaries
 - Branch: `fix/stage-18-anthropic-result-classification`
 - Base head: `f47bc3b8d1702ae3ff487a415078f46e45d155fc`
 - Base tree: `4db86b74f943aaeecb27a726d585a584bfd9c954`
+- Source head: `a597e58c253a9765a2005f2b56e95b820f16ef6f`
+- Source tree: `caa4e5a372a4b0291a9b37466e483bb58b9e8aef`
 
 ## Outcome
 
@@ -158,8 +161,33 @@ on frozen source SHA-256
 `git diff --check`. The review did not exercise credential, native, provider,
 installed-state, protected-state, or network boundaries.
 
-Explicit-path commit, non-forced push, and exact-head hosted CI are pending and
-must be reconciled before publication.
+## Source publication and hosted validation
+
+The reviewed 12-path delta was staged by explicit path, cached-diff checked,
+committed as `a597e58c253a9765a2005f2b56e95b820f16ef6f` with tree
+`caa4e5a372a4b0291a9b37466e483bb58b9e8aef` and parent
+`f47bc3b8d1702ae3ff487a415078f46e45d155fc`, then pushed once without force to
+the named feature branch. No PR, main mutation, tag, release, or package
+publication occurred.
+
+Exact-source-head CI run
+[`31856877552`](https://github.com/alijabbar04/ai-development-os/actions/runs/31856877552)
+completed `success` on attempt `1` from `2026-08-15T01:34:20Z` through
+`2026-08-15T02:01:55Z`:
+
+- dependency audit `94943216549`: `12s`, success;
+- PostgreSQL integration `94943216578`: `57s`, success;
+- Ubuntu check `94943216569`: `8m11s`, success;
+- coverage `94943216522`: `14m50s`, success;
+- Windows check `94943216544`: `27m31s`, success, including the explicit
+  production-disabled Windows credential-addon build and native smoke.
+
+GitHub emitted one non-failing `warning` annotation on each job: the pinned
+checkout/setup-node actions target Node.js 20 and were forced onto Node.js 24;
+the coverage annotation also names its pinned upload-artifact action. No job or
+step failed. This result-only evidence edit still requires an explicit commit,
+non-forced push, and exact-final-head hosted reconciliation. It does not make a
+new live canary eligible by itself.
 
 ## Acceptance and nonclaims
 
