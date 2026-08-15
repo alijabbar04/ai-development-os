@@ -39,11 +39,20 @@ The only direct transport is `POST https://api.anthropic.com/v1/messages` with
 tools, files, repository content, redirect, proxy, cookie, or retry. It disables
 connection pooling, caps the response at 64 KiB/128 chunks, caps reported usage,
 requires one exact `OK` text block and exact response-model identity, and has a
-single 15-second wall timer propagated through preflight, secret access, and
-transport. Returned evidence contains only fixed identities, duration, status
+single 15-second effect deadline propagated through preflight, secret access,
+and transport. ADR 0030 later adds a fixed 5-second post-abort callback-drain
+ceiling; that drain does not widen the provider request deadline. Returned
+evidence contains only fixed identities, duration, status
 category, normalized token counts, and hashes. Response bytes are overwritten
 after parsing; request/response bodies and secret material are not returned or
 persisted.
+
+ADR 0030 later refines the canary's error evidence without changing its request
+or authority. Provider failures now cross the credential callback as an exact
+bounded outcome and are reconstructed only after material disposal and broker
+audit. A separate finite phase distinguishes pre-dispatch, possibly-dispatched,
+response-received, and post-response failures; it does not retroactively
+classify the first ambiguous attempt or authorize a retry.
 
 The official Anthropic primary documentation was rechecked on 2026-08-12:
 

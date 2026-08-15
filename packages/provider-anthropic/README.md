@@ -18,6 +18,19 @@ The fixed profile is `POST https://api.anthropic.com/v1/messages` with
 and one exact expected response-model identity. Unknown aliases and model
 substitution fail closed; no discovery or fallback occurs.
 
+The testing-only canary reports a finite error code and an orthogonal effect
+phase: `pre-dispatch`, `possibly-dispatched`, `response-received`, or
+`post-response`. Transport and response errors are returned through the
+secret-material callback as an exact bounded outcome, allowing material
+disposal and broker auditing to finish before the canary reconstructs the error.
+This prevents the broker's deliberate callback-error redaction from relabeling
+HTTP, response-parse, and post-response failures as a generic transport error.
+The phase is conservative: `possibly-dispatched` never claims that no provider
+effect occurred. After the 15-second effect deadline, the canary allows at most
+5 additional seconds for an entered callback/broker to drain. A drain timeout
+is a finite callback-result failure and makes no disposal or no-effect claim
+about a nonconforming injected boundary.
+
 Policy authorization precedes scoped `SecretRef` resolution, which precedes
 opening the injected transport. Secret material is callback-scoped and never
 enters configuration, events, errors, results, or observations. Standard API
@@ -79,7 +92,11 @@ npm run test:coverage --workspace @ai-dev-os/provider-anthropic
 npm run build --workspace @ai-dev-os/provider-anthropic
 ```
 
-The reviewed canary harness is supplied under `./testing`; the Windows broker
-checkpoint adds no eligible real reference. No live provider call was run
-because no supported owned secret reference was provided, and `ANT-02`
-therefore remains incomplete.
+The reviewed canary harness is supplied under `./testing`. One separately
+authorized owned-reference attempt ran on 2026-08-14 and returned the older
+ambiguous finite `TRANSPORT_FAILURE`; it was not retried and its consumed marker
+is preserved. Deterministic diagnosis found and repaired the callback
+classification defect, but does not identify the historical path or prove the
+real transport. No new credential read or credentialed Messages-create/canary
+request is part of that repair; the only endpoint diagnostic was one body-free
+unauthenticated `HEAD` without a key. `ANT-02` remains incomplete.

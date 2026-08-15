@@ -455,6 +455,21 @@ approval and returned the finite but ambiguous code `TRANSPORT_FAILURE`. It was
 not retried and does not prove the reviewed transport, so `ANT-02` remains
 incomplete and the general provider stays production-disabled.
 
+Deterministic analysis then found a classification defect rather than evidence
+about that historical request: transport and response parsing ran inside the
+secret callback, while the Windows broker deliberately maps every thrown
+consumer error to one finite `CONSUMER_FAILURE`. The canary therefore could
+relabel an HTTP response, response-parse failure, material callback failure, or
+broker outcome-audit failure as generic transport failure. ADR 0030 returns an
+exact bounded success/failure outcome through the callback, waits for material
+disposal and broker audit, then reconstructs the finite error outside. An
+orthogonal effect phase distinguishes `pre-dispatch`, `possibly-dispatched`,
+`response-received`, and `post-response`; `possibly-dispatched` remains
+conservative and never proves that no provider effect occurred. A separate
+`CALLBACK_RESULT_FAILURE` prevents broker/result failures from masquerading as
+transport failures. Synthetic tests exercise every phase and byte disposal;
+no credential read or new provider call is evidence for this repair.
+
 The subsequent Windows credential checkpoint supplies the missing persistent
 resolution infrastructure without enabling that canary. One exact schema-v1
 `keychain` reference is allowlisted by namespace, service, account, text kind,

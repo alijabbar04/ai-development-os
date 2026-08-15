@@ -39,7 +39,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D and the production-disabled exact-reference Windows credential broker are published exact-head green, and `INT-01` is proven; one owned-reference Anthropic canary ended ambiguously with `TRANSPORT_FAILURE`, and the inactive-window candidate is safety-blocked before its packed-consumer/publication gate. The published, source-head-green fixed-subject audit checkpoint records exact operator authorization for its manifest and 16 evidence instances without authorizing their outcomes: 12 frozen proven rows pass, while `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01` remain failed audit criteria. `ANT-02` and `AM-02` remain the development blockers; `PRD-01` correctly remains a production gate. The Phase A result is now eligible to be considered only as input to a separately authorized later subject; no such subject has promoted `PLN-02`. Production remains blocked on Stage 17W. |
+| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D and the production-disabled exact-reference Windows credential broker are published exact-head green, and `INT-01` is proven; one owned-reference Anthropic canary ended ambiguously with `TRANSPORT_FAILURE`. Deterministic diagnosis found that provider/response failures thrown inside the secret callback were collapsed by the broker's fixed consumer-error boundary; the canary now reports a finite conservative effect phase, but no new live proof exists. The inactive-window candidate remains safety-blocked before its packed-consumer/publication gate. The published, source-head-green fixed-subject audit checkpoint records exact operator authorization for its manifest and 16 evidence instances without authorizing their outcomes: 12 frozen proven rows pass, while `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01` remain failed audit criteria. `ANT-02` and `AM-02` remain the development blockers; `PRD-01` correctly remains a production gate. The Phase A result is now eligible to be considered only as input to a separately authorized later subject; no such subject has promoted `PLN-02`. Production remains blocked on Stage 17W. |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
@@ -65,8 +65,10 @@ Three things are stated plainly because they are easy to assume the other way:
   18B, 18C, and 18D are published, and Stage 19B proves `INT-01`. The reviewed
   Anthropic canary, supported Account Manager reader, and policy-aware
   exact-reference Windows credential broker exist and the broker is published
-  exact-head green. One owned-reference canary ran once and ended ambiguously;
-  the repaired inactive-window consumer gate was safety-blocked before
+  exact-head green. One owned-reference canary ran once and ended ambiguously.
+  The deterministic callback-classification defect is repaired with exact
+  conservative effect phases, but no new successful live proof exists. The
+  repaired inactive-window consumer gate was safety-blocked before
   publication, so no repaired installed-state read ran. `ANT-02`, `AM-02`, and
   development acceptance remain incomplete. The admission schema has no
   admitted variant and production stays blocked on Stage 17W.
@@ -85,6 +87,7 @@ Three things are stated plainly because they are easy to assume the other way:
   including limitations that remain unresolved. Present on this branch.
 - [Product-completeness planning decision](docs/adr/0016-product-completeness-planning-assembly.md)
 - [Operator-authorized fixed-subject audit decision](docs/adr/0029-stage-18-operator-authorized-fixed-subject-audit.md)
+- [Anthropic canary effect-classification decision](docs/adr/0030-stage-18-anthropic-effect-classification.md)
 - [Stage 8 completion report](docs/stage-8-completion.md)
 - [Contributing](CONTRIBUTING.md) — including the testing standards, which are
   stricter than most projects' and are explained

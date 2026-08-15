@@ -23,6 +23,8 @@ export type { AnthropicTestingPorts } from "../contracts.js";
 
 export {
   ANTHROPIC_LIVE_CANARY_ERROR_CODES,
+  ANTHROPIC_LIVE_CANARY_FAILURE_PHASES,
+  ANTHROPIC_LIVE_CANARY_CALLBACK_DRAIN_MS,
   ANTHROPIC_LIVE_CANARY_MAX_RESPONSE_BYTES,
   ANTHROPIC_LIVE_CANARY_MAX_TOKENS,
   ANTHROPIC_LIVE_CANARY_MODEL,
@@ -31,6 +33,7 @@ export {
   AnthropicLiveCanaryError,
   createAnthropicLiveCanary,
   type AnthropicLiveCanaryErrorCode,
+  type AnthropicLiveCanaryFailurePhase,
   type AnthropicLiveCanaryOptions,
   type AnthropicLiveCanaryPreflightDecision,
   type AnthropicLiveCanaryPreflightRequest,

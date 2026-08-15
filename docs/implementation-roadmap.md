@@ -696,7 +696,13 @@ exact-reference Windows credential broker are published and exact-head green.
 Stage 19B has proven the external-mutation crash/idempotency row `INT-01`. The
 owned credential was provisioned through the reviewed one-target helper and one
 separately approved canary ran, but its finite `TRANSPORT_FAILURE` is ambiguous
-and was not retried. The Account Manager repair branch is exact-head green; its
+and was not retried. Deterministic diagnosis proved that provider/response
+failures thrown inside the secret callback were collapsed by the broker's
+finite consumer-error boundary. ADR 0030 adds conservative `pre-dispatch`,
+`possibly-dispatched`, `response-received`, and `post-response` failure phases
+and moves finite provider failures outside the material callback after disposal;
+it neither identifies the historical result nor supplies a new live proof. The
+Account Manager repair branch is exact-head green; its
 preserved AI Development OS inactive-window consumer gate was safety-blocked
 before execution and publication, so no post-repair installed-state read ran.
 `ANT-02` and `AM-02` therefore remain incomplete and
@@ -729,7 +735,9 @@ CI gates requiring hosted Windows native compilation, malformed-target refusal,
 and fresh-random-target `not-found` through both operations. Exact-head hosted
 run `31770099051` passed all five jobs. The later operator-only key write and
 one ambiguous canary attempt add no enumeration, general mutation, application
-registration, or production authority, so `ANT-02` remains incomplete.
+registration, or production authority. The effect-classification repair uses
+only synthetic material and deterministic transports, so `ANT-02` remains
+incomplete.
 
 Packages, in implementation order: `@ai-dev-os/provider-anthropic`,
 `@ai-dev-os/secrets-windows`,
