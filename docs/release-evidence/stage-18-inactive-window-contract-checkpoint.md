@@ -1,9 +1,10 @@
 # Stage 18 inactive-window contract checkpoint
 
-- Status: Source candidate independently reviewed; publication proceeding under
-  a newly authorized first-party hosted packed-consumer gate (first hosted
-  execution pending on push); `AM-02` remains incomplete
-- Date: 2026-08-13 (publication path added 2026-08-15)
+- Status: Published. Source-head hosted CI is green on attempt 1 across all
+  six jobs, including the first execution of the first-party packed-consumer
+  gate; `AM-02` remains incomplete pending the separately authorized
+  installed-state read
+- Date: 2026-08-13 (publication path added 2026-08-15; published 2026-08-15)
 - AI Development OS branch: `fix/stage-18-inactive-usage-window-contract`
 - AI Development OS base: `c50c4725981013f123ebef0d0a87082f085b333d`
 
@@ -185,6 +186,98 @@ unclaimed until the evidence update that follows those events. `AM-02`,
 `developmentAccepted`, and `productionAdmitted` remain false; the separately
 authorized installed-state read remains required and is not authorized by the
 publication grant.
+
+## Publication and first hosted packed-consumer execution — 2026-08-15 results
+
+The preserved candidate plus the reviewed gate delta were staged by an explicit
+38-path list only, committed as source commit
+`7116c394d8afb5d5264e4e1f846784330de00bd3` (tree
+`124579747e35af2ffa4a7cce075e3f10e14f06c4`, parent exactly the preserved base
+`c50c4725981013f123ebef0d0a87082f085b333d`; 38 files, +2,994/−204), and pushed
+once, non-forced, establishing upstream
+`origin/fix/stage-18-inactive-usage-window-contract`; the remote object id was
+verified equal to the local head after the push. No pull request, merge, tag,
+release, force push, or history rewrite occurred.
+
+Exact-source-head hosted run `31897858353`
+(https://github.com/alijabbar04/ai-development-os/actions/runs/31897858353)
+completed success on attempt 1 with all six jobs passing and no rerun:
+dependency audit `95043852195` (12s); PostgreSQL integration `95043852188`
+(57s); check (ubuntu-latest) `95043852207` (8m17s); **packed consumer
+(windows) `95043852228` (5m50s) — the first execution of the new gate**;
+coverage `95043852219` (14m07s); check (windows-latest) `95043852269`
+(26m05s).
+
+The packed-consumer job's deterministic evidence (from its log): runner
+`win32-x64`, Node `v24.19.0`, npm `11.17.0`, work root in runner temp;
+lifecycle scripts disabled during the consumer install (`better-sqlite3`
+binding verified absent, then present after the single sanctioned
+`npm rebuild better-sqlite3`); consumer manifest SHA-256
+`ba32fe19089054b5923d24fe5d0f4b07bc2b6bc53ff143284785e812e104d70a`; generated
+consumer lockfile SHA-256
+`9827cf127541cca7aac7b6325d5c2ea90be039f9455d78c1ee447a3437279166`;
+`npm ls --all` clean with exactly 10 top-level dependencies; high-severity
+audit zero; reader artifact re-verified on the runner at 22,845 normalized
+bytes, SHA-256 `ba17ed90c603351c0e3737d9d10552b7571fecd19ff4fd451820111857d3b894`;
+probe result 27/27 assertions passed, 0 failed (imports, pins,
+testing-surface absence, active/inactive normalization, cached/stale
+refusals, the eleven-case fail-closed matrix, work-hours calendar, owned
+selection, borrowed 50%/70% caps, Fable exclusion, inactive-window refusal
+before cap arithmetic, legacy-v2 dispatch refusal, synthetic-only boundary).
+
+Packed tarball identities at the exact source head (`entries / packed bytes /
+unpacked bytes / npm shasum / SHA-256`):
+
+- `ai-dev-os-domain-0.1.0.tgz` — 42 / 45,741 / 213,312 /
+  `f033aa74bca0a493f65bd8736b201bd3570aa8fb` /
+  `021495ced326ed62cdbdfe1489dcc46cf353f0d436979cddfe38ccd54ba63e81`
+- `ai-dev-os-artifacts-0.1.0.tgz` — 18 / 12,226 / 47,609 /
+  `5364c277d7b2ed2d4496a9c05720ab84c89ae572` /
+  `27f4fd35779aa374fe5ec8e2ebcf4018c9d66e4319409dcd4a212895f3cbf8d6`
+- `ai-dev-os-persistence-0.1.0.tgz` — 46 / 38,139 / 184,429 /
+  `7e5d8c549538029c1e481afdc9ff25d4a060d72e` /
+  `ba1cc6f0ed3751180b7b83da75cdc96263b58577534a01fa1f753ba5f0dbd10d`
+- `ai-dev-os-persistence-sqlite-0.1.0.tgz` — 18 / 16,699 / 70,862 /
+  `953611f3f5ed1ebd5909141f670826bd05e853d4` /
+  `878a19a4e0ad9371e1bc3889d985d0a019af31e24e932907069a3f0797805449`
+- `ai-dev-os-persistence-postgres-0.1.0.tgz` — 22 / 25,991 / 120,643 /
+  `b8e484fa1656cfb1e25c9f4f0a640dc602cfb594` /
+  `558965235a518017867054ba48c23eb6e9b9616107b8881090990076a57e310a`
+- `ai-dev-os-scheduler-0.1.0.tgz` — 78 / 106,205 / 618,851 /
+  `3febc206c4493f8f0bd2738114829f8f1b721463` /
+  `58d2c88f3c46fc1cd37363b0b9703f9a40431a73c7a0b5ef74d245b4ec50d286`
+- `ai-dev-os-application-0.1.0.tgz` — 30 / 30,715 / 152,613 /
+  `33e22cecad8f509f70f7003b4fa5d32e22b0bb9e` /
+  `dcb3d326606c2e4c67108a4497897146d902804f474575eed5de21fa229878e6`
+
+Pre-publication validation on the exact committed bytes: focused
+packed-consumer tests 18/18; scheduler 155/155; application 70 passed plus
+one hosted-PostgreSQL skip; literal root `npm run check` exit 0 in 1,384
+seconds across all 39 workspaces; literal root `npm run test:coverage` exit 0
+in 972 seconds with every enforced per-package floor met;
+`npm audit --audit-level=high` exit 0 with zero vulnerabilities at every
+severity across 246 dependency records; a conservative credential-pattern
+scan over all 38 committed paths dispositioned its single candidate (a
+synthetic PostgreSQL test-fixture password) as non-secret. Independent
+review: a strictly read-only same-family (Claude Fable 5) review session
+returned FAIL with one must-fix (a CRLF-fragile test assertion that would
+have failed the first hosted Windows legs) plus advisories; after repair, a
+second strictly read-only same-family review returned PASS on the final bytes
+with candidate drift re-verified at zero. Neither review executed code or
+exercised installed, private, credential, or provider state, and neither
+constitutes model-family-independent review.
+
+Privacy and safety boundaries are unchanged: no installed Account Manager
+store, profile, credential, token, browser, or UI state was read or accessed
+at any point; the hosted gate used bounded synthetic stores only; no
+provider or Anthropic request ran; no Stage 17, Stage 20, production,
+registry-publication, PR, merge, tag, or destructive action occurred. **No
+installed-state read has occurred. `AM-02` remains incomplete until one
+separately authorized repaired installed-state read succeeds and is
+published at a green exact head; `developmentAccepted` and
+`productionAdmitted` remain false.** This evidence update is itself the only
+change in its commit; the final evidence-head hosted run is recorded outside
+this file by the publication session.
 
 ## Next live boundary
 
