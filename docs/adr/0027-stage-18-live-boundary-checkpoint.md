@@ -136,13 +136,14 @@ Stage 17W is still gated.
 ## Consequences and remaining work
 
 The two previously missing live-boundary implementations are now reviewable and
-finite, but they have not performed their live operations. A future operator
-procedure may construct one canary instance and run that instance once only
-when an already configured owned scoped secret and exact preflight are present.
-A future Account Manager task
-must explicitly authorize one local store/profile read and bind the resulting
-nonsecret configuration identity. Both require exact-head hosted gates before
-their matrix rows can become proven.
+finite, but neither has produced its required successful proof. Two separately
+authorized Anthropic canary instances have consumed their one-attempt markers:
+the historical result was unphased, while the repaired attempt observed a
+response and failed closed at `response-received`. Neither was retried. The
+post-repair Account Manager consumer remains unpublished because its ordinary
+packed-consumer gate was safety-blocked, so no eligible post-repair installed-
+state read exists. Both rows still require successful exact-head-bound evidence
+before they can become proven.
 
 No production provider, worker, workspace, Git, native-execution, daemon, UI,
 messaging, release, package publication, or Stage 20 authority follows from

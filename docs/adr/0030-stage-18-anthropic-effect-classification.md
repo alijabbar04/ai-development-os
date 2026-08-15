@@ -1,6 +1,7 @@
 # ADR 0030: Stage 18 Anthropic canary effect classification
 
-- Status: Proposed production-disabled diagnostic checkpoint; no new live call
+- Status: Implemented production-disabled diagnostic checkpoint; later no-retry
+  attempt failed closed after a response was observed
 - Date: 2026-08-15
 
 ## Context
@@ -72,20 +73,28 @@ uncooperative beyond that drain, the public result is
 or no-effect claim is made for that nonconforming boundary.
 
 No credential availability read or credentialed Messages-create/canary request
-is part of this checkpoint. One body-free unauthenticated `HEAD /v1/messages`
-diagnostic established current protocol reachability without a key or request
-body.
-The historical `TRANSPORT_FAILURE` remains ambiguous, its original durable
-attempt record remains consumed, and no inference is made about whether that
-request reached Anthropic. A later attempt requires a distinct authorization
-packet and marker, published exact-head-green source, a separately reviewed
-launcher/runtime closure, exact preflight, and the operator's bounded one-new-
-attempt authority. Any such attempt remains single-use with no retry.
+was used to establish the deterministic source repair. One body-free
+unauthenticated `HEAD /v1/messages` diagnostic established protocol
+reachability without a key or request body. The historical
+`TRANSPORT_FAILURE` remains ambiguous, its original durable attempt record
+remains consumed, and no inference is made about whether that request reached
+Anthropic.
+
+After exact-head hosted validation and a separate read-only review of the
+frozen launcher/bootstrap/wrapper closure, one later operator-authorized
+attempt used a distinct authorization packet and durable marker. Exact
+availability preflight passed, the attempt marker was atomically consumed, and
+the public result was `TRANSPORT_FAILURE` with `failurePhase=response-received`.
+This establishes only that a response was observed. It exposes no status,
+header, body, credential, or raw error; it is not the required successful
+proof, and it was not retried. Both attempt markers remain consumed. Any
+further live attempt would require new explicit authority and is not authorized
+by this decision.
 
 `ANT-02` remains `incomplete`, `developmentAccepted` remains `false`, and
-`productionAdmitted` remains `false`. This decision does not authorize an API
-key read, live request, production provider registration, Stage 20 source, or
-any Account Manager or Stage 17 operation.
+`productionAdmitted` remains `false`. This decision does not authorize a
+further API-key read, live request, production provider registration, Stage 20
+source, or any Account Manager or Stage 17 operation.
 
 ## Rejected alternatives
 

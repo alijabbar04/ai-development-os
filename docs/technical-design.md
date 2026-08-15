@@ -2,7 +2,7 @@
 
 Status: Accepted baseline  
 Version: 0.3
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
 ## 1. Executive summary
 
@@ -452,8 +452,12 @@ owned secret route runs it successfully.
 
 On 2026-08-14 one exact owned-reference canary ran under a separate one-attempt
 approval and returned the finite but ambiguous code `TRANSPORT_FAILURE`. It was
-not retried and does not prove the reviewed transport, so `ANT-02` remains
-incomplete and the general provider stays production-disabled.
+not retried. After the classification repair was published and exact-head
+hosted-green, one later separately authorized attempt observed a provider
+response but failed closed with `TRANSPORT_FAILURE` at `response-received`.
+That attempt was also not retried. Neither result proves the exact successful
+transport contract, so `ANT-02` remains incomplete and the general provider
+stays production-disabled.
 
 Deterministic analysis then found a classification defect rather than evidence
 about that historical request: transport and response parsing ran inside the
@@ -468,7 +472,9 @@ orthogonal effect phase distinguishes `pre-dispatch`, `possibly-dispatched`,
 conservative and never proves that no provider effect occurred. A separate
 `CALLBACK_RESULT_FAILURE` prevents broker/result failures from masquerading as
 transport failures. Synthetic tests exercise every phase and byte disposal;
-no credential read or new provider call is evidence for this repair.
+the source repair itself used no credential read or provider call. The later
+single live result is recorded separately and does not retroactively become
+deterministic repair evidence.
 
 The subsequent Windows credential checkpoint supplies the missing persistent
 resolution infrastructure without enabling that canary. One exact schema-v1

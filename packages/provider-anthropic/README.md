@@ -96,7 +96,8 @@ The reviewed canary harness is supplied under `./testing`. One separately
 authorized owned-reference attempt ran on 2026-08-14 and returned the older
 ambiguous finite `TRANSPORT_FAILURE`; it was not retried and its consumed marker
 is preserved. Deterministic diagnosis found and repaired the callback
-classification defect, but does not identify the historical path or prove the
-real transport. No new credential read or credentialed Messages-create/canary
-request is part of that repair; the only endpoint diagnostic was one body-free
-unauthenticated `HEAD` without a key. `ANT-02` remains incomplete.
+classification defect without a credentialed call. After exact-head hosted
+validation, one later independently reviewed, separately authorized attempt
+used a distinct marker, observed a provider response, and failed closed with
+`TRANSPORT_FAILURE` at `response-received`. It was not retried. Neither attempt
+is the exact successful transport proof, so `ANT-02` remains incomplete.
