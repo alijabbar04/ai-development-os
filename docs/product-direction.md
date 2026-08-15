@@ -63,8 +63,13 @@ For each borrowed profile:
 - the 70 percent weekly ceiling applies at all times, and dispatch must not
   occur at or above it or knowingly drive usage above it;
 - both ceilings are hard admission rules, not scoring preferences; and
-- stale, unavailable, ambiguous, or internally inconsistent usage data must
+- stale, unavailable, inactive, ambiguous, or internally inconsistent usage data must
   fail closed for capped-profile dispatch.
+
+Each required five-hour and weekly window must explicitly be active before any
+owned or borrowed allocation. A legitimate inactive window remains truthful
+evidence with no capacity/reset value; it must not be treated as zero usage,
+unlimited capacity, or an active eligibility signal.
 
 Each usage snapshot must identify the provider source, profile identity by a
 non-secret scoped reference, provider-defined window, observed time, reset
@@ -76,9 +81,9 @@ recording credentials, raw session material, or state from another profile.
 
 The reviewed source is
 [`alijabbar04/ai-account-manager`](https://github.com/alijabbar04/ai-account-manager).
-The supported reader checkpoint is pinned to commit
-`5279113728a344a87a7e49c4222741a618b67dd5`, tree
-`e8c342a77eaf01535db2bed2819e5ad87e1876df`, its full inventory, and the exact
+The repaired supported reader checkpoint is pinned to commit
+`f958ccaee81452f919e7321078899de692f0c81c`, tree
+`04c22c65d5839a2c80f716e55f4f41d5ab79c6a7`, its full inventory, and the exact
 reader artifact recorded by ADR 0027. It exposes a versioned read-only library
 and CLI with one explicit profile allowlist and emits only normalized
 `claude-code` usage/authority observations. AI Development OS additionally
@@ -94,9 +99,10 @@ prohibited.
 The 2026-08-13 operator-present follow-up invoked that exact maintained boundary
 once for one explicitly allowlisted owned profile. It failed closed with
 `USAGE_SOURCE_UNAVAILABLE`, changed no store metadata, and disclosed no private
-record; the Account Manager hosted gate also remained Actions-budget blocked.
-This is failed evidence rather than live-route proof, so `AM-02` remains
-incomplete.
+record. The reserved Account Manager hosted rerun later passed on the exact
+original source commit, but that historical failed read predates the inactive-
+window repair and is not live-route proof. `AM-02` remains incomplete pending
+one newly authorized repaired read and the repaired AI OS exact-head gate.
 
 ## Future Windows computer and internet authority
 

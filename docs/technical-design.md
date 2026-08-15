@@ -340,6 +340,17 @@ projection before constructing a canonical snapshot. The historical fixture
 route remains for deterministic compatibility. No installed-state read ran in
 the implementation checkpoint, so `AM-02` and all production use remain gated.
 
+Reader protocol v2 maps provider windows to scheduler schema v3. Each required
+window is exactly `active` with bounded capacity/reset evidence or `inactive`
+with null capacity/reset evidence. The latter is retained for audit but makes
+the route ineligible before cap arithmetic for both owned and borrowed
+profiles. Legacy schema-v1/v2 snapshots remain bounded standalone parser and
+audit inputs. Worker runtime state, aggregate, and event schema v2 make the
+changed persisted projection explicit; work definitions remain v1. This
+checkpoint does not migrate or replay v1 worker aggregates or journals
+containing legacy snapshots. They fail closed before callbacks and never
+authorize new dispatch.
+
 A baseline score is:
 
 ```text

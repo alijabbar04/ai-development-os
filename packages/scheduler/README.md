@@ -47,7 +47,7 @@ Usage is read outside short persistence transactions under a finite timeout
 and then revalidated at the commit clock instant. Before invoking that port,
 the runtime applies the existing non-usage routing rules to the exact persisted
 candidate and requires the live adapter ID/schema to equal the persisted native
-v2 binding; it never invokes known-ineligible v1 or drifted adapters and never
+v3 binding; it never invokes known-ineligible v1/v2 or drifted adapters and never
 fabricates available/healthy replacement evidence.
 Reservation, preparation, and the durable dispatch-start boundary each journal
 the complete canonical usage snapshot plus exact source/window and
@@ -65,9 +65,16 @@ terminal with a `reconciliation-required` reservation, and a later exact
 idempotent command may record actual usage without redispatch. Aggregate and
 journal changes remain atomic at every boundary.
 
-Canonical usage snapshot version 2 adds source fingerprint/class,
-authorization, revocation, source freshness, and provider window identities.
-Version 1 remains readable for audit but is never dispatch-eligible because it
-lacks those authority fields. Legacy owned route candidates may omit the
+Canonical usage snapshot version 3 adds an exact `active`/`inactive` state to
+each required provider window. Active windows retain bounded basis-point and
+reset evidence. Inactive windows carry only a stable identity plus null usage,
+remaining-capacity, and reset fields: they are preserved as truthful evidence
+but are never dispatch-eligible or interpreted as zero usage or unlimited
+capacity. Usage-snapshot versions 1 and 2 remain readable as bounded standalone parser/audit
+inputs but are never dispatch-eligible because they lack the complete current
+authority/window projection. Worker runtime state, aggregate, and event schema
+v2 make that persisted projection change explicit; work definitions remain v1.
+This checkpoint does not migrate or replay v1 worker runtime aggregates or
+journals containing legacy snapshots; they fail closed before callbacks. Legacy owned route candidates may omit the
 additive borrowed-policy member; borrowed candidates require explicit Claude
 Code task and model authorization and remain forbidden for Fable.

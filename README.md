@@ -39,7 +39,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D are published and `INT-01` is proven; `ANT-02` had no eligible secret and did not run, while the one authorized `AM-02` read failed closed and its hosted gate remains billing-blocked; production remains blocked on Stage 17W |
+| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D are published and `INT-01` is proven; `ANT-02` had no eligible secret and did not run, while the Account Manager hosted rerun and protocol-v2 producer repair passed but the paired AI OS integration and one fresh installed-state proof remain pending; production remains blocked on Stage 17W |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
@@ -63,9 +63,11 @@ Three things are stated plainly because they are easy to assume the other way:
 - **Stage 18 checkpoints do not admit production.** Production-disabled 18A,
   18B, 18C, and 18D are published, and Stage 19B proves `INT-01`. The reviewed
   Anthropic canary and supported Account Manager reader now exist. No eligible
-  Anthropic secret was supplied, and the single authorized Account Manager
-  read failed closed while hosted CI remained budget-blocked, so `ANT-02`,
-  `AM-02`, and development acceptance remain incomplete. The admission schema
+  Anthropic secret was supplied. The reserved Account Manager rerun passed at
+  its exact original head, and its protocol-v2 inactive-window repair is
+  published and exact-head green; the paired AI OS integration and one newly
+  authorized installed-state read still remain, so `ANT-02`, `AM-02`, and
+  development acceptance remain incomplete. The admission schema
   has no admitted variant and
   production stays blocked on Stage 17W.
 

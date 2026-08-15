@@ -2,6 +2,7 @@
 
 - Status: Proposed implementation checkpoint; `ANT-02` and `AM-02` remain incomplete
 - Date: 2026-08-12
+- Updated: 2026-08-13
 
 ## Context
 
@@ -63,12 +64,12 @@ Add a maintained CommonJS library/CLI subpath to the separate Account Manager
 repository and pin the AI Development OS adapter to its exact reviewed source:
 
 - repository `https://github.com/alijabbar04/ai-account-manager`;
-- commit `5279113728a344a87a7e49c4222741a618b67dd5`;
-- tree `e8c342a77eaf01535db2bed2819e5ad87e1876df`;
-- 29-path inventory SHA-256
-  `df89d81c692f298b56ead07c4822a8efc87113919d5594ec0069df59d1161bf3`;
+- commit `f958ccaee81452f919e7321078899de692f0c81c`;
+- tree `04c22c65d5839a2c80f716e55f4f41d5ab79c6a7`;
+- 32-path inventory SHA-256
+  `1c22b7d9ed06654563254f37495a774f7c81c7dd6bc376b5af43c84ff710c9e4`;
 - normalized reader-source SHA-256
-  `7626a6e24a10cf479983de7a1c7882ebf87a4ae45bf442c1b1f5a9d65ed04e40`.
+  `ba17ed90c603351c0e3737d9d10552b7571fecd19ff4fd451820111857d3b894`.
 
 The reader is read-only, uses a caller-provided explicit profile allowlist, and
 emits only a versioned `claude-code` profile/quota observation. It excludes
@@ -82,6 +83,20 @@ again after the bounded synchronous read; it does not claim that JavaScript can
 interrupt an in-progress synchronous filesystem call. UNC/device paths are
 rejected. Drive mappings and mounted/network-backed local paths are outside the
 reader's no-network claim and must be excluded by deployment policy.
+
+Reader protocol v2 and scheduler snapshot schema v3 make required-window state
+explicit. An active window has exact bounded basis-point and reset evidence. An
+inactive window has a stable identity and null capacity/reset fields. Inactive
+evidence remains a valid source observation but is non-allocatable for owned or
+borrowed routing; it never means zero usage or unlimited capacity. Irrelevant
+inactive model-scoped windows are ignored only after exact bounded parsing,
+while duplicates, missing required kinds, or contradictory state still fail
+closed. Schema-v1/v2 scheduler snapshots remain audit-readable but cannot
+authorize dispatch. Because the persisted worker projection now contains the
+schema-v3 union, worker runtime state, aggregate, and event envelopes advance
+from v1 to v2. Work definitions remain v1. This checkpoint refuses old v1
+worker aggregates before callbacks instead of silently reinterpreting or
+migrating their journals.
 
 The AI Development OS public adapter accepts only an explicit absolute reader
 module path, verifies the exact normalized source digest with a bounded
@@ -127,13 +142,16 @@ Stage 17W is still gated.
 ## Consequences and remaining work
 
 The two previously missing live-boundary implementations are now reviewable and
-finite, but they have not performed their live operations. A future operator
-procedure may construct one canary instance and run that instance once only
-when an already configured owned scoped secret and exact preflight are present.
-A future Account Manager task
-must explicitly authorize one local store/profile read and bind the resulting
-nonsecret configuration identity. Both require exact-head hosted gates before
-their matrix rows can become proven.
+finite, but neither has produced its required successful live proof. No
+Anthropic request ran. One earlier authorized Account Manager installed-state
+read used the pre-repair protocol-v1 boundary and failed closed on an inactive
+required window; no installed-state read through the repaired protocol-v2
+boundary has run. A future operator procedure may construct one canary instance
+and run that instance once only when an already configured owned scoped secret
+and exact preflight are present. A future Account Manager task must refresh the
+selected profile and separately authorize one repaired local store/profile read
+that binds the resulting nonsecret configuration identity. Both require
+exact-head hosted gates before their matrix rows can become proven.
 
 No production provider, worker, workspace, Git, native-execution, daemon, UI,
 messaging, release, package publication, or Stage 20 authority follows from

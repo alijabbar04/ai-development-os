@@ -279,12 +279,17 @@ function evaluateCandidate(candidate: RouteCandidate, request: RoutingRequest): 
     rules.push("usage.snapshot.exactly-one");
     reasons.push("Exactly one matching usage snapshot is required.");
   } else {
-    const snapshot = matchingSnapshots[0];
-    if (snapshot === undefined) throw new SchedulerError("STATE_CORRUPTION", "Usage selection failed.");
+    const snapshotInput = matchingSnapshots[0];
+    if (snapshotInput === undefined) throw new SchedulerError("STATE_CORRUPTION", "Usage selection failed.");
+    const snapshot = parseCanonicalUsageSnapshot(snapshotInput);
     const validity = validateUsageFreshness(snapshot, request.now, request.maximumSnapshotAgeMs);
     rules.push(...validity.ruleIds);
     reasons.push(...validity.reasons);
-    if (candidate.ownership === "authorized-borrowed") {
+    if (
+      candidate.ownership === "authorized-borrowed" &&
+      snapshot.fiveHour.status === "active" &&
+      snapshot.weekly.status === "active"
+    ) {
       // A projection may land exactly on a cap, but a profile already at that
       // cap cannot start another task even when the estimate rounds to zero.
       if (snapshot.weekly.usedBasisPoints >= BORROWED_WEEKLY_CAP ||

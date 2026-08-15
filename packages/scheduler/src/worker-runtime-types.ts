@@ -13,8 +13,9 @@ import type {
   UsageSnapshotAdapter,
 } from "./usage.js";
 
-export const WORKER_RUNTIME_SCHEMA_VERSION = 1 as const;
-export const WORKER_RUNTIME_EVENT_SCHEMA_VERSION = 1 as const;
+export const WORKER_WORK_DEFINITION_SCHEMA_VERSION = 1 as const;
+export const WORKER_RUNTIME_SCHEMA_VERSION = 2 as const;
+export const WORKER_RUNTIME_EVENT_SCHEMA_VERSION = 2 as const;
 export const STAGE_18C_PRODUCTION_ENABLED = false as const;
 
 export const WORKER_RUNTIME_STATUSES = Object.freeze([
@@ -64,7 +65,7 @@ export interface WorkerRuntimeConfiguration {
 
 export interface RuntimeUsageAdapterBinding {
   readonly adapterId: string;
-  readonly schemaVersion: 1 | 2;
+  readonly schemaVersion: 1 | 2 | 3;
 }
 
 export interface ProviderCircuitEvidence {
@@ -78,7 +79,7 @@ export interface ProviderCircuitEvidence {
 }
 
 export interface WorkerWorkDefinition {
-  readonly schemaVersion: typeof WORKER_RUNTIME_SCHEMA_VERSION;
+  readonly schemaVersion: typeof WORKER_WORK_DEFINITION_SCHEMA_VERSION;
   readonly workId: string;
   readonly task: OrchestrationTaskEnvelope;
   readonly candidate: RouteCandidate;

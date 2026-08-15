@@ -64,7 +64,9 @@ database evidence.
 The Account Manager fixture adapter is bound to repository commit
 `99be1cc6fa0fbbcfffcb4b7042d9bf0bf5ae0ae0`, tree
 `49eb2f93f3012836b9a88ac705de8a9df1e8646f`, runtime version `1.4.1`, and the
-23-file inventory digest recorded in ADR 0023. It accepts exactly one body-free
+23-file inventory digest recorded in ADR 0023. Its historical input protocol
+remains schema v1 while its normalized scheduler output advances to schema v3.
+It accepts exactly one body-free
 observation for the requested opaque profile. Invalid source identity,
 duplicates, malformed/partial windows, negative or contradictory totals, and
 cross-profile data fail with finite redacted application errors. Stale,
@@ -79,21 +81,25 @@ reader configuration, one independently authorized profile projection, the
 expected nonsecret configuration fingerprint, and a freshness ceiling. The
 compiled source pin is:
 
-- repository commit `5279113728a344a87a7e49c4222741a618b67dd5`;
-- tree `e8c342a77eaf01535db2bed2819e5ad87e1876df`;
-- 29-path inventory SHA-256
-  `df89d81c692f298b56ead07c4822a8efc87113919d5594ec0069df59d1161bf3`;
+- repository commit `f958ccaee81452f919e7321078899de692f0c81c`;
+- tree `04c22c65d5839a2c80f716e55f4f41d5ab79c6a7`;
+- 32-path inventory SHA-256
+  `1c22b7d9ed06654563254f37495a774f7c81c7dd6bc376b5af43c84ff710c9e4`;
 - normalized reader-source SHA-256
-  `7626a6e24a10cf479983de7a1c7882ebf87a4ae45bf442c1b1f5a9d65ed04e40`.
+  `ba17ed90c603351c0e3737d9d10552b7571fecd19ff4fd451820111857d3b894`.
 
-The reader emits only the `claude-code` provider identity. Its cached local
-quota observations must still pass the scheduler's freshness, authority,
-revocation, ownership, and 50%/70% admission rules. Module substitution,
+Reader protocol v2 emits only the `claude-code` provider identity and classifies
+each required window explicitly as active or inactive. Inactive windows retain
+no capacity or reset value and are non-allocatable; they do not invalidate an
+otherwise coherent source record, become zero usage, or grant unlimited
+capacity. Its cached local quota observations must still pass the scheduler's
+schema-v3 freshness, authority, revocation, ownership, active-window, and
+50%/70% admission rules. Module substitution,
 configuration substitution, reader-method drift, cross-profile results,
 malformed/oversized nested data, cancellation, and expired deadlines fail with
 finite redacted application errors. Lexical UNC/device module paths are refused;
 deployment remains responsible for excluding mapped/network-backed drive roots.
-This checkpoint did not read the installed
+This repaired checkpoint did not read the installed
 Account Manager store; `ACCOUNT_MANAGER_LIVE_ACCESS_ENABLED` remains literal
 `false`, and `AM-02` remains incomplete pending an explicitly authorized live
 read and exact-head hosted evidence.

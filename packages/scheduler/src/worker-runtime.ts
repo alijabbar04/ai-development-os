@@ -19,6 +19,7 @@ import {
   isLondonWorkHours,
   parseCanonicalUsageSnapshot,
   validateUsageFreshness,
+  type AllocatableCanonicalUsageSnapshot,
   type NormalizedCanonicalUsageSnapshot,
 } from "./usage.js";
 import {
@@ -48,6 +49,7 @@ import {
 } from "./worker-runtime-command.js";
 import {
   STAGE_18C_PRODUCTION_ENABLED,
+  WORKER_RUNTIME_EVENT_SCHEMA_VERSION,
   WORKER_RUNTIME_SCHEMA_VERSION,
   type CancelWorkCommand,
   type ClaimWorkCommand,
@@ -78,7 +80,7 @@ import {
 const { ensureArray, ensureExactKeys, ensureRecord, ensureString } = validation;
 const AGGREGATE_TYPE = "worker-run" as const;
 const AGGREGATE_PREFIX = "worker-runtime:" as const;
-const EVENT_SCHEMA_VERSION = 1;
+const EVENT_SCHEMA_VERSION = WORKER_RUNTIME_EVENT_SCHEMA_VERSION;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const KIND = /^[a-z][a-z0-9._-]{0,63}$/;
 
@@ -306,7 +308,7 @@ function reservationJournalRecords(
         if (rawDispatch === null || rawSnapshot === null) continue;
         const dispatch = rawDispatch as unknown as RuntimeDispatchIntent;
         const snapshot =
-          rawSnapshot as unknown as NormalizedCanonicalUsageSnapshot;
+          rawSnapshot as unknown as AllocatableCanonicalUsageSnapshot;
         const previous = records.get(dispatch.reservationId);
         if (previous === undefined) {
           throw new SchedulerError(
@@ -1299,7 +1301,7 @@ function assertNativeUsageAdapterBinding(
     );
   }
   if (
-    liveBinding.schemaVersion !== 2 ||
+    liveBinding.schemaVersion !== 3 ||
     liveBinding.adapterId !== state.usageAdapter.adapterId ||
     liveBinding.schemaVersion !== state.usageAdapter.schemaVersion
   ) {
@@ -1318,7 +1320,7 @@ async function readFreshUsage(
   configuration: WorkerRuntimeConfiguration,
   registerRead: (controller: AbortController) => void,
   unregisterRead: (controller: AbortController) => void,
-): Promise<NormalizedCanonicalUsageSnapshot> {
+): Promise<AllocatableCanonicalUsageSnapshot> {
   let raw: unknown | null;
   assertStaticRouteEligibility(state, now, configuration.usageFreshnessMs);
   assertNativeUsageAdapterBinding(adapter, state);
@@ -1376,10 +1378,10 @@ async function readFreshUsage(
   let snapshot: NormalizedCanonicalUsageSnapshot;
   try {
     const rawSnapshot = ensureRecord(raw, "usageSnapshot");
-    if (rawSnapshot["schemaVersion"] !== 2) {
+    if (rawSnapshot["schemaVersion"] !== 3) {
       throw new SchedulerError(
         "USAGE_REFUSED",
-        "Runtime authorization requires matching native usage schema v2 evidence.",
+        "Runtime authorization requires matching native usage schema v3 evidence.",
       );
     }
     snapshot = parseCanonicalUsageSnapshot(raw);
@@ -1404,7 +1406,7 @@ function assertFreshUsageSnapshot(
   snapshot: NormalizedCanonicalUsageSnapshot,
   now: Date,
   configuration: WorkerRuntimeConfiguration,
-): NormalizedCanonicalUsageSnapshot {
+): AllocatableCanonicalUsageSnapshot {
   const candidate = state.definition.candidate;
   const validity = validateUsageFreshness(
     snapshot,
@@ -1422,6 +1424,8 @@ function assertFreshUsageSnapshot(
   });
   if (
     !validity.eligible ||
+    snapshot.fiveHour.status !== "active" ||
+    snapshot.weekly.status !== "active" ||
     decision.selected?.candidateId !== candidate.candidateId ||
     snapshot.sourceAdapterId !== state.usageAdapter.adapterId ||
     snapshot.profileId !== candidate.profileId ||
@@ -1433,12 +1437,12 @@ function assertFreshUsageSnapshot(
       "The usage snapshot did not authorize the exact selected route.",
     );
   }
-  return snapshot;
+  return snapshot as AllocatableCanonicalUsageSnapshot;
 }
 
 function reservationFor(
   state: WorkerRuntimeState,
-  snapshot: NormalizedCanonicalUsageSnapshot,
+  snapshot: AllocatableCanonicalUsageSnapshot,
   circuit: ProviderCircuitEvidence,
   at: string,
 ): RuntimeUsageReservation {
@@ -1479,7 +1483,7 @@ function reservationFor(
 
 function assertReservationRefresh(
   state: WorkerRuntimeState,
-  snapshot: NormalizedCanonicalUsageSnapshot,
+  snapshot: AllocatableCanonicalUsageSnapshot,
 ): RuntimeUsageReservation {
   const reservation = state.reservation;
   if (reservation === null || reservation.status !== "reserved") {

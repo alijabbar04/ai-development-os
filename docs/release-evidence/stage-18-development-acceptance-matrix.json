@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "branch": "feat/stage-18-live-integration-closure",
-  "sourceBase": "d7fe405745ccd5e1f31a3d702dc70d8095016604",
+  "branch": "fix/stage-18-inactive-usage-window-contract",
+  "sourceBase": "c50c4725981013f123ebef0d0a87082f085b333d",
   "productionAdmitted": false,
   "developmentAccepted": false,
   "permittedOutcome": "Stage 18D production-disabled checkpoint complete",
@@ -39,7 +39,7 @@
       "authority": ["docs/implementation-roadmap.md", "docs/adr/0027-stage-18-live-boundary-checkpoint.md"],
       "implementation": ["packages/provider-anthropic/src/testing/live-canary.ts"],
       "tests": ["packages/provider-anthropic/test/anthropic-live-canary.test.ts", "packages/provider-anthropic/test/static-policy.test.ts"],
-      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md"],
+      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md", "docs/release-evidence/stage-18-inactive-window-contract-checkpoint.md"],
       "status": "incomplete",
       "ownerStage": "18",
       "blocksDevelopmentAcceptance": true,
@@ -169,12 +169,12 @@
       "authority": ["docs/implementation-roadmap.md", "docs/product-direction.md", "docs/adr/0027-stage-18-live-boundary-checkpoint.md"],
       "implementation": ["packages/application/src/account-manager-usage.ts"],
       "tests": ["packages/application/test/account-manager-usage.test.ts", "packages/application/test/static-policy.test.ts"],
-      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md"],
+      "evidence": ["docs/release-evidence/stage-18-live-boundary-checkpoint.md", "docs/release-evidence/stage-18-operator-gate-attempt-2026-08-13.md", "docs/release-evidence/stage-18-inactive-window-contract-checkpoint.md"],
       "status": "incomplete",
       "ownerStage": "18",
       "blocksDevelopmentAcceptance": true,
       "blocksProduction": true,
-      "rationale": "The separately committed Account Manager reader and exact-pinned AI OS adapter provide a maintained read-only protocol, bounded synthetic cross-repository proof, exact configuration/profile binding and no UI or credential authority. One explicitly authorized installed-state read on 2026-08-13 verified the exact artifact/configuration, allowlisted one owned profile, and failed closed with USAGE_SOURCE_UNAVAILABLE without store mutation. The exact Account Manager hosted job also remains externally blocked before steps by the exhausted included minutes and zero stop-usage Actions budget, so the row remains incomplete."
+      "rationale": "The separately committed Account Manager reader and exact-pinned AI OS adapter provide a maintained read-only protocol, explicit inactive-window evidence, bounded synthetic cross-repository proof, exact configuration/profile binding and no UI or credential authority. The reserved Account Manager hosted rerun passed on its exact original source commit. The prior installed-state read failed closed without mutation before this protocol-v2/schema-v3 repair; one newly authorized repaired read and the repaired AI OS exact-head gate remain required, so the row remains incomplete."
     },
     {
       "id": "INT-01",

@@ -11,6 +11,7 @@ import { join, resolve } from "node:path";
 import { validateUsageFreshness } from "@ai-dev-os/scheduler";
 import {
   ACCOUNT_MANAGER_COMMIT,
+  ACCOUNT_MANAGER_FIXTURE_PROTOCOL_VERSION,
   ACCOUNT_MANAGER_INVENTORY_SHA256,
   ACCOUNT_MANAGER_LIVE_ACCESS_ENABLED,
   ACCOUNT_MANAGER_READER_ID,
@@ -87,10 +88,11 @@ describe("commit-pinned Account Manager fixture adapter", () => {
     const adapter = createAccountManagerFixtureUsageAdapter({ reader: reader(fixture()) });
     const snapshot = await adapter.readAuthorizedSnapshot("profile:borrowed");
     expect(ACCOUNT_MANAGER_LIVE_ACCESS_ENABLED).toBe(false);
-    expect(adapter.schemaVersion).toBe(2);
+    expect(ACCOUNT_MANAGER_FIXTURE_PROTOCOL_VERSION).toBe(1);
+    expect(adapter.schemaVersion).toBe(3);
     expect(snapshot).toEqual(expect.objectContaining({
-      schemaVersion: 2,
-      compatibility: "native-v2",
+      schemaVersion: 3,
+      compatibility: "native-v3",
       sourceFingerprint: ACCOUNT_MANAGER_INVENTORY_SHA256,
       profileId: "profile:borrowed",
       authorization: "authorized",
@@ -244,10 +246,10 @@ function supportedResult(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     reader: {
       readerId: ACCOUNT_MANAGER_READER_ID,
-      protocolVersion: 1,
+      protocolVersion: 2,
       runtimeVersion: ACCOUNT_MANAGER_RUNTIME_VERSION,
       repositoryUrl: ACCOUNT_MANAGER_REPOSITORY_URL,
       configurationFingerprint: SUPPORTED_CONFIGURATION,
@@ -270,12 +272,14 @@ function supportedResult(
       freshUntil: "2026-10-25T01:04:00.000Z",
       fiveHour: {
         windowId: "claude-code:five-hour:2026-10-25T04:00:00.000Z",
+        status: "active",
         usedBasisPoints: 5_000,
         remainingBasisPoints: 5_000,
         resetAt: "2026-10-25T04:00:00.000Z",
       },
       weekly: {
         windowId: "claude-code:weekly:2026-10-26T00:00:00.000Z",
+        status: "active",
         usedBasisPoints: 7_000,
         remainingBasisPoints: 3_000,
         resetAt: "2026-10-26T00:00:00.000Z",
@@ -292,7 +296,7 @@ function supportedReader(
   return Object.freeze({
     fixtureOnly: false,
     readerId: ACCOUNT_MANAGER_READER_ID,
-    protocolVersion: 1,
+    protocolVersion: 2,
     runtimeVersion: ACCOUNT_MANAGER_RUNTIME_VERSION,
     repositoryUrl: ACCOUNT_MANAGER_REPOSITORY_URL,
     configurationFingerprint,
@@ -327,18 +331,19 @@ describe("supported Account Manager usage-reader protocol", () => {
     expect(ACCOUNT_MANAGER_LIVE_ACCESS_ENABLED).toBe(false);
     expect(adapter.adapterId).toBe("usage:account-manager-reader");
     expect(ACCOUNT_MANAGER_SUPPORTED_COMMIT).toBe(
-      "5279113728a344a87a7e49c4222741a618b67dd5",
+      "f958ccaee81452f919e7321078899de692f0c81c",
     );
     expect(ACCOUNT_MANAGER_SUPPORTED_TREE).toBe(
-      "e8c342a77eaf01535db2bed2819e5ad87e1876df",
+      "04c22c65d5839a2c80f716e55f4f41d5ab79c6a7",
     );
     expect(ACCOUNT_MANAGER_SUPPORTED_INVENTORY_SHA256).toMatch(/^[a-f0-9]{64}$/);
     expect(ACCOUNT_MANAGER_SUPPORTED_READER_SHA256).toBe(
-      "7626a6e24a10cf479983de7a1c7882ebf87a4ae45bf442c1b1f5a9d65ed04e40",
+      "ba17ed90c603351c0e3737d9d10552b7571fecd19ff4fd451820111857d3b894",
     );
     expect(snapshot).toEqual(expect.objectContaining({
-      schemaVersion: 2,
-      sourceAdapterVersion: "v1:1.4.1",
+      schemaVersion: 3,
+      compatibility: "native-v3",
+      sourceAdapterVersion: "v2:1.4.1",
       sourceClass: "provider-authoritative",
       authoritative: true,
       profileId: "profile:owned",
@@ -348,13 +353,96 @@ describe("supported Account Manager usage-reader protocol", () => {
       weekly: expect.objectContaining({ usedBasisPoints: 7_000 }),
     }));
     expect(snapshot?.sourceFingerprint).toBe(
-      "39489ddbb4d2a3baa9b77e7f40290df24aa4d45fdf9679366fcaec62f506855d",
+      "1cffe8603aebfb60f10fa2064bf8a85ee0df9bf398fb31ac15c97ee17b1a30de",
     );
     expect(validateUsageFreshness(
       snapshot as never,
       new Date("2026-10-25T01:00:00.000Z"),
       120_000,
     ).eligible).toBe(true);
+  });
+
+  it("preserves an inactive required window as null capacity and refuses it for scheduling", async () => {
+    const observation = supportedResult().observation as Record<string, unknown>;
+    const inactiveResult = supportedResult({
+      observation: {
+        ...observation,
+        fiveHour: {
+          windowId: "claude-code:five-hour:inactive",
+          status: "inactive",
+          usedBasisPoints: null,
+          remainingBasisPoints: null,
+          resetAt: null,
+        },
+      },
+    });
+    const snapshot = await supportedAdapter(async () => inactiveResult)
+      .readAuthorizedSnapshot("profile:owned");
+    expect(snapshot).toMatchObject({
+      schemaVersion: 3,
+      compatibility: "native-v3",
+      fiveHour: {
+        windowId: "claude-code:five-hour:inactive",
+        status: "inactive",
+        usedBasisPoints: null,
+        remainingBasisPoints: null,
+        resetAt: null,
+      },
+      weekly: { status: "active", usedBasisPoints: 7_000 },
+    });
+    expect(validateUsageFreshness(
+      snapshot as never,
+      new Date("2026-10-25T01:00:00.000Z"),
+      120_000,
+    )).toMatchObject({
+      eligible: false,
+      ruleIds: expect.arrayContaining(["usage.window.inactive"]),
+    });
+  });
+
+  it("rejects contradictory inactive windows without retaining their supplied values", async () => {
+    const observation = supportedResult().observation as Record<string, unknown>;
+    for (const fiveHour of [
+      {
+        windowId: "claude-code:five-hour:contradictory-capacity",
+        status: "inactive",
+        usedBasisPoints: 1,
+        remainingBasisPoints: null,
+        resetAt: null,
+      },
+      {
+        windowId: "claude-code:five-hour:contradictory-reset",
+        status: "inactive",
+        usedBasisPoints: null,
+        remainingBasisPoints: null,
+        resetAt: "2099-01-01T00:00:00.000Z",
+      },
+      {
+        windowId: "claude-code:five-hour:contradictory-remaining",
+        status: "inactive",
+        usedBasisPoints: null,
+        remainingBasisPoints: 9_999,
+        resetAt: null,
+      },
+    ] as const) {
+      const invalid = supportedResult({
+        observation: { ...observation, fiveHour },
+      });
+      const error = await supportedAdapter(async () => invalid)
+        .readAuthorizedSnapshot("profile:owned")
+        .then(
+          () => null,
+          (failure: unknown) => failure,
+        );
+      expect(error).toMatchObject({ code: "INVALID_USAGE_FIXTURE" });
+      expect(String((error as Error).message)).not.toContain(
+        String(
+          fiveHour.usedBasisPoints ??
+            fiveHour.remainingBasisPoints ??
+            fiveHour.resetAt,
+        ),
+      );
+    }
   });
 
   it("rejects source, version, profile, authority, and cross-profile substitution", async () => {
@@ -373,7 +461,7 @@ describe("supported Account Manager usage-reader protocol", () => {
 
     for (const invalid of [
       supportedResult({
-        reader: { ...(supportedResult().reader as object), protocolVersion: 2 },
+        reader: { ...(supportedResult().reader as object), protocolVersion: 1 },
       }),
       supportedResult({
         reader: {
@@ -409,7 +497,7 @@ describe("supported Account Manager usage-reader protocol", () => {
     const options = {
       readerModulePath: resolve(import.meta.dirname, "account-manager-usage.test.ts"),
       readerConfiguration: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         dataDirectory: "C:\\task-owned",
         profileAllowlist: [{
           profileId: "profile:owned",
@@ -492,7 +580,7 @@ describe("supported Account Manager usage-reader protocol", () => {
         revocation: "not-revoked" as const,
       };
       const readerConfiguration = {
-        schemaVersion: 1 as const,
+        schemaVersion: 2 as const,
         dataDirectory: directory,
         profileAllowlist: [authorizedProfile],
         freshnessMs: 300_000,
@@ -616,7 +704,7 @@ describe("supported Account Manager usage-reader protocol", () => {
     const mutable = {
       fixtureOnly: false as const,
       readerId: ACCOUNT_MANAGER_READER_ID,
-      protocolVersion: 1 as const,
+      protocolVersion: 2 as const,
       runtimeVersion: ACCOUNT_MANAGER_RUNTIME_VERSION,
       repositoryUrl: ACCOUNT_MANAGER_REPOSITORY_URL,
       configurationFingerprint: SUPPORTED_CONFIGURATION,
@@ -641,7 +729,7 @@ describe("supported Account Manager usage-reader protocol", () => {
     const duringRead = {
       fixtureOnly: false as const,
       readerId: ACCOUNT_MANAGER_READER_ID,
-      protocolVersion: 1 as const,
+      protocolVersion: 2 as const,
       runtimeVersion: ACCOUNT_MANAGER_RUNTIME_VERSION,
       repositoryUrl: ACCOUNT_MANAGER_REPOSITORY_URL,
       configurationFingerprint: SUPPORTED_CONFIGURATION,
@@ -793,7 +881,7 @@ describe("supported Account Manager usage-reader protocol", () => {
       arrayWithExtra,
       new Date(),
       tooManyFields,
-      supportedResult({ schemaVersion: 2 }),
+      supportedResult({ schemaVersion: 3 }),
     ]) {
       await expect(
         supportedAdapter(async () => value).readAuthorizedSnapshot("profile:owned"),

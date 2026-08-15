@@ -317,8 +317,10 @@ introduced here.
   `worker-runtime:` IDs, so unrelated orchestration history cannot defeat the
   worker-retention bound. SQLite stores the discriminator as text, so this
   additive type requires no schema migration.
-- Worker definition/state/event schemas are new version-1 contracts and have
-  no prior persisted payload to migrate.
+- Worker definition/event schemas were introduced as version-1 contracts. The
+  later inactive-window checkpoint keeps work definitions at version 1 and
+  advances worker state, aggregate, and event envelopes to version 2; old
+  worker aggregates and journals fail closed and are not silently migrated.
 - Usage snapshots advance to v2 with the audit-only v1 reader described above.
 - `UsageSnapshotAdapter.schemaVersion` adds v2 without removing v1.
 - `RouteCandidate.borrowedPolicy` is additive/optional for legacy owned

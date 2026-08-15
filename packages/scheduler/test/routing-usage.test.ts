@@ -25,8 +25,8 @@ function snapshotAt(
   return usageSnapshot({
     observedAt: observed,
     freshUntil: new Date(Date.parse(instant) + 15 * 60_000).toISOString(),
-    fiveHour: { windowId: "window:five-hour:test", usedBasisPoints: 1_000, remainingBasisPoints: 9_000, resetAt: new Date(Date.parse(instant) + 60 * 60_000).toISOString() },
-    weekly: { windowId: "window:weekly:test", usedBasisPoints: 2_000, remainingBasisPoints: 8_000, resetAt: new Date(Date.parse(instant) + 7 * 24 * 60 * 60_000).toISOString() },
+    fiveHour: { windowId: "window:five-hour:test", status: "active", usedBasisPoints: 1_000, remainingBasisPoints: 9_000, resetAt: new Date(Date.parse(instant) + 60 * 60_000).toISOString() },
+    weekly: { windowId: "window:weekly:test", status: "active", usedBasisPoints: 2_000, remainingBasisPoints: 8_000, resetAt: new Date(Date.parse(instant) + 7 * 24 * 60 * 60_000).toISOString() },
     ...overrides,
   });
 }
@@ -66,12 +66,14 @@ function borrowedAt(now: string, usedFiveHour: number, usedWeekly: number, predi
     ownership: "authorized-borrowed",
     fiveHour: {
       windowId: "window:five-hour:borrowed",
+      status: "active",
       usedBasisPoints: usedFiveHour,
       remainingBasisPoints: 10_000 - usedFiveHour,
       resetAt: new Date(Date.parse(now) + 60 * 60_000).toISOString(),
     },
     weekly: {
       windowId: "window:weekly:borrowed",
+      status: "active",
       usedBasisPoints: usedWeekly,
       remainingBasisPoints: 10_000 - usedWeekly,
       resetAt: new Date(Date.parse(now) + 7 * 24 * 60 * 60_000).toISOString(),
@@ -84,6 +86,8 @@ describe("canonical usage snapshots", () => {
   it("parses exact source-attributed windows without credentials", () => {
     const parsed = parseCanonicalUsageSnapshot(usageSnapshot());
     expect(parsed.timezone).toBe("Europe/London");
+    expect(parsed.fiveHour.status).toBe("active");
+    if (parsed.fiveHour.status !== "active") throw new Error("Expected an active five-hour window.");
     expect(parsed.fiveHour.usedBasisPoints + parsed.fiveHour.remainingBasisPoints).toBe(10_000);
     expect(Object.keys(parsed)).not.toContain("credential");
   });
@@ -93,7 +97,7 @@ describe("canonical usage snapshots", () => {
     ["contradictory total", { ...usageSnapshot(), weekly: { ...usageSnapshot().weekly, remainingBasisPoints: 7_999 } }],
     ["wrong timezone", { ...usageSnapshot(), timezone: "UTC" }],
     ["negative usage", { ...usageSnapshot(), fiveHour: { ...usageSnapshot().fiveHour, usedBasisPoints: -1 } }],
-    ["unsupported schema", { ...usageSnapshot(), schemaVersion: 3 }],
+    ["unsupported schema", { ...usageSnapshot(), schemaVersion: 4 }],
   ])("rejects %s", (_label, value) => {
     expect(() => parseCanonicalUsageSnapshot(value)).toThrow();
   });
@@ -144,7 +148,7 @@ describe("canonical usage snapshots", () => {
     };
     const migrated = parseCanonicalUsageSnapshot(legacy);
     expect(migrated.compatibility).toBe("migrated-v1");
-    expect(validateUsageFreshness(migrated, new Date(BASE_TIME), 60_000).ruleIds).toContain("usage.schema-v2.required");
+    expect(validateUsageFreshness(migrated, new Date(BASE_TIME), 60_000).ruleIds).toContain("usage.schema-v3.required");
     expect(legacyAdapter.schemaVersion).toBe(1);
     expect(
       routeTask({
@@ -157,6 +161,127 @@ describe("canonical usage snapshots", () => {
         maximumSnapshotAgeMs: 60_000,
       }).selected,
     ).toBeNull();
+  });
+
+  it("migrates schema-v2 snapshots for audit but never treats them as current dispatch evidence", () => {
+    const current = usageSnapshot();
+    const legacy = {
+      ...current,
+      schemaVersion: 2,
+      compatibility: "native-v2",
+      fiveHour: {
+        windowId: current.fiveHour.windowId,
+        usedBasisPoints: 1_000,
+        remainingBasisPoints: 9_000,
+        resetAt: "2026-08-10T13:00:00.000Z",
+      },
+      weekly: {
+        windowId: current.weekly.windowId,
+        usedBasisPoints: 2_000,
+        remainingBasisPoints: 8_000,
+        resetAt: "2026-08-17T00:00:00.000Z",
+      },
+    } as const;
+    const migrated = parseCanonicalUsageSnapshot(legacy);
+    expect(migrated).toMatchObject({ schemaVersion: 3, compatibility: "migrated-v2" });
+    expect(migrated.fiveHour.status).toBe("active");
+    expect(validateUsageFreshness(migrated, new Date(BASE_TIME), 60_000).ruleIds)
+      .toContain("usage.schema-v3.required");
+  });
+
+  it("preserves exact inactive evidence while refusing both owned and borrowed routing", () => {
+    const inactive = usageSnapshot({
+      fiveHour: {
+        windowId: "window:five-hour:inactive",
+        status: "inactive",
+        usedBasisPoints: null,
+        remainingBasisPoints: null,
+        resetAt: null,
+      },
+    });
+    const parsed = parseCanonicalUsageSnapshot(inactive);
+    expect(parsed.fiveHour).toEqual({
+      windowId: "window:five-hour:inactive",
+      status: "inactive",
+      usedBasisPoints: null,
+      remainingBasisPoints: null,
+      resetAt: null,
+    });
+    expect(validateUsageFreshness(parsed, new Date(BASE_TIME), 60_000).ruleIds)
+      .toContain("usage.window.inactive");
+
+    const owned = decision({ snapshots: [inactive] });
+    expect(owned.selected).toBeNull();
+    expect(owned.considered[0]?.ruleIds).toContain("usage.window.inactive");
+
+    const borrowedCandidate = candidate({
+      profileId: "profile:borrowed-inactive",
+      ownership: "authorized-borrowed",
+      predictedFiveHourBasisPoints: 10_000,
+      predictedWeeklyBasisPoints: 10_000,
+    });
+    const borrowed = decision({
+      candidate: borrowedCandidate,
+      snapshots: [usageSnapshot({
+        snapshotId: "usage:borrowed-inactive",
+        profileId: "profile:borrowed-inactive",
+        ownership: "authorized-borrowed",
+        weekly: {
+          windowId: "window:weekly:inactive",
+          status: "inactive",
+          usedBasisPoints: null,
+          remainingBasisPoints: null,
+          resetAt: null,
+        },
+      })],
+    });
+    expect(borrowed.selected).toBeNull();
+    expect(borrowed.considered[0]?.ruleIds).toContain("usage.window.inactive");
+    expect(borrowed.considered[0]?.ruleIds).not.toContain(
+      "usage.borrowed.weekly-70-cap",
+    );
+    expect(borrowed.considered[0]?.ruleIds).not.toContain(
+      "usage.borrowed.work-hours-five-hour-50-cap",
+    );
+  });
+
+  it("rejects contradictory active and inactive window projections", () => {
+    for (const fiveHour of [
+      {
+        windowId: "window:five-hour:inactive-used",
+        status: "inactive",
+        usedBasisPoints: 1,
+        remainingBasisPoints: null,
+        resetAt: null,
+      },
+      {
+        windowId: "window:five-hour:inactive-remaining",
+        status: "inactive",
+        usedBasisPoints: null,
+        remainingBasisPoints: 9_999,
+        resetAt: null,
+      },
+      {
+        windowId: "window:five-hour:inactive-reset",
+        status: "inactive",
+        usedBasisPoints: null,
+        remainingBasisPoints: null,
+        resetAt: "2099-01-01T00:00:00.000Z",
+      },
+    ] as const) {
+      expect(() =>
+        parseCanonicalUsageSnapshot(usageSnapshot({ fiveHour } as never)),
+      ).toThrow();
+    }
+    expect(() => parseCanonicalUsageSnapshot(usageSnapshot({
+      weekly: {
+        windowId: "window:weekly:invalid-active",
+        status: "active",
+        usedBasisPoints: null,
+        remainingBasisPoints: null,
+        resetAt: null,
+      } as never,
+    }))).toThrow();
   });
 });
 

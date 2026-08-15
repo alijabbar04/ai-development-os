@@ -59,11 +59,11 @@ describe("machine-checkable Stage 18 development acceptance matrix", () => {
     ]);
     expect(matrix).toMatchObject({
       schemaVersion: 1,
-      branch: "feat/stage-18-live-integration-closure",
+      branch: "fix/stage-18-inactive-usage-window-contract",
       productionAdmitted: false,
     });
     expect(matrix.sourceBase).toBe(
-      "d7fe405745ccd5e1f31a3d702dc70d8095016604",
+      "c50c4725981013f123ebef0d0a87082f085b333d",
     );
     expect(matrix.rows.length).toBeGreaterThanOrEqual(15);
   });

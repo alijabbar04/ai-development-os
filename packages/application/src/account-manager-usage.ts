@@ -15,6 +15,7 @@ import { toCanonicalJson, validation } from "@ai-dev-os/domain";
 import {
   USAGE_SNAPSHOT_SCHEMA_VERSION,
   parseCanonicalUsageSnapshot,
+  type NormalizedUsageWindowSnapshot,
   type NormalizedCanonicalUsageSnapshot,
   type UsageSnapshotAdapter,
   type UsageSnapshotReadRequest,
@@ -42,19 +43,20 @@ export const ACCOUNT_MANAGER_TREE =
 export const ACCOUNT_MANAGER_INVENTORY_SHA256 =
   "1898a7fdbe6236828d6bfac7b6064e94fe65a3859d56ae5fff86061906f129ff" as const;
 export const ACCOUNT_MANAGER_RUNTIME_VERSION = "1.4.1" as const;
-export const ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION = 1 as const;
+export const ACCOUNT_MANAGER_FIXTURE_PROTOCOL_VERSION = 1 as const;
+export const ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION = 2 as const;
 export const ACCOUNT_MANAGER_LIVE_ACCESS_ENABLED = false as const;
 export const ACCOUNT_MANAGER_READER_ID =
   "ai-account-manager.usage-reader" as const;
 export const ACCOUNT_MANAGER_SUPPORTED_READER_ENABLED = true as const;
 export const ACCOUNT_MANAGER_SUPPORTED_COMMIT =
-  "5279113728a344a87a7e49c4222741a618b67dd5" as const;
+  "f958ccaee81452f919e7321078899de692f0c81c" as const;
 export const ACCOUNT_MANAGER_SUPPORTED_TREE =
-  "e8c342a77eaf01535db2bed2819e5ad87e1876df" as const;
+  "04c22c65d5839a2c80f716e55f4f41d5ab79c6a7" as const;
 export const ACCOUNT_MANAGER_SUPPORTED_INVENTORY_SHA256 =
-  "df89d81c692f298b56ead07c4822a8efc87113919d5594ec0069df59d1161bf3" as const;
+  "1c22b7d9ed06654563254f37495a774f7c81c7dd6bc376b5af43c84ff710c9e4" as const;
 export const ACCOUNT_MANAGER_SUPPORTED_READER_SHA256 =
-  "7626a6e24a10cf479983de7a1c7882ebf87a4ae45bf442c1b1f5a9d65ed04e40" as const;
+  "ba17ed90c603351c0e3737d9d10552b7571fecd19ff4fd451820111857d3b894" as const;
 
 export interface AccountManagerFixtureReader {
   readonly fixtureOnly: true;
@@ -128,6 +130,7 @@ function finiteSha(value: unknown, path: string): string {
 
 function parseWindow(value: unknown, path: string): {
   readonly windowId: string;
+  readonly status: "active";
   readonly usedBasisPoints: number;
   readonly remainingBasisPoints: number;
   readonly resetAt: string;
@@ -140,6 +143,61 @@ function parseWindow(value: unknown, path: string): {
   );
   return Object.freeze({
     windowId: finiteId(input["windowId"], `${path}.windowId`),
+    status: "active" as const,
+    usedBasisPoints: ensureSafeInteger(
+      input["usedBasisPoints"],
+      `${path}.usedBasisPoints`,
+      0,
+      10_000,
+    ),
+    remainingBasisPoints: ensureSafeInteger(
+      input["remainingBasisPoints"],
+      `${path}.remainingBasisPoints`,
+      0,
+      10_000,
+    ),
+    resetAt: ensureTimestamp(input["resetAt"], `${path}.resetAt`),
+  });
+}
+
+function parseSupportedWindow(
+  value: unknown,
+  path: string,
+): NormalizedUsageWindowSnapshot {
+  const input = ensureRecord(value, path);
+  ensureExactKeys(
+    input,
+    ["windowId", "status", "usedBasisPoints", "remainingBasisPoints", "resetAt"],
+    path,
+  );
+  const windowId = finiteId(input["windowId"], `${path}.windowId`);
+  const status = ensureEnum(
+    input["status"],
+    `${path}.status`,
+    ["active", "inactive"] as const,
+  );
+  if (status === "inactive") {
+    if (
+      input["usedBasisPoints"] !== null ||
+      input["remainingBasisPoints"] !== null ||
+      input["resetAt"] !== null
+    ) {
+      throw new ApplicationError(
+        "INVALID_USAGE_FIXTURE",
+        "Inactive Account Manager windows must not claim capacity.",
+      );
+    }
+    return Object.freeze({
+      windowId,
+      status,
+      usedBasisPoints: null,
+      remainingBasisPoints: null,
+      resetAt: null,
+    });
+  }
+  return Object.freeze({
+    windowId,
+    status,
     usedBasisPoints: ensureSafeInteger(
       input["usedBasisPoints"],
       `${path}.usedBasisPoints`,
@@ -192,7 +250,7 @@ function normalizeFixture(value: unknown, requestedProfileId: string): Normalize
       ],
       "fixture",
     );
-    if (input["schemaVersion"] !== ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION) {
+    if (input["schemaVersion"] !== ACCOUNT_MANAGER_FIXTURE_PROTOCOL_VERSION) {
       throw new ApplicationError(
         "INVALID_USAGE_FIXTURE",
         "The fixture protocol version is unsupported.",
@@ -254,7 +312,7 @@ function normalizeFixture(value: unknown, requestedProfileId: string): Normalize
     );
     const material = Object.freeze({
       schemaVersion: USAGE_SNAPSHOT_SCHEMA_VERSION,
-      compatibility: "native-v2" as const,
+      compatibility: "native-v3" as const,
       observationId: finiteId(input["observationId"], "fixture.observationId"),
       sourceAdapterId: "usage:account-manager-fixture" as const,
       sourceAdapterVersion: `v${ACCOUNT_MANAGER_RUNTIME_VERSION}:${ACCOUNT_MANAGER_COMMIT.slice(0, 12)}`,
@@ -687,11 +745,11 @@ function normalizeSupportedReader(
       observation["observationId"],
       "readerResult.observation.observationId",
     );
-    const fiveHour = parseWindow(
+    const fiveHour = parseSupportedWindow(
       observation["fiveHour"],
       "readerResult.observation.fiveHour",
     );
-    const weekly = parseWindow(
+    const weekly = parseSupportedWindow(
       observation["weekly"],
       "readerResult.observation.weekly",
     );
@@ -716,7 +774,7 @@ function normalizeSupportedReader(
     const sourceFingerprint = supportedSourceFingerprint(options);
     const projection = Object.freeze({
       schemaVersion: USAGE_SNAPSHOT_SCHEMA_VERSION,
-      compatibility: "native-v2" as const,
+      compatibility: "native-v3" as const,
       sourceAdapterId: "usage:account-manager-reader" as const,
       sourceAdapterVersion: `v${ACCOUNT_MANAGER_USAGE_PROTOCOL_VERSION}:${ACCOUNT_MANAGER_RUNTIME_VERSION}`,
       sourceFingerprint,

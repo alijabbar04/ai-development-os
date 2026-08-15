@@ -15,6 +15,8 @@ import {
   parseWorkerRuntimeEvent,
   parseWorkerWorkDefinition,
   replayWorkerRuntimeEvents,
+  WORKER_RUNTIME_EVENT_SCHEMA_VERSION,
+  WORKER_RUNTIME_SCHEMA_VERSION,
   type NormalizedCanonicalUsageSnapshot,
   type DurableWorkerRuntime,
   type ProviderCircuitEvidence,
@@ -132,6 +134,34 @@ function snapshotFor(
   });
 }
 
+function nativeV2Snapshot(
+  snapshot: NormalizedCanonicalUsageSnapshot,
+): Record<string, unknown> {
+  if (
+    snapshot.fiveHour.status !== "active" ||
+    snapshot.weekly.status !== "active"
+  ) {
+    throw new Error("schema-v2 fixture requires active windows");
+  }
+  return {
+    ...snapshot,
+    schemaVersion: 2,
+    compatibility: "native-v2",
+    fiveHour: {
+      windowId: snapshot.fiveHour.windowId,
+      usedBasisPoints: snapshot.fiveHour.usedBasisPoints,
+      remainingBasisPoints: snapshot.fiveHour.remainingBasisPoints,
+      resetAt: snapshot.fiveHour.resetAt,
+    },
+    weekly: {
+      windowId: snapshot.weekly.windowId,
+      usedBasisPoints: snapshot.weekly.usedBasisPoints,
+      remainingBasisPoints: snapshot.weekly.remainingBasisPoints,
+      resetAt: snapshot.weekly.resetAt,
+    },
+  };
+}
+
 function circuitFor(
   state: WorkerRuntimeState,
   overrides: Partial<ProviderCircuitEvidence> = {},
@@ -160,7 +190,7 @@ function mutableUsageAdapter(): {
   return {
     adapter: Object.freeze({
       adapterId: "adapter:usage:test",
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       async readAuthorizedSnapshot(profileId: string): Promise<unknown | null> {
         readCount += 1;
         return reader(profileId);
@@ -1769,39 +1799,43 @@ describe("Stage 18C durable worker runtime", () => {
   });
 
   it("rejects runtime schema substitution and scheduler-owned public codes", async () => {
-    const clock = new ManualClock();
-    const persistence = createMemoryPersistenceAdapter({ clock });
-    let schemaOneReads = 0;
-    const runtime = createProductionDisabledWorkerRuntime({
-      persistence,
-      clock,
-      configuration: CONFIGURATION,
-      usageAdapter: {
-        adapterId: "adapter:usage:test",
-        schemaVersion: 1,
-        readAuthorizedSnapshot: async () => {
-          schemaOneReads += 1;
-          return usageSnapshot();
+    let claimedForCodes: WorkerRuntimeState | null = null;
+    for (const legacySchemaVersion of [1, 2] as const) {
+      const clock = new ManualClock();
+      const persistence = createMemoryPersistenceAdapter({ clock });
+      let legacyReads = 0;
+      const runtime = createProductionDisabledWorkerRuntime({
+        persistence,
+        clock,
+        configuration: CONFIGURATION,
+        usageAdapter: {
+          adapterId: "adapter:usage:test",
+          schemaVersion: legacySchemaVersion,
+          readAuthorizedSnapshot: async () => {
+            legacyReads += 1;
+            return usageSnapshot();
+          },
         },
-      },
-    });
-    const claimed = await enqueueAndClaim(
-      runtime,
-      definition("schema-binding"),
-    );
-    await expect(
-      runtime.reserveUsage({
-        type: "reserve-usage",
-        commandId: "command:reserve:schema-binding",
-        ...fenced(claimed),
-        circuit: circuitFor(claimed),
-      }),
-    ).rejects.toMatchObject({ code: "USAGE_REFUSED" });
-    expect(schemaOneReads).toBe(0);
-    expect(
-      await runtime.history(claimed.definition.task.idempotencyKey),
-    ).toHaveLength(2);
-    await runtime.close();
+      });
+      const claimed = await enqueueAndClaim(
+        runtime,
+        definition(`schema-binding:${legacySchemaVersion}`),
+      );
+      claimedForCodes ??= claimed;
+      await expect(
+        runtime.reserveUsage({
+          type: "reserve-usage",
+          commandId: `command:reserve:schema-binding:${legacySchemaVersion}`,
+          ...fenced(claimed),
+          circuit: circuitFor(claimed),
+        }),
+      ).rejects.toMatchObject({ code: "USAGE_REFUSED" });
+      expect(legacyReads).toBe(0);
+      expect(
+        await runtime.history(claimed.definition.task.idempotencyKey),
+      ).toHaveLength(2);
+      await runtime.close();
+    }
 
     for (const drift of ["adapter-id", "schema"] as const) {
       const driftClock = new ManualClock();
@@ -1809,7 +1843,7 @@ describe("Stage 18C durable worker runtime", () => {
         clock: driftClock,
       });
       let liveAdapterId = "adapter:usage:test";
-      let liveSchemaVersion: 1 | 2 = 2;
+      let liveSchemaVersion: 1 | 3 = 3;
       let driftReads = 0;
       const driftAdapter: UsageSnapshotAdapter = {
         get adapterId() {
@@ -1855,6 +1889,10 @@ describe("Stage 18C durable worker runtime", () => {
       await driftRuntime.close();
     }
 
+    if (claimedForCodes?.lease === null || claimedForCodes === null) {
+      throw new Error("expected a claimed parser fixture");
+    }
+
     for (const reservedCode of [
       "lease-expired-before-dispatch",
       "lease-expired-reconciliation-required",
@@ -1866,10 +1904,10 @@ describe("Stage 18C durable worker runtime", () => {
         parseWorkerRuntimeCommand({
           type: "fail-work",
           commandId: `command:reserved:${reservedCode}`,
-          idempotencyKey: claimed.definition.task.idempotencyKey,
-          leaseId: claimed.lease!.leaseId,
-          workerId: claimed.lease!.workerId,
-          fencingToken: claimed.lease!.fencingToken,
+          idempotencyKey: claimedForCodes.definition.task.idempotencyKey,
+          leaseId: claimedForCodes.lease.leaseId,
+          workerId: claimedForCodes.lease.workerId,
+          fencingToken: claimedForCodes.lease.fencingToken,
           dispatchId: null,
           classification: "provider",
           code: reservedCode,
@@ -1882,10 +1920,140 @@ describe("Stage 18C durable worker runtime", () => {
       parseWorkerRuntimeCommand({
         type: "cancel-work",
         commandId: "command:reserved:cancellation",
-        idempotencyKey: claimed.definition.task.idempotencyKey,
+        idempotencyKey: claimedForCodes.definition.task.idempotencyKey,
         code: "cancellation-reconciliation-required",
       }),
     ).toThrow(/reserved/i);
+  });
+
+  it("versions and refuses legacy worker aggregates before any usage callback", async () => {
+    expect(WORKER_RUNTIME_SCHEMA_VERSION).toBe(2);
+    expect(WORKER_RUNTIME_EVENT_SCHEMA_VERSION).toBe(2);
+    const clock = new ManualClock();
+    const persistence = createMemoryPersistenceAdapter({ clock });
+    const work = definition("legacy-worker-aggregate");
+    const legacyBinding = {
+      adapterId: "adapter:usage:test",
+      schemaVersion: 2 as const,
+    };
+    const configurationFingerprint = createHash("sha256")
+      .update(
+        toCanonicalJson({
+          configuration: CONFIGURATION,
+          usageAdapter: legacyBinding,
+        }),
+      )
+      .digest("hex");
+    const event = createWorkerRuntimeEvent({
+      workId: work.workId,
+      sequence: 1,
+      occurredAt: BASE_TIME,
+      type: "work.enqueued",
+      command: {
+        type: "enqueue-work",
+        commandId: "command:enqueue:legacy-worker-aggregate",
+        definition: work,
+      },
+      payload: {
+        definition: work,
+        definitionFingerprint: createHash("sha256")
+          .update(toCanonicalJson(work))
+          .digest("hex"),
+        configuration: CONFIGURATION,
+        usageAdapter: legacyBinding,
+        configurationFingerprint,
+      },
+    });
+    expect(() =>
+      parseWorkerRuntimeEvent({ ...event, schemaVersion: 1 }),
+    ).toThrowError(expect.objectContaining({
+      code: "INVALID_EVENT",
+      message: "Worker runtime events must use schema version 2.",
+      details: { supportedSchemaVersion: 2 },
+    }));
+    const aggregateId = `worker-runtime:${createHash("sha256")
+      .update(work.task.idempotencyKey)
+      .digest("hex")
+      .slice(0, 40)}`;
+    await persistence.transact(async (tx) => {
+      const currentProjection = replayWorkerRuntimeEvents([event]);
+      const legacyEvent = { ...event, schemaVersion: 1 };
+      await tx.aggregates.create({
+        aggregateType: "worker-run",
+        aggregateId,
+        schemaVersion: 1,
+        payload: { ...currentProjection, schemaVersion: 1 },
+        traceId: work.task.correlationId,
+      });
+      await tx.events.append({
+        eventId: event.eventId,
+        aggregateType: "worker-run",
+        aggregateId,
+        aggregateVersion: 1,
+        eventType: event.type,
+        eventSchemaVersion: 1,
+        payload: { event: legacyEvent },
+        occurredAt: event.occurredAt,
+        traceId: work.task.correlationId,
+        causationId: null,
+      });
+    });
+    let reads = 0;
+    const runtime = createProductionDisabledWorkerRuntime({
+      persistence,
+      clock,
+      configuration: CONFIGURATION,
+      usageAdapter: {
+        adapterId: "adapter:usage:test",
+        schemaVersion: 3,
+        async readAuthorizedSnapshot() {
+          reads += 1;
+          return usageSnapshot();
+        },
+      },
+    });
+    await expect(runtime.get(work.task.idempotencyKey)).rejects.toMatchObject({
+      code: "STATE_CORRUPTION",
+    });
+    expect(reads).toBe(0);
+    await runtime.close();
+  });
+
+  it("refuses a legacy native-v2 usage journal at its first reservation event", async () => {
+    const { usage, runtime } = createHarness();
+    const claimed = await enqueueAndClaim(
+      runtime,
+      definition("legacy-v2-journal"),
+    );
+    usage.set(snapshotFor(claimed));
+    await runtime.reserveUsage({
+      type: "reserve-usage",
+      commandId: "command:reserve:legacy-v2-journal",
+      ...fenced(claimed),
+      circuit: circuitFor(claimed),
+    });
+    const history = await runtime.history(
+      claimed.definition.task.idempotencyKey,
+    );
+    const last = history.at(-1)!;
+    const payload = last.payload as Record<string, unknown>;
+    const legacyReservation = createWorkerRuntimeEvent({
+      workId: last.workId,
+      sequence: last.sequence,
+      occurredAt: last.occurredAt,
+      type: last.type,
+      command: last.command,
+      payload: {
+        ...payload,
+        usageSnapshot: nativeV2Snapshot(
+          payload["usageSnapshot"] as NormalizedCanonicalUsageSnapshot,
+        ),
+      },
+    });
+    expect(() =>
+      replayWorkerRuntimeEvents([...history.slice(0, -1), legacyReservation]),
+    ).toThrowError(expect.objectContaining({ code: "INVALID_EVENT" }));
+    await runtime.close();
   });
 
   it("ages only the current ready interval after retry and replays that timestamp", async () => {

@@ -691,9 +691,12 @@ Anthropic canary and an exact-pinned supported Account Manager reader route now
 exist with deterministic local evidence. No eligible owned Anthropic secret was
 supplied, so that canary did not run. One authorized installed-state Account
 Manager read on 2026-08-13 verified the exact route but failed closed with
-`USAGE_SOURCE_UNAVAILABLE`, and its hosted job remains blocked by the exhausted
-included minutes and zero stop-usage Actions budget. `ANT-02` and `AM-02`
-therefore remain incomplete and `developmentAccepted` remains false. Production
+`USAGE_SOURCE_UNAVAILABLE`. The reserved hosted rerun subsequently passed on
+the exact original Account Manager commit. Reader protocol v2 and scheduler
+schema v3 now preserve legitimate inactive windows as null-capacity,
+non-allocatable evidence; one fresh installed-state read and the repaired AI OS
+exact-head gate remain. `ANT-02` and `AM-02` therefore remain incomplete and
+`developmentAccepted` remains false. Production
 admission remains blocked on Stage 17W and no Stage
 18 checkpoint changes that gate. Query-native, high-throughput team scheduling
 remains a deployment-scale nonclaim rather than a Stage 18
@@ -736,8 +739,10 @@ Deliverables:
   may not knowingly cross either active ceiling, and stale, unavailable,
   ambiguous, or inconsistent capped-profile usage fails closed.
 - Source-attributed normalized usage snapshots carrying profile/window identity,
-  observed/reset times, timezone, freshness, and authoritative-versus-estimated
-  status without credentials or cross-profile leakage.
+  explicit active/inactive status, observed/reset times, timezone, freshness,
+  and authoritative-versus-estimated status without credentials or
+  cross-profile leakage. Inactive required windows remain non-allocatable and
+  are never interpreted as zero usage or unlimited capacity.
 - A separately authorized, commit-pinned, all-files review of
   [`alijabbar04/ai-account-manager`](https://github.com/alijabbar04/ai-account-manager),
   tracing usage/session/profile data, authority, credentials, isolation,
