@@ -22,6 +22,31 @@ export function assertAnthropicStructuredSchemaForTesting(schema: JsonValue): vo
 export type { AnthropicTestingPorts } from "../contracts.js";
 
 export {
+  ANTHROPIC_LIVE_CANARY_DIAGNOSTIC_CATEGORIES,
+  ANTHROPIC_LIVE_CANARY_DIAGNOSTIC_KEYS,
+  ANTHROPIC_LIVE_CANARY_DIAGNOSTIC_SCHEMA_VERSION,
+  ANTHROPIC_LIVE_CANARY_MAX_RETRY_AFTER_SECONDS,
+  ANTHROPIC_LIVE_CANARY_TRANSPORT_ERROR_KINDS,
+  ANTHROPIC_PROVIDER_ERROR_TYPES,
+  ANTHROPIC_PROVIDER_STOP_REASONS,
+  anthropicLiveCanaryDiagnosticsEqual,
+  classifyAnthropicLiveCanaryDiagnostics,
+  normalizeHttpStatus,
+  normalizeRetryAfterSeconds,
+  projectAnthropicLiveCanaryDiagnostics,
+  readProviderResponseFacts,
+  transportErrorKindOf,
+  unknownAnthropicLiveCanaryDiagnostics,
+  type AnthropicLiveCanaryDiagnosticCategory,
+  type AnthropicLiveCanaryDiagnosticFacts,
+  type AnthropicLiveCanaryDiagnostics,
+  type AnthropicLiveCanaryTransportErrorKind,
+  type AnthropicProviderErrorType,
+  type AnthropicProviderResponseFacts,
+  type AnthropicProviderStopReason,
+} from "./live-canary-diagnostics.js";
+
+export {
   ANTHROPIC_LIVE_CANARY_ERROR_CODES,
   ANTHROPIC_LIVE_CANARY_FAILURE_PHASES,
   ANTHROPIC_LIVE_CANARY_CALLBACK_DRAIN_MS,

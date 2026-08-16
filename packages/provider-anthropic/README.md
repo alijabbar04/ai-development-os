@@ -31,6 +31,18 @@ effect occurred. After the 15-second effect deadline, the canary allows at most
 is a finite callback-result failure and makes no disposal or no-effect claim
 about a nonconforming injected boundary.
 
+A failure additionally carries a separately versioned diagnostic envelope
+(`AnthropicLiveCanaryError.diagnostics`) recording *why* it failed: a normalized
+category, a validated HTTP status, an allowlisted provider error type, whether a
+provider error envelope or response stream was observed, whether a request
+identifier was present, a bounded `retry-after`, an allowlisted stop reason, and
+whether the pinned model was echoed. The success result is unchanged and the
+finite code and phase vocabularies are unchanged. Categories derive only from
+status, allowlisted structured fields, allowlisted runtime error codes, and local
+transport state — never from provider message prose, which can echo request
+content. Undocumented statuses classify as `unknown` with the status retained
+rather than being folded into a plausible family. See ADR 0031.
+
 Policy authorization precedes scoped `SecretRef` resolution, which precedes
 opening the injected transport. Secret material is callback-scoped and never
 enters configuration, events, errors, results, or observations. Standard API

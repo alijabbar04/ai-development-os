@@ -10,6 +10,7 @@ import {
 } from "@ai-dev-os/secrets";
 import {
   ANTHROPIC_LIVE_CANARY_CALLBACK_DRAIN_MS,
+  ANTHROPIC_LIVE_CANARY_DIAGNOSTIC_KEYS,
   ANTHROPIC_LIVE_CANARY_FAILURE_PHASES,
   ANTHROPIC_LIVE_CANARY_MAX_RESPONSE_BYTES,
   ANTHROPIC_LIVE_CANARY_MODEL,
@@ -991,11 +992,22 @@ describe("explicit opt-in Anthropic live canary", () => {
         code: testCase.code,
         failurePhase: testCase.failurePhase,
       });
-      expect(Object.keys(JSON.parse(JSON.stringify(caught)))).toEqual([
+      // The serialized failure gained exactly one additive member in the
+      // diagnostic-envelope change; the key set stays exact so any further
+      // field still fails here.
+      const serialized = JSON.parse(JSON.stringify(caught)) as Record<
+        string,
+        unknown
+      >;
+      expect(Object.keys(serialized)).toEqual([
         "name",
         "code",
         "failurePhase",
         "message",
+        "diagnostics",
+      ]);
+      expect(Object.keys(serialized["diagnostics"] as object)).toEqual([
+        ...ANTHROPIC_LIVE_CANARY_DIAGNOSTIC_KEYS,
       ]);
       expect(JSON.stringify(caught)).not.toMatch(
         /private|owned-test-key|synthetic/i,

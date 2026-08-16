@@ -14,6 +14,17 @@ import {
   ANTHROPIC_MESSAGES_ENDPOINT,
   type AnthropicRetentionMode,
 } from "../contracts.js";
+import {
+  anthropicLiveCanaryDiagnosticsEqual,
+  classifyAnthropicLiveCanaryDiagnostics,
+  normalizeRetryAfterSeconds,
+  projectAnthropicLiveCanaryDiagnostics,
+  readProviderResponseFacts,
+  transportErrorKindOf,
+  unknownAnthropicLiveCanaryDiagnostics,
+  type AnthropicLiveCanaryDiagnostics,
+  type AnthropicProviderResponseFacts,
+} from "./live-canary-diagnostics.js";
 
 const { ensureEnum, ensureExactKeys, ensureRecord, ensureString } = validation;
 
@@ -86,18 +97,54 @@ function defaultFailurePhase(
   return "pre-dispatch";
 }
 
+/**
+ * The category implied by a finite code alone, used when an attempt produced
+ * no richer evidence. Codes that can carry response evidence default to
+ * `unknown` rather than guessing a cause from the code.
+ */
+function defaultDiagnostics(
+  code: AnthropicLiveCanaryErrorCode,
+): AnthropicLiveCanaryDiagnostics {
+  if (
+    code === "NOT_OPTED_IN" ||
+    code === "ALREADY_ATTEMPTED" ||
+    code === "INVALID_CONFIGURATION" ||
+    code === "PREFLIGHT_DENIED"
+  ) {
+    return unknownAnthropicLiveCanaryDiagnostics("local-precondition");
+  }
+  if (code === "SECRET_UNAVAILABLE" || code === "CALLBACK_RESULT_FAILURE") {
+    return unknownAnthropicLiveCanaryDiagnostics("broker-unavailable");
+  }
+  if (code === "TIMEOUT") {
+    return unknownAnthropicLiveCanaryDiagnostics("local-timeout");
+  }
+  if (code === "RESPONSE_INVALID") {
+    return classifyAnthropicLiveCanaryDiagnostics({ responseRejected: true });
+  }
+  return unknownAnthropicLiveCanaryDiagnostics(null);
+}
+
 export class AnthropicLiveCanaryError extends Error {
   readonly code: AnthropicLiveCanaryErrorCode;
   readonly failurePhase: AnthropicLiveCanaryFailurePhase;
+  /**
+   * Bounded nonsecret cause evidence. Additive: the finite `code` and
+   * `failurePhase` vocabularies are unchanged, so existing consumers keep
+   * their exact meanings.
+   */
+  readonly diagnostics: AnthropicLiveCanaryDiagnostics;
 
   constructor(
     code: AnthropicLiveCanaryErrorCode,
     failurePhase: AnthropicLiveCanaryFailurePhase = defaultFailurePhase(code),
+    diagnostics?: AnthropicLiveCanaryDiagnostics,
   ) {
     super(MESSAGES[code]);
     this.name = "AnthropicLiveCanaryError";
     this.code = code;
     this.failurePhase = failurePhase;
+    this.diagnostics = diagnostics ?? defaultDiagnostics(code);
   }
 
   toJSON(): object {
@@ -106,6 +153,7 @@ export class AnthropicLiveCanaryError extends Error {
       code: this.code,
       failurePhase: this.failurePhase,
       message: this.message,
+      diagnostics: this.diagnostics,
     };
   }
 }
@@ -115,8 +163,9 @@ const INTERNAL_CANARY_ERRORS = new WeakSet<AnthropicLiveCanaryError>();
 function internalError(
   code: AnthropicLiveCanaryErrorCode,
   failurePhase?: AnthropicLiveCanaryFailurePhase,
+  diagnostics?: AnthropicLiveCanaryDiagnostics,
 ): AnthropicLiveCanaryError {
-  const error = new AnthropicLiveCanaryError(code, failurePhase);
+  const error = new AnthropicLiveCanaryError(code, failurePhase, diagnostics);
   INTERNAL_CANARY_ERRORS.add(error);
   return Object.freeze(error);
 }
@@ -166,6 +215,13 @@ export interface AnthropicLiveCanaryTransportResponse {
   readonly status: number;
   readonly contentType: string | null;
   readonly body: Uint8Array;
+  /**
+   * Additive and optional so existing transports stay valid. Presence only —
+   * the request identifier itself is never carried.
+   */
+  readonly requestIdPresent?: boolean;
+  /** Additive and optional: bounded seconds projected from `retry-after`. */
+  readonly retryAfterSeconds?: number | null;
 }
 
 export interface AnthropicLiveCanaryTransport {
@@ -240,8 +296,49 @@ interface ParsedCanaryOptions {
 function fail(
   code: AnthropicLiveCanaryErrorCode,
   failurePhase?: AnthropicLiveCanaryFailurePhase,
+  diagnostics?: AnthropicLiveCanaryDiagnostics,
 ): never {
-  throw internalError(code, failurePhase);
+  throw internalError(code, failurePhase, diagnostics);
+}
+
+/**
+ * Diagnostics for a failure raised by a socket-level handler. Reaching one of
+ * those handlers is itself the evidence of a transport-family failure, so an
+ * error carrying no recognizable code still classifies as `other` rather than
+ * discarding the family.
+ */
+function socketErrorDiagnostics(error: unknown): AnthropicLiveCanaryDiagnostics {
+  return classifyAnthropicLiveCanaryDiagnostics({
+    transportErrorKind: transportErrorKindOf(error) ?? "other",
+  });
+}
+
+/**
+ * Diagnostics for a failure outside the socket handlers, where a network cause
+ * is not implied. Absent a recognizable code this returns `undefined` so the
+ * envelope stays `unknown` instead of asserting a network failure.
+ */
+function optionalTransportDiagnostics(
+  error: unknown,
+): AnthropicLiveCanaryDiagnostics | undefined {
+  const kind = transportErrorKindOf(error);
+  return kind === null
+    ? undefined
+    : classifyAnthropicLiveCanaryDiagnostics({ transportErrorKind: kind });
+}
+
+/**
+ * Reads one header as a bounded scalar without retaining the raw value. A
+ * header longer than the bound is reported as absent rather than measured:
+ * presence is only claimed for a value this function actually validated, and
+ * an unbounded header is not evidence of anything.
+ */
+function headerScalar(value: unknown): string | null {
+  if (typeof value === "string") return value.length <= 256 ? value : null;
+  if (Array.isArray(value) && value.length > 0 && typeof value[0] === "string") {
+    return value[0].length <= 256 ? value[0] : null;
+  }
+  return null;
 }
 
 function directTransport(
@@ -346,6 +443,17 @@ function directTransport(
                 }
               });
               response.on("end", () => {
+                let requestIdPresent = false;
+                let retryAfterSeconds: number | null = null;
+                try {
+                  requestIdPresent =
+                    headerScalar(response.headers["request-id"]) !== null;
+                  retryAfterSeconds = normalizeRetryAfterSeconds(
+                    headerScalar(response.headers["retry-after"]),
+                  );
+                } catch {
+                  // Header projection is best-effort and never blocks the body.
+                }
                 resolveBounded(Object.freeze({
                   status: response.statusCode ?? 0,
                   contentType:
@@ -357,26 +465,35 @@ function directTransport(
                     responseBytes.byteOffset,
                     bytes,
                   ),
+                  requestIdPresent,
+                  retryAfterSeconds,
                 }));
               });
               response.once("aborted", () => {
+                // A response terminated before completion is a connection-level
+                // truncation; the canary never reaches here after its own abort.
                 rejectBounded(internalError(
                   "TRANSPORT_FAILURE",
                   "response-received",
+                  classifyAnthropicLiveCanaryDiagnostics({
+                    transportErrorKind: "connection-reset",
+                  }),
                 ));
               });
-              response.once("error", () => {
+              response.once("error", (error: unknown) => {
                 rejectBounded(internalError(
                   "TRANSPORT_FAILURE",
                   "response-received",
+                  socketErrorDiagnostics(error),
                 ));
               });
             },
           );
-        } catch {
+        } catch (constructionError) {
           rejectBounded(internalError(
             "TRANSPORT_FAILURE",
             "pre-dispatch",
+            optionalTransportDiagnostics(constructionError),
           ));
           return;
         }
@@ -384,18 +501,20 @@ function directTransport(
         req.once("close", () => {
           request.signal.removeEventListener("abort", abort);
         });
-        req.once("error", () => rejectBounded(internalError(
+        req.once("error", (error: unknown) => rejectBounded(internalError(
           "TRANSPORT_FAILURE",
           failurePhase(),
+          socketErrorDiagnostics(error),
         )));
         requestSubmitted = true;
         observeFailurePhase("possibly-dispatched");
         try {
           req.end(bodyBytes);
-        } catch {
+        } catch (submissionError) {
           const error = internalError(
             "TRANSPORT_FAILURE",
             "possibly-dispatched",
+            socketErrorDiagnostics(submissionError),
           );
           rejectBounded(error);
           destroyRequest(error);
@@ -610,6 +729,7 @@ interface CanaryCallbackFailure {
   readonly status: "failure";
   readonly code: AnthropicLiveCanaryErrorCode;
   readonly failurePhase: AnthropicLiveCanaryFailurePhase;
+  readonly diagnostics: AnthropicLiveCanaryDiagnostics;
 }
 
 type CanaryCallbackOutcome = CanaryCallbackSuccess | CanaryCallbackFailure;
@@ -620,7 +740,7 @@ function projectCallbackOutcome(value: unknown): CanaryCallbackOutcome | null {
     if (outcome["status"] === "failure") {
       ensureExactKeys(
         outcome,
-        ["status", "code", "failurePhase"],
+        ["status", "code", "failurePhase", "diagnostics"],
         "canary.callbackOutcome",
       );
       const code = ensureEnum(
@@ -633,7 +753,15 @@ function projectCallbackOutcome(value: unknown): CanaryCallbackOutcome | null {
         "canary.callbackOutcome.failurePhase",
         ANTHROPIC_LIVE_CANARY_FAILURE_PHASES,
       );
-      return Object.freeze({ status: "failure", code, failurePhase });
+      const rawDiagnostics = outcome["diagnostics"];
+      // An outcome crossing the broker is untrusted in both directions: a
+      // malformed envelope fails the whole outcome rather than degrading to a
+      // default that a substituted broker could have chosen.
+      const diagnostics = rawDiagnostics === undefined
+        ? defaultDiagnostics(code)
+        : projectAnthropicLiveCanaryDiagnostics(rawDiagnostics);
+      if (diagnostics === null) return null;
+      return Object.freeze({ status: "failure", code, failurePhase, diagnostics });
     }
     ensureExactKeys(
       outcome,
@@ -670,7 +798,9 @@ function callbackOutcomesEqual(
 ): boolean {
   if (left.status !== right.status) return false;
   if (left.status === "failure" && right.status === "failure") {
-    return left.code === right.code && left.failurePhase === right.failurePhase;
+    return left.code === right.code &&
+      left.failurePhase === right.failurePhase &&
+      anthropicLiveCanaryDiagnosticsEqual(left.diagnostics, right.diagnostics);
   }
   if (left.status === "success" && right.status === "success") {
     return left.usage.inputTokens === right.usage.inputTokens &&
@@ -682,8 +812,14 @@ function callbackOutcomesEqual(
 function failureOutcome(
   code: AnthropicLiveCanaryErrorCode,
   failurePhase: AnthropicLiveCanaryFailurePhase,
+  diagnostics?: AnthropicLiveCanaryDiagnostics,
 ): CanaryCallbackFailure {
-  return Object.freeze({ status: "failure", code, failurePhase });
+  return Object.freeze({
+    status: "failure",
+    code,
+    failurePhase,
+    diagnostics: diagnostics ?? defaultDiagnostics(code),
+  });
 }
 
 function callbackFailure(
@@ -712,16 +848,23 @@ function callbackFailure(
     ) {
       throw new Error("untrusted");
     }
+    const observed = Object.getOwnPropertyDescriptor(error, "diagnostics");
+    const diagnostics = observed !== undefined && "value" in observed
+      ? projectAnthropicLiveCanaryDiagnostics(observed.value)
+      : null;
     return Object.freeze({
       status: "failure" as const,
       code: code.value as AnthropicLiveCanaryErrorCode,
       failurePhase: phase.value as AnthropicLiveCanaryFailurePhase,
+      diagnostics: diagnostics ??
+        defaultDiagnostics(code.value as AnthropicLiveCanaryErrorCode),
     });
   } catch {
     return Object.freeze({
       status: "failure" as const,
       code: fallbackCode,
       failurePhase: fallbackPhase,
+      diagnostics: defaultDiagnostics(fallbackCode),
     });
   }
 }
@@ -939,43 +1082,69 @@ function abortable<T>(
   });
 }
 
-function projectTransportResponse(
-  value: unknown,
-): AnthropicLiveCanaryTransportResponse {
+interface ProjectedTransportEnvelope {
+  readonly status: number | null;
+  readonly contentType: string | null;
+  readonly body: Uint8Array | null;
+  readonly requestIdPresent: boolean;
+  readonly retryAfterSeconds: number | null;
+}
+
+const UNUSABLE_TRANSPORT_ENVELOPE: ProjectedTransportEnvelope = Object.freeze({
+  status: null,
+  contentType: null,
+  body: null,
+  requestIdPresent: false,
+  retryAfterSeconds: null,
+});
+
+/**
+ * Projects an untrusted transport response without deciding its fate. The
+ * previous projection rejected every non-200 status here, which is why an
+ * expired credential, a spend cap, and a provider outage all became the same
+ * public failure. Acceptance is now decided in `parseResponse`, after the
+ * status and any structured error envelope have been observed.
+ */
+function projectTransportEnvelope(value: unknown): ProjectedTransportEnvelope {
   try {
     const response = ensureRecord(value, "canary.transportResponse");
     ensureExactKeys(
       response,
-      ["status", "contentType", "body"],
+      [
+        "status",
+        "contentType",
+        "body",
+        "requestIdPresent",
+        "retryAfterSeconds",
+      ],
       "canary.transportResponse",
     );
     const status = response["status"];
     const contentType = response["contentType"];
     const body = response["body"];
+    const requestIdPresent = response["requestIdPresent"];
+    const retryAfterSeconds = response["retryAfterSeconds"];
+    // Only the primary fields are fail-closed. The optional diagnostic fields
+    // normalize to their empty values instead of invalidating the envelope, so
+    // a malformed `retry-after` cannot blind the classifier to the status.
     if (
-      Object.keys(response).length !== 3 ||
       !Number.isSafeInteger(status) ||
-      status !== 200 ||
-      typeof contentType !== "string" ||
-      !contentType.toLowerCase().startsWith("application/json") ||
-      !(body instanceof Uint8Array)
+      !(body instanceof Uint8Array) ||
+      (contentType !== null && typeof contentType !== "string")
     ) {
-      fail("TRANSPORT_FAILURE", "response-received");
-    }
-    const bodyLength = byteLength(body);
-    if (
-      bodyLength < 2 ||
-      bodyLength > ANTHROPIC_LIVE_CANARY_MAX_RESPONSE_BYTES
-    ) {
-      fail("TRANSPORT_FAILURE", "response-received");
+      return UNUSABLE_TRANSPORT_ENVELOPE;
     }
     return Object.freeze({
       status: status as number,
-      contentType,
+      contentType: typeof contentType === "string" && contentType.length <= 256
+        ? contentType
+        : null,
       body,
+      requestIdPresent: requestIdPresent === true,
+      retryAfterSeconds: normalizeRetryAfterSeconds(retryAfterSeconds ?? null),
     });
   } catch {
-    fail("TRANSPORT_FAILURE", "response-received");
+    return UNUSABLE_TRANSPORT_ENVELOPE;
   }
 }
 
@@ -999,17 +1168,45 @@ function zeroResponseBody(value: unknown): void {
 function parseResponse(
   value: unknown,
 ): { readonly inputTokens: number; readonly outputTokens: number } {
-  const response = projectTransportResponse(value);
-  const body = response.body;
+  const envelope = projectTransportEnvelope(value);
+  const body = envelope.body;
   try {
-    let value: unknown;
-    try {
-      value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
-    } catch {
-      fail("RESPONSE_INVALID", "response-received");
+    // Evidence is gathered before any acceptance decision, and before the
+    // bytes are cleared, so a rejected response still explains itself.
+    const responseFacts: AnthropicProviderResponseFacts | null = body === null
+      ? null
+      : readProviderResponseFacts(
+        body,
+        envelope.contentType,
+        ANTHROPIC_LIVE_CANARY_MODEL,
+      );
+    const rejected = (): AnthropicLiveCanaryDiagnostics =>
+      classifyAnthropicLiveCanaryDiagnostics({
+        httpStatus: envelope.status,
+        requestIdPresent: envelope.requestIdPresent,
+        retryAfterSeconds: envelope.retryAfterSeconds,
+        responseFacts,
+        responseRejected: true,
+      });
+
+    if (body === null || envelope.status === null) {
+      fail("TRANSPORT_FAILURE", "response-received", rejected());
+    }
+    const bodyLength = byteLength(body);
+    if (
+      envelope.status !== 200 ||
+      envelope.contentType === null ||
+      !envelope.contentType.toLowerCase().startsWith("application/json") ||
+      bodyLength < 2 ||
+      bodyLength > ANTHROPIC_LIVE_CANARY_MAX_RESPONSE_BYTES
+    ) {
+      fail("TRANSPORT_FAILURE", "response-received", rejected());
     }
     try {
-      const message = ensureRecord(value, "canary.response");
+      const decoded = JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(body),
+      ) as unknown;
+      const message = ensureRecord(decoded, "canary.response");
       if (
         message["type"] !== "message" ||
         message["role"] !== "assistant" ||
@@ -1035,15 +1232,18 @@ function parseResponse(
         fail("RESPONSE_INVALID", "response-received");
       }
       return Object.freeze({ inputTokens, outputTokens });
-    } catch (error) {
-      if (isInternalError(error)) throw error;
-      fail("RESPONSE_INVALID", "response-received");
+    } catch {
+      // Every strict-projection failure is the same public outcome; only the
+      // attached diagnostics distinguish a refusal from a malformed payload.
+      fail("RESPONSE_INVALID", "response-received", rejected());
     }
   } finally {
     if (body instanceof Uint8Array) {
       zeroBytes(body);
     }
   }
+  // Unreachable: every path above returns or fails. Retained because control
+  // flow through `finally` does not narrow the `never` returns for the compiler.
   fail("RESPONSE_INVALID", "response-received");
 }
 
@@ -1259,7 +1459,11 @@ function createAnthropicLiveCanaryInternal(
           "SECRET_UNAVAILABLE",
         );
         if (callbackOutcome.status === "failure") {
-          fail(callbackOutcome.code, callbackOutcome.failurePhase);
+          fail(
+            callbackOutcome.code,
+            callbackOutcome.failurePhase,
+            callbackOutcome.diagnostics,
+          );
         }
         const usage = callbackOutcome.usage;
         let finished: number;
