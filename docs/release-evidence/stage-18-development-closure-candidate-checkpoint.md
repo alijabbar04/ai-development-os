@@ -115,15 +115,34 @@ it alone.
 
 ## Preservation proof
 
-Every load-bearing file of both lanes hashes equal to its reviewed blob on the
-merged tree — 8 diagnostic paths against `edefcb80…` and 20 AM paths against
-`0197176e…`, all `IDENTICAL` by `git hash-object` versus `git rev-parse <head>:<path>`.
+Measured on the merge commit itself by comparing blob ids
+(`git rev-parse <ref>:<path>`), not on the working tree. Both lanes are
+measured against the **same denominator** — the paths each changed versus the
+merge base `c50c472` — so the two figures are comparable:
 
-The merged tree differs from *both* parents in exactly nine paths, which are
-precisely the reconciled shared files listed above. It differs from the
-diagnostic parent in 38 paths (the AM lane's contribution plus reconciliation)
-and from the AM parent in 66 paths (the diagnostic lane's contribution plus
-reconciliation).
+- Diagnostic lane: **56 of the 66** paths it changed versus the merge base are
+  byte-identical to `edefcb80…` at the merge commit. (Narrowing to the 8 paths
+  its own final commit introduced, all 8 are identical.)
+- AM lane: **28 of the 38** paths it changed versus the merge base are
+  byte-identical to `0197176e…` at the merge commit.
+Those two shortfalls overlap but are not identical. Exactly **9** files were
+edited by both lanes and reconciled deliberately: `ci.yml`, `README.md`,
+ADR 0027, `implementation-roadmap.md`, `product-direction.md`, the acceptance
+matrix, `technical-design.md`, `package.json`, and the matrix guard test
+`packages/application/test/stage-18-acceptance-matrix.test.ts`.
+
+Each lane contributes one further single-lane file:
+
+- diagnostic lane only —
+  `packages/evaluation/test/stage-18-completeness-audit.test.ts`, changed to fix
+  the integration defect described below;
+- AM lane only — `packages/application/README.md`, whose `AM-02` statement
+  became stale on the combination.
+
+The merge commit therefore differs from *both* parents in exactly **13** paths:
+those 11, plus the two records this candidate adds (ADR 0032 and this
+checkpoint). It differs from the diagnostic parent in 41 paths and from the AM
+parent in 69 paths.
 
 Consequently: the diagnostic source and tests remain semantically equivalent to
 the reviewed diagnostic branch; the AM source and tests remain semantically
@@ -195,6 +214,29 @@ Verified against committed evidence rather than narrative:
 Proving the read-only input route grants no allocation authority, no standing
 live-access authority, and no production admission.
 
+### Stated limitations of this verification
+
+These are recorded so the promotion is not read as stronger than it is.
+
+- The live-read facts — reader digests, store file hashes, timings, the
+  configuration fingerprint, and the 27/27 probe result — are **operator- and
+  runner-attested**. They trace to the AM-lane checkpoint committed at
+  `0197176` and to an operator-side preservation record outside this
+  repository. This session did not re-execute the read and could not: doing so
+  would require a new operator authorization. What *was* verified here is that
+  every repository-side anchor matches — the reader commit, tree, and SHA-256
+  pinned in `packages/application/src/account-manager-usage.ts` and in the
+  packed-consumer library equal the values the evidence cites, and the cited
+  adapter entry points exist.
+- The promotion itself is **new work introduced by this merge**. Commit
+  `0197176` added the successful-read evidence but never updated the matrix
+  row, so no earlier lane review passed judgement on the promotion. It is
+  covered instead by this candidate's own independent review and by the
+  strengthened guard test.
+- Both input lanes were exact-head green, but the **merged tree** is verified by
+  this candidate's own exact-head hosted CI, recorded below. Input greenness is
+  not a substitute for it.
+
 ## Exact remaining `ANT-02` requirement
 
 One successful live Anthropic transport result from the pinned endpoint, API
@@ -208,8 +250,74 @@ ambiguous attempt; output-validator compatibility; runtime-closure review.
 
 Both prior canary markers stay consumed and were not accessed by this session.
 
-## Validation
+## Local validation
 
-Recorded in the "Local validation", "Independent review", "Commits and remote"
-and "Exact-head hosted CI" sections below once each gate has actually run. No
-result is claimed before it exists.
+Run on the exact merged bytes.
+
+| Gate | Result |
+| --- | --- |
+| Literal root `npm run check` (typecheck + test + build, all workspaces) | **exit 0**, 1,623s (27m03s) |
+| Literal root `npm run test:coverage` | **exit 0**, 967s (16m07s), 40 coverage roots |
+| Aggregate coverage | statements 27,605/29,603 = 93.25%; branches 19,346/22,191 = 87.17%; functions 5,310/5,438 = 97.64%; lines 24,971/26,329 = 94.84% — every enforced floor (90/80/90/90) met |
+| Aggregate tests | 3,469 passed, 29 skipped, 0 failed across 40 workspaces |
+| Provider-Anthropic suite | 8 files, **213 passed** — the exact reviewed count |
+| Scheduler suite | 5 files, **155 passed** — the exact reviewed count |
+| Application suite | 10 files passed + 1 hosted-PostgreSQL file skipped locally, 70 passed / 1 skipped |
+| Evaluation + audit suite | 4 files, 30 passed |
+| `npm audit --audit-level=high` | **exit 0**, zero vulnerabilities at every severity across 264 dependency records |
+| `npm ls --all` | **exit 0**, only expected platform/peer optional omissions (cross-platform TypeScript binaries, `pg-native`, `@vitest/browser`) |
+| Lockfile integrity | `package-lock.json` is byte-identical to the diagnostic parent's (`9d28b70c…`), which is the superset carrying `node-gyp`; `npm ci` succeeded, proving it matches the merged `package.json` |
+| Secret scan | 1,867,184 bytes across the 97 paths changed versus the merge base; one candidate, the synthetic PostgreSQL test-fixture password in `packages/application/test/postgres-factory.test.ts`, dispositioned non-secret |
+| Static-policy scans | pass within their package suites |
+| Documentation validation | the matrix guard test resolves every authority/implementation/test/evidence anchor to an existing path |
+| Synthetic closure/validator suite | 59 tests, 0 failed (external readiness subject) |
+
+Coverage did not regress. The AM lane's published aggregate was
+93.18/86.90/97.54/94.79; this candidate is at or above it on every metric.
+
+The PostgreSQL integration gate runs hosted only and is covered by the
+exact-head CI recorded below.
+
+## Independent review
+
+A fresh independent read-only session reviewed the combined candidate, the
+integration diff, the conflict resolutions, the acceptance-matrix change, the
+AM-02 evidence, the diagnostic contract, the runtime closure, the validator,
+the tests, the fixed request, and the synthetic marker model. It re-derived
+rather than trusted — recomputing the fixed-request fingerprint from the pinned
+constants without importing repository code, re-running three suites, and
+checking every run and job id against the hosted records.
+
+**Round 1 verdict: FAIL**, with three must-fix findings. All three were in the
+external readiness subject; the repository merge claims were confirmed clean —
+merge topology, zero content loss, no request drift, ANT-02 not promoted,
+frozen evidence intact, gates strengthened rather than relaxed.
+
+The three must-fix findings and their resolutions:
+
+1. The validator's duplicate-key defense compared raw key slices, so a
+   `\uXXXX`-escaped duplicate (`"code"` vs `"code"`) evaded it while
+   `JSON.parse` collapsed the pair. A record could read `post-response` in its
+   raw bytes and parse as `pre-dispatch`, inverting whether a request reached
+   the provider. Fixed by comparing decoded key names; regression test added
+   with a positive control.
+2. A child could emit the validator's own `INTERNAL_REFUSAL` sentinel and be
+   accepted, producing a record byte-identical to a genuine validator refusal
+   and letting a real dispatched attempt be recorded as an apparent no-op.
+   Fixed by restricting the accepted set to exactly the nine codes the canary
+   emits and refusing the sentinel from a child.
+3. The runtime closure's graph walker matched only `from "…"`, so it missed
+   `require("…/ai_dev_os_windows_credential.node")` — the addon that reads the
+   real credential — and pinned no `secrets-windows` compiled file, no
+   `binding.gyp`, and no toolchain. Fixed: the walker now follows `require`
+   and dynamic `import`, the closure grew from 37 to 42 compiled files, the
+   native addon is pinned, and because it is not built in this worktree the
+   manifest reports `complete: false` with an explicit blocker instead of
+   presenting a finished closure.
+
+Nine advisories were raised; seven were fixed and two accepted with the reason
+recorded. Full detail, including dispositions, is in the readiness subject's
+`review/independent-review-round-1.md`.
+
+No finding touched the repository merge, no evidence was rewritten, no gate was
+weakened, and ANT-02 was correctly not promoted.

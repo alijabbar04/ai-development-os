@@ -68,9 +68,15 @@ whether the content is *historical evidence* or *current state*:
   was proven after that subject was taken.
 
 Both branches' source and tests are carried across byte-identically. Every
-load-bearing file of both lanes hashes equal to its reviewed blob on the
-merged tree; the merged tree differs from *both* parents only in the shared
-files that genuinely required reconciliation.
+load-bearing file of both lanes hashes equal to its reviewed blob on the merged
+tree. The merged tree differs from *both* parents in exactly 13 paths: ten
+shared files both lanes had edited and that genuinely required reconciliation,
+the two records this candidate adds (this ADR and its checkpoint), and one
+single-lane test — `packages/evaluation/test/stage-18-completeness-audit.test.ts`
+— fixed because it asserts on the live workflow file the other lane changed.
+`packages/application/README.md` is likewise single-lane; it is counted among
+the ten reconciled files because its `AM-02` statement became stale on the
+combination. Exact per-lane figures are in the checkpoint.
 
 ## Why `AM-02` becomes proven
 

@@ -70,7 +70,7 @@
       "ownerStage": "19",
       "blocksDevelopmentAcceptance": false,
       "blocksProduction": true,
-      "rationale": "The exact external operator packet authorizes the frozen overlay, criterion manifest, and all 16 candidate evidence digests as inputs only, with zero waivers and explicit authentication and independence limitations. The deterministic result passes the 12 frozen proven rows and remains rejected on ANT-02, AM-02, PLN-02, and PRD-01. Phase A is now committed, published, reviewed within its same-family limitations, and source-head hosted-green, but the fixed-subject audit cannot consume its own result and no separately authorized later subject binds that result as evidence. That later evidence boundary is not complete, so this row remains incomplete."
+      "rationale": "The exact external operator packet authorizes the frozen overlay, criterion manifest, and all 16 candidate evidence digests as inputs only, with zero waivers and explicit authentication and independence limitations. The deterministic result over that frozen subject passes its 12 proven rows and is rejected on ANT-02, AM-02, PLN-02, and PRD-01; those are the outcomes of the frozen Phase A subject as taken, not a statement about this candidate, on which AM-02 is now proven. Phase A is now committed, published, reviewed within its same-family limitations, and source-head hosted-green, but the fixed-subject audit cannot consume its own result and no separately authorized later subject binds that result as evidence. That later evidence boundary is not complete, so this row remains incomplete."
     },
     {
       "id": "SCH-01",
