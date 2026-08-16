@@ -1,10 +1,13 @@
 # Stage 18 inactive-window contract checkpoint
 
-- Status: Published. Source-head hosted CI is green on attempt 1 across all
-  six jobs, including the first execution of the first-party packed-consumer
-  gate; `AM-02` remains incomplete pending the separately authorized
-  installed-state read
-- Date: 2026-08-13 (publication path added 2026-08-15; published 2026-08-15)
+- Status: Published and validated end-to-end. Hosted CI is green at the source
+  head and the evidence head (the packed-consumer gate passed both executions),
+  and the separately authorized installed-state read succeeded on 2026-08-16
+  with the real store's five-hour window inactive — the exact condition behind
+  the original refusals now normalizes instead of refusing. `developmentAccepted`
+  and `productionAdmitted` remain false pending operator acceptance
+- Date: 2026-08-13 (publication path added 2026-08-15; published 2026-08-15;
+  installed-state read 2026-08-16)
 - AI Development OS branch: `fix/stage-18-inactive-usage-window-contract`
 - AI Development OS base: `c50c4725981013f123ebef0d0a87082f085b333d`
 
@@ -279,10 +282,73 @@ published at a green exact head; `developmentAccepted` and
 change in its commit; the final evidence-head hosted run is recorded outside
 this file by the publication session.
 
+## Separately authorized installed-state read — 2026-08-16 result
+
+With the branch published and exact-head green (source run `31897858353`
+attempt 1; evidence run `31912729300` attempt 2 after one authorized
+transient-coverage rerun), the operator granted the prepared exact approval
+sentence bound to evidence commit `fdff306248b81d81bad6b0311931ea8e07114a28`
+(tree `65dc7cde24b946c4a423972d0126180e9ce2ec15`), the pinned maintained reader
+(commit `f958ccaee81452f919e7321078899de692f0c81c`, tree
+`04c22c65d5839a2c80f716e55f4f41d5ab79c6a7`, SHA-256
+`ba17ed90c603351c0e3737d9d10552b7571fecd19ff4fd451820111857d3b894`), data
+directory `C:\Users\mrali\AppData\Roaming\ClaudeAccountManager`, the single
+owned profile `65a193f4-6507-49b6-a345-65014767de82` (provider `claude-code`,
+authorized, not revoked), freshness 300000 ms, a 15-second deadline, one
+attempt with no retry, read-only, no UI automation, no credential access, and
+no profile enumeration. The operator supplied both operator-only values and
+performed the Account Manager refresh manually.
+
+Execution (exactly one attempt, after a synthetic-store dry-run validated the
+harness without touching the real store): `readAuthorizedSnapshot` via
+`createAccountManagerSupportedUsageAdapter` at this branch's published bytes,
+started 2026-08-16T00:20:46.865Z, deadline 00:21:01.873Z, completed
+00:20:46.877Z, exit 0. The reader artifact re-verified at 22,845 normalized
+bytes / `ba17ed90…b894` before the attempt; the reader-reported configuration
+fingerprint `4e542833a481ca7eb2148de55a4486f0c03b3523801f548ae2b903ea1be9e3f4`
+matched the adapter's expected value.
+
+Read-only proof (safe store metadata, byte-identical before and after):
+
+- `profiles.json` — 988 bytes, mtime `2026-07-10T11:32:48.176Z`, SHA-256
+  `ae67f39fbb5f49407e3dc838de2ea71cbec7f8090e14f0699b3af4e19e4cbb51`
+- `usage-snapshots.json` — 2,559 bytes, mtime `2026-08-16T00:09:53.846Z`
+  (the operator's manual refresh), SHA-256
+  `ede1ca9e6e1dc594dd66ad641a3211789568161cdfef8c031a770600fbd4725d`
+
+Only those two named files were opened; the data directory was never listed
+and no other profile was read.
+
+Normalized result (schema v3, `native-v3`): snapshot
+`usage:2eb1db93338e5c1fc1b1c1088cbfeac64eae6ff7`, source
+`usage:account-manager-reader` `v2:1.4.1`, source fingerprint
+`0876711137de94a5334feb07d86982ad8e0d2966ba5774fb767cd1abbcaba1bd`,
+`provider-authoritative`, `authoritative: true`, confidence high, timezone
+`Europe/London`, observedAt `2026-08-16T00:09:53.830Z`, freshUntil
+`2026-08-16T00:14:53.830Z`. **The real five-hour window was inactive**
+(`claude-code:five-hour:inactive`, status `inactive`, null used/remaining/reset
+— the exact live condition that produced this checkpoint's three recorded
+refusals, now represented truthfully by the inactive projection instead of
+refusing). The weekly window was active: 8,800 used / 1,200 remaining basis
+points, reset `2026-08-16T10:00:00.385Z`. The snapshot honestly self-describes
+as past `freshUntil` at the read instant (store age ≈ 10m53s), so schema-v3
+consumers must refuse to allocate on it until a fresher snapshot exists —
+freshness enforcement stays fail-closed downstream, exactly as designed.
+
+No retry occurred and none is authorized; a future read requires a new
+operator approval cycle. The evidence JSON and executed authorization packet
+are preserved in the operator-side preservation record
+(`installed-state-read-evidence-2026-08-16.json`, SHA-256
+`f84f1342f7966d6713b90e23c9f82fe1359e740e0cc945c7b333dcf018b01913`).
+
 ## Next live boundary
 
-Only after this AI Development OS branch is independently reviewed, committed,
-pushed, and exact-head green may the operator refresh the named owned profile
-and separately authorize exactly one repaired installed-state read. That read
-must use the maintained reader, one explicit profile allowlist, a 15-second
-deadline, safe before/after store metadata, redacted evidence, and no retry.
+The 2026-08-15 boundary — independent review, publication, exact-head green
+CI, then exactly one separately authorized repaired installed-state read with
+the maintained reader, one explicit profile allowlist, a 15-second deadline,
+safe before/after store metadata, redacted evidence, and no retry — was
+satisfied in full by the read recorded above once this evidence lands at a
+green exact head. The next boundary is an operator acceptance decision:
+setting `developmentAccepted` (and any later `productionAdmitted`), Anthropic
+branch integration, and Stage 20 work all remain unauthorized for automated
+sessions and require explicit operator direction.
