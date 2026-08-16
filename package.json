@@ -13,7 +13,8 @@
     "check": "npm run typecheck && npm run test && npm run build",
     "test": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "verify:packed-consumer": "node packages/application/scripts/packed-consumer/verify-packed-consumer.mjs"
   },
   "engines": {
     "node": ">=22.9.0",

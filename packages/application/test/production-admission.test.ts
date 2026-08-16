@@ -82,7 +82,7 @@ describe("Stage 18D refusal-only production admission", () => {
       persistence: createMemoryPersistenceAdapter(),
       usageAdapter: {
         adapterId: "adapter:admission-test",
-        schemaVersion: 2,
+        schemaVersion: 3,
         readAuthorizedSnapshot: async () => {
           reads += 1;
           return null;

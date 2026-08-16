@@ -338,11 +338,25 @@ the reviewed commit/tree/artifact, a nonsecret canonical reader-configuration
 fingerprint, and a separately trusted ownership/authorization/revocation
 projection before constructing a canonical snapshot. The historical fixture
 route remains for deterministic compatibility. No installed-state read ran in
-the implementation checkpoint, so `AM-02` and all production use remain gated.
-One later authorized read failed closed on the pre-repair route. The reader
-repair is published exact-head green, but the preserved AI Development OS
-consumer candidate was safety-blocked before publication and no post-repair
-installed-state read ran; `AM-02` therefore remains incomplete.
+the implementation checkpoint, and one later authorized read failed closed on
+the pre-repair route. Both the reader repair and the paired AI Development OS
+inactive-window consumer are now published exact-head green, including the
+first-party hosted packed-consumer gate, and one separately authorized
+post-repair installed-state read then succeeded once against the real store
+without UI, credential, or enumeration authority. `AM-02` is proven on that
+evidence. Production use stays gated regardless: proving the read-only input
+route grants no production admission, which remains blocked on Stage 17W.
+
+Reader protocol v2 maps provider windows to scheduler schema v3. Each required
+window is exactly `active` with bounded capacity/reset evidence or `inactive`
+with null capacity/reset evidence. The latter is retained for audit but makes
+the route ineligible before cap arithmetic for both owned and borrowed
+profiles. Legacy schema-v1/v2 snapshots remain bounded standalone parser and
+audit inputs. Worker runtime state, aggregate, and event schema v2 make the
+changed persisted projection explicit; work definitions remain v1. This
+checkpoint does not migrate or replay v1 worker aggregates or journals
+containing legacy snapshots. They fail closed before callbacks and never
+authorize new dispatch.
 
 A baseline score is:
 

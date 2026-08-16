@@ -21,12 +21,14 @@ import {
 import {
   parseCanonicalUsageSnapshot,
   validateUsageFreshness,
+  type AllocatableCanonicalUsageSnapshot,
   type NormalizedCanonicalUsageSnapshot,
 } from "./usage.js";
 import {
   WORKER_RUNTIME_EVENT_SCHEMA_VERSION,
   WORKER_RUNTIME_EVENT_TYPES,
   WORKER_RUNTIME_SCHEMA_VERSION,
+  WORKER_WORK_DEFINITION_SCHEMA_VERSION,
   type ProviderCircuitEvidence,
   type RuntimeUsageAdapterBinding,
   type RuntimeDispatchIntent,
@@ -346,7 +348,7 @@ export function parseRuntimeUsageAdapterBinding(
   const input = ensureRecord(value, path);
   ensureExactKeys(input, ["adapterId", "schemaVersion"], path);
   const schemaVersion = input["schemaVersion"];
-  if (schemaVersion !== 1 && schemaVersion !== 2) {
+  if (schemaVersion !== 1 && schemaVersion !== 2 && schemaVersion !== 3) {
     throw new SchedulerError(
       "INVALID_TASK",
       "The usage adapter schema version is unsupported.",
@@ -374,7 +376,7 @@ function assertUsageSnapshotForEvent(
   snapshot: NormalizedCanonicalUsageSnapshot,
   circuit: ProviderCircuitEvidence,
   event: WorkerRuntimeEvent,
-): void {
+): asserts snapshot is AllocatableCanonicalUsageSnapshot {
   const snapshotRecord = ensureRecord(rawSnapshot, "event.usageSnapshot");
   const now = new Date(event.occurredAt);
   const validity = validateUsageFreshness(
@@ -394,8 +396,10 @@ function assertUsageSnapshotForEvent(
   });
   if (
     !validity.eligible ||
-    state.usageAdapter.schemaVersion !== 2 ||
-    snapshotRecord["schemaVersion"] !== 2 ||
+    snapshot.fiveHour.status !== "active" ||
+    snapshot.weekly.status !== "active" ||
+    state.usageAdapter.schemaVersion !== 3 ||
+    snapshotRecord["schemaVersion"] !== 3 ||
     snapshot.sourceAdapterId !== state.usageAdapter.adapterId ||
     snapshot.profileId !== state.definition.candidate.profileId ||
     snapshot.providerId !== state.definition.candidate.providerId ||
@@ -421,6 +425,10 @@ function assertUsageSnapshotMonotonic(
   message: string,
 ): void {
   if (
+    previous.fiveHour.status !== "active" ||
+    previous.weekly.status !== "active" ||
+    next.fiveHour.status !== "active" ||
+    next.weekly.status !== "active" ||
     next.sourceAdapterVersion !== previous.sourceAdapterVersion ||
     next.sourceFingerprint !== previous.sourceFingerprint ||
     next.fiveHour.windowId !== previous.fiveHour.windowId ||
@@ -475,7 +483,7 @@ export function parseWorkerWorkDefinition(
       ],
       path,
     );
-    if (input["schemaVersion"] !== WORKER_RUNTIME_SCHEMA_VERSION) {
+    if (input["schemaVersion"] !== WORKER_WORK_DEFINITION_SCHEMA_VERSION) {
       fail(
         `${path}.schemaVersion`,
         "unsupported_schema",
@@ -510,7 +518,7 @@ export function parseWorkerWorkDefinition(
       );
     }
     const definition: WorkerWorkDefinition = Object.freeze({
-      schemaVersion: WORKER_RUNTIME_SCHEMA_VERSION,
+      schemaVersion: WORKER_WORK_DEFINITION_SCHEMA_VERSION,
       workId: id(input["workId"], `${path}.workId`),
       task,
       candidate,
@@ -2332,10 +2340,10 @@ export function parseWorkerRuntimeEvent(
       path,
     );
     if (input["schemaVersion"] !== WORKER_RUNTIME_EVENT_SCHEMA_VERSION) {
-      fail(
-        `${path}.schemaVersion`,
-        "unsupported_schema",
-        "must be schema version 1.",
+      throw new SchedulerError(
+        "INVALID_EVENT",
+        `Worker runtime events must use schema version ${WORKER_RUNTIME_EVENT_SCHEMA_VERSION}.`,
+        { supportedSchemaVersion: WORKER_RUNTIME_EVENT_SCHEMA_VERSION },
       );
     }
     const payload = canonicalizeWorkerEventPayload(

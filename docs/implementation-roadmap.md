@@ -705,10 +705,14 @@ it does not identify the historical result. After publication and exact-head
 CI, one newly authorized repaired canary observed a provider response but
 failed closed with `TRANSPORT_FAILURE` at `response-received`; its distinct
 marker is consumed and it was not retried. This is not a successful live proof.
-The Account Manager repair branch is exact-head green; its
-preserved AI Development OS inactive-window consumer gate was safety-blocked
-before execution and publication, so no post-repair installed-state read ran.
-`ANT-02` and `AM-02` therefore remain incomplete and
+ADR 0031 then added the eighteen-category diagnostic envelope, which sharpens
+how a future finite failure is classified without altering the fixed request or
+enabling any dispatch. Reader protocol v2 and scheduler schema v3 preserve
+legitimate inactive windows as null-capacity, non-allocatable evidence; that
+contract is published, its first-party hosted packed-consumer gate is green,
+and one separately authorized installed-state read then succeeded on
+2026-08-16 through the maintained reader against the real store, so `AM-02` is
+proven. `ANT-02` therefore remains the only incomplete development row and
 `developmentAccepted` remains false. Production admission remains blocked on
 Stage 17W and no Stage 18 checkpoint changes that gate. Query-native,
 high-throughput team scheduling remains a deployment-scale nonclaim rather than
@@ -721,9 +725,11 @@ source-head-green packet records the operator's exact input authorization: one
 criterion manifest, all 16 candidate evidence digests, and zero waivers.
 The packet authorizes only eligibility for deterministic evaluation. Twelve
 frozen proven rows pass; `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01` retain failed
-criterion outcomes, so the official result remains rejected. `ANT-02` and
-`AM-02` are the actual development blockers, while `PRD-01` remains the correct
-fail-closed production gate. The audit cannot consume its own result. Phase A
+criterion outcomes, so the official result remains rejected. That frozen
+outcome is historical and is not restated by later work: `AM-02` was proven
+after the Phase A subject was taken, so on the current candidate `ANT-02` is
+the only development blocker, while `PRD-01` remains the correct fail-closed
+production gate. The audit cannot consume its own result. Phase A
 is now separately committed, published, reviewed within its stated same-family
 limitations, and source-head hosted-green, but no separately authorized later
 subject consumes that result as evidence. `PLN-02` therefore remains
@@ -780,8 +786,10 @@ Deliverables:
   may not knowingly cross either active ceiling, and stale, unavailable,
   ambiguous, or inconsistent capped-profile usage fails closed.
 - Source-attributed normalized usage snapshots carrying profile/window identity,
-  observed/reset times, timezone, freshness, and authoritative-versus-estimated
-  status without credentials or cross-profile leakage.
+  explicit active/inactive status, observed/reset times, timezone, freshness,
+  and authoritative-versus-estimated status without credentials or
+  cross-profile leakage. Inactive required windows remain non-allocatable and
+  are never interpreted as zero usage or unlimited capacity.
 - A separately authorized, commit-pinned, all-files review of
   [`alijabbar04/ai-account-manager`](https://github.com/alijabbar04/ai-account-manager),
   tracing usage/session/profile data, authority, credentials, isolation,

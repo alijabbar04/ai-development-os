@@ -78,11 +78,11 @@ function routeInputs(snapshot: ProductPlanSnapshot, phaseId: string, clock: Manu
       predictedWeeklyBasisPoints: 100,
     },
     usage: {
-      schemaVersion: 2,
-      compatibility: "native-v2",
+      schemaVersion: 3,
+      compatibility: "native-v3",
       snapshotId: `usage:${phase.phaseId.slice(-16)}`,
       sourceAdapterId: "usage-adapter:test",
-      sourceAdapterVersion: "version:2",
+      sourceAdapterVersion: "version:3",
       sourceFingerprint: "a".repeat(64),
       sourceClass: "provider-authoritative",
       authoritative: true,
@@ -95,8 +95,8 @@ function routeInputs(snapshot: ProductPlanSnapshot, phaseId: string, clock: Manu
       timezone: "Europe/London",
       observedAt: clock.now().toISOString(),
       freshUntil: "2026-08-10T10:15:00.000Z",
-      fiveHour: { windowId: "window:five-hour:planning", usedBasisPoints: 100, remainingBasisPoints: 9_900, resetAt: "2026-08-10T13:00:00.000Z" },
-      weekly: { windowId: "window:weekly:planning", usedBasisPoints: 200, remainingBasisPoints: 9_800, resetAt: "2026-08-17T00:00:00.000Z" },
+      fiveHour: { windowId: "window:five-hour:planning", status: "active", usedBasisPoints: 100, remainingBasisPoints: 9_900, resetAt: "2026-08-10T13:00:00.000Z" },
+      weekly: { windowId: "window:weekly:planning", status: "active", usedBasisPoints: 200, remainingBasisPoints: 9_800, resetAt: "2026-08-17T00:00:00.000Z" },
     },
   };
 }

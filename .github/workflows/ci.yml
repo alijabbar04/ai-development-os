@@ -246,6 +246,53 @@ jobs:
       - run: npm run test --workspace @ai-dev-os/application
       - run: npm run test:coverage --workspace @ai-dev-os/persistence-postgres
 
+  # AM-02 first-party packed-consumer gate (Stage 18 inactive-window contract).
+  #
+  # This job exists because the equivalent one-shot LOCAL packed-consumer
+  # command was refused by a platform safety control and is permanently
+  # consumed for that task; the repeatable, reviewable, repository-owned
+  # replacement runs here on every push instead. It packs the seven
+  # consumer-relevant workspaces from the exact checked-out head, installs
+  # those tarballs into a fresh task-owned consumer directory on the runner
+  # with lifecycle scripts disabled, verifies the dependency graph and the
+  # high-severity audit, and then proves the documented production entry
+  # points in the packed layout: the pinned Account Manager reader protocol
+  # v2, explicit active/inactive window semantics, the borrowed 50%/70% hard
+  # caps, the Fable exclusion, and the fail-closed refusal matrix — against
+  # bounded synthetic stores only. It never reads installed Account Manager
+  # state, never touches a credential, and never publishes anything: the
+  # tarballs stay in the runner's task-owned temp directory.
+  #
+  # Windows deliberately: this is the supported desktop target and the
+  # platform the acceptance evidence is measured on.
+  #
+  # `npm ci --ignore-scripts` is sufficient here because this gate needs only
+  # `tsc` builds. The verifier's consumer install is also scripts-disabled and
+  # then performs the repository's single sanctioned lifecycle exception —
+  # one explicit `npm rebuild better-sqlite3` — because
+  # @ai-dev-os/application eagerly composes the SQLite adapter and a real
+  # consumer cannot import the production root without that native binding
+  # (see the `check` job's better-sqlite3 note above).
+  packed-consumer:
+    name: packed consumer (windows)
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - run: npm run build
+
+      - run: npm run verify:packed-consumer
+
 # What this workflow deliberately does NOT do, recorded so nobody adds it by
 # assuming it was forgotten:
 #
@@ -259,7 +306,9 @@ jobs:
 #   - no live provider or model calls, and no provider/operator credentials;
 #   - GitHub supplies only its normal ephemeral read-only job token; checkout
 #     does not persist it, and no provider/operator credential secret is used;
-#   - no package publication, release creation, or tag creation.
+#   - no package publication, release creation, or tag creation — the
+#     packed-consumer job's `npm pack` output stays in the runner's task-owned
+#     temp directory and is never uploaded or published.
 #
 # Stage 17 native components are built and self-tested only by the local
 # packaging script, under explicit human operation. Stage 17 remains gated and

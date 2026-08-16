@@ -129,8 +129,8 @@ const definition = createApplicationContractDefinition;
 
 function usageSnapshot(): NormalizedCanonicalUsageSnapshot {
   return {
-    schemaVersion: 2,
-    compatibility: "native-v2",
+    schemaVersion: 3,
+    compatibility: "native-v3",
     snapshotId: "usage:application-contract",
     sourceAdapterId: "adapter:application-contract",
     sourceAdapterVersion: "version:1",
@@ -148,12 +148,14 @@ function usageSnapshot(): NormalizedCanonicalUsageSnapshot {
     freshUntil: "2026-08-10T10:15:00.000Z",
     fiveHour: {
       windowId: "window:five-hour:application-contract",
+      status: "active",
       usedBasisPoints: 1_000,
       remainingBasisPoints: 9_000,
       resetAt: "2026-08-10T13:00:00.000Z",
     },
     weekly: {
       windowId: "window:weekly:application-contract",
+      status: "active",
       usedBasisPoints: 2_000,
       remainingBasisPoints: 8_000,
       resetAt: "2026-08-17T00:00:00.000Z",
@@ -166,7 +168,7 @@ function usageAdapter(
 ): UsageSnapshotAdapter {
   return Object.freeze({
     adapterId,
-    schemaVersion: 2,
+    schemaVersion: 3,
     readAuthorizedSnapshot: async () => usageSnapshot(),
   });
 }

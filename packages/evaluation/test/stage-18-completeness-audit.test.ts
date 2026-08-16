@@ -872,10 +872,15 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
   it("gives only the two audit-executing hosted jobs the required subject history", () => {
     const workflow = readFileSync(resolve(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8")
       .replaceAll("\r\n", "\n");
-    expect(workflow.match(/uses: actions\/checkout@/g)).toHaveLength(4);
-    expect(workflow.match(/persist-credentials: false/g)).toHaveLength(4);
+    // Five hosted jobs since the AM-02 packed-consumer gate joined this
+    // workflow. Only the two audit-executing jobs may carry subject history.
+    expect(workflow.match(/uses: actions\/checkout@/g)).toHaveLength(5);
+    expect(workflow.match(/persist-credentials: false/g)).toHaveLength(5);
     expect(workflow.match(/fetch-depth: 0/g)).toHaveLength(2);
-    const job = (name: "check" | "audit" | "coverage" | "postgres", next: string): string => {
+    const job = (
+      name: "check" | "audit" | "coverage" | "postgres" | "packed-consumer",
+      next: string,
+    ): string => {
       const start = workflow.indexOf(`  ${name}:\n`);
       const end = workflow.indexOf(next, start + 1);
       expect(start, `${name} job is missing`).toBeGreaterThanOrEqual(0);
@@ -885,8 +890,12 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
     const check = job("check", "  audit:\n");
     const audit = job("audit", "  coverage:\n");
     const coverage = job("coverage", "  postgres:\n");
-    const postgres = job("postgres", "# What this workflow deliberately does NOT do");
-    for (const body of [check, audit, coverage, postgres]) {
+    const postgres = job("postgres", "  packed-consumer:\n");
+    const packedConsumer = job(
+      "packed-consumer",
+      "# What this workflow deliberately does NOT do",
+    );
+    for (const body of [check, audit, coverage, postgres, packedConsumer]) {
       expect(body.match(/uses: actions\/checkout@/g)).toHaveLength(1);
       expect(body.match(/persist-credentials: false/g)).toHaveLength(1);
     }
@@ -894,6 +903,7 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
     expect(coverage.match(/fetch-depth: 0/g)).toHaveLength(1);
     expect(audit).not.toContain("fetch-depth:");
     expect(postgres).not.toContain("fetch-depth:");
+    expect(packedConsumer).not.toContain("fetch-depth:");
   });
 
   it("binds operator-authorized inputs to every row without authorizing their outcome", () => {

@@ -59,7 +59,7 @@ describe("machine-checkable Stage 18 development acceptance matrix", () => {
     ]);
     expect(matrix).toMatchObject({
       schemaVersion: 1,
-      branch: "feat/stage-18-authorized-completeness-audit",
+      branch: "feat/stage-18-development-closure-candidate",
       productionAdmitted: false,
     });
     expect(matrix.sourceBase).toBe(
@@ -113,8 +113,18 @@ describe("machine-checkable Stage 18 development acceptance matrix", () => {
   it("derives the only permitted outcome instead of trusting prose", () => {
     const byId = new Map(matrix.rows.map((row) => [row.id, row]));
     expect(byId.get("ANT-02")?.status).toBe("incomplete");
-    expect(byId.get("AM-02")?.status).toBe("incomplete");
+    expect(byId.get("AM-02")?.status).toBe("proven");
     expect(byId.get("PLN-02")?.status).toBe("incomplete");
+    expect(byId.get("INT-01")?.status).toBe("proven");
+    expect(byId.get("PRD-01")?.status).toBe("production-gated");
+    // AM-02 was promoted on this combined candidate, so ANT-02 must be the
+    // only remaining development blocker. Pinning the exact set stops a later
+    // edit from either quietly promoting ANT-02 or silently regressing AM-02.
+    expect(
+      matrix.rows
+        .filter((row) => row.blocksDevelopmentAcceptance && row.status !== "proven")
+        .map((row) => row.id),
+    ).toEqual(["ANT-02"]);
     expect(new Set(matrix.checkpointRows).size).toBe(matrix.checkpointRows.length);
     const checkpointIncomplete = matrix.checkpointRows.some((id) => {
       const row = byId.get(id);

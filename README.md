@@ -39,7 +39,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D and the production-disabled exact-reference Windows credential broker are published exact-head green, and `INT-01` is proven. The first owned-reference Anthropic canary ended with an unphased `TRANSPORT_FAILURE`; after deterministic classification repair, one separately authorized no-retry canary received a provider response but failed closed with `TRANSPORT_FAILURE` at `response-received`. Neither attempt is a successful transport proof. The inactive-window candidate remains safety-blocked before its packed-consumer/publication gate. The published, source-head-green fixed-subject audit checkpoint records exact operator authorization for its manifest and 16 evidence instances without authorizing their outcomes: 12 frozen proven rows pass, while `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01` remain failed audit criteria. `ANT-02` and `AM-02` remain the development blockers; `PRD-01` correctly remains a production gate. The Phase A result is now eligible to be considered only as input to a separately authorized later subject; no such subject has promoted `PLN-02`. Production remains blocked on Stage 17W. |
+| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D and the production-disabled exact-reference Windows credential broker are published exact-head green, and `INT-01` is proven. `AM-02` is now **proven**: the protocol-v2 inactive-window contract is published, its first-party hosted packed-consumer gate passed, and one separately authorized read-only installed-state read produced a supported authorized-profile snapshot without UI or credential extraction. The first owned-reference Anthropic canary ended with an unphased `TRANSPORT_FAILURE`; after deterministic classification repair, one separately authorized no-retry canary received a provider response but failed closed with `TRANSPORT_FAILURE` at `response-received`, and the diagnostic envelope now classifies finite failures into eighteen categories. Neither attempt is a successful transport proof, so **`ANT-02` is the sole remaining development blocker**. The published, source-head-green fixed-subject audit checkpoint records exact operator authorization for its manifest and 16 evidence instances without authorizing their outcomes: 12 frozen proven rows pass, while `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01` remain failed criteria of that frozen Phase A subject, which predates this candidate. `PLN-02` is production-track and `PRD-01` correctly remains a production gate; no separately authorized later subject has promoted `PLN-02`. Production remains blocked on Stage 17W. |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
@@ -65,14 +65,18 @@ Three things are stated plainly because they are easy to assume the other way:
   18B, 18C, and 18D are published, and Stage 19B proves `INT-01`. The reviewed
   Anthropic canary, supported Account Manager reader, and policy-aware
   exact-reference Windows credential broker exist and the broker is published
-  exact-head green. The historical owned-reference canary ended ambiguously;
-  one later, separately authorized repaired canary observed a response and
-  failed closed at `response-received`. Both attempts are consumed without
-  retry and no successful live proof exists. The
-  repaired inactive-window consumer gate was safety-blocked before
-  publication, so no repaired installed-state read ran. `ANT-02`, `AM-02`, and
-  development acceptance remain incomplete. The admission schema has no
-  admitted variant and production stays blocked on Stage 17W.
+  exact-head green. `AM-02` is proven: the protocol-v2 inactive-window repair
+  is published, its first-party hosted packed-consumer gate passed, and one
+  separately authorized read-only installed-state read produced a supported
+  authorized-profile snapshot — the real five-hour window was inactive and is
+  now projected honestly instead of refusing, while the past-`freshUntil`
+  snapshot still refuses to allocate downstream. The historical
+  owned-reference canary ended ambiguously; one later, separately authorized
+  repaired canary observed a response and failed closed at
+  `response-received`. Both attempts are consumed without retry and no
+  successful live proof exists, so `ANT-02` and development acceptance remain
+  incomplete and `ANT-02` is the only development blocker left. The admission
+  schema has no admitted variant and production stays blocked on Stage 17W.
 
 ## Documents
 

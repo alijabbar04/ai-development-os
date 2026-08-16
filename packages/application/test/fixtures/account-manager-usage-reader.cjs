@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const READER_ID = "ai-account-manager.usage-reader";
-const READER_PROTOCOL_VERSION = 1;
+const READER_PROTOCOL_VERSION = 2;
 const RUNTIME_VERSION = "1.4.1";
 const REPOSITORY_URL =
   "https://github.com/alijabbar04/ai-account-manager.git";
@@ -474,13 +474,30 @@ function parseLimit(value) {
   if (typeof limit.kind !== "string" || limit.kind.length > 64) {
     fail("SNAPSHOT_INVALID");
   }
-  if (limit.isActive !== undefined && limit.isActive !== true) {
+  if (limit.isActive !== undefined && typeof limit.isActive !== "boolean") {
+    fail("SNAPSHOT_INVALID");
+  }
+  const active = limit.isActive !== false;
+  let usedBasisPoints = null;
+  if (limit.percent !== undefined && limit.percent !== null) {
+    usedBasisPoints = basisPoints(limit.percent);
+  }
+  let resetAt = null;
+  if (limit.resetsAt !== undefined && limit.resetsAt !== null) {
+    resetAt = timestamp(limit.resetsAt);
+  }
+  if (active && (usedBasisPoints === null || resetAt === null)) {
     fail("SNAPSHOT_INVALID");
   }
   return Object.freeze({
     kind: limit.kind,
-    usedBasisPoints: basisPoints(limit.percent),
-    resetAt: timestamp(limit.resetsAt),
+    status: active ? "active" : "inactive",
+    // Account Manager normalizes a missing inactive percentage to zero. That
+    // placeholder is not provider capacity and must never become allocatable
+    // usage evidence. Present inactive values are validated above, then
+    // deliberately projected as unavailable.
+    usedBasisPoints: active ? usedBasisPoints : null,
+    resetAt: active ? resetAt : null,
   });
 }
 
@@ -526,19 +543,31 @@ function parseSnapshot(value, request, nowMs) {
     fail(sessions.length > 1 || weeklies.length > 1 ? "SNAPSHOT_AMBIGUOUS" : "SNAPSHOT_INVALID");
   }
   const normalizeWindow = (limit, prefix) => {
+    if (limit.status === "inactive") {
+      return Object.freeze({
+        windowId: `${prefix}:inactive`,
+        status: "inactive",
+        usedBasisPoints: null,
+        remainingBasisPoints: null,
+        resetAt: null,
+      });
+    }
     const resetMs = Date.parse(limit.resetAt);
     if (resetMs <= observedMs) fail("SNAPSHOT_INVALID");
     return Object.freeze({
       windowId: `${prefix}:${limit.resetAt}`,
+      status: "active",
       usedBasisPoints: limit.usedBasisPoints,
       remainingBasisPoints: 10_000 - limit.usedBasisPoints,
       resetAt: limit.resetAt,
     });
   };
+  const activeResetTimes = [sessions[0], weeklies[0]]
+    .filter((limit) => limit.status === "active")
+    .map((limit) => Date.parse(limit.resetAt));
   const freshUntilMs = Math.min(
     observedMs + request.freshnessMs,
-    Date.parse(sessions[0].resetAt),
-    Date.parse(weeklies[0].resetAt),
+    ...activeResetTimes,
   );
   const observationBase = Object.freeze({
     sourceClass: raw.ok ? "provider-authoritative" : "provider-cached",

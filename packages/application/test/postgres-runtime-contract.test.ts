@@ -79,7 +79,7 @@ if (connection === null) {
         postgres: { connection, schema: schemaName },
         usageAdapter: {
           adapterId: "adapter:postgres-application-test",
-          schemaVersion: 2,
+          schemaVersion: 3,
           readAuthorizedSnapshot: async () => null,
         },
       });
@@ -99,7 +99,7 @@ if (connection === null) {
       const clock = createApplicationContractClock();
       const usageAdapter = {
         adapterId: "adapter:postgres-independent-claims",
-        schemaVersion: 2 as const,
+        schemaVersion: 3 as const,
         readAuthorizedSnapshot: async () => null,
       };
       const first = await createPostgresProductionDisabledApplication({
@@ -167,14 +167,14 @@ if (connection === null) {
       const adapterId = "adapter:postgres-borrowed-cap";
       const usageAdapter: UsageSnapshotAdapter = Object.freeze({
         adapterId,
-        schemaVersion: 2,
+        schemaVersion: 3,
         async readAuthorizedSnapshot(requestedProfileId: string) {
           if (requestedProfileId !== profileId) {
             return null;
           }
           return {
-            schemaVersion: 2,
-            compatibility: "native-v2",
+            schemaVersion: 3,
+            compatibility: "native-v3",
             snapshotId: "usage:postgres-borrowed-cap",
             sourceAdapterId: adapterId,
             sourceAdapterVersion: "version:1",
@@ -192,12 +192,14 @@ if (connection === null) {
             freshUntil: "2026-08-10T10:15:00.000Z",
             fiveHour: {
               windowId: "window:postgres-borrowed-cap:five-hour",
+              status: "active",
               usedBasisPoints: 4_800,
               remainingBasisPoints: 5_200,
               resetAt: "2026-08-10T13:00:00.000Z",
             },
             weekly: {
               windowId: "window:postgres-borrowed-cap:weekly",
+              status: "active",
               usedBasisPoints: 6_800,
               remainingBasisPoints: 3_200,
               resetAt: "2026-08-17T00:00:00.000Z",
@@ -380,7 +382,7 @@ if (connection === null) {
         postgres: { connection, schema: schemaName },
         usageAdapter: {
           adapterId: "adapter:postgres-process-claims",
-          schemaVersion: 2,
+          schemaVersion: 3,
           readAuthorizedSnapshot: async () => null,
         },
         clock,

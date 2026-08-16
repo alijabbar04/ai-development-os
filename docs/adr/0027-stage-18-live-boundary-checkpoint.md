@@ -1,7 +1,8 @@
 # ADR 0027: Stage 18 live-boundary implementation checkpoint
 
-- Status: Proposed implementation checkpoint; `ANT-02` and `AM-02` remain incomplete
+- Status: Proposed implementation checkpoint; `AM-02` is now proven and `ANT-02` remains incomplete
 - Date: 2026-08-12
+- Updated: 2026-08-16 (superseded on the live-boundary outcome by ADR 0032)
 
 ## Context
 
@@ -72,12 +73,12 @@ Add a maintained CommonJS library/CLI subpath to the separate Account Manager
 repository and pin the AI Development OS adapter to its exact reviewed source:
 
 - repository `https://github.com/alijabbar04/ai-account-manager`;
-- commit `5279113728a344a87a7e49c4222741a618b67dd5`;
-- tree `e8c342a77eaf01535db2bed2819e5ad87e1876df`;
-- 29-path inventory SHA-256
-  `df89d81c692f298b56ead07c4822a8efc87113919d5594ec0069df59d1161bf3`;
+- commit `f958ccaee81452f919e7321078899de692f0c81c`;
+- tree `04c22c65d5839a2c80f716e55f4f41d5ab79c6a7`;
+- 32-path inventory SHA-256
+  `1c22b7d9ed06654563254f37495a774f7c81c7dd6bc376b5af43c84ff710c9e4`;
 - normalized reader-source SHA-256
-  `7626a6e24a10cf479983de7a1c7882ebf87a4ae45bf442c1b1f5a9d65ed04e40`.
+  `ba17ed90c603351c0e3737d9d10552b7571fecd19ff4fd451820111857d3b894`.
 
 The reader is read-only, uses a caller-provided explicit profile allowlist, and
 emits only a versioned `claude-code` profile/quota observation. It excludes
@@ -91,6 +92,20 @@ again after the bounded synchronous read; it does not claim that JavaScript can
 interrupt an in-progress synchronous filesystem call. UNC/device paths are
 rejected. Drive mappings and mounted/network-backed local paths are outside the
 reader's no-network claim and must be excluded by deployment policy.
+
+Reader protocol v2 and scheduler snapshot schema v3 make required-window state
+explicit. An active window has exact bounded basis-point and reset evidence. An
+inactive window has a stable identity and null capacity/reset fields. Inactive
+evidence remains a valid source observation but is non-allocatable for owned or
+borrowed routing; it never means zero usage or unlimited capacity. Irrelevant
+inactive model-scoped windows are ignored only after exact bounded parsing,
+while duplicates, missing required kinds, or contradictory state still fail
+closed. Schema-v1/v2 scheduler snapshots remain audit-readable but cannot
+authorize dispatch. Because the persisted worker projection now contains the
+schema-v3 union, worker runtime state, aggregate, and event envelopes advance
+from v1 to v2. Work definitions remain v1. This checkpoint refuses old v1
+worker aggregates before callbacks instead of silently reinterpreting or
+migrating their journals.
 
 The AI Development OS public adapter accepts only an explicit absolute reader
 module path, verifies the exact normalized source digest with a bounded
@@ -109,11 +124,13 @@ predicted-crossing, and Fable exclusions still run after normalization.
 ### Acceptance and production state
 
 `ANT-02` remains `incomplete` until one eligible existing owned scoped-secret
-route passes the reviewed canary. No secret search is permitted. `AM-02` remains
-`incomplete` until an explicitly authorized installed-state read proves the
-exact supported route without UI or credential extraction and exact-head
-hosted evidence is available. The implementation/test anchors are recorded in
-the matrix now so the rows describe the real remaining gap rather than claiming
+route passes the reviewed canary. No secret search is permitted. `AM-02` was
+`incomplete` until an explicitly authorized installed-state read proved the
+exact supported route without UI or credential extraction with exact-head
+hosted evidence available; that condition was met on 2026-08-16 and the row is
+now `proven` (see Consequences). The criterion itself is unchanged and is not
+weakened by having been satisfied. The implementation/test anchors are recorded
+in the matrix so the rows describe the real remaining gap rather than claiming
 the harnesses do not exist.
 
 `developmentAccepted` therefore remains `false`. `productionAdmitted` remains
@@ -136,14 +153,28 @@ Stage 17W is still gated.
 ## Consequences and remaining work
 
 The two previously missing live-boundary implementations are now reviewable and
-finite, but neither has produced its required successful proof. Two separately
-authorized Anthropic canary instances have consumed their one-attempt markers:
-the historical result was unphased, while the repaired attempt observed a
-response and failed closed at `response-received`. Neither was retried. The
-post-repair Account Manager consumer remains unpublished because its ordinary
-packed-consumer gate was safety-blocked, so no eligible post-repair installed-
-state read exists. Both rows still require successful exact-head-bound evidence
-before they can become proven.
+finite, and exactly one of them has now produced its required successful proof.
+
+The Account Manager boundary is satisfied. The protocol-v2 inactive-window
+repair was published, its first-party hosted packed-consumer gate executed
+green, and one separately authorized installed-state read then ran once through
+the maintained reader against the real store: one allowlisted owned profile, a
+15-second deadline, no retry, no UI automation, no credential access, no
+directory enumeration, and byte-identical store metadata before and after. The
+real five-hour window was inactive and normalized honestly instead of refusing,
+while the resulting past-`freshUntil` snapshot still refuses allocation
+downstream. `AM-02` is proven on that exact-head-green evidence; a further read
+would require a new operator approval cycle.
+
+The Anthropic boundary is not satisfied. Two separately authorized canary
+instances have consumed their one-attempt markers: the historical result was
+unphased, while the repaired attempt observed a response and failed closed at
+`response-received`. Neither was retried, and both markers stay consumed. The
+diagnostic envelope added later classifies finite failures into eighteen
+categories, which improves the fidelity of a future attempt but is not itself
+transport proof. `ANT-02` still requires one successful live transport result
+under a fresh one-shot authorization, bound to an exact head with a green
+hosted gate, before that row can become proven.
 
 No production provider, worker, workspace, Git, native-execution, daemon, UI,
 messaging, release, package publication, or Stage 20 authority follows from

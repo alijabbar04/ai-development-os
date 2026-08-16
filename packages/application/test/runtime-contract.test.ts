@@ -59,7 +59,7 @@ describe("production-disabled application surface", () => {
       clock: createApplicationContractClock(),
       usageAdapter: {
         adapterId: "adapter:claim-retry",
-        schemaVersion: 2,
+        schemaVersion: 3,
         readAuthorizedSnapshot: async () => null,
       },
     });
@@ -88,7 +88,7 @@ describe("production-disabled application surface", () => {
       persistence: createMemoryPersistenceAdapter(),
       usageAdapter: {
         adapterId: "adapter:empty",
-        schemaVersion: 2,
+        schemaVersion: 3,
         readAuthorizedSnapshot: async () => null,
       },
     });
@@ -116,7 +116,7 @@ describe("production-disabled application surface", () => {
       persistence: createMemoryPersistenceAdapter(),
       usageAdapter: {
         adapterId: "adapter:empty",
-        schemaVersion: 2,
+        schemaVersion: 3,
         readAuthorizedSnapshot: async () => null,
       },
     });
@@ -145,7 +145,7 @@ describe("production-disabled application surface", () => {
     const file = join(directory, "windows-local.db");
     const usageAdapter = {
       adapterId: "adapter:empty",
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       readAuthorizedSnapshot: async () => null,
     };
     try {

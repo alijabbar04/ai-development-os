@@ -41,7 +41,7 @@ describe("PostgreSQL application composition seam", () => {
       clock,
       usageAdapter: {
         adapterId: "adapter:postgres-factory-unit",
-        schemaVersion: 2,
+        schemaVersion: 3,
         readAuthorizedSnapshot: async () => null,
       },
     });
@@ -71,11 +71,11 @@ describe("PostgreSQL application composition seam", () => {
       readAuthorizedSnapshot(): Promise<null>;
     } = {
       adapterId: "adapter:postgres-factory-cleanup",
-      schemaVersion: 2,
+      schemaVersion: 3,
       readAuthorizedSnapshot: async () => null,
     };
     mocks.createPostgresPersistenceAdapter.mockImplementationOnce(async () => {
-      usageAdapter.schemaVersion = 3;
+      usageAdapter.schemaVersion = 4;
       return persistence;
     });
     await expect(
@@ -94,7 +94,7 @@ describe("PostgreSQL application composition seam", () => {
         postgres: { ...postgres, [key]: vi.fn() },
         usageAdapter: {
           adapterId: "adapter:postgres-factory-closed-options",
-          schemaVersion: 2,
+          schemaVersion: 3,
           readAuthorizedSnapshot: async () => null,
         },
       } as never)).rejects.toMatchObject({ code: "INVALID_COMMAND" });

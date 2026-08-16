@@ -23,7 +23,7 @@ if (
     postgres: { connection, schema },
     usageAdapter: {
       adapterId: "adapter:postgres-process-claims",
-      schemaVersion: 2,
+      schemaVersion: 3,
       readAuthorizedSnapshot: async () => null,
     },
     clock: { now: () => new Date("2026-08-10T10:00:00.000Z") },

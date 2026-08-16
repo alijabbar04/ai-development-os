@@ -63,8 +63,13 @@ For each borrowed profile:
 - the 70 percent weekly ceiling applies at all times, and dispatch must not
   occur at or above it or knowingly drive usage above it;
 - both ceilings are hard admission rules, not scoring preferences; and
-- stale, unavailable, ambiguous, or internally inconsistent usage data must
+- stale, unavailable, inactive, ambiguous, or internally inconsistent usage data must
   fail closed for capped-profile dispatch.
+
+Each required five-hour and weekly window must explicitly be active before any
+owned or borrowed allocation. A legitimate inactive window remains truthful
+evidence with no capacity/reset value; it must not be treated as zero usage,
+unlimited capacity, or an active eligibility signal.
 
 Each usage snapshot must identify the provider source, profile identity by a
 non-secret scoped reference, provider-defined window, observed time, reset
@@ -76,9 +81,9 @@ recording credentials, raw session material, or state from another profile.
 
 The reviewed source is
 [`alijabbar04/ai-account-manager`](https://github.com/alijabbar04/ai-account-manager).
-The supported reader checkpoint is pinned to commit
-`5279113728a344a87a7e49c4222741a618b67dd5`, tree
-`e8c342a77eaf01535db2bed2819e5ad87e1876df`, its full inventory, and the exact
+The repaired supported reader checkpoint is pinned to commit
+`f958ccaee81452f919e7321078899de692f0c81c`, tree
+`04c22c65d5839a2c80f716e55f4f41d5ab79c6a7`, its full inventory, and the exact
 reader artifact recorded by ADR 0027. It exposes a versioned read-only library
 and CLI with one explicit profile allowlist and emits only normalized
 `claude-code` usage/authority observations. AI Development OS additionally
@@ -87,18 +92,24 @@ authority before scheduler eligibility checks.
 
 This implementation does not itself prove a live installed-state route. No
 installed UI, browser/session state, credential, or profile store was accessed
-for the checkpoint, and `AM-02` remains incomplete until an explicitly
-authorized read and exact-head hosted evidence exist. UI scraping remains
+for the checkpoint; the live-route proof required an explicitly authorized read
+plus exact-head hosted evidence, recorded below. UI scraping remains
 prohibited.
 
 The 2026-08-13 operator-present follow-up invoked that exact maintained boundary
 once for one explicitly allowlisted owned profile. It failed closed with
 `USAGE_SOURCE_UNAVAILABLE`, changed no store metadata, and disclosed no private
-record. The Account Manager reader repair is now published and exact-head
-hosted-green, but the corresponding AI Development OS inactive-window
-packed-consumer gate was safety-blocked before execution and publication. No
-post-repair installed-state read ran. These are failed/incomplete evidence
-rather than live-route proof, so `AM-02` remains incomplete.
+record. That historical failed read predates the inactive-window repair and is
+not itself live-route proof. The Account Manager reader repair and the
+corresponding AI Development OS inactive-window contract are now both published
+and exact-head hosted-green, including the first-party packed-consumer gate.
+One further separately authorized read then ran once on 2026-08-16 through the
+maintained reader against the real store: the required five-hour window was
+genuinely inactive and was normalized as null-capacity, non-allocatable
+evidence instead of refusing, the weekly window projected normally, store
+metadata was byte-identical before and after, and no credential, profile
+enumeration, UI, or browser state was touched. That is the live-route proof,
+so `AM-02` is proven.
 
 ## Future Windows computer and internet authority
 

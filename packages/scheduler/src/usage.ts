@@ -16,7 +16,7 @@ const {
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 
-export const USAGE_SNAPSHOT_SCHEMA_VERSION = 2 as const;
+export const USAGE_SNAPSHOT_SCHEMA_VERSION = 3 as const;
 export const USAGE_TIMEZONE = "Europe/London" as const;
 export const BASIS_POINTS_FULL = 10_000;
 export const BORROWED_WORK_HOURS_FIVE_HOUR_CAP = 5_000;
@@ -51,9 +51,22 @@ export interface UsageWindowSnapshot {
   readonly resetAt: string;
 }
 
-export interface NormalizedUsageWindowSnapshot extends UsageWindowSnapshot {
+export interface ActiveNormalizedUsageWindowSnapshot extends UsageWindowSnapshot {
   readonly windowId: string;
+  readonly status: "active";
 }
+
+export interface InactiveNormalizedUsageWindowSnapshot {
+  readonly windowId: string;
+  readonly status: "inactive";
+  readonly usedBasisPoints: null;
+  readonly remainingBasisPoints: null;
+  readonly resetAt: null;
+}
+
+export type NormalizedUsageWindowSnapshot =
+  | ActiveNormalizedUsageWindowSnapshot
+  | InactiveNormalizedUsageWindowSnapshot;
 
 /**
  * Stage 18C canonical snapshot. It contains only scoped, non-secret identity
@@ -62,7 +75,7 @@ export interface NormalizedUsageWindowSnapshot extends UsageWindowSnapshot {
  */
 export interface NormalizedCanonicalUsageSnapshot {
   readonly schemaVersion: typeof USAGE_SNAPSHOT_SCHEMA_VERSION;
-  readonly compatibility: "native-v2" | "migrated-v1";
+  readonly compatibility: "native-v3" | "migrated-v2" | "migrated-v1";
   readonly snapshotId: string;
   readonly sourceAdapterId: string;
   readonly sourceAdapterVersion: string;
@@ -82,6 +95,14 @@ export interface NormalizedCanonicalUsageSnapshot {
   readonly weekly: NormalizedUsageWindowSnapshot;
 }
 
+export type AllocatableCanonicalUsageSnapshot = Omit<
+  NormalizedCanonicalUsageSnapshot,
+  "fiveHour" | "weekly"
+> & {
+  readonly fiveHour: ActiveNormalizedUsageWindowSnapshot;
+  readonly weekly: ActiveNormalizedUsageWindowSnapshot;
+};
+
 export interface LegacyCanonicalUsageSnapshotV1 {
   readonly schemaVersion: 1;
   readonly snapshotId: string;
@@ -98,9 +119,32 @@ export interface LegacyCanonicalUsageSnapshotV1 {
   readonly weekly: UsageWindowSnapshot;
 }
 
-/** Backward-compatible public input name; parsing always returns normalized v2. */
+export interface LegacyCanonicalUsageSnapshotV2 {
+  readonly schemaVersion: 2;
+  readonly compatibility: "native-v2" | "migrated-v1";
+  readonly snapshotId: string;
+  readonly sourceAdapterId: string;
+  readonly sourceAdapterVersion: string;
+  readonly sourceFingerprint: string;
+  readonly sourceClass: UsageSourceClass;
+  readonly authoritative: boolean;
+  readonly confidence: "high" | "medium" | "low";
+  readonly profileId: string;
+  readonly providerId: string;
+  readonly ownership: ProfileOwnershipClass;
+  readonly authorization: UsageAuthorizationClass;
+  readonly revocation: UsageRevocationClass;
+  readonly timezone: typeof USAGE_TIMEZONE;
+  readonly observedAt: string;
+  readonly freshUntil: string;
+  readonly fiveHour: Omit<ActiveNormalizedUsageWindowSnapshot, "status">;
+  readonly weekly: Omit<ActiveNormalizedUsageWindowSnapshot, "status">;
+}
+
+/** Backward-compatible public input name; parsing always returns normalized v3. */
 export type CanonicalUsageSnapshot =
   | NormalizedCanonicalUsageSnapshot
+  | LegacyCanonicalUsageSnapshotV2
   | LegacyCanonicalUsageSnapshotV1;
 export type CanonicalUsageSnapshotInput = CanonicalUsageSnapshot;
 
@@ -112,7 +156,7 @@ export interface UsageSnapshotReadRequest {
 
 export interface UsageSnapshotAdapter {
   readonly adapterId: string;
-  readonly schemaVersion: 1 | typeof USAGE_SNAPSHOT_SCHEMA_VERSION;
+  readonly schemaVersion: 1 | 2 | typeof USAGE_SNAPSHOT_SCHEMA_VERSION;
   readAuthorizedSnapshot(
     profileId: string,
     request?: UsageSnapshotReadRequest,
@@ -158,7 +202,7 @@ function parseWindowV1(
 function parseWindowV2(
   value: unknown,
   path: string,
-): NormalizedUsageWindowSnapshot {
+): ActiveNormalizedUsageWindowSnapshot {
   const input = ensureRecord(value, path);
   ensureExactKeys(
     input,
@@ -167,6 +211,57 @@ function parseWindowV2(
   );
   return Object.freeze({
     windowId: id(input["windowId"], `${path}.windowId`),
+    status: "active" as const,
+    ...parseWindowV1(
+      {
+        usedBasisPoints: input["usedBasisPoints"],
+        remainingBasisPoints: input["remainingBasisPoints"],
+        resetAt: input["resetAt"],
+      },
+      path,
+    ),
+  });
+}
+
+function parseWindowV3(
+  value: unknown,
+  path: string,
+): NormalizedUsageWindowSnapshot {
+  const input = ensureRecord(value, path);
+  ensureExactKeys(
+    input,
+    ["windowId", "status", "usedBasisPoints", "remainingBasisPoints", "resetAt"],
+    path,
+  );
+  const windowId = id(input["windowId"], `${path}.windowId`);
+  const status = ensureEnum(
+    input["status"],
+    `${path}.status`,
+    ["active", "inactive"] as const,
+  );
+  if (status === "inactive") {
+    if (
+      input["usedBasisPoints"] !== null ||
+      input["remainingBasisPoints"] !== null ||
+      input["resetAt"] !== null
+    ) {
+      fail(
+        path,
+        "inactive_window_has_capacity",
+        "inactive windows must carry null capacity and reset evidence.",
+      );
+    }
+    return Object.freeze({
+      windowId,
+      status,
+      usedBasisPoints: null,
+      remainingBasisPoints: null,
+      resetAt: null,
+    });
+  }
+  return Object.freeze({
+    windowId,
+    status,
     ...parseWindowV1(
       {
         usedBasisPoints: input["usedBasisPoints"],
@@ -269,16 +364,18 @@ function migrateV1(
         "five-hour",
         legacy.fiveHour.resetAt,
       ),
+      status: "active" as const,
       ...legacy.fiveHour,
     }),
     weekly: Object.freeze({
       windowId: stableLegacyWindowId(legacy, "weekly", legacy.weekly.resetAt),
+      status: "active" as const,
       ...legacy.weekly,
     }),
   });
 }
 
-function parseV2(
+function migrateV2(
   input: Record<string, unknown>,
   path: string,
 ): NormalizedCanonicalUsageSnapshot {
@@ -307,11 +404,14 @@ function parseV2(
     ],
     path,
   );
-  const compatibility = ensureEnum(
+  const legacyCompatibility = ensureEnum(
     input["compatibility"],
     `${path}.compatibility`,
     ["native-v2", "migrated-v1"] as const,
   );
+  const compatibility = legacyCompatibility === "native-v2"
+    ? "migrated-v2" as const
+    : "migrated-v1" as const;
   const sourceClass = ensureEnum(
     input["sourceClass"],
     `${path}.sourceClass`,
@@ -384,6 +484,116 @@ function parseV2(
   });
 }
 
+function parseV3(
+  input: Record<string, unknown>,
+  path: string,
+): NormalizedCanonicalUsageSnapshot {
+  ensureExactKeys(
+    input,
+    [
+      "schemaVersion",
+      "compatibility",
+      "snapshotId",
+      "sourceAdapterId",
+      "sourceAdapterVersion",
+      "sourceFingerprint",
+      "sourceClass",
+      "authoritative",
+      "confidence",
+      "profileId",
+      "providerId",
+      "ownership",
+      "authorization",
+      "revocation",
+      "timezone",
+      "observedAt",
+      "freshUntil",
+      "fiveHour",
+      "weekly",
+    ],
+    path,
+  );
+  const compatibility = ensureEnum(
+    input["compatibility"],
+    `${path}.compatibility`,
+    ["native-v3", "migrated-v2", "migrated-v1"] as const,
+  );
+  const sourceClass = ensureEnum(
+    input["sourceClass"],
+    `${path}.sourceClass`,
+    USAGE_SOURCE_CLASSES,
+  );
+  const authoritative = ensureBoolean(input["authoritative"], `${path}.authoritative`);
+  if (authoritative !== (sourceClass === "provider-authoritative")) {
+    fail(
+      `${path}.authoritative`,
+      "authority_mismatch",
+      "must be true exactly for provider-authoritative observations.",
+    );
+  }
+  const observedAt = ensureTimestamp(input["observedAt"], `${path}.observedAt`);
+  const freshUntil = ensureTimestamp(input["freshUntil"], `${path}.freshUntil`);
+  if (freshUntil < observedAt) {
+    fail(`${path}.freshUntil`, "backwards_time", "cannot precede observedAt.");
+  }
+  const fiveHour = parseWindowV3(input["fiveHour"], `${path}.fiveHour`);
+  const weekly = parseWindowV3(input["weekly"], `${path}.weekly`);
+  if (fiveHour.windowId === weekly.windowId) {
+    fail(path, "ambiguous_window", "five-hour and weekly window identities must differ.");
+  }
+  const activeResets = [fiveHour, weekly]
+    .filter((window): window is ActiveNormalizedUsageWindowSnapshot =>
+      window.status === "active")
+    .map((window) => window.resetAt);
+  if (activeResets.some((resetAt) => freshUntil > resetAt)) {
+    fail(
+      `${path}.freshUntil`,
+      "freshness_beyond_reset",
+      "cannot outlive an active provider window.",
+    );
+  }
+  return Object.freeze({
+    schemaVersion: USAGE_SNAPSHOT_SCHEMA_VERSION,
+    compatibility,
+    snapshotId: id(input["snapshotId"], `${path}.snapshotId`),
+    sourceAdapterId: id(input["sourceAdapterId"], `${path}.sourceAdapterId`),
+    sourceAdapterVersion: id(
+      input["sourceAdapterVersion"],
+      `${path}.sourceAdapterVersion`,
+    ),
+    sourceFingerprint: ensureString(
+      input["sourceFingerprint"],
+      `${path}.sourceFingerprint`,
+      { maxLength: 64, pattern: SHA256, patternName: "lowercase SHA-256" },
+    ),
+    sourceClass,
+    authoritative,
+    confidence: ensureEnum(
+      input["confidence"],
+      `${path}.confidence`,
+      ["high", "medium", "low"] as const,
+    ),
+    profileId: id(input["profileId"], `${path}.profileId`),
+    providerId: id(input["providerId"], `${path}.providerId`),
+    ownership: ensureEnum(input["ownership"], `${path}.ownership`, PROFILE_OWNERSHIP_CLASSES),
+    authorization: ensureEnum(
+      input["authorization"],
+      `${path}.authorization`,
+      USAGE_AUTHORIZATION_CLASSES,
+    ),
+    revocation: ensureEnum(
+      input["revocation"],
+      `${path}.revocation`,
+      USAGE_REVOCATION_CLASSES,
+    ),
+    timezone: ensureEnum(input["timezone"], `${path}.timezone`, [USAGE_TIMEZONE] as const),
+    observedAt,
+    freshUntil,
+    fiveHour,
+    weekly,
+  });
+}
+
 export function parseCanonicalUsageSnapshot(
   value: unknown,
   path = "usageSnapshot",
@@ -391,13 +601,14 @@ export function parseCanonicalUsageSnapshot(
   try {
     const input = ensureRecord(value, path);
     if (input["schemaVersion"] === 1) return migrateV1(input, path);
+    if (input["schemaVersion"] === 2) return migrateV2(input, path);
     if (input["schemaVersion"] === USAGE_SNAPSHOT_SCHEMA_VERSION) {
-      return parseV2(input, path);
+      return parseV3(input, path);
     }
     fail(
       `${path}.schemaVersion`,
       "unsupported_schema",
-      "must be schema version 1 or 2.",
+      "must be schema version 1, 2, or 3.",
     );
     throw new SchedulerError("INVALID_TASK", "The usage snapshot schema is unsupported.");
   } catch (error) {
@@ -424,9 +635,9 @@ export function validateUsageFreshness(
   const reasons: string[] = [];
   const nowMs = now.valueOf();
   const observedMs = Date.parse(snapshot.observedAt);
-  if (snapshot.compatibility !== "native-v2") {
-    rules.push("usage.schema-v2.required");
-    reasons.push("Legacy snapshots lack authorization, revocation, and freshness evidence.");
+  if (snapshot.compatibility !== "native-v3") {
+    rules.push("usage.schema-v3.required");
+    reasons.push("Legacy snapshots lack explicit active/inactive window evidence.");
   }
   if (
     !snapshot.authoritative ||
@@ -457,16 +668,20 @@ export function validateUsageFreshness(
     reasons.push("The source-declared freshness interval has expired.");
   }
   if (
-    Date.parse(snapshot.fiveHour.resetAt) <= observedMs ||
-    Date.parse(snapshot.weekly.resetAt) <= observedMs
+    snapshot.fiveHour.status !== "active" ||
+    snapshot.weekly.status !== "active"
   ) {
+    rules.push("usage.window.inactive");
+    reasons.push("Both required usage windows must be explicitly active.");
+  }
+  const activeWindows = [snapshot.fiveHour, snapshot.weekly]
+    .filter((window): window is ActiveNormalizedUsageWindowSnapshot =>
+      window.status === "active");
+  if (activeWindows.some((window) => Date.parse(window.resetAt) <= observedMs)) {
     rules.push("usage.reset.invalid");
     reasons.push("Usage reset times must follow the observation time.");
   }
-  if (
-    Date.parse(snapshot.fiveHour.resetAt) <= nowMs ||
-    Date.parse(snapshot.weekly.resetAt) <= nowMs
-  ) {
+  if (activeWindows.some((window) => Date.parse(window.resetAt) <= nowMs)) {
     rules.push("usage.window.expired");
     reasons.push("An expired usage window cannot authorize routing.");
   }
