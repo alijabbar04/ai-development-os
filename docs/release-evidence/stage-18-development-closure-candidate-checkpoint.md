@@ -321,3 +321,108 @@ recorded. Full detail, including dispositions, is in the readiness subject's
 
 No finding touched the repository merge, no evidence was rewritten, no gate was
 weakened, and ANT-02 was correctly not promoted.
+
+### Round 2
+
+A second fresh independent session reviewed whether those fixes were genuine
+and whether they introduced new defects. **Round 2 verdict: FAIL**, with three
+must-fix findings — two of them correctness defects introduced *by the round-1
+fixes*.
+
+It confirmed the round-1 repairs held under attack: twenty escaped-duplicate
+variants all refused with no false positives, an exhaustive search found no
+accepted record byte-identical to the fixed refusal, and the closure's native
+pinning was complete. It also re-derived every number in this checkpoint from
+git and by re-running the suites, including the full 3,469 passed / 29 skipped
+/ 0 failed across 40 workspaces, and found them exact.
+
+The three findings and their resolutions:
+
+1. The validator refused **every real `CALLBACK_RESULT_FAILURE`**. The canary
+   defaults that code's category to `broker-unavailable`, which the validator's
+   table omitted, so 100% of the class was discarded and reported as the fixed
+   refusal — laundering a dispatched attempt into an apparent no-op, the exact
+   harm round 1's second finding existed to prevent. Fixed by permitting the
+   full category set for that code, which wraps an arbitrary underlying
+   failure; the phase and per-field rules remain the discriminating checks.
+2. A `Retry-After` header on any non-429/529 response **destroyed the record**.
+   The canary reads that header from every response, so HTTP 503 with
+   `Retry-After` — the commonest real outage signature — was refused. Fixed by
+   treating retry-after as response-derived evidence bounded by the phase rule
+   rather than coupled to a category.
+3. This checkpoint's exact-head CI reference was **dangling** — it said
+   "recorded below" while no such section existed. Fixed by the section above.
+
+Both correctness defects are now covered by tests derived from the canary's own
+compiled module rather than from restated expectations, which closes the
+structural gap that hid them: the suite's category-indexed fixture table could
+not, by construction, reveal a missing code→category pair. The synthetic suite
+grew from 59 to 61 tests, all passing, with no security property regressed.
+
+Five advisories were raised; four were fixed and one accepted with its reason
+recorded. Full detail is in the readiness subject's
+`review/independent-review-round-2.md`.
+
+The pattern across both rounds is worth stating plainly, because it shaped the
+final design: round 1 found the validator too permissive, round 2 found the
+same validator too strict. Both are real failures. An over-strict boundary
+launders a real attempt into a no-op just as effectively as a permissive one
+accepts a forged result, and only the second round surfaced that direction.
+
+## Commits and remote
+
+Staged by explicit path only. No pull request, merge to `main`, rebase, force
+push, tag, or release occurred.
+
+1. `4440c65` — the non-fast-forward integration merge, parents exactly
+   `edefcb80…` and `0197176e…`, tree `1a0bacdd…`. Carries the conflict
+   resolutions, the reconciliation, ADR 0032, and this checkpoint.
+2. `3f6495a` — validation and review-round-1 evidence, tree `23fe5db9…`.
+
+At `3f6495a`, local `HEAD`, upstream, the tracking ref
+`refs/remotes/origin/feat/stage-18-development-closure-candidate`, and the live
+remote ref were all verified equal, with a clean worktree and a clean index.
+The push established the branch upstream and was non-forced; the branch did not
+previously exist locally or on the remote.
+
+## Exact-head hosted CI
+
+Run [`31942920123`](https://github.com/alijabbar04/ai-development-os/actions/runs/31942920123)
+on head `3f6495ae0bc1ea342d8a16aac3b0c2dbdc632074`: **attempt 1, conclusion
+success, all six jobs passed, no rerun.**
+
+| Job | Id | Result | Duration |
+| --- | --- | --- | --- |
+| dependency audit | `95154576354` | success | 16s |
+| PostgreSQL integration | `95154576295` | success | 59s |
+| packed consumer (windows) | `95154576322` | success | 5m24s |
+| check (ubuntu-latest) | `95154576372` | success | 8m18s |
+| coverage | `95154576346` | success | 14m30s |
+| check (windows-latest) | `95154576373` | success | 26m42s |
+
+No rerun was requested and none was needed.
+
+The `packed consumer (windows)` job matters most here: it re-executes the
+AM-02 gate against the **merged** package surface rather than either input
+lane's. Its log records `probe.total=27`, `probe.failed=0`, work root in runner
+temp, `consumer.ls.topLevelDependencies=10`, consumer manifest SHA-256
+`ba32fe19089054b5923d24fe5d0f4b07bc2b6bc53ff143284785e812e104d70a`, and the
+reader artifact re-verified on the runner at 22,845 normalized bytes with
+SHA-256 `ba17ed90c603351c0e3737d9d10552b7571fecd19ff4fd451820111857d3b894` —
+identical to the identity pinned in
+`packages/application/src/account-manager-usage.ts` and cited by the AM-02
+evidence.
+
+Every probe assertion passed, including
+`probe.pins.account-manager-identity`, `probe.reader.pinned-artifact-identity`,
+`probe.routing.inactive-window-refused-without-cap-arithmetic`,
+`probe.routing.borrowed-at-caps-during-work-hours`,
+`probe.routing.borrowed-fable-forbidden`,
+`probe.routing.legacy-v2-snapshot-refused`,
+`probe.exports.testing-surface-absent`, and `probe.boundary.synthetic-only`,
+plus the eleven-case fail-closed matrix. The probe used bounded synthetic
+stores only; it touched no installed Account Manager state, no profile
+enumeration, no credential, and no network.
+
+This is the independent confirmation that the AM-02 promotion holds on the
+combined tree and not merely on the lane that produced it.
