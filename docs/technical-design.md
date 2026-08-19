@@ -732,6 +732,12 @@ configuration reach only; it cannot weaken authorization or safety policy. The
 future design-review and borrowed-profile constraints are defined in the
 [Windows product direction](product-direction.md).
 
+Before Stage 21, ADR 0033 permits one bounded, production-disabled
+`apps/credential-setup` host solely for application-owned credential management.
+It is a Stage 21 advance fragment with packaged local content and no orchestration,
+HTTP, API, or daemon dependency. Stage 21 supersedes it; the host is not a desktop
+shell and is not evidence for this section's stage gate.
+
 ### 18.1 Primary navigation
 
 - **Runs:** running and completed work with status, project, route, duration, reserved/actual cost, and tokens.
@@ -860,7 +866,35 @@ or mocks.
 
 ### 20.4 Credentials and data
 
-Credentials live in the OS keychain for desktop or a secret manager for team mode. Workers receive a short-lived reference or process-specific injection only when required. Redaction occurs before prompts, logs, traces, events, memories, cache, and UI publication. Persistent sensitive artifacts are encrypted and support retention, export, and deletion workflows.
+Desktop credentials may live behind the read-only exact-reference Windows
+Credential Manager broker from ADR 0028 or the independent AI Development OS-owned
+encrypted vault from ADR 0033. The latter reuses the existing `encrypted-file`
+reference, stores one strict atomic integrity-digested ciphertext document, uses
+asynchronous Electron `safeStorage` with no plaintext fallback, and supports one
+credential per provider slot in schema version 1. It never reads, shares, or
+migrates another application's vault or Electron identity.
+
+The host observes vault metadata through one revision-consistent snapshot. Normal
+mutations refuse corrupt, unknown-slot, identity/backend-mismatched, schema-ahead,
+and backup-only state. Restore, start-over, and identity rebind are separately
+named operator choices bound both to a legal source state and to digests of the
+exact observed bytes; a matching digest alone cannot roll a healthy vault back.
+They preserve displaced ciphertext as local forensic evidence before atomic commit. Two repeated
+decrypt failures retain ciphertext in an `unrecoverable` record; identity rebind
+instead nulls foreign ciphertext and requires re-entry. The version-1 migration
+registry is empty because no older format exists and is connected only when a
+later schema introduces a real behind-version document.
+
+Every credential read, including validation, passes through the policy-aware
+resolver. Vault writes are instead bounded to operator actions from a validated,
+legal credential-window IPC session; a future non-UI writer requires a separate
+policy decision. Workers receive a short-lived reference or process-specific
+injection only when required. Redaction occurs before prompts, logs, traces,
+events, memories, cache, and UI publication. Secret export and portable vault
+backup are absent; a retained local generation may be explicitly restored, while
+OSCrypt loss or rebind requires operator re-entry. Other persistent sensitive
+artifacts retain their separately governed encryption, retention, export, and
+deletion workflows.
 
 ### 20.5 Supply chain and desktop
 
@@ -1006,6 +1040,10 @@ Provider inference time is external and excluded from control-plane latency obje
 11. **Windows-first production scope.** Initial platform proof, packaging, and
     release readiness target Windows; portable seams remain, while Linux/macOS
     enforcement and parity move to Stage 25 and cannot be inferred from Windows.
+12. **Split credential-vault delivery.** Stage 18E supplies the application-owned
+    encrypted vault backend; the bounded Stage 18E-H credential host is a temporary
+    Stage 21 advance fragment, imports no orchestration packages, and is superseded
+    by the full desktop.
 
 ## 27. Requirement traceability
 

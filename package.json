@@ -14,7 +14,9 @@
     "test": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "verify:packed-consumer": "node packages/application/scripts/packed-consumer/verify-packed-consumer.mjs"
+    "verify:packed-consumer": "node packages/application/scripts/packed-consumer/verify-packed-consumer.mjs",
+    "verify:app-vault-packed-consumer": "node packages/secrets-app-vault/scripts/packed-consumer/verify-packed-consumer.mjs",
+    "verify:app-vault-electron-smoke": "npm run smoke:real --workspace @ai-dev-os/secrets-app-vault-electron"
   },
   "engines": {
     "node": ">=22.9.0",

@@ -748,6 +748,26 @@ mutation, application registration, or production authority. The repaired
 attempt observed a response but did not satisfy the exact result contract, so
 `ANT-02` remains incomplete.
 
+ADR 0033 establishes a complementary **Stage 18E** application-owned vault over
+the existing `encrypted-file` reference while leaving the ADR 0028 Credential
+Manager broker read-only. Its pure vault and Electron adapter packages are
+provider-neutral, policy-before-read, one-slot/one-key in schema version 1, and
+production-disabled. The bounded `apps/credential-setup` surface is designated
+**Stage 18E-H**, an advance fragment that imports no orchestration package and is
+superseded by Stage 21 rather than grown into it. It changes no acceptance row;
+in particular it cannot prove `ANT-02` without a later separately authorized live
+attempt.
+
+Stage 18E foundation recovery is explicit rather than startup-driven: one
+revision-consistent snapshot describes source-state- and digest-bound restore,
+corrupt-state start-over, or identity rebind choices; matching digests cannot roll
+back a healthy or otherwise ineligible primary, and the adapter preserves displaced
+bytes before the atomic recovery commit. Repeated decrypt failure retains ciphertext in
+an `unrecoverable` record, while explicit identity rebind nulls foreign ciphertext
+and requires re-entry. Schema version 1 has an intentionally empty migration
+registry; wiring a real migration is deferred until a later schema can actually
+encounter a behind-version document.
+
 Packages, in implementation order: `@ai-dev-os/provider-anthropic`,
 `@ai-dev-os/secrets-windows`,
 `@ai-dev-os/product-planning`, `@ai-dev-os/scheduler`,
@@ -894,6 +914,11 @@ Tests and gate:
 Status: Planned.
 
 App: `apps/desktop`
+
+ADR 0033's bounded `apps/credential-setup` host is a Stage 21 advance fragment,
+not the beginning of this stage. Stage 21 supersedes that host and must still
+satisfy every desktop, orchestration-boundary, accessibility, review, packaging,
+and production gate below independently.
 
 Deliverables:
 

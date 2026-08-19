@@ -134,6 +134,9 @@ jobs:
       - if: runner.os == 'Windows'
         run: npm run test:native-smoke --workspace @ai-dev-os/secrets-windows
 
+      - if: runner.os == 'Windows'
+        run: npm run verify:app-vault-electron-smoke
+
   # Dependency vulnerability policy, at the severity the repository already uses.
   #
   # This job is where `--ignore-scripts` genuinely applies: auditing the declared
@@ -292,6 +295,8 @@ jobs:
       - run: npm run build
 
       - run: npm run verify:packed-consumer
+
+      - run: npm run verify:app-vault-packed-consumer
 
 # What this workflow deliberately does NOT do, recorded so nobody adds it by
 # assuming it was forgotten:

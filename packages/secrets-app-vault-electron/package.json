@@ -1,0 +1,48 @@
+{
+  "name": "@ai-dev-os/secrets-app-vault-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows Electron safeStorage and atomic-file adapter for the AI Development OS app vault.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../secrets-app-vault run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm run prebuild",
+    "test": "vitest run",
+    "pretest:coverage": "npm run prebuild",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm run prebuild",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "presmoke:real": "npm run build",
+    "smoke:real": "node scripts/electron-safe-storage-smoke.mjs"
+  },
+  "dependencies": {
+    "@ai-dev-os/secrets-app-vault": "^0.1.0"
+  },
+  "peerDependencies": {
+    "electron": ">=42.4.1"
+  },
+  "devDependencies": {
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/secrets": "^0.1.0",
+    "electron": "~43.4.1"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.0.0"
+  }
+}
