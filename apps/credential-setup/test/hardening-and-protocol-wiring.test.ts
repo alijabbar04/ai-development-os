@@ -1,4 +1,6 @@
 import type { Session } from "electron";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const electronFake = vi.hoisted(() => {
@@ -163,7 +165,8 @@ describe("custom protocol response wiring", () => {
   it("serves only allowlisted local files with security headers and refuses other paths before local fetch", async () => {
     let handler!: (request: { url: string }) => Promise<Response>;
     const credentialSession = { protocol: { handle: (_scheme: string, installed: typeof handler) => { handler = installed; } } };
-    installCredentialProtocol(credentialSession as never, "C:\\bounded\\renderer\\credential");
+    const rendererRoot = resolve("bounded", "renderer", "credential");
+    installCredentialProtocol(credentialSession as never, rendererRoot);
 
     const denied = await handler({ url: "app-credential://entry/unexpected.json" });
     expect(denied.status).toBe(404);
@@ -178,6 +181,6 @@ describe("custom protocol response wiring", () => {
     expect(served.headers.get("referrer-policy")).toBe("no-referrer");
     expect(served.headers.get("cache-control")).toBe("no-store");
     expect(electronFake.netFetch).toHaveBeenCalledOnce();
-    expect(String(electronFake.netFetch.mock.calls[0]?.[0])).toMatch(/^file:\/\/\/C:\/bounded\/renderer\/credential\/index\.html$/u);
+    expect(String(electronFake.netFetch.mock.calls[0]?.[0])).toBe(pathToFileURL(resolve(rendererRoot, "index.html")).href);
   });
 });
