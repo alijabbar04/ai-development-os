@@ -15,8 +15,11 @@
   "scripts": {
     "prebuild": "npm --prefix ../../packages/credential-ui run build && npm --prefix ../../packages/secrets-app-vault-electron run build && npm --prefix ../../packages/policy run build && npm --prefix ../../packages/secrets run build",
     "build": "tsc -p tsconfig.json && node scripts/copy-renderer.mjs",
+    "pretest": "npm run prebuild",
     "test": "vitest run",
+    "pretest:coverage": "npm run prebuild",
     "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm run prebuild",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "electron dist/main/main.js",
     "ensure:electron": "node scripts/ensure-electron-runtime.mjs",
