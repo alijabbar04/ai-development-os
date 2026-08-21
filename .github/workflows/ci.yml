@@ -106,12 +106,11 @@ jobs:
       # tree, which is the property that makes a CI result mean anything.
       #
       # Lifecycle scripts are ENABLED here, and that is a deliberate, documented
-      # exception rather than an oversight. Exactly one dependency lifecycle
-      # script runs on install — `better-sqlite3`'s `install` hook, which fetches
-      # a prebuilt native binding for the host ABI and falls back to compiling
-      # the bundled source. `packages/persistence-sqlite` cannot be tested
-      # without it. No first-party manifest in this repository declares a
-      # preinstall, install, or postinstall script.
+      # exception rather than an oversight. `better-sqlite3` fetches or builds the
+      # native binding required by `packages/persistence-sqlite`. Exact-pinned
+      # `electron@43.4.1` has no lifecycle hook; the bounded smoke/packed scripts
+      # explicitly run its checksummed installer only when the local dist is absent.
+      # No first-party manifest declares a preinstall, install, or postinstall.
       #
       # Jobs that do not need that binding use `--ignore-scripts` instead; see
       # the audit job. CONTRIBUTING.md records the full audit.
@@ -121,21 +120,26 @@ jobs:
 
       # The production-disabled Windows credential package owns a two-operation
       # exact-read N-API boundary. gypfile:false prevents an npm-synthesized
-      # install hook, and it has no committed
-      # binary, so compile it explicitly only on Windows, with /W4 /WX pinned in
-      # binding.gyp, refuse malformed native targets before work, then require
-      # not-found through availability and read for one fresh random synthetic
-      # target that this project never creates. The smoke performs no write,
-      # delete, enumeration, or provider call; absence of credential access is
-      # claimed only when both observed results are not-found.
+      # install hook, and it has no committed binary, so compile it explicitly
+      # only on Windows with /W4 /WX pinned in binding.gyp. The child checkpoint
+      # is absolutely prohibited from accessing Windows Credential Manager.
+      # After the mock-backed package tests in `npm run check`, this replacement
+      # runtime gate loads the compiled addon and inspects its exact two-export
+      # ABI shape without invoking either export; therefore CredReadW is
+      # unreachable. The inherited foundation's exact-head native smoke remains
+      # bound to its already-green run and is intentionally not rerun here:
+      # npm run test:native-smoke --workspace @ai-dev-os/secrets-windows
       - if: runner.os == 'Windows'
         run: npm run build:native --workspace @ai-dev-os/secrets-windows
 
       - if: runner.os == 'Windows'
-        run: npm run test:native-smoke --workspace @ai-dev-os/secrets-windows
+        run: npm run verify:windows-native-shape
 
       - if: runner.os == 'Windows'
         run: npm run verify:app-vault-electron-smoke
+
+      - if: runner.os == 'Windows'
+        run: npm run verify:credential-host-electron-smoke
 
   # Dependency vulnerability policy, at the severity the repository already uses.
   #
@@ -198,7 +202,9 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage
-          path: packages/*/coverage
+          path: |
+            packages/*/coverage
+            apps/*/coverage
           if-no-files-found: error
           retention-days: 14
 
@@ -269,8 +275,8 @@ jobs:
   # Windows deliberately: this is the supported desktop target and the
   # platform the acceptance evidence is measured on.
   #
-  # `npm ci --ignore-scripts` is sufficient here because this gate needs only
-  # `tsc` builds. The verifier's consumer install is also scripts-disabled and
+  # `npm ci --ignore-scripts` is sufficient here because these gates need only
+  # `tsc` builds. Their consumer installs are also scripts-disabled and
   # then performs the repository's single sanctioned lifecycle exception —
   # one explicit `npm rebuild better-sqlite3` — because
   # @ai-dev-os/application eagerly composes the SQLite adapter and a real
@@ -298,6 +304,28 @@ jobs:
 
       - run: npm run verify:app-vault-packed-consumer
 
+  # The packed credential host executes the reviewed Electron runtime. Its
+  # verifier explicitly restores the exact-pinned, checksummed runtime when the
+  # local dist is absent. Keeping this in a dedicated job prevents an existing
+  # developer cache from masking a clean-runner failure.
+  credential-host-packed:
+    name: packed credential host (windows)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run verify:credential-host-packed
+
 # What this workflow deliberately does NOT do, recorded so nobody adds it by
 # assuming it was forgotten:
 #
@@ -306,8 +334,9 @@ jobs:
 #   - no AppContainer profile, Job object, or supervisor/helper process creation;
 #   - no Stage 17 native proof-mode build and no execution of any proof-mode binary;
 #   - the only native compile is the production-disabled exact-read Credential
-#     Manager addon; its smoke probes one fresh random synthetic target and must
-#     observe not-found through both exact operations;
+#     Manager addon; its replacement runtime gate loads the compiled module and
+#     verifies the exact availability/read export shape without invoking either
+#     function, so no Credential Manager lookup occurs;
 #   - no live provider or model calls, and no provider/operator credentials;
 #   - GitHub supplies only its normal ephemeral read-only job token; checkout
 #     does not persist it, and no provider/operator credential secret is used;

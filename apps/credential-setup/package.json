@@ -1,0 +1,46 @@
+{
+  "name": "@ai-dev-os/credential-setup",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production-disabled hardened Windows Electron host for Stage 18E-H credential setup.",
+  "type": "module",
+  "main": "dist/main/main.js",
+  "files": [
+    "dist/main",
+    "dist/preload",
+    "dist/renderer",
+    "README.md",
+    "package.json"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../../packages/credential-ui run build && npm --prefix ../../packages/secrets-app-vault-electron run build && npm --prefix ../../packages/policy run build && npm --prefix ../../packages/secrets run build",
+    "build": "tsc -p tsconfig.json && node scripts/copy-renderer.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "electron dist/main/main.js",
+    "ensure:electron": "node scripts/ensure-electron-runtime.mjs",
+    "presmoke:real": "npm run build && npm run ensure:electron",
+    "smoke:real": "node scripts/real-electron-smoke.mjs",
+    "preverify:packed": "npm run build && npm run ensure:electron",
+    "verify:packed": "node scripts/verify-packed-host.mjs"
+  },
+  "dependencies": {
+    "@ai-dev-os/credential-ui": "^0.1.0",
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/policy": "^0.1.0",
+    "@ai-dev-os/secrets": "^0.1.0",
+    "@ai-dev-os/secrets-app-vault": "^0.1.0",
+    "@ai-dev-os/secrets-app-vault-electron": "^0.1.0"
+  },
+  "devDependencies": {
+    "electron": "~43.4.1"
+  },
+  "peerDependencies": {
+    "electron": "~43.4.1"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.0.0"
+  }
+}

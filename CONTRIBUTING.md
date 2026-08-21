@@ -13,8 +13,8 @@ npm ci
 npm run check
 ```
 
-`npm run check` runs typecheck, then tests, then build, across all 40 workspace
-packages. It takes roughly 20 to 45 minutes depending on machine load. Every command in this
+`npm run check` runs typecheck, then tests, then build, across every workspace
+package. It takes roughly 20 to 45 minutes depending on machine load. Every command in this
 document was run against this repository before being written here.
 
 Requirements: Node.js 22.9 or newer and npm 10 or newer, as declared in the root
@@ -36,12 +36,15 @@ npm run build:native --workspace @ai-dev-os/secrets-windows
 
 The package pins `gypfile: false`, so npm cannot synthesize an install hook from
 `binding.gyp`; the root pins dev-only `node-gyp@12.3.0` for this explicit command.
-The build emits only ignored task-local output. CI compiles it on Windows with warnings as errors, refuses a bounded malformed
-target table before native work, then requires observed `not-found` results from
-availability and read for one fresh random synthetic target that this project
-never creates. An unexpected matching credential would be accessed before the
-smoke failed. The source and package expose no native write, delete, or
-enumeration operation.
+The build emits only ignored task-local output. CI compiles it on Windows with
+warnings as errors. The ordinary mock-backed package tests cover malformed
+targets and the exact native-port contract without loading the production addon.
+The hosted runtime gate then loads the compiled addon and inspects its exact
+`availability`/`read` export shape without invoking either function. This proves
+the compiled ABI/link boundary while making `CredReadW` unreachable and touching
+no Windows Credential Manager state. A native `not-found` smoke exists for a
+separately authorized foundation run, but credential-host checkpoints do not run
+it because even a synthetic target lookup is credential-store access.
 
 Real PostgreSQL tests are a separate explicit gate. They require all five
 `AI_DEV_OS_TEST_POSTGRES_*` fields and
@@ -53,7 +56,7 @@ evidence.
 
 ### About `npm ci` and lifecycle scripts
 
-Use plain `npm ci`. Exactly one dependency lifecycle script runs on install:
+Use plain `npm ci`. One reviewed dependency lifecycle script runs on install:
 
 | Package | Hook | Command | Why it is required |
 | --- | --- | --- | --- |
@@ -67,9 +70,19 @@ Three transitive dependencies declare `prepare` scripts (`istanbul-reports`,
 `lightningcss`, `tinyexec`). `prepare` does not run for registry tarballs during
 `npm ci`, so they do not execute here.
 
-`npm ci --ignore-scripts` works for anything that does not need the SQLite
-binding — typechecking, building, and `npm audit`. CI uses it for the audit job
-for exactly that reason. It will fail `packages/persistence-sqlite` tests.
+Exact-pinned `electron@43.4.1` does **not** declare an install lifecycle hook.
+The bounded credential-host smoke and packed-verification scripts run a reviewed
+`ensure:electron` step before loading Electron. That step accepts only 43.4.1,
+rejects environment-controlled platform/runtime selection, invokes the package's
+checksummed `install.js` only when its local `dist` is absent, and then verifies
+`dist/version`, `path.txt`, containment, and executable presence. Electron remains
+outside production dependencies.
+
+`npm ci --ignore-scripts` works for anything that needs neither the SQLite
+binding nor execution of the Electron verifier — typechecking, building, and `npm audit`.
+CI uses it for the audit job for exactly that reason. It will fail
+`packages/persistence-sqlite` tests; runnable Electron smoke or packaging
+verification explicitly restores its separate exact runtime when required.
 
 ## Branch naming
 

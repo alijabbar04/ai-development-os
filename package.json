@@ -16,7 +16,10 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "verify:packed-consumer": "node packages/application/scripts/packed-consumer/verify-packed-consumer.mjs",
     "verify:app-vault-packed-consumer": "node packages/secrets-app-vault/scripts/packed-consumer/verify-packed-consumer.mjs",
-    "verify:app-vault-electron-smoke": "npm run smoke:real --workspace @ai-dev-os/secrets-app-vault-electron"
+    "verify:app-vault-electron-smoke": "npm --prefix apps/credential-setup run ensure:electron && npm run smoke:real --workspace @ai-dev-os/secrets-app-vault-electron",
+    "verify:windows-native-shape": "node apps/credential-setup/scripts/verify-windows-credential-addon-shape.mjs",
+    "verify:credential-host-electron-smoke": "npm run smoke:real --workspace @ai-dev-os/credential-setup",
+    "verify:credential-host-packed": "npm run verify:packed --workspace @ai-dev-os/credential-setup"
   },
   "engines": {
     "node": ">=22.9.0",

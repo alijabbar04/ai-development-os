@@ -872,13 +872,13 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
   it("gives only the two audit-executing hosted jobs the required subject history", () => {
     const workflow = readFileSync(resolve(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8")
       .replaceAll("\r\n", "\n");
-    // Five hosted jobs since the AM-02 packed-consumer gate joined this
+    // Six hosted jobs since the production-disabled credential-host packed gate joined this
     // workflow. Only the two audit-executing jobs may carry subject history.
-    expect(workflow.match(/uses: actions\/checkout@/g)).toHaveLength(5);
-    expect(workflow.match(/persist-credentials: false/g)).toHaveLength(5);
+    expect(workflow.match(/uses: actions\/checkout@/g)).toHaveLength(6);
+    expect(workflow.match(/persist-credentials: false/g)).toHaveLength(6);
     expect(workflow.match(/fetch-depth: 0/g)).toHaveLength(2);
     const job = (
-      name: "check" | "audit" | "coverage" | "postgres" | "packed-consumer",
+      name: "check" | "audit" | "coverage" | "postgres" | "packed-consumer" | "credential-host-packed",
       next: string,
     ): string => {
       const start = workflow.indexOf(`  ${name}:\n`);
@@ -893,9 +893,13 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
     const postgres = job("postgres", "  packed-consumer:\n");
     const packedConsumer = job(
       "packed-consumer",
+      "  credential-host-packed:\n",
+    );
+    const credentialHostPacked = job(
+      "credential-host-packed",
       "# What this workflow deliberately does NOT do",
     );
-    for (const body of [check, audit, coverage, postgres, packedConsumer]) {
+    for (const body of [check, audit, coverage, postgres, packedConsumer, credentialHostPacked]) {
       expect(body.match(/uses: actions\/checkout@/g)).toHaveLength(1);
       expect(body.match(/persist-credentials: false/g)).toHaveLength(1);
     }
@@ -904,6 +908,7 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
     expect(audit).not.toContain("fetch-depth:");
     expect(postgres).not.toContain("fetch-depth:");
     expect(packedConsumer).not.toContain("fetch-depth:");
+    expect(credentialHostPacked).not.toContain("fetch-depth:");
   });
 
   it("binds operator-authorized inputs to every row without authorizing their outcome", () => {

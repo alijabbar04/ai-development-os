@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en-GB" data-mode="normal">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; media-src 'none'; worker-src 'none'">
+    <meta name="referrer" content="no-referrer">
+    <title>Credential setup — AI Development OS</title>
+    <link rel="stylesheet" href="./entry.css">
+    <script type="module" src="./entry.js"></script>
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="titlebar" role="banner">
+        <span class="logo" aria-hidden="true"></span>
+        <strong>AI Development OS</strong>
+        <span class="bounded-mark">Credential setup</span>
+        <span class="spacer"></span>
+        <button id="mode-toggle" class="pill" type="button" aria-haspopup="dialog" aria-label="Interface mode. Current mode: Normal. Change mode." data-current-mode="normal" data-focus-key="mode-toggle">Mode: Normal</button>
+      </header>
+      <nav class="rail" aria-label="Credential setup">
+        <button type="button" data-view="providers" data-focus-key="nav-providers" aria-current="page">Providers</button>
+        <button type="button" data-view="activity" data-focus-key="nav-activity">Activity</button>
+        <p class="prod-state"><span aria-hidden="true">●</span> Production disabled</p>
+      </nav>
+      <main id="main" tabindex="-1"></main>
+    </div>
+    <div id="status-region" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="alert-region" class="visually-hidden" role="alert" aria-live="assertive" aria-atomic="true"></div>
+  </body>
+</html>
