@@ -68,9 +68,12 @@ describe("browser component contract", () => {
 
   it("provides visible and programmatic reasons for disabled credential actions", () => {
     expect(source).toContain('className: "action-reasons"');
+    expect(source).toContain('className: "action-reasons global-action-reason"');
     expect(source).toContain("unavailable —");
     expect(source).toContain("unavailable until this check finishes");
     expect(source).toContain('setAttribute("aria-describedby", reasonId)');
+    expect(source).toContain('setAttribute("aria-describedby", GLOBAL_ACTION_REASON_ID)');
+    expect(source).toContain('id: GLOBAL_ACTION_REASON_ID');
     expect(source).toContain("REOPEN_FOR_STORAGE_CHANGE");
     expect(source).toContain('sessionPresentationState = "committed"');
     expect(source).toContain("const refreshed = await refresh(false, true)");
@@ -107,7 +110,7 @@ describe("browser component contract", () => {
     expect(rendered).toBeGreaterThan(committed);
     expect(refreshed).toBeGreaterThan(rendered);
     expect(source).toContain("authoritativeStateFresh = false");
-    expect(source).toContain("Refreshing current credential state");
+    expect(source).toContain("Current credential state is being refreshed");
   });
 
   it("refreshes authoritative state before releasing actions after a discarded validation", () => {
@@ -153,7 +156,7 @@ describe("browser component contract", () => {
     const removalAwait = source.indexOf("await finite(api.remove", removal);
     expect(source).toContain("if (!validationSubmitting) destroyDialog(shell.dialog)");
     expect(source).toContain("if (!removalSubmitting) destroyDialog(shell.dialog)");
-    expect(source).toContain('if (activeValidationCredentialId() !== null) return "Another check is in progress"');
+    expect(source).toContain('if (activeValidationCredentialId() !== null) return "A credential validation check is in progress"');
     expect(source).toContain('operationPhase === "validation-in-flight"');
     expect(validationRender).toBeGreaterThan(validation);
     expect(validationAwait).toBeGreaterThan(validationRender);
@@ -185,19 +188,43 @@ describe("browser component contract", () => {
   it("renders only plain-language state facts and visibly blocks unavailable authority", () => {
     expect(source).toContain('"Ownership unavailable"');
     expect(source).toContain('model?.metadataAvailable === false ? "Unavailable"');
-    expect(source).toContain("Restore this installation's saved credential details before changing stored credentials");
-    expect(source).toContain("Restore this installation's saved credential details before validating credentials");
+    expect(source).toContain("Restore this installation's saved credential details before credential actions");
     expect(source).toContain("Connection and validation details unavailable");
     expect(source).toContain('valid: "Accepted"');
     expect(source).toContain('unauthorized: "Accepted · permission limited"');
     expect(source).toContain('ambiguous: "Inconclusive · unclear result"');
     expect(source).not.toContain("`${slot.validation.outcome}");
-    expect(source).toContain("Secure storage needs recovery before changing credentials");
-    expect(source).toContain("Secure storage needs recovery before validating credentials");
+    expect(source).toContain("Secure storage recovery is required before credential actions");
     expect(source).toContain('"restore-backup": "replace the unreadable store with its previous encrypted backup');
     expect(source).toContain('rebind: "irreversibly discard every encrypted credential');
     expect(source).not.toContain('model.recovery.actions.join(", ")');
     expect(css).toContain(".btn.danger:disabled { color: var(--disabled); border-color: var(--border); }");
     expect(css).toContain(".btn:disabled, .btn.primary:disabled, .btn.danger:disabled, .btn.danger-fill:disabled { color: GrayText;");
+  });
+
+  it("uses provider-wide save grammar, explicit cancellation consequences, and credential terminology", () => {
+    expect(source).toContain('`Save credential — ${slot.displayName}`');
+    expect(source).not.toContain("Save a ${slot.displayName} credential");
+    expect(source).toContain('button("Cancel and close"');
+    expect(source).toContain("Cancel closes this secure window. Nothing is saved.");
+    expect(source).toContain("changing it later requires removal and re-entry");
+    expect(source).toContain('if (operation !== "rotate") shell.body.append(nicknameField.wrap)');
+    expect(source).toContain('operation === "reenter" ? nickname : null');
+    expect(source).toContain('operation === "reenter" ? ownership : null');
+    expect(source).toContain('operation === "reenter" ? authorizedBy : null');
+    expect(source).toContain('label: "Credentials can\'t be read"');
+    expect(source).toContain('label: "All credentials disabled"');
+    expect(source).toContain('? "credential" : "credentials"');
+    expect(source).not.toMatch(/Keys can't be read|All keys disabled|\? "key" : "keys"/u);
+  });
+
+  it("keeps compact production state textual and gives informational badges and entry dialogs reviewed styling", () => {
+    expect(html).toContain('class="prod-label-full">Production disabled</span>');
+    expect(html).toContain('class="prod-label-compact" aria-hidden="true">Prod. off</span>');
+    expect(css).not.toContain(".prod-state { margin-inline: 3px; text-align: center; font-size: 0;");
+    expect(css).toContain(".prod-label-compact { display: inline; }");
+    expect(css).toMatch(/\.badge\[data-tone="info"\][^\n]+border-color:/u);
+    expect(source).toContain('shell.dialog.classList.add("credential-entry-dialog")');
+    expect(css).toContain(".credential-entry-dialog .dialog-body");
   });
 });

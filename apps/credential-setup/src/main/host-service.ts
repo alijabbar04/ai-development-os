@@ -8,13 +8,17 @@ import {
   secretRefDisplay,
   secretRefFingerprint,
   type PolicyAwareSecretResolver,
+  type SecretAccessContext,
   type SecretClock,
+  type SecretMaterial,
+  type SecretRef,
 } from "@ai-dev-os/secrets";
 import {
   APP_VAULT_SLOTS,
   appVaultReferenceForSlot,
   appVaultSlot,
   type AppVaultManager,
+  type AppVaultContainerBinding,
   type AppVaultRecordSummary,
   type AppVaultSecretBroker,
   type AppVaultSlotId,
@@ -107,10 +111,16 @@ export interface CredentialClipboardPort {
 }
 
 export interface CredentialResolverBinding {
-  readonly broker: AppVaultSecretBroker;
-  readonly resolver: PolicyAwareSecretResolver;
+  describeContainerBinding(): AppVaultContainerBinding;
+  resolve<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>): Promise<{ readonly value: T; readonly decisionFingerprint: string }>;
   evaluatePolicy(request: PolicyRequest): PolicyDecision;
+  close(): Promise<void>;
 }
+
+export const CREDENTIAL_RESOLVER_BINDING_KEYS = Object.freeze(["close", "describeContainerBinding", "evaluatePolicy", "resolve"] as const satisfies readonly (keyof CredentialResolverBinding)[]);
+type UnexpectedCredentialResolverBindingKey = Exclude<keyof CredentialResolverBinding, typeof CREDENTIAL_RESOLVER_BINDING_KEYS[number]>;
+const CREDENTIAL_RESOLVER_BINDING_KEYS_ARE_COMPLETE: UnexpectedCredentialResolverBindingKey extends never ? true : false = true;
+void CREDENTIAL_RESOLVER_BINDING_KEYS_ARE_COMPLETE;
 
 export interface CredentialHostServiceOptions {
   readonly manager: AppVaultManager;
@@ -334,7 +344,7 @@ export class CredentialHostService {
       const token = recordToken(descriptor.slotId, summary);
       const applicableValidation = applicableStoredValidation(stored?.validation ?? null, token);
       const applicableLastAttempt = applicableStoredValidation(stored?.lastValidationAttempt ?? null, token);
-      const binding = this.#resolvers[descriptor.slotId].broker.describeContainerBinding();
+      const binding = this.#resolvers[descriptor.slotId].describeContainerBinding();
       const reference = appVaultReferenceForSlot(descriptor.slotId);
       const developer: CredentialDeveloperFacts = Object.freeze({
         referenceDisplay: secretRefDisplay(reference),
@@ -407,7 +417,8 @@ export class CredentialHostService {
 
   async #authoritative(slotId: AppVaultSlotId, credentialId: string, revision: number, token: string, requireDocumentRevision = true): Promise<{ snapshot: AppVaultSnapshot; summary: AppVaultSnapshot["slots"][number]; metadata: CredentialMetadataSnapshot; slotMetadata: CredentialSlotMetadata }> {
     const snapshot = await this.#manager.describeSnapshot();
-    const summary = snapshot.slots.find((item) => item.slotId === slotId)!;
+    const summary = snapshot.slots.find((item) => item.slotId === slotId);
+    if (summary === undefined) throw new CredentialHostError(issueCode(snapshot) ?? "VAULT_CORRUPT");
     const metadataRead = await this.#metadataRead();
     if (!metadataRead.available) throw new CredentialHostError("METADATA_UNAVAILABLE");
     const slotMetadata = metadataRead.snapshot.slots[slotId];
@@ -439,9 +450,12 @@ export class CredentialHostService {
       ownsWriteSession = true;
       assertCredentialMetadataSeparatedFromSecret(payload.secret, payload.nickname, payload.authorizedBy);
       const before = await this.#manager.describeSnapshot();
+      const beforeIssue = issueCode(before);
+      if (beforeIssue !== null) throw new CredentialHostError(beforeIssue);
       const metadataRead = await this.#metadataRead();
       if (!metadataRead.available) throw new CredentialHostError("METADATA_UNAVAILABLE");
-      const summary = before.slots.find((item) => item.slotId === payload.slotId)!;
+      const summary = before.slots.find((item) => item.slotId === payload.slotId);
+      if (summary === undefined) throw new CredentialHostError("VAULT_CORRUPT");
       if (summary.state !== "absent") throw new CredentialHostError("SLOT_OCCUPIED");
       const stored: CredentialSlotMetadata = Object.freeze({ credentialId: `cred-${this.#random.hex(16)}`, nickname: payload.nickname, ownership: payload.ownership, authorizedBy: payload.authorizedBy, enabled: true, validation: null, lastValidationAttempt: null });
       let metadata = await this.#metadataUpdateRequired((current) => replaceSlotMetadata(current, payload.slotId, stored));
@@ -500,24 +514,36 @@ export class CredentialHostService {
       ownsWriteSession = true;
       const bound = await this.#authoritative(payload.slotId, payload.credentialId, payload.recordRevision, payload.recordToken);
       if (bound.summary.state === "absent") throw new CredentialHostError("SLOT_ABSENT");
-      assertCredentialMetadataSeparatedFromSecret(payload.secret, bound.slotMetadata.nickname, bound.slotMetadata.authorizedBy);
+      const reentry = payload.entryMode === "reenter";
+      if (reentry === (bound.summary.state === "present")) throw new CredentialHostError("ILLEGAL_TRANSITION");
+      const nextNickname = reentry ? payload.nickname : bound.slotMetadata.nickname;
+      const nextOwnership = reentry ? payload.ownership : bound.slotMetadata.ownership;
+      const nextAuthorizedBy = reentry ? payload.authorizedBy : bound.slotMetadata.authorizedBy;
+      assertCredentialMetadataSeparatedFromSecret(payload.secret, nextNickname, nextAuthorizedBy);
       const changed = await this.#manager.rotate({ slotId: payload.slotId, secret: payload.secret, expectRevision: bound.snapshot.revision! });
       storageCommitted = true;
       const after = snapshotWithSummary(bound.snapshot, changed);
       let metadata = bound.metadata;
       let metadataWarning = false;
-      try {
-        metadata = await this.#metadata.update((current) => {
-          const currentSlot = current.slots[payload.slotId];
-          if (currentSlot?.credentialId !== payload.credentialId) throw new CredentialHostError("VAULT_REVISION_CONFLICT");
-          const stored = Object.freeze({ ...currentSlot, enabled: bound.summary.state === "present" ? currentSlot.enabled : true, validation: null, lastValidationAttempt: null });
-          const action = bound.summary.state === "present" ? "Rotated" : "Re-entered";
-          return replaceSlotMetadata(current, payload.slotId, stored, activity(this.#random, this.#clock, "ok", `${action} ${appVaultSlot(payload.slotId).displayName} credential locally — not validated.`));
-        });
-      } catch (error) {
-        if (finiteCredentialError(error).code === "VAULT_REVISION_CONFLICT") throw error;
-        metadataWarning = true;
-        try { metadata = await this.#metadata.read(); } catch { metadata = bound.metadata; }
+      const transformMetadata = (current: CredentialMetadataSnapshot): CredentialMetadataSnapshot => {
+        const currentSlot = current.slots[payload.slotId];
+        if (currentSlot?.credentialId !== payload.credentialId) throw new CredentialHostError("VAULT_REVISION_CONFLICT");
+        const stored = Object.freeze({ ...currentSlot, nickname: nextNickname, ownership: nextOwnership, authorizedBy: nextAuthorizedBy, enabled: reentry ? true : currentSlot.enabled, validation: null, lastValidationAttempt: null });
+        const action = reentry ? "Re-entered" : "Rotated";
+        return replaceSlotMetadata(current, payload.slotId, stored, activity(this.#random, this.#clock, "ok", `${action} ${appVaultSlot(payload.slotId).displayName} credential locally — not validated.`));
+      };
+      if (reentry) {
+        // Re-entry is the only v1 path that may correct presentation metadata.
+        // Once secure storage commits, failure to commit those requested labels
+        // is an unknown overall outcome rather than a false successful rename.
+        metadata = await this.#metadataUpdateRequired(transformMetadata);
+      } else {
+        try { metadata = await this.#metadata.update(transformMetadata); }
+        catch (error) {
+          if (finiteCredentialError(error).code === "VAULT_REVISION_CONFLICT") throw error;
+          metadataWarning = true;
+          try { metadata = await this.#metadata.read(); } catch { metadata = bound.metadata; }
+        }
       }
       const clipboard = await this.#clipboardResult(payload.clearClipboard);
       const result = await this.#mutationResult(payload.requestId, "rotated", payload.slotId, clipboard, metadataWarning, after, metadata);
@@ -658,7 +684,7 @@ export class CredentialHostService {
           const context = parseSecretAccessContext({ operationId, providerInstanceId: scope.providerInstanceId, purpose: "provider-authentication", requestedLifetimeMs: this.#validationTimeoutMs, accessForm: "text", classification: "internal", projectId: null, taskId: null, approvalEvidenceRefs: [], disclosureDecisionFingerprint: disclosureDecision.fingerprint, locality: "cloud", trace, deadline, signal: abort.signal });
           const policyRequest = parsePolicyRequest({ ...commonPolicy, action: "secret-access", subjectDigest: secretRefFingerprint(reference) });
           try {
-            const resolverOperation = this.#resolvers[payload.slotId].resolver.withSecret({ ref: reference, context, policyRequest }, async (secret, fingerprint) => {
+            const resolverOperation = this.#resolvers[payload.slotId].resolve({ ref: reference, context, policyRequest }, async (secret, fingerprint) => {
               if (abort.signal.aborted || Date.now() >= absoluteDeadlineAt) { expire(); return unreachable; }
               policyFingerprint = fingerprint;
               const dispatched = Promise.resolve().then(() => {
@@ -829,7 +855,7 @@ export class CredentialHostService {
       await this.#awaitIdle();
       const closeOperations: Array<() => Promise<void>> = [
         () => this.#manager.close(),
-        ...APP_VAULT_SLOTS.map((slot) => () => this.#resolvers[slot.slotId].broker.close()),
+        ...APP_VAULT_SLOTS.map((slot) => () => this.#resolvers[slot.slotId].close()),
       ];
       const settled = await Promise.allSettled(closeOperations.map(async (close) => await close()));
       if (settled.some((result) => result.status === "rejected")) throw new CredentialHostError("REFUSED");
@@ -841,9 +867,16 @@ export class CredentialHostService {
 export function createCredentialResolverBinding(broker: AppVaultSecretBroker, policy: PolicyBroker): CredentialResolverBinding {
   const evaluate = policy.evaluate;
   if (typeof evaluate !== "function") throw new CredentialHostError("REFUSED");
+  const describeContainerBinding = broker.describeContainerBinding;
+  const close = broker.close;
+  if (typeof describeContainerBinding !== "function" || typeof close !== "function") throw new CredentialHostError("REFUSED");
+  const resolver: PolicyAwareSecretResolver = createPolicyAwareSecretResolver({ policy, broker });
   return Object.freeze({
-    broker,
-    resolver: createPolicyAwareSecretResolver({ policy, broker }),
+    describeContainerBinding(): AppVaultContainerBinding { return Reflect.apply(describeContainerBinding, broker, []) as AppVaultContainerBinding; },
+    async resolve<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>): Promise<{ readonly value: T; readonly decisionFingerprint: string }> {
+      return await resolver.withSecret(input, callback);
+    },
     evaluatePolicy(request: PolicyRequest): PolicyDecision { return Reflect.apply(evaluate, policy, [request]) as PolicyDecision; },
+    async close(): Promise<void> { await Reflect.apply(close, broker, []); },
   });
 }

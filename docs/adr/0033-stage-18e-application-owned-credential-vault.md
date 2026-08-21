@@ -172,15 +172,15 @@ Dependency evidence checked on 2026-08-19:
 - Electron supports only the latest three stable majors:
   <https://www.electronjs.org/docs/latest/tutorial/electron-timelines>.
 
-Therefore Electron is pinned as `~43.4.1`, with runtime and peer floor
-`>=42.4.1`. Electron 43's package tooling requires Node `>=22.12.0`, so that
-floor is declared on the new adapter package without changing the repository's
-existing root `>=22.9.0` contract for unrelated packages. Electron may appear only
-as a peer dependency of the adapter and a development dependency where tests or
-the host require it; it appears in no production `dependencies` block. Every
-supported patch upgrade and every stable major must rerun safe-storage behavior,
-custom-protocol, IPC, packaging, audit, and Electron smoke gates. Electron 44 is
-evaluated when stable rather than adopted from beta.
+Therefore the credential host pins its development and peer runtime to exactly
+`43.4.1`, and the adapter pins its development runtime to exactly `43.4.1`. The
+reusable adapter retains its supported runtime peer floor `>=42.4.1`; that floor
+does not select the host runtime. Electron 43's package tooling requires Node
+`>=22.12.0`, so that floor is declared on the adapter package without changing the
+repository's existing root `>=22.9.0` contract for unrelated packages. Electron
+appears in no production `dependencies` block. Every patch or major change to the
+exact host runtime must be intentional and must rerun safe-storage behavior,
+custom-protocol, IPC, packaging, audit, and Electron smoke gates.
 
 ### 7. Read and write authority are deliberately different
 
@@ -236,11 +236,14 @@ the password input synchronously before awaiting main; an interrupted response i
 reported as unknown, not invented success or failure. The window and renderer
 state are destroyed on completion or cancellation.
 
-“Clear the clipboard after saving” defaults on, remains visibly selectable per
-save, and is remembered only after an intentional settings change. The application
-never reads clipboard contents. If selected, main clears only after a confirmed
-vault commit and reports the actual clear result. Copy explains that Windows
-clipboard history and cloud synchronization may retain earlier entries.
+“Clear the clipboard after saving” has a fixed default-on value each time this
+bounded host opens and remains visibly selectable for each save, rotation, or
+re-entry. Version 1 has no persisted settings control and does not remember a
+per-save opt-out. A future Stage 21 settings surface may introduce a separately
+reviewed persisted preference. The application never reads clipboard contents. If
+selected, main clears only after a confirmed vault commit and reports the actual
+clear result. Copy explains that Windows clipboard history and cloud
+synchronization may retain earlier entries.
 
 Developer mode adds allowlisted nonsecret identifiers, fingerprints, finite codes,
 and timestamps. It adds no authority or action. The host does not implement Stage
@@ -265,6 +268,54 @@ This decision changes no acceptance matrix row. In particular it does not prove
 `developmentAccepted=false` or `productionAdmitted=false`. It does not enable
 production, begin Stage 20/20A/21, authorize a real credential operation, or
 authorize a provider call.
+
+### 11. Implementation clarification after external review (2026-08-21)
+
+The Stage 18E-H implementation uses the following exact interpretations. They
+correct ambiguities found during external review without widening authority:
+
+- The internal fixed slot identifier and provider instance are `gemini` and
+  `gemini-default`; operator-facing copy says Google Gemini. The current bounded
+  validation policy request also carries the internal provider identifier
+  `gemini`. A future Stage 21 catalogue/provider integration must map that internal
+  identifier explicitly if its canonical catalogue identifier is `google-gemini`;
+  this checkpoint does not claim that mapping already exists.
+- Informational badges retain both a visible text label and a visible boundary;
+  colour is supplemental rather than the only state cue. Compact navigation keeps
+  the accessible text “Production disabled” and shows the short visible text
+  “Prod. off” instead of reducing the state to a bare dot.
+- A provider attempt has one 10-second absolute deadline. The renderer waits up to
+  12 seconds so the host can finish bounded secret cleanup and return a finite
+  result; the extra two seconds do not permit another provider attempt.
+- Nicknames are entry-time presentation metadata in version 1. There is no rename
+  action while a credential is present. After removal, the existing state-bound
+  re-entry path accepts corrected entry metadata together with the replacement
+  credential; ordinary rotation cannot mutate those labels. A standalone rename
+  control and authority remain an explicit Stage 21 gap.
+- The ratified §7 paragraph above intentionally remains as the original reasoning.
+  Its “session-scoped” Activity expectation is superseded by this dated
+  implementation clarification: Activity is durable across host sessions in the
+  strict presentation sidecar, bounded to the latest 50 nonsecret sentences, and
+  unavailable rather than inferred empty if that sidecar cannot be read. This
+  clarification changes no shared `SecretAuditRecord` vocabulary or protected
+  package.
+- Secret/metadata separation refuses direct and split containment plus a bounded
+  set of common reversible disguises: NFKC compatibility forms, default-ignorable
+  insertion, reversal, one-character printable ASCII shifts, and strict UTF-8
+  base64, base64url, or hexadecimal encoding. The checks are bounded by the
+  already-limited metadata fields. They reduce accidental persistence and simple
+  renderer disguise; they do not claim to defeat arbitrary encoding chosen by a
+  compromised renderer or code already running as the same Windows user.
+- The host resolver binding exposes only `describeContainerBinding`, `resolve`,
+  `evaluatePolicy`, and `close`. The broker and policy-aware resolver stay in the
+  composition closure, so host consumers cannot bypass the policy-aware resolve
+  operation through a raw property.
+- The normal real-Electron smoke writes its preview only under its disposable
+  temporary root. Updating the committed screenshot requires the exact named
+  evidence-regeneration command; custom destinations and mixed modes are refused.
+- The inherited Windows Credential Manager addon may be compiled and inspected for
+  its exact export shape, but neither `availability` nor `read` is invoked by this
+  checkpoint. The measured call count remains zero.
 
 ## Consequences
 

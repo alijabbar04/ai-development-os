@@ -39,7 +39,7 @@
   "devDependencies": {
     "@ai-dev-os/domain": "^0.1.0",
     "@ai-dev-os/secrets": "^0.1.0",
-    "electron": "~43.4.1"
+    "electron": "43.4.1"
   },
   "engines": {
     "node": ">=22.12.0",

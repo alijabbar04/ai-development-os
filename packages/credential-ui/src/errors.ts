@@ -30,7 +30,7 @@ const COPY: Readonly<Record<CredentialErrorCode, CredentialErrorCopy>> = Object.
   VAULT_BUSY: { title: "Secure storage is busy", body: "Wait a moment, then retry deliberately. Nothing is retried automatically." },
   VAULT_WRITE_FAILED: { title: "The storage-change outcome is unknown", body: "Do not submit again yet. Close and reopen credential setup to inspect the current saved state." },
   DECRYPT_FAILED: { title: "This credential could not be read", body: "Review the refreshed status before trying again. Re-entry is offered only if secure storage marks the saved copy unreadable." },
-  METADATA_UNAVAILABLE: { title: "Credential details are unavailable", body: "Credential storage changes and validation are refused until this installation's saved credential details are restored." },
+  METADATA_UNAVAILABLE: { title: "Credential details are unavailable", body: "The local details read or update did not complete. Earlier saved details may still be intact. Close and reopen to inspect them before deciding whether any repair is needed." },
   VALIDATION_DISABLED: { title: "Live validation is off in this build", body: "Saving remains local. A provider request is unavailable until a separately enabled build is reviewed." },
   VALIDATION_DISCLOSURE_MISSING: { title: "Validation was not approved", body: "Review the one-request disclosure and choose Validate now explicitly." },
   VALIDATION_POLICY_DENIED: { title: "Validation wasn't allowed by policy", body: "Nothing was sent to the provider. The refusal was recorded in Activity." },

@@ -149,13 +149,17 @@ export function replaceSlotMetadata(snapshot: CredentialMetadataSnapshot, slotId
 export function createMemoryCredentialMetadataStore(initial: CredentialMetadataSnapshot = emptyCredentialMetadata()): CredentialMetadataStore & { snapshot(): CredentialMetadataSnapshot } {
   let current = parseCredentialMetadata(initial);
   let sequence: Promise<void> = Promise.resolve();
+  const enqueue = (work: () => Promise<void>): Promise<void> => {
+    const pending = sequence.then(work);
+    sequence = pending.then(() => undefined, () => undefined);
+    return pending;
+  };
   return Object.freeze({
     async read() { await sequence; return current; },
     async write(snapshot: CredentialMetadataSnapshot) {
       const parsed = parseCredentialMetadata(snapshot);
       const work = async (): Promise<void> => { current = parsed; };
-      sequence = sequence.then(work, work);
-      await sequence;
+      await enqueue(work);
     },
     async update(transform: (snapshot: CredentialMetadataSnapshot) => CredentialMetadataSnapshot) {
       let updated: CredentialMetadataSnapshot | null = null;
@@ -163,8 +167,7 @@ export function createMemoryCredentialMetadataStore(initial: CredentialMetadataS
         updated = parseCredentialMetadata(transform(current));
         current = updated;
       };
-      sequence = sequence.then(work, work);
-      await sequence;
+      await enqueue(work);
       return updated!;
     },
     snapshot: () => current,
@@ -178,6 +181,11 @@ export function createFileCredentialMetadataStore(root: string): CredentialMetad
   const rel = relative(resolvedRoot, target);
   if (rel.startsWith("..") || isAbsolute(rel)) throw new CredentialHostError("METADATA_UNAVAILABLE");
   let sequence: Promise<void> = Promise.resolve();
+  const enqueue = (work: () => Promise<void>): Promise<void> => {
+    const pending = sequence.then(work);
+    sequence = pending.then(() => undefined, () => undefined);
+    return pending;
+  };
   async function readInternal(): Promise<CredentialMetadataSnapshot> {
     let handle;
     let bytes: Buffer | undefined;
@@ -235,8 +243,7 @@ export function createFileCredentialMetadataStore(root: string): CredentialMetad
         await readInternal();
         await writeInternal(parsed);
       };
-      sequence = sequence.then(work, work);
-      await sequence;
+      await enqueue(work);
     },
     async update(transform: (snapshot: CredentialMetadataSnapshot) => CredentialMetadataSnapshot) {
       let updated: CredentialMetadataSnapshot | null = null;
@@ -245,8 +252,7 @@ export function createFileCredentialMetadataStore(root: string): CredentialMetad
         updated = parseCredentialMetadata(transform(current));
         await writeInternal(updated);
       };
-      sequence = sequence.then(work, work);
-      await sequence;
+      await enqueue(work);
       return updated!;
     },
   });

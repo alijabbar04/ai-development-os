@@ -193,7 +193,7 @@ describe("credential IPC boundary", () => {
     const control = harness();
     await invoke(control, CREDENTIAL_CHANNELS.describe, envelope());
     await invoke(control, CREDENTIAL_CHANNELS.save, { ...envelope(), slotId: "anthropic", secret: "SYNTHETIC_IPC_VALUE", nickname: "Synthetic", ownership: "owned", authorizedBy: "", clearClipboard: true });
-    await invoke(control, CREDENTIAL_CHANNELS.rotate, { ...envelope(), ...IDENTITY, secret: "SYNTHETIC_ROTATE_VALUE", clearClipboard: false });
+    await invoke(control, CREDENTIAL_CHANNELS.rotate, { ...envelope(), ...IDENTITY, secret: "SYNTHETIC_ROTATE_VALUE", clearClipboard: false, entryMode: "rotate", nickname: null, ownership: null, authorizedBy: null });
     await invoke(control, CREDENTIAL_CHANNELS.remove, { ...envelope(), action: "set-enabled", ...IDENTITY, enabled: false });
     await invoke(control, CREDENTIAL_CHANNELS.remove, { ...envelope(), action: "remove", ...IDENTITY, acknowledgedRemoval: true });
     await invoke(control, CREDENTIAL_CHANNELS.validate, { ...envelope(), ...IDENTITY, acknowledgedDisclosure: true });

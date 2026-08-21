@@ -19,6 +19,9 @@
     "verify:app-vault-electron-smoke": "npm --prefix apps/credential-setup run ensure:electron && npm run smoke:real --workspace @ai-dev-os/secrets-app-vault-electron",
     "verify:windows-native-shape": "node apps/credential-setup/scripts/verify-windows-credential-addon-shape.mjs",
     "verify:credential-host-electron-smoke": "npm run smoke:real --workspace @ai-dev-os/credential-setup",
+    "regenerate:credential-host-evidence-screenshot": "npm run regenerate:evidence-screenshot --workspace @ai-dev-os/credential-setup",
+    "generate:stage-18e-h-subject-manifest": "node scripts/generate-stage-18e-h-subject-manifest.mjs",
+    "verify:stage-18e-h-subject-manifest": "node scripts/verify-stage-18e-h-subject-manifest.mjs",
     "verify:credential-host-packed": "npm run verify:packed --workspace @ai-dev-os/credential-setup"
   },
   "engines": {

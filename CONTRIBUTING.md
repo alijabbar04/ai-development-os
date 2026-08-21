@@ -78,6 +78,13 @@ checksummed `install.js` only when its local `dist` is absent, and then verifies
 `dist/version`, `path.txt`, containment, and executable presence. Electron remains
 outside production dependencies.
 
+The ordinary credential-host real-Electron smoke writes its screenshot only below
+the disposable smoke root printed in its result. It must remain repository-clean.
+Tracked screenshot evidence may be changed only by the explicit
+`npm run regenerate:credential-host-evidence-screenshot` command after UI changes
+and review are complete. Do not add a custom output flag or combine regeneration
+with another smoke mode; the wrapper deliberately refuses both.
+
 `npm ci --ignore-scripts` works for anything that needs neither the SQLite
 binding nor execution of the Electron verifier — typechecking, building, and `npm audit`.
 CI uses it for the audit job for exactly that reason. It will fail

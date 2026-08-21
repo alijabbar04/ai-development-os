@@ -23,6 +23,18 @@ describe("bounded nonsecret metadata store", () => {
     await store.write(populated());
     expect(store.snapshot()).toEqual(populated());
     await expect(store.write({ ...populated(), schemaVersion: 2 } as never)).rejects.toMatchObject({ code: "METADATA_UNAVAILABLE" });
+    expect(await store.read()).toEqual(populated());
+    const recovered = await store.update((current) => replaceSlotMetadata(current, "anthropic", { ...current.slots.anthropic!, enabled: false }));
+    expect(recovered.slots.anthropic?.enabled).toBe(false);
+  });
+
+  it("does not poison in-memory reads or later updates when one transform throws", async () => {
+    const store = createMemoryCredentialMetadataStore(populated());
+    const marker = new Error("synthetic-transform-failure");
+    await expect(store.update(() => { throw marker; })).rejects.toBe(marker);
+    expect(await store.read()).toEqual(populated());
+    const recovered = await store.update((current) => replaceSlotMetadata(current, "anthropic", { ...current.slots.anthropic!, enabled: false }));
+    expect(recovered.slots.anthropic?.enabled).toBe(false);
   });
 
   it("round-trips strict bounded metadata atomically without temp remnants", async () => {
@@ -66,6 +78,9 @@ describe("bounded nonsecret metadata store", () => {
       expect(() => parseCredentialMetadata({ ...populated(), slots: { ...populated().slots, anthropic: { ...populated().slots.anthropic, nickname: "N".repeat(41) } } })).toThrowError(expect.objectContaining({ code: "METADATA_UNAVAILABLE" }));
       expect(() => parseCredentialMetadata({ ...populated(), slots: { ...populated().slots, anthropic: { ...populated().slots.anthropic, authorizedBy: "A".repeat(41) } } })).toThrowError(expect.objectContaining({ code: "METADATA_UNAVAILABLE" }));
       expect(() => parseCredentialMetadata({ ...populated(), slots: { ...populated().slots, anthropic: { ...populated().slots.anthropic, nickname: "SYNTHETIC_SECRET_CANARY" } } })).toThrowError(expect.objectContaining({ code: "METADATA_UNAVAILABLE" }));
+      expect(() => parseCredentialMetadata({ ...populated(), slots: { ...populated().slots, anthropic: { ...populated().slots.anthropic, nickname: Buffer.from("SYNTHETIC_SECRET_CANARY", "utf8").toString("base64") } } })).toThrowError(expect.objectContaining({ code: "METADATA_UNAVAILABLE" }));
+      expect(() => parseCredentialMetadata({ ...populated(), slots: { ...populated().slots, anthropic: { ...populated().slots.anthropic, nickname: "YRANAC_TERCES_CITEHTNYS" } } })).toThrowError(expect.objectContaining({ code: "METADATA_UNAVAILABLE" }));
+      expect(() => parseCredentialMetadata({ ...populated(), slots: { ...populated().slots, anthropic: { ...populated().slots.anthropic, nickname: "ＳＹＮＴＨＥＴＩＣ_ＳＥＣＲＥＴ_ＣＡＮＡＲＹ" } } })).toThrowError(expect.objectContaining({ code: "METADATA_UNAVAILABLE" }));
       expect(() => parseCredentialMetadata({ ...populated(), slots: { ...populated().slots, anthropic: { ...populated().slots.anthropic, nickname: "SYNTHETIC_CREDENTIAL_", authorizedBy: "VALUE" } } })).toThrowError(expect.objectContaining({ code: "METADATA_UNAVAILABLE" }));
       expect(() => parseCredentialMetadata({ ...populated(), activity: [{ ...populated().activity[0], text: `Imported ${["sk", "ant", "api03", "SYNTHETIC_ACTIVITY_CANARY"].join("-")}` }] })).toThrowError(expect.objectContaining({ code: "METADATA_UNAVAILABLE" }));
     } finally { await rm(root, { recursive: true, force: true }); }
@@ -95,6 +110,19 @@ describe("bounded nonsecret metadata store", () => {
       const final = await store.read();
       expect(final.slots.openai?.nickname).toBe("Second");
       expect(final.slots.anthropic?.enabled).toBe(false);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("does not poison file reads or later updates when one transform throws", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ai-dev-os-credential-metadata-transform-recovery-"));
+    try {
+      const store = createFileCredentialMetadataStore(root);
+      await store.write(populated());
+      const marker = new Error("synthetic-transform-failure");
+      await expect(store.update(() => { throw marker; })).rejects.toBe(marker);
+      expect(await store.read()).toEqual(populated());
+      const recovered = await store.update((current) => replaceSlotMetadata(current, "anthropic", { ...current.slots.anthropic!, enabled: false }));
+      expect(recovered.slots.anthropic?.enabled).toBe(false);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 });

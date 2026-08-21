@@ -34,13 +34,14 @@ captured action sets are identical in both modes.
 ## Safety and project status
 
 - Production is disabled and live validation is disabled.
-- Electron is an exact-compatible development peer. `ensure:electron` explicitly
+- Electron is an exact-pinned development peer. `ensure:electron` explicitly
   restores and verifies the checksummed 43.4.1 runtime when its local dist is absent;
   the package does not rely on a nonexistent Electron lifecycle hook.
 - Saving never invokes validation.
-- Main refuses a nickname or authorising label that directly copies or composes
-  the submitted/replacement credential, and the strict at-rest metadata parser
-  rejects known credential-shaped plaintext labels.
+- Main refuses a nickname or authorising label that directly, compositionally, or
+  through the reviewed bounded reversible forms represents the submitted
+  credential. The strict at-rest metadata parser applies the same generic
+  credential-shape rule to those forms.
 - The production host constructs only the committed vault manager/brokers and a
   policy-aware resolver.
 - Hosted Windows CI compiles and loads the inherited Credential Manager addon only
@@ -51,6 +52,26 @@ captured action sets are identical in both modes.
   disposable synthetic Electron smoke.
 - No installer, updater, provider login, credential export, or Stage 20/21 runtime
   capability is included.
+- Clipboard clearing is fixed default-on for each host opening and remains a
+  per-operation choice. This version has no persisted clipboard setting. Nicknames
+  have no rename action while a credential is present; after removal, the existing
+  identity-bound re-entry path accepts corrected entry metadata. A standalone
+  rename control remains deferred to Stage 21.
 - AM-02 and INT-01 remain proven; ANT-02 and PLN-02 remain incomplete;
   `developmentAccepted=false`, `productionAdmitted=false`, and Stage 20A remains
   ineligible.
+
+## Screenshot evidence
+
+`npm run smoke:real --workspace @ai-dev-os/credential-setup` writes its preview
+only inside the reported disposable smoke root. It never updates tracked evidence.
+After all renderer changes are final, the committed Stage 18E-H screenshot can be
+updated only with:
+
+```powershell
+npm run regenerate:credential-host-evidence-screenshot
+```
+
+The wrapper accepts no custom destination and refuses extra, duplicate, or mixed
+arguments. The evidence command still uses synthetic values and does not authorize
+a provider call, Credential Manager access, or production activation.

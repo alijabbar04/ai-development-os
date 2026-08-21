@@ -3,6 +3,12 @@ import { CredentialHostError } from "./host-error.js";
 type MetadataSafetyCode = "SCHEMA_REJECTED" | "METADATA_UNAVAILABLE";
 
 const CREDENTIAL_SHAPE = /(?:sk-(?:ant-api\d{2}-|ant-|proj-|or-v1-|or-)?[A-Za-z0-9_-]{8,}|AIza[0-9A-Za-z_-]{12,}|SYNTHETIC_(?:CREDENTIAL|SECRET|KEY)[A-Z0-9_-]{4,})/u;
+const DEFAULT_IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu;
+const MAX_DERIVED_LABEL_CODE_UNITS = 320;
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
+const BASE64URL = /^[A-Za-z0-9_-]+$/u;
+const HEX = /^[0-9a-f]+$/iu;
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
 
 export function assertCredentialMetadataTextSafe(value: string, code: MetadataSafetyCode): void {
   if (CREDENTIAL_SHAPE.test(value)) throw new CredentialHostError(code);
@@ -64,9 +70,71 @@ function partsContainLogicalSecret(secret: string, start: number, end: number, p
   return false;
 }
 
+function boundedDerived(value: string): string | null {
+  return value.length > 0 && value.length <= MAX_DERIVED_LABEL_CODE_UNITS ? value : null;
+}
+
+function decodedUtf8(bytes: Uint8Array): string | null {
+  try { return boundedDerived(UTF8.decode(bytes)); }
+  catch { return null; }
+}
+
+function strictBase64(value: string): string | null {
+  if (value.length === 0 || value.length % 4 !== 0 || !BASE64.test(value)) return null;
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.toString("base64") !== value) return null;
+  return decodedUtf8(bytes);
+}
+
+function strictBase64Url(value: string): string | null {
+  if (value.length === 0 || value.length % 4 === 1 || !BASE64URL.test(value)) return null;
+  const bytes = Buffer.from(value, "base64url");
+  if (bytes.toString("base64url") !== value) return null;
+  return decodedUtf8(bytes);
+}
+
+function strictHex(value: string): string | null {
+  if (value.length === 0 || value.length % 2 !== 0 || !HEX.test(value)) return null;
+  const bytes = Buffer.from(value, "hex");
+  if (bytes.toString("hex") !== value.toLowerCase()) return null;
+  return decodedUtf8(bytes);
+}
+
+function shiftedAscii(value: string, delta: -1 | 1): string | null {
+  let shifted = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    const transformed = code + delta;
+    if (code < 0x21 || code > 0x7e || transformed < 0x21 || transformed > 0x7e) return null;
+    shifted += String.fromCharCode(transformed);
+  }
+  return boundedDerived(shifted);
+}
+
+function derivedLabelForms(value: string): readonly string[] {
+  const canonical = new Set<string>();
+  const add = (candidate: string | null): void => { if (candidate !== null && boundedDerived(candidate) !== null) canonical.add(candidate); };
+  add(value);
+  add(value.normalize("NFKC"));
+  add(value.replace(DEFAULT_IGNORABLE, ""));
+  add(value.normalize("NFKC").replace(DEFAULT_IGNORABLE, ""));
+  const bases = [...canonical];
+  for (const base of bases) {
+    add([...base].reverse().join(""));
+    add(strictBase64(base));
+    add(strictBase64Url(base));
+    add(strictHex(base));
+    add(shiftedAscii(base, -1));
+    add(shiftedAscii(base, 1));
+  }
+  return Object.freeze([...canonical]);
+}
+
 export function assertCredentialMetadataLabelsSafe(nickname: string, authorizedBy: string, code: MetadataSafetyCode): void {
   const variants = [nickname, authorizedBy, `${nickname}${authorizedBy}`, `${authorizedBy}${nickname}`];
-  for (const value of variants) assertCredentialMetadataTextSafe(value, code);
+  for (const value of variants) {
+    for (const derived of derivedLabelForms(value)) assertCredentialMetadataTextSafe(derived, code);
+  }
 }
 
 export function assertCredentialMetadataSeparatedFromSecret(secret: string, nickname: string, authorizedBy: string, code: MetadataSafetyCode = "SCHEMA_REJECTED"): void {
@@ -76,6 +144,13 @@ export function assertCredentialMetadataSeparatedFromSecret(secret: string, nick
     const candidateInsideSecret = logicalSecretContains(secret, start, end, parts);
     const secretInsideCandidate = partsContainLogicalSecret(secret, start, end, parts);
     if (candidateInsideSecret || secretInsideCandidate) throw new CredentialHostError(code);
+  }
+  const materialized = [nickname, authorizedBy, `${nickname}${authorizedBy}`, `${authorizedBy}${nickname}`];
+  for (const candidate of materialized) {
+    for (const derived of derivedLabelForms(candidate)) {
+      if (derived === candidate) continue;
+      if (logicalSecretContains(secret, start, end, [derived]) || partsContainLogicalSecret(secret, start, end, [derived])) throw new CredentialHostError(code);
+    }
   }
   assertCredentialMetadataLabelsSafe(nickname, authorizedBy, code);
 }

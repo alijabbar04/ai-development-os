@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { CREDENTIAL_ELECTRON_VERSION } from "../src/main/constants.js";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repository = resolve(appRoot, "..", "..");
@@ -17,8 +18,8 @@ describe("Electron and dependency static policy", () => {
   it("pins Electron 43.4.1 as development-only and asserts the runtime floor before registering the surface", () => {
     const manifest = JSON.parse(read("package.json")) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string>; peerDependencies?: Record<string, string> };
     expect(manifest.dependencies?.["electron"]).toBeUndefined();
-    expect(manifest.devDependencies?.["electron"]).toBe("~43.4.1");
-    expect(manifest.peerDependencies?.["electron"]).toBe("~43.4.1");
+    expect(manifest.devDependencies?.["electron"]).toBe(CREDENTIAL_ELECTRON_VERSION);
+    expect(manifest.peerDependencies?.["electron"]).toBe(CREDENTIAL_ELECTRON_VERSION);
     const main = read("src/main/main.ts");
     expect(main.indexOf("assertAppVaultElectronVersion")).toBeLessThan(main.indexOf("registerSchemesAsPrivileged"));
     expect(main.indexOf("assertCredentialElectronVersion")).toBeLessThan(main.indexOf("registerSchemesAsPrivileged"));
@@ -77,7 +78,8 @@ describe("Electron and dependency static policy", () => {
     expect(composition).toContain("createAppVaultManager");
     expect(composition).toContain("Promise.allSettled");
     expect(read("src/main/host-service.ts")).toContain("createPolicyAwareSecretResolver");
-    expect(read("src/main/host-service.ts")).toContain(".resolver.withSecret");
+    expect(read("src/main/host-service.ts")).toContain("return await resolver.withSecret(input, callback)");
+    expect(read("src/main/host-service.ts")).toContain("this.#resolvers[payload.slotId].resolve(");
     expect(read("src/main/host-service.ts")).not.toMatch(/\.broker\.withSecret/u);
     expect(sources).not.toMatch(/\.storage\.(read|write)|\.crypto\.decrypt/u);
   });

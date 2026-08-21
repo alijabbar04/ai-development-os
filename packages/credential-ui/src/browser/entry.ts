@@ -123,7 +123,7 @@ type Response = SlotsResult | MutationResult | ValidatedResult | RefusedResult |
 interface Bridge {
   describe(): Promise<Response>;
   save(slotId: SlotId, secret: string, nickname: string, ownership: Ownership, authorizedBy: string, clearClipboard: boolean): Promise<Response>;
-  rotate(slotId: SlotId, secret: string, credentialId: string, recordRevision: number, recordToken: string, clearClipboard: boolean): Promise<Response>;
+  rotate(slotId: SlotId, secret: string, credentialId: string, recordRevision: number, recordToken: string, clearClipboard: boolean, entryMode: "rotate" | "reenter", nickname: string | null, ownership: Ownership | null, authorizedBy: string | null): Promise<Response>;
   setEnabled(slotId: SlotId, credentialId: string, recordRevision: number, recordToken: string, enabled: boolean): Promise<Response>;
   remove(slotId: SlotId, credentialId: string, recordRevision: number, recordToken: string, acknowledgedRemoval: true): Promise<Response>;
   validate(slotId: SlotId, credentialId: string, recordRevision: number, recordToken: string, acknowledgedDisclosure: true): Promise<Response>;
@@ -237,7 +237,7 @@ const ERROR_COPY: Readonly<Record<ErrorCode, Readonly<{ title: string; body: str
   VAULT_BUSY: { title: "Secure storage is busy", body: "Wait a moment, then retry deliberately. Nothing is retried automatically." },
   VAULT_WRITE_FAILED: { title: "The storage-change outcome is unknown", body: "Do not submit again yet. Close and reopen credential setup to inspect the current saved state." },
   DECRYPT_FAILED: { title: "This credential could not be read", body: "Review the refreshed status before trying again. Re-entry is offered only if secure storage marks the saved copy unreadable." },
-  METADATA_UNAVAILABLE: { title: "Credential details are unavailable", body: "Credential storage changes and validation are refused until this installation's saved credential details are restored." },
+  METADATA_UNAVAILABLE: { title: "Credential details are unavailable", body: "The local details read or update did not complete. Earlier saved details may still be intact. Close and reopen to inspect them before deciding whether any repair is needed." },
   VALIDATION_DISABLED: { title: "Live validation is off in this build", body: "Saving remains local. A provider request is unavailable until a separately enabled build is reviewed." },
   VALIDATION_DISCLOSURE_MISSING: { title: "Validation was not approved", body: "Review the one-request disclosure and choose Validate now explicitly." },
   VALIDATION_POLICY_DENIED: { title: "Validation wasn't allowed by policy", body: "Nothing was sent to the provider. The refusal was recorded in Activity." },
@@ -276,6 +276,7 @@ const finalizingDialogs = new WeakSet<HTMLDialogElement>();
 
 const REOPEN_FOR_STORAGE_CHANGE = "Reopen credential setup before another storage change";
 const REOPEN_AFTER_TERMINAL_REFUSAL = "Close and reopen credential setup after this refused or uncertain operation";
+const GLOBAL_ACTION_REASON_ID = "credential-global-action-reason";
 const REFUSAL_TONE: Readonly<Record<ErrorCode, Readonly<{ tone: Tone; urgent: boolean }>>> = Object.freeze({
   SENDER_REJECTED: { tone: "danger", urgent: true }, TOKEN_REJECTED: { tone: "danger", urgent: true }, REPLAYED: { tone: "warn", urgent: false }, SCHEMA_REJECTED: { tone: "danger", urgent: true },
   ILLEGAL_TRANSITION: { tone: "warn", urgent: false }, RATE_LIMITED: { tone: "warn", urgent: false }, PLATFORM_UNSUPPORTED: { tone: "warn", urgent: false }, APP_NOT_READY: { tone: "warn", urgent: false },
@@ -322,12 +323,25 @@ function appendActionReasons(parent: HTMLElement, actions: HTMLElement, scope: s
   const disabledActions = [...actions.querySelectorAll<HTMLButtonElement>("button:disabled[data-disabled-reason]")];
   if (disabledActions.length === 0) return;
   const reasons = element("div", { className: "action-reasons", attrs: { "data-action-reasons-for": scope } });
-  disabledActions.forEach((action, index) => {
-    const reasonId = `action-reason-${scope}-${index}`;
+  const globalReason = globalActionReason();
+  let localReasonIndex = 0;
+  for (const action of disabledActions) {
+    if (globalReason !== null && action.dataset["disabledReason"] === globalReason) {
+      action.setAttribute("aria-describedby", GLOBAL_ACTION_REASON_ID);
+      continue;
+    }
+    const reasonId = `action-reason-${scope}-${localReasonIndex}`;
+    localReasonIndex += 1;
     action.setAttribute("aria-describedby", reasonId);
     reasons.append(element("p", { text: `${action.textContent?.trim() ?? "Action"} unavailable — ${action.dataset["disabledReason"] ?? "Unavailable"}.`, attrs: { id: reasonId } }));
-  });
-  parent.append(reasons);
+  }
+  if (reasons.childElementCount > 0) parent.append(reasons);
+}
+
+function renderGlobalActionReason(parent: HTMLElement, scope: string): void {
+  const reason = globalActionReason();
+  if (reason === null) return;
+  parent.append(element("p", { className: "action-reasons global-action-reason", text: `Unavailable credential actions — ${reason}.`, attrs: { id: GLOBAL_ACTION_REASON_ID, "data-action-reasons-for": scope } }));
 }
 
 function announce(message: string, urgent = false): void {
@@ -581,11 +595,7 @@ function renderProviderCard(slot: SlotView): HTMLElement {
   const actions = element("div", { className: "button-row" });
   if (slot.state === "absent") actions.append(button("Save credential", () => openEntry(slot, "save"), "btn primary", storageChangeReason(model?.vaultState === "absent" || model?.vaultState === "ready" ? null : "Secure storage needs recovery first"), `save-${slot.slotId}`));
   else {
-    const manageReason = model !== null && model.vaultState !== "ready"
-      ? "Secure storage recovery must be reviewed above"
-      : model?.metadataAvailable === false
-        ? "Restore this installation's saved credential details as described above"
-        : slot.state === "unrecoverable" && mutationInputs(slot) === null ? "Secure storage recovery is required first" : null;
+    const manageReason = storageChangeReason(slot.state === "unrecoverable" && mutationInputs(slot) === null ? "Secure storage recovery is required first" : null);
     actions.append(button("Manage", () => { rememberFocus(); selectedSlotId = slot.slotId; render(); }, "btn", manageReason, `manage-${slot.slotId}`));
   }
   card.append(actions);
@@ -596,9 +606,7 @@ function renderProviderCard(slot: SlotView): HTMLElement {
 const MULTI_CREDENTIAL_MANAGEMENT_REASON = "Multiple credentials require a compatible credential setup version";
 
 function providerGroupManageReason(): string {
-  if (model !== null && model.vaultState !== "ready") return "Secure storage recovery must be reviewed above";
-  if (model?.metadataAvailable === false) return "Restore this installation's saved credential details as described above";
-  return MULTI_CREDENTIAL_MANAGEMENT_REASON;
+  return globalActionReason() ?? MULTI_CREDENTIAL_MANAGEMENT_REASON;
 }
 
 function providerSlotGroups(slots: readonly SlotView[]): readonly (readonly SlotView[])[] {
@@ -663,12 +671,12 @@ function renderProviderGroupStatus(slots: readonly SlotView[]): Readonly<{ tone:
     ...(removed === 0 ? [] : [credentialPhrase(removed, "removed credential", "removed credentials")]),
   ].join(" · ");
 
-  if (unreadable > 0) return { tone: "danger", label: "Keys can't be read", body };
+  if (unreadable > 0) return { tone: "danger", label: "Credentials can't be read", body };
   if (invalid > 0) return { tone: "danger", label: "Needs attention", body };
   if (inconclusive > 0 || limited > 0 || otherCheck > 0) return { tone: "warn", label: "Check needed", body };
   if (stale > 0) return { tone: "warn", label: "Check getting stale", body };
-  if (enabled.length === 0 && disabled > 0) return { tone: "neutral", label: "All keys disabled", body };
-  if (accepted > 0) return { tone: "ok", label: unvalidated > 0 ? `Connected · ${unvalidated} ${unvalidated === 1 ? "key" : "keys"} unvalidated` : "Connected", body };
+  if (enabled.length === 0 && disabled > 0) return { tone: "neutral", label: "All credentials disabled", body };
+  if (accepted > 0) return { tone: "ok", label: unvalidated > 0 ? `Connected · ${unvalidated} ${unvalidated === 1 ? "credential" : "credentials"} unvalidated` : "Connected", body };
   if (saved > 0) return { tone: "neutral", label: "Saved · not validated", body };
   return { tone: "neutral", label: "Removed", body };
 }
@@ -709,6 +717,7 @@ function renderOverview(parent: HTMLElement): void {
   parent.append(header);
   renderNotice(parent);
   renderRecovery(parent);
+  renderGlobalActionReason(parent, "overview-global");
   const strip = element("section", { className: "strip", attrs: { "aria-label": "Credential summary" } });
   const validationAvailability = model === null
     ? pending ? "Loading validation availability" : "Validation availability unavailable"
@@ -730,25 +739,27 @@ function detailActionButton(slot: SlotView, label: string, action: () => void, f
   return button(label, action, kind, blockedReason ?? (validating ? "Check in progress" : null), focusKey);
 }
 
-function storageChangeReason(reason: string | null = null): string | null {
-  if (mutationInFlight) return "Storage change in progress";
-  if (refreshInFlight) return "Refreshing current credential state";
+function globalActionReason(): string | null {
+  if (mutationInFlight) return "A storage change is in progress";
+  if (refreshInFlight) return "Current credential state is being refreshed";
+  if (activeValidationCredentialId() !== null) return "A credential validation check is in progress";
   if (sessionPresentationState === "committed") return REOPEN_FOR_STORAGE_CHANGE;
   if (sessionPresentationState === "failed") return REOPEN_AFTER_TERMINAL_REFUSAL;
-  if (model !== null && model.vaultState !== "absent" && model.vaultState !== "ready") return "Secure storage needs recovery before changing credentials";
-  if (model?.metadataAvailable === false) return "Restore this installation's saved credential details before changing stored credentials";
-  return reason;
+  if (model === null) return initialStatePending() ? "Secure storage is loading" : "Secure storage is unavailable; close and reopen credential setup";
+  if (model.vaultState !== "absent" && model.vaultState !== "ready") return "Secure storage recovery is required before credential actions";
+  if (!model.metadataAvailable) return "Restore this installation's saved credential details before credential actions";
+  return null;
+}
+
+function storageChangeReason(reason: string | null = null): string | null {
+  return globalActionReason() ?? reason;
 }
 
 function validationReason(reason: string | null = null): string | null {
-  if (mutationInFlight) return "Storage change in progress";
-  if (refreshInFlight) return "Refreshing current credential state";
-  if (activeValidationCredentialId() !== null) return "Another check is in progress";
+  const globalReason = globalActionReason();
+  if (globalReason !== null && globalReason !== REOPEN_FOR_STORAGE_CHANGE) return globalReason;
   if (validationPresentationState === "reopen-required") return "Close and reopen credential setup before another validation check";
   if (!authoritativeStateFresh) return "Reopen credential setup to load current credential state";
-  if (sessionPresentationState === "failed") return REOPEN_AFTER_TERMINAL_REFUSAL;
-  if (model !== null && model.vaultState !== "ready") return "Secure storage needs recovery before validating credentials";
-  if (model?.metadataAvailable === false) return "Restore this installation's saved credential details before validating credentials";
   return reason;
 }
 
@@ -761,6 +772,7 @@ function renderDetail(parent: HTMLElement, slot: SlotView): void {
   append(header, heading);
   parent.append(header);
   renderNotice(parent);
+  renderGlobalActionReason(parent, "detail-global");
   const status = statusFor(slot);
   const card = element("article", { className: "card detail-card", attrs: { "data-slot-id": slot.slotId } });
   const cardHead = element("div", { className: "provider-head" });
@@ -933,7 +945,8 @@ function openProviderPicker(): void {
 }
 
 function openEntry(slot: SlotView, operation: "save" | "rotate" | "reenter"): void {
-  const shell = dialogShell(operation === "save" ? `Save a ${slot.displayName} credential` : operation === "rotate" ? `Rotate ${slot.displayName}` : `Re-enter ${slot.displayName}`);
+  const shell = dialogShell(operation === "save" ? `Save credential — ${slot.displayName}` : operation === "rotate" ? `Rotate ${slot.displayName}` : `Re-enter ${slot.displayName}`);
+  shell.dialog.classList.add("credential-entry-dialog");
   const facts = element("ul", { className: "disclosure" });
   const disclosureId = `${shell.dialog.getAttribute("aria-labelledby") ?? "credential-entry"}-description`;
   facts.id = disclosureId;
@@ -955,9 +968,9 @@ function openEntry(slot: SlotView, operation: "save" | "rotate" | "reenter"): vo
   errorSummary.hidden = true;
   shell.body.append(errorSummary);
 
-  const nicknameField = inputField("Nickname", "credential-nickname", "A friendly label that does not contain the credential. It is not used as storage identity.");
+  const nicknameField = inputField("Nickname", "credential-nickname", "A friendly label that does not contain the credential. It is not used as storage identity. In this version, changing it later requires removal and re-entry.");
   nicknameField.input.value = slot.nickname ?? "Personal";
-  if (operation === "save") shell.body.append(nicknameField.wrap);
+  if (operation !== "rotate") shell.body.append(nicknameField.wrap);
 
   let ownership: Ownership = slot.ownership ?? "owned";
   const ownershipGroup = element("fieldset");
@@ -992,7 +1005,7 @@ function openEntry(slot: SlotView, operation: "save" | "rotate" | "reenter"): vo
   };
   nicknameField.input.addEventListener("input", () => clearCorrectedFieldError(nicknameField));
   authorizedField.input.addEventListener("input", () => clearCorrectedFieldError(authorizedField));
-  if (operation === "save") append(shell.body, ownershipGroup, authorizedField.wrap);
+  if (operation !== "rotate") append(shell.body, ownershipGroup, authorizedField.wrap);
 
   const keyWrap = element("div", { className: "field" });
   const keyLabel = element("label", { text: `${slot.displayName} credential`, attrs: { for: "credential-secret" } });
@@ -1038,8 +1051,8 @@ function openEntry(slot: SlotView, operation: "save" | "rotate" | "reenter"): vo
   append(clipboardBlock, clipboardLabel, element("p", { className: "help", text: "The app never reads the clipboard. Windows clipboard history or cloud sync may retain earlier copies; use Win+V → Clear all if needed.", attrs: { id: clipboardHelpId } }));
   shell.body.append(clipboardBlock);
 
-  const local = element("span", { className: "local-note", text: "Encrypted on this PC" });
-  const cancel = button("Cancel", () => cancelEntry());
+  const local = element("span", { className: "local-note", text: "Cancel closes this secure window. Nothing is saved." });
+  const cancel = button("Cancel and close", () => cancelEntry());
   submit = button(operation === "save" ? "Save securely" : operation === "rotate" ? "Replace securely" : "Re-enter securely", () => { void submitEntry(); }, "btn primary");
   append(shell.foot, local, cancel, submit);
   let submitting = false;
@@ -1086,8 +1099,8 @@ function openEntry(slot: SlotView, operation: "save" | "rotate" | "reenter"): vo
     setFieldError(nicknameField.input, nicknameField.error, "");
     setFieldError(authorizedField.input, authorizedField.error, "");
     const localFormat = updateKeyFormat();
-    if (operation === "save" && nicknameField.input.value.trim().length === 0) { setFieldError(nicknameField.input, nicknameField.error, "Enter a nickname."); showEntryError("Enter a nickname that does not contain the credential before saving.", nicknameField.input); return; }
-    if (operation === "save" && ownership === "authorized" && authorizedField.input.value.trim().length === 0) { setFieldError(authorizedField.input, authorizedField.error, "Say who authorised this credential."); showEntryError("Enter an authorising label that does not contain the credential before saving.", authorizedField.input); return; }
+    if (operation !== "rotate" && nicknameField.input.value.trim().length === 0) { setFieldError(nicknameField.input, nicknameField.error, "Enter a nickname."); showEntryError("Enter a nickname that does not contain the credential before saving.", nicknameField.input); return; }
+    if (operation !== "rotate" && ownership === "authorized" && authorizedField.input.value.trim().length === 0) { setFieldError(authorizedField.input, authorizedField.error, "Say who authorised this credential."); showEntryError("Enter an authorising label that does not contain the credential before saving.", authorizedField.input); return; }
     if (localFormat.blocks) { key.setAttribute("aria-invalid", "true"); showEntryError(localFormat.sentence, key); return; }
     const inputs = mutationInputs(slot);
     if (operation !== "save" && inputs === null) { showRefusal({ schemaVersion: 1, requestId: "0".repeat(32), ok: false, kind: "refused", code: "VAULT_REVISION_CONFLICT", retryable: true }); destroyDialog(shell.dialog, key); return; }
@@ -1118,7 +1131,7 @@ function openEntry(slot: SlotView, operation: "save" | "rotate" | "reenter"): vo
     let result: Response;
     if (api === undefined) result = { schemaVersion: 1, requestId: "0".repeat(32), ok: false, kind: "refused", code: "SENDER_REJECTED", retryable: false };
     else if (operation === "save") result = await finite(api.save(slot.slotId, secret, nickname, ownership, authorizedBy, clearClipboard));
-    else result = await finite(api.rotate(slot.slotId, secret, inputs!.credentialId, inputs!.revision, inputs!.token, clearClipboard));
+    else result = await finite(api.rotate(slot.slotId, secret, inputs!.credentialId, inputs!.revision, inputs!.token, clearClipboard, operation, operation === "reenter" ? nickname : null, operation === "reenter" ? ownership : null, operation === "reenter" ? authorizedBy : null));
     finalizeEntry("complete");
     await applyResponse(result, operation === "save" ? "saved" : operation === "reenter" ? "reentered" : "rotated");
   }

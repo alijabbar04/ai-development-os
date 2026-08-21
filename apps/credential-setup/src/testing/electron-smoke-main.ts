@@ -491,8 +491,8 @@ async function runHappyPath(): Promise<void> {
     await press(surface.window, "Enter");
     await waitFor(surface.window, `document.querySelector("#credential-secret") !== null`);
     await mark("happy-entry");
-    const entry = await page<Record<string, unknown>>(surface.window, `(() => { const dialog = document.querySelector("dialog"); const labelledBy = dialog?.getAttribute("aria-labelledby"); const describedBy = dialog?.getAttribute("aria-describedby"); const secret = document.querySelector("#credential-secret"); const clear = [...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Clear"); const submit = [...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Save securely"); const clipboard = document.querySelector(".clipboard-choice input"); const clipboardLabelNode = document.querySelector(".clipboard-choice label"); const clipboardDescriptionId = clipboard?.getAttribute("aria-describedby"); const nickname = document.querySelector("#credential-nickname"); const authorizedBy = document.querySelector("#credential-authorized-by"); return { activeId: document.activeElement?.id, passwordCount: document.querySelectorAll('input[type="password"]').length, secretAutocomplete: secret?.getAttribute("autocomplete"), randomSecretName: /^credential-[a-f0-9]{32}$/.test(secret?.getAttribute("name") ?? ""), duplicateIds: [...document.querySelectorAll("[id]")].length - new Set([...document.querySelectorAll("[id]")].map((node) => node.id)).size, forbiddenControls: [...document.querySelectorAll("dialog button")].filter((node) => /reveal|show credential|copy credential|export credential/i.test(node.textContent ?? "")).length, clearButtons: clear === undefined ? 0 : 1, clearDisabled: clear?.hasAttribute("disabled") ?? false, submitDisabled: submit?.hasAttribute("disabled") ?? false, accessibleName: labelledBy !== null && labelledBy !== undefined && (document.getElementById(labelledBy)?.textContent ?? "").startsWith("Save a "), accessibleDescription: describedBy !== null && describedBy !== undefined && (document.getElementById(describedBy)?.textContent ?? "").includes("never shown again"), acquisition: document.querySelector("#credential-secret-help")?.textContent ?? "", nicknameMax: nickname instanceof HTMLInputElement ? nickname.maxLength : null, authorizedByMax: authorizedBy instanceof HTMLInputElement ? authorizedBy.maxLength : null, clipboardLabel: clipboardLabelNode?.textContent?.trim() ?? "", clipboardTargetHeight: clipboardLabelNode?.getBoundingClientRect().height ?? 0, clipboardDescription: clipboardDescriptionId === null || clipboardDescriptionId === undefined ? "" : document.getElementById(clipboardDescriptionId)?.textContent ?? "" }; })()`);
-    record("keyboard-picker-entry", addFocus === "add-provider" && pickerReturnFocus === "add-provider" && picker["active"] === "BUTTON" && picker["role"] === null && picker["type"] === "button" && picker["count"] === 4 && picker["listTag"] === "UL" && picker["rowTags"] === true && picker["accessibleName"] === true && entry["activeId"] === "credential-secret" && entry["passwordCount"] === 1 && entry["secretAutocomplete"] === "new-password" && entry["randomSecretName"] === true && entry["duplicateIds"] === 0 && entry["forbiddenControls"] === 0 && entry["clearButtons"] === 1 && entry["clearDisabled"] === true && entry["submitDisabled"] === true && entry["accessibleName"] === true && entry["accessibleDescription"] === true && String(entry["acquisition"]).includes("Anthropic Console → API keys") && entry["nicknameMax"] === 40 && entry["authorizedByMax"] === 40 && entry["clipboardLabel"] === "Clear the current clipboard item after confirmed save" && Number(entry["clipboardTargetHeight"]) >= 24 && String(entry["clipboardDescription"]).includes("Windows clipboard history"), { addFocus, pickerReturnFocus, picker, entry });
+    const entry = await page<Record<string, unknown>>(surface.window, `(() => { const dialog = document.querySelector("dialog"); const labelledBy = dialog?.getAttribute("aria-labelledby"); const describedBy = dialog?.getAttribute("aria-describedby"); const secret = document.querySelector("#credential-secret"); const clear = [...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Clear"); const submit = [...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Save securely"); const cancel = [...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Cancel and close"); const clipboard = document.querySelector(".clipboard-choice input"); const clipboardLabelNode = document.querySelector(".clipboard-choice label"); const clipboardDescriptionId = clipboard?.getAttribute("aria-describedby"); const nickname = document.querySelector("#credential-nickname"); const authorizedBy = document.querySelector("#credential-authorized-by"); const body = document.querySelector("dialog .dialog-body"); return { activeId: document.activeElement?.id, passwordCount: document.querySelectorAll('input[type="password"]').length, secretAutocomplete: secret?.getAttribute("autocomplete"), randomSecretName: /^credential-[a-f0-9]{32}$/.test(secret?.getAttribute("name") ?? ""), duplicateIds: [...document.querySelectorAll("[id]")].length - new Set([...document.querySelectorAll("[id]")].map((node) => node.id)).size, forbiddenControls: [...document.querySelectorAll("dialog button")].filter((node) => /reveal|show credential|copy credential|export credential/i.test(node.textContent ?? "")).length, clearButtons: clear === undefined ? 0 : 1, clearDisabled: clear?.hasAttribute("disabled") ?? false, submitDisabled: submit?.hasAttribute("disabled") ?? false, accessibleName: labelledBy !== null && labelledBy !== undefined && (document.getElementById(labelledBy)?.textContent ?? "") === "Save credential — Anthropic", accessibleDescription: describedBy !== null && describedBy !== undefined && (document.getElementById(describedBy)?.textContent ?? "").includes("never shown again"), cancelLabel: cancel?.textContent?.trim() ?? "", cancelConsequence: document.querySelector(".dialog-foot .local-note")?.textContent?.trim() ?? "", bodyFitsDefaultViewport: body !== null && body.scrollHeight <= body.clientHeight + 1, acquisition: document.querySelector("#credential-secret-help")?.textContent ?? "", nicknameMax: nickname instanceof HTMLInputElement ? nickname.maxLength : null, authorizedByMax: authorizedBy instanceof HTMLInputElement ? authorizedBy.maxLength : null, clipboardLabel: clipboardLabelNode?.textContent?.trim() ?? "", clipboardTargetHeight: clipboardLabelNode?.getBoundingClientRect().height ?? 0, clipboardDescription: clipboardDescriptionId === null || clipboardDescriptionId === undefined ? "" : document.getElementById(clipboardDescriptionId)?.textContent ?? "" }; })()`);
+    record("keyboard-picker-entry", addFocus === "add-provider" && pickerReturnFocus === "add-provider" && picker["active"] === "BUTTON" && picker["role"] === null && picker["type"] === "button" && picker["count"] === 4 && picker["listTag"] === "UL" && picker["rowTags"] === true && picker["accessibleName"] === true && entry["activeId"] === "credential-secret" && entry["passwordCount"] === 1 && entry["secretAutocomplete"] === "new-password" && entry["randomSecretName"] === true && entry["duplicateIds"] === 0 && entry["forbiddenControls"] === 0 && entry["clearButtons"] === 1 && entry["clearDisabled"] === true && entry["submitDisabled"] === true && entry["accessibleName"] === true && entry["accessibleDescription"] === true && entry["cancelLabel"] === "Cancel and close" && String(entry["cancelConsequence"]).includes("Nothing is saved") && entry["bodyFitsDefaultViewport"] === true && String(entry["acquisition"]).includes("Anthropic Console → API keys") && entry["nicknameMax"] === 40 && entry["authorizedByMax"] === 40 && entry["clipboardLabel"] === "Clear the current clipboard item after confirmed save" && Number(entry["clipboardTargetHeight"]) >= 24 && String(entry["clipboardDescription"]).includes("Windows clipboard history"), { addFocus, pickerReturnFocus, picker, entry });
 
     const correctedFieldErrors = await page<Record<string, unknown>>(surface.window, `(async () => {
       const secret = document.querySelector("#credential-secret");
@@ -572,8 +572,8 @@ async function runHappyPath(): Promise<void> {
 
     surface.window.setContentSize(900, 700);
     await delay(80);
-    const compactEntry = await page<Record<string, unknown>>(surface.window, `(() => ({ horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth || document.querySelector("dialog").scrollWidth > document.querySelector("dialog").clientWidth, clippedRailLabels: [...document.querySelectorAll(".rail button")].some((node) => node.scrollWidth > node.clientWidth + 1), clippedFooterButtons: [...document.querySelectorAll(".dialog-foot button")].some((node) => node.scrollWidth > node.clientWidth + 1) }))()`);
-    record("compact-entry-layout", compactEntry["horizontalOverflow"] === false && compactEntry["clippedRailLabels"] === false && compactEntry["clippedFooterButtons"] === false, compactEntry);
+    const compactEntry = await page<Record<string, unknown>>(surface.window, `(() => { const full = document.querySelector(".prod-label-full"); const compact = document.querySelector(".prod-label-compact"); return { horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth || document.querySelector("dialog").scrollWidth > document.querySelector("dialog").clientWidth, clippedRailLabels: [...document.querySelectorAll(".rail button")].some((node) => node.scrollWidth > node.clientWidth + 1), clippedFooterButtons: [...document.querySelectorAll(".dialog-foot button")].some((node) => node.scrollWidth > node.clientWidth + 1), productionFullText: full?.textContent ?? "", productionFullWidth: full?.getBoundingClientRect().width ?? 0, productionCompactDisplay: compact === null ? "none" : getComputedStyle(compact).display, productionCompactText: compact?.textContent ?? "" }; })()`);
+    record("compact-entry-layout", compactEntry["horizontalOverflow"] === false && compactEntry["clippedRailLabels"] === false && compactEntry["clippedFooterButtons"] === false && compactEntry["productionFullText"] === "Production disabled" && Number(compactEntry["productionFullWidth"]) <= 1 && compactEntry["productionCompactDisplay"] !== "none" && compactEntry["productionCompactText"] === "Prod. off", compactEntry);
     surface.window.setContentSize(1180, 780);
     await delay(80);
 
@@ -611,11 +611,11 @@ async function runHappyPath(): Promise<void> {
       const dialogButtons = [...document.querySelectorAll("dialog button")];
       return {
         dialogOpen: document.querySelector("dialog")?.hasAttribute("open") ?? false,
-        cancelDisabled: dialogButtons.find((node) => node.textContent?.trim() === "Cancel")?.hasAttribute("disabled") ?? false,
+        cancelDisabled: dialogButtons.find((node) => node.textContent?.trim() === "Cancel and close")?.hasAttribute("disabled") ?? false,
         submitDisabled: dialogButtons.find((node) => node.textContent?.trim() === "Save securely")?.hasAttribute("disabled") ?? false,
         fieldsDisabled: [...document.querySelectorAll("dialog fieldset, #credential-authorized-by, #credential-secret, #credential-nickname, dialog input[type=checkbox]")].every((node) => node.hasAttribute("disabled")),
         actionCount: actions.length,
-        allDisabled: actions.length > 0 && actions.every((node) => node.hasAttribute("disabled") && node.getAttribute("title") === "Storage change in progress"),
+        allDisabled: actions.length > 0 && actions.every((node) => node.hasAttribute("disabled") && node.getAttribute("title") === "A storage change is in progress"),
         progressDuration: getComputedStyle(document.querySelector("dialog .progress"), "::after").animationDuration,
         focusInside: document.querySelector("dialog")?.contains(document.activeElement) ?? false,
         busyFocus: document.activeElement?.getAttribute("data-busy-focus") ?? null,
@@ -626,7 +626,7 @@ async function runHappyPath(): Promise<void> {
     surface.releaseGate("save");
     await surface.waitForGate("describe");
     const postCommitPending = await page<Record<string, unknown>>(surface.window, `(() => { const actions = [...document.querySelectorAll(".detail-card .button-row button")]; return { dialog: document.querySelector("dialog") !== null, actionCount: actions.length, allDisabled: actions.length > 0 && actions.every((node) => node.hasAttribute("disabled")), reasons: actions.map((node) => node.getAttribute("title")), visible: document.querySelector(".action-reasons")?.textContent ?? null }; })()`);
-    record("post-commit-refresh-blocking", postCommitPending["dialog"] === false && Number(postCommitPending["actionCount"]) > 0 && postCommitPending["allDisabled"] === true && (postCommitPending["reasons"] as unknown[]).every((reason) => reason === "Storage change in progress" || reason === "Refreshing current credential state") && String(postCommitPending["visible"]).includes("Storage change in progress"), postCommitPending);
+    record("post-commit-refresh-blocking", postCommitPending["dialog"] === false && Number(postCommitPending["actionCount"]) > 0 && postCommitPending["allDisabled"] === true && (postCommitPending["reasons"] as unknown[]).every((reason) => reason === "A storage change is in progress") && String(postCommitPending["visible"]).includes("A storage change is in progress"), postCommitPending);
     surface.releaseGate("describe");
     await waitFor(surface.window, `document.querySelector("dialog") === null && document.querySelector(".detail-card") !== null && document.querySelector('[data-focus-key="validate-anthropic"]')?.getAttribute("title") === "Live validation is off in this build" && document.activeElement?.tagName === "H1" && (document.querySelector("#status-region")?.textContent ?? "").includes("Saved securely")`);
 
@@ -639,7 +639,7 @@ async function runHappyPath(): Promise<void> {
       active: document.activeElement?.tagName ?? null,
       validateDisabled: document.querySelector('[data-focus-key="validate-anthropic"]')?.hasAttribute("disabled") ?? false,
       validateReason: document.querySelector('[data-focus-key="validate-anthropic"]')?.getAttribute("title") ?? null,
-      visibleDisabledReason: document.querySelector(".action-reasons")?.textContent ?? null,
+      visibleDisabledReason: [...document.querySelectorAll(".action-reasons")].map((node) => node.textContent ?? "").join(" "),
       visibleNoticeRole: document.querySelector(".notice")?.getAttribute("role") ?? null,
       populatedLiveRegions: [document.querySelector("#status-region")?.textContent, document.querySelector("#alert-region")?.textContent].filter((text) => (text ?? "").trim().length > 0).length,
       duplicateIds: [...document.querySelectorAll("[id]")].length - new Set([...document.querySelectorAll("[id]")].map((node) => node.id)).size
@@ -689,10 +689,27 @@ async function runHappyPath(): Promise<void> {
        const values = pairs.map(([foreground, background]) => ({ foreground, background, ratio: foreground === "--text" && background === "--accent-fill" ? (() => { const a = lum(parse("#fff")); const b = lum(parse(vars.getPropertyValue(background))); return (Math.max(a,b)+.05)/(Math.min(a,b)+.05); })() : ratio(foreground, background) }));
        const nonTextPairs = [["--border","--surface-2"],["--border","--bg"],["--border","--surface-1"],["--accent-fill","--surface-2"]];
        const nonTextValues = nonTextPairs.map(([foreground, background]) => ({ foreground, background, ratio: ratio(foreground, background) }));
-      return { minimum: Math.min(...values.map((item) => item.ratio)), values, nonTextMinimum: Math.min(...nonTextValues.map((item) => item.ratio)), nonTextValues };
-    })()`);
+       const infoBadge = document.querySelector('.badge[data-tone="info"]');
+       let infoBadgeBoundary = null;
+       if (infoBadge instanceof Element) {
+         const surface = infoBadge.closest(".card");
+         const borderColor = getComputedStyle(infoBadge).borderTopColor;
+         const surfaceColor = surface instanceof Element ? getComputedStyle(surface).backgroundColor : getComputedStyle(document.documentElement).backgroundColor;
+         const canvas = document.createElement("canvas"); canvas.width = 1; canvas.height = 1;
+         const context = canvas.getContext("2d", { willReadFrequently: true });
+         if (context !== null) {
+           context.fillStyle = surfaceColor; context.fillRect(0, 0, 1, 1); const background = [...context.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+           context.fillStyle = borderColor; context.fillRect(0, 0, 1, 1); const composite = [...context.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+           const backgroundLum = lum(background); const compositeLum = lum(composite);
+           infoBadgeBoundary = { borderColor, surfaceColor, background, composite, ratio: (Math.max(backgroundLum, compositeLum) + .05) / (Math.min(backgroundLum, compositeLum) + .05) };
+         }
+       }
+       const actualRatios = infoBadgeBoundary === null ? [] : [infoBadgeBoundary.ratio];
+       return { minimum: Math.min(...values.map((item) => item.ratio)), values, nonTextMinimum: Math.min(...nonTextValues.map((item) => item.ratio), ...actualRatios), nonTextValues, infoBadgeBoundary };
+     })()`);
     record("wcag-aa-contrast", Number(contrast["minimum"]) >= 4.5, contrast);
     record("wcag-non-text-control-boundary-contrast", Number(contrast["nonTextMinimum"]) >= 3, contrast["nonTextValues"]);
+    record("info-badge-composited-boundary-contrast", contrast["infoBadgeBoundary"] !== null && Number((contrast["infoBadgeBoundary"] as Record<string, unknown>)["ratio"]) >= 3, contrast["infoBadgeBoundary"]);
 
     const viewports: Array<Record<string, unknown>> = [];
     for (const [width, height] of [[900, 700], [1180, 780], [2560, 1440]] as const) {
@@ -772,7 +789,7 @@ async function runInFlightActionRegression(): Promise<void> {
         busyName: document.activeElement?.textContent?.trim() ?? null
       };
     })()`);
-    record("validation-in-flight-ui-lock", validating["dialogOpen"] === true && validating["cancelDisabled"] === true && validating["submitDisabled"] === true && Number(validating["actionCount"]) === 4 && validating["allDisabled"] === true && validating["validateReason"] === "Another check is in progress" && (validating["storageReasons"] as unknown[]).every((reason) => reason === "Check in progress") && String(validating["visible"]).includes("Another check is in progress") && String(validating["visible"]).includes("Check in progress") && validating["progressDuration"] === "12s" && validating["focusInside"] === true && validating["busyFocus"] === "true" && String(validating["busyName"]).includes("Validating"), validating);
+    record("validation-in-flight-ui-lock", validating["dialogOpen"] === true && validating["cancelDisabled"] === true && validating["submitDisabled"] === true && Number(validating["actionCount"]) === 4 && validating["allDisabled"] === true && validating["validateReason"] === "A credential validation check is in progress" && (validating["storageReasons"] as unknown[]).every((reason) => reason === "A credential validation check is in progress") && String(validating["visible"]).includes("A credential validation check is in progress") && validating["progressDuration"] === "12s" && validating["focusInside"] === true && validating["busyFocus"] === "true" && String(validating["busyName"]).includes("Validating"), validating);
     surface.releaseGate("validate");
     await waitFor(surface.window, `document.querySelector("dialog") === null && (document.querySelector(".badge")?.textContent ?? "").startsWith("Validated")`);
     const normalValidationLanguage = await page<Record<string, unknown>>(surface.window, `(() => {
@@ -801,7 +818,7 @@ async function runInFlightActionRegression(): Promise<void> {
         keepDisabled: dialogButtons.find((node) => node.textContent?.trim() === "Keep credential")?.hasAttribute("disabled") ?? false,
         submitDisabled: dialogButtons.find((node) => node.textContent?.trim() === "Remove from this PC")?.hasAttribute("disabled") ?? false,
         actionCount: actions.length,
-        allDisabled: actions.length > 0 && actions.every((node) => node.hasAttribute("disabled") && node.getAttribute("title") === "Storage change in progress"),
+        allDisabled: actions.length > 0 && actions.every((node) => node.hasAttribute("disabled") && node.getAttribute("title") === "A storage change is in progress"),
         visible: document.querySelector(".action-reasons")?.textContent ?? "",
         described: (() => { const dialog = document.querySelector("dialog"); const id = dialog?.getAttribute("aria-describedby") ?? ""; return id.length > 0 && (document.getElementById(id)?.textContent ?? "").includes("does not revoke"); })(),
         acknowledgementTargetHeight: acknowledgement?.getBoundingClientRect().height ?? 0,
@@ -811,7 +828,7 @@ async function runInFlightActionRegression(): Promise<void> {
         busyName: document.activeElement?.textContent?.trim() ?? null
       };
     })()`);
-    record("removal-in-flight-ui-lock", removing["dialogOpen"] === true && removing["keepDisabled"] === true && removing["submitDisabled"] === true && Number(removing["actionCount"]) === 4 && removing["allDisabled"] === true && String(removing["visible"]).includes("Storage change in progress") && removing["described"] === true && Number(removing["acknowledgementTargetHeight"]) >= 24 && removing["progressDuration"] === "30s" && removing["focusInside"] === true && removing["busyFocus"] === "true" && String(removing["busyName"]).includes("Removing"), removing);
+    record("removal-in-flight-ui-lock", removing["dialogOpen"] === true && removing["keepDisabled"] === true && removing["submitDisabled"] === true && Number(removing["actionCount"]) === 4 && removing["allDisabled"] === true && String(removing["visible"]).includes("A storage change is in progress") && removing["described"] === true && Number(removing["acknowledgementTargetHeight"]) >= 24 && removing["progressDuration"] === "30s" && removing["focusInside"] === true && removing["busyFocus"] === "true" && String(removing["busyName"]).includes("Removing"), removing);
     surface.releaseGate("remove");
     await waitFor(surface.window, `document.querySelector("dialog") === null && document.querySelector(".badge")?.textContent === "Removed"`);
     const removedCommitted = await page<Record<string, unknown>>(surface.window, `(() => {
@@ -834,7 +851,7 @@ async function runRecoveryAndMetadataRegressions(): Promise<void> {
     await loading.waitForGate("describe");
     loading.window.setContentSize(900, 700);
     await delay(80);
-    const pending = await page<Record<string, unknown>>(loading.window, `(() => ({ summary: document.querySelector(".strip strong")?.textContent ?? "", validation: document.querySelector(".strip span:last-child")?.textContent ?? "", disabled: document.querySelector('[data-focus-key="add-provider"]')?.hasAttribute("disabled") ?? false, reason: document.querySelector('[data-focus-key="add-provider"]')?.getAttribute("title") ?? "", visible: document.querySelector('[data-action-reasons-for="overview-add"]')?.textContent ?? "", pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth, headerFits: document.querySelector(".view-head")?.scrollWidth <= document.querySelector(".view-head")?.clientWidth }))()`);
+    const pending = await page<Record<string, unknown>>(loading.window, `(() => ({ summary: document.querySelector(".strip strong")?.textContent ?? "", validation: document.querySelector(".strip span:last-child")?.textContent ?? "", disabled: document.querySelector('[data-focus-key="add-provider"]')?.hasAttribute("disabled") ?? false, reason: document.querySelector('[data-focus-key="add-provider"]')?.getAttribute("title") ?? "", visible: document.querySelector(".global-action-reason")?.textContent ?? "", pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth, headerFits: document.querySelector(".view-head")?.scrollWidth <= document.querySelector(".view-head")?.clientWidth }))()`);
     record("initial-storage-loading-is-not-recovery", String(pending["summary"]).includes("Loading secure storage") && pending["validation"] === "Loading validation availability" && pending["disabled"] === true && pending["reason"] === "Secure storage is loading" && String(pending["visible"]).includes("Secure storage is loading") && !String(pending["visible"]).includes("recovery") && !String(pending["validation"]).includes("disabled") && pending["pageFits"] === true && pending["headerFits"] === true, pending);
     loading.releaseGate("describe");
     await waitFor(loading.window, `document.querySelectorAll(".provider-card").length === 4`);
@@ -842,8 +859,8 @@ async function runRecoveryAndMetadataRegressions(): Promise<void> {
 
   const initialRefusal = await openSurface({ describeRefusalAfter: 1 });
   try {
-    const refused = await page<Record<string, unknown>>(initialRefusal.window, `(() => ({ notice: document.querySelector(".notice")?.textContent ?? "", addDisabled: document.querySelector('[data-focus-key="add-provider"]')?.hasAttribute("disabled") ?? false, reason: document.querySelector('[data-focus-key="add-provider"]')?.getAttribute("title") ?? "", visible: document.querySelector('[data-action-reasons-for="overview-add"]')?.textContent ?? "", loading: (document.querySelector('[data-action-reasons-for="overview-add"]')?.textContent ?? "").includes("loading") }))()`);
-    record("initial-describe-refusal-is-terminal", String(refused["notice"]).includes("Credential details are unavailable") && refused["addDisabled"] === true && String(refused["reason"]).toLowerCase().includes("reopen") && String(refused["visible"]).toLowerCase().includes("reopen") && refused["loading"] === false, refused);
+    const refused = await page<Record<string, unknown>>(initialRefusal.window, `(() => ({ notice: document.querySelector(".notice")?.textContent ?? "", addDisabled: document.querySelector('[data-focus-key="add-provider"]')?.hasAttribute("disabled") ?? false, reason: document.querySelector('[data-focus-key="add-provider"]')?.getAttribute("title") ?? "", visible: document.querySelector(".global-action-reason")?.textContent ?? "", loading: (document.querySelector(".global-action-reason")?.textContent ?? "").includes("loading") }))()`);
+    record("initial-describe-refusal-is-terminal", String(refused["notice"]).includes("Credential details are unavailable") && String(refused["notice"]).includes("read or update did not complete") && refused["addDisabled"] === true && String(refused["reason"]).toLowerCase().includes("reopen") && String(refused["visible"]).toLowerCase().includes("reopen") && refused["loading"] === false, refused);
     await page(initialRefusal.window, `document.querySelector('button[data-view="activity"]')?.click()`);
     await waitFor(initialRefusal.window, `document.activeElement?.tagName === "H1" && document.activeElement?.textContent?.trim() === "Credential activity"`);
     const activity = await page<Record<string, unknown>>(initialRefusal.window, `(() => ({ body: document.querySelector(".activity-list")?.textContent ?? "", validation: document.querySelector(".strip span:last-child")?.textContent ?? "", focus: document.activeElement?.textContent?.trim() ?? "" }))()`);
@@ -860,7 +877,7 @@ async function runRecoveryAndMetadataRegressions(): Promise<void> {
       recovery: [...document.querySelectorAll(".notice")].map((node) => node.textContent ?? "").join(" "),
       anthropicBody: document.querySelector('[data-slot-id="anthropic"] .provider-body')?.textContent ?? "",
       manageDisabled: document.querySelector('[data-focus-key="manage-anthropic"]')?.hasAttribute("disabled") ?? false,
-      manageReason: document.querySelector('[data-action-reasons-for="card-anthropic"]')?.textContent ?? ""
+      manageReason: document.querySelector(".global-action-reason")?.textContent ?? ""
     }))()`);
     await page(metadata.window, `document.querySelector('.rail button[data-view="activity"]')?.click()`);
     await waitFor(metadata.window, `document.querySelector(".activity-list") !== null`);
@@ -899,6 +916,8 @@ async function runRecoveryAndMetadataRegressions(): Promise<void> {
         statuses: [...document.querySelectorAll(".provider-card .badge")].map((node) => node.textContent?.trim()),
         actions: [...document.querySelectorAll(".provider-card button, .view-head > button")].map((node) => ({ disabled: node.hasAttribute("disabled"), reason: node.getAttribute("title") })),
         visibleReasons: [...document.querySelectorAll(".action-reasons")].map((node) => node.textContent ?? "").join(" "),
+        globalReasonCount: document.querySelectorAll("#credential-global-action-reason").length,
+        disabledReasonsResolved: [...document.querySelectorAll("main button:disabled[data-disabled-reason]")].every((node) => { const id = node.getAttribute("aria-describedby"); return id !== null && (document.getElementById(id)?.textContent?.trim().length ?? 0) > 0; }),
         recovery: [...document.querySelectorAll(".notice")].map((node) => node.textContent ?? "").join(" "),
         rawCode: /VAULT_[A-Z_]+/u.test(document.querySelector(".view")?.textContent ?? "")
       }))()`);
@@ -911,7 +930,7 @@ async function runRecoveryAndMetadataRegressions(): Promise<void> {
       }
     } finally { await closeSurface(surface); }
   }
-  record("finite-recovery-renderer-gates", recoveryStates.every((state) => String(state["summary"]).includes("counts unavailable") && (state["statuses"] as unknown[]).every((status) => status === "Recovery required") && (state["actions"] as Array<Record<string, unknown>>).every((action) => action["disabled"] === true && String(action["reason"]).includes("recovery")) && String(state["visibleReasons"]).includes("unavailable") && state["rawCode"] === false), recoveryStates);
+  record("finite-recovery-renderer-gates", recoveryStates.every((state) => String(state["summary"]).includes("counts unavailable") && (state["statuses"] as unknown[]).every((status) => status === "Recovery required") && (state["actions"] as Array<Record<string, unknown>>).every((action) => action["disabled"] === true && String(action["reason"]).includes("recovery")) && String(state["visibleReasons"]).toLowerCase().includes("unavailable") && state["globalReasonCount"] === 1 && state["disabledReasonsResolved"] === true && state["rawCode"] === false), recoveryStates);
 
   const unavailable = await openSurface({ encryptionAvailable: false });
   try {
@@ -965,13 +984,13 @@ async function runValidationPresentationRegressions(): Promise<void> {
   } finally { await closeSurface(ageTick); }
 
   const groupCases = [
-    { scenario: "mixed" as const, badge: "Connected · 1 key unvalidated", tone: "ok" },
-    { scenario: "all-disabled" as const, badge: "All keys disabled", tone: "neutral" },
+    { scenario: "mixed" as const, badge: "Connected · 1 credential unvalidated", tone: "ok" },
+    { scenario: "all-disabled" as const, badge: "All credentials disabled", tone: "neutral" },
     { scenario: "saved-only" as const, badge: "Saved · not validated", tone: "neutral" },
     { scenario: "inconclusive" as const, badge: "Check needed", tone: "warn" },
     { scenario: "stale" as const, badge: "Check getting stale", tone: "warn" },
     { scenario: "invalid" as const, badge: "Needs attention", tone: "danger" },
-    { scenario: "unreadable" as const, badge: "Keys can't be read", tone: "danger" },
+    { scenario: "unreadable" as const, badge: "Credentials can't be read", tone: "danger" },
     { scenario: "metadata-unavailable" as const, badge: "Details unavailable", tone: "warn" },
     { scenario: "recovery" as const, badge: "Recovery required", tone: "danger" },
   ];
@@ -979,7 +998,7 @@ async function runValidationPresentationRegressions(): Promise<void> {
   for (const candidate of groupCases) {
     const surface = await openSurface({ seedCredential: true, viewScenario: "multi-anthropic", multiCredentialScenario: candidate.scenario });
     try {
-      const observation = await page<Record<string, unknown>>(surface.window, `(() => { const card = document.querySelector('[data-slot-id="anthropic"]'); const body = card?.querySelector(".provider-body")?.textContent ?? ""; return { summary: document.querySelector(".strip strong")?.textContent ?? "", providerCards: document.querySelectorAll(".provider-card").length, anthropicCards: document.querySelectorAll('[data-slot-id="anthropic"]').length, credentialCount: card?.getAttribute("data-credential-count") ?? null, badge: card?.querySelector(".badge")?.textContent?.trim() ?? "", tone: card?.querySelector(".badge")?.getAttribute("data-tone") ?? "", body, manageDisabled: card?.querySelector("button")?.hasAttribute("disabled") ?? false, reason: card?.querySelector(".action-reasons")?.textContent ?? "", recoveryDisclosureSafe: !/(^|\s)\d+ saved|accepted by the provider|disabled credential/iu.test(body), metadataDisclosureSafe: !/accepted by the provider|needs a check|disabled credential/iu.test(body) }; })()`);
+      const observation = await page<Record<string, unknown>>(surface.window, `(() => { const card = document.querySelector('[data-slot-id="anthropic"]'); const body = card?.querySelector(".provider-body")?.textContent ?? ""; const disabled = [...document.querySelectorAll("main button:disabled[data-disabled-reason]")]; return { summary: document.querySelector(".strip strong")?.textContent ?? "", providerCards: document.querySelectorAll(".provider-card").length, anthropicCards: document.querySelectorAll('[data-slot-id="anthropic"]').length, credentialCount: card?.getAttribute("data-credential-count") ?? null, badge: card?.querySelector(".badge")?.textContent?.trim() ?? "", tone: card?.querySelector(".badge")?.getAttribute("data-tone") ?? "", body, manageDisabled: card?.querySelector("button")?.hasAttribute("disabled") ?? false, reason: document.querySelector(".global-action-reason")?.textContent ?? card?.querySelector(".action-reasons")?.textContent ?? "", globalReasonCount: document.querySelectorAll("#credential-global-action-reason").length, disabledReasonsResolved: disabled.length > 0 && disabled.every((node) => { const id = node.getAttribute("aria-describedby"); return id !== null && (document.getElementById(id)?.textContent?.trim().length ?? 0) > 0; }), recoveryDisclosureSafe: !/(^|\s)\d+ saved|accepted by the provider|disabled credential/iu.test(body), metadataDisclosureSafe: !/accepted by the provider|needs a check|disabled credential/iu.test(body) }; })()`);
       const observed: Record<string, unknown> = { scenario: candidate.scenario, expectedBadge: candidate.badge, expectedTone: candidate.tone, ...observation };
       if (candidate.scenario === "mixed") {
         await page(surface.window, `document.querySelector('[data-focus-key="add-provider"]')?.click()`);
@@ -993,11 +1012,11 @@ async function runValidationPresentationRegressions(): Promise<void> {
   record("same-provider-multiple-credential-renderer-aggregate", groupObservations.every((item) => {
     const scenario = item["scenario"];
     const picker = item["picker"] as Record<string, unknown> | undefined;
-    const common = item["providerCards"] === 4 && item["anthropicCards"] === 1 && item["credentialCount"] === "2" && item["manageDisabled"] === true;
+    const common = item["providerCards"] === 4 && item["anthropicCards"] === 1 && item["credentialCount"] === "2" && item["manageDisabled"] === true && item["disabledReasonsResolved"] === true;
     const expected = item["badge"] === item["expectedBadge"] && item["tone"] === item["expectedTone"];
     if (scenario === "mixed") return common && expected && String(item["summary"]).includes("1 accepted provider") && String(item["summary"]).includes("2 saved credentials") && String(item["body"]).includes("2 saved credentials") && String(item["body"]).includes("1 credential accepted by the provider") && String(item["body"]).includes("1 credential not validated") && String(item["reason"]).includes("compatible credential setup version") && picker?.["rows"] === 4 && picker["anthropicRows"] === 1 && String(picker["text"]).includes("2 credentials") && picker["disabled"] === true && String(picker["reason"]).includes("compatible credential setup version") && String(picker["intro"]).includes("grouped credentials") && picker["activeProvider"] === "openai" && picker["activeEnabled"] === true;
-    if (scenario === "metadata-unavailable") return common && expected && String(item["body"]).includes("2 saved credentials") && String(item["body"]).includes("details are unavailable") && item["metadataDisclosureSafe"] === true && String(item["reason"]).includes("saved credential details");
-    if (scenario === "recovery") return common && expected && item["recoveryDisclosureSafe"] === true && String(item["body"]).includes("counts and provider-acceptance details are unavailable") && String(item["summary"]).includes("credential counts unavailable") && String(item["reason"]).includes("recovery");
+    if (scenario === "metadata-unavailable") return common && expected && item["globalReasonCount"] === 1 && String(item["body"]).includes("2 saved credentials") && String(item["body"]).includes("details are unavailable") && item["metadataDisclosureSafe"] === true && String(item["reason"]).includes("saved credential details");
+    if (scenario === "recovery") return common && expected && item["globalReasonCount"] === 1 && item["recoveryDisclosureSafe"] === true && String(item["body"]).includes("counts and provider-acceptance details are unavailable") && String(item["summary"]).includes("credential counts unavailable") && String(item["reason"]).includes("recovery");
     return common && expected;
   }), groupObservations);
 
@@ -1032,6 +1051,20 @@ async function runValidationPresentationRegressions(): Promise<void> {
     } finally { await closeSurface(surface); }
   }
   record("four-provider-noninteractive-acquisition-guidance", acquisitionGuidance.length === 4 && acquisitionGuidance.every((item) => item["expected"] === true && item["links"] === 0 && item["passwordCount"] === 1), acquisitionGuidance);
+
+  const saveDialogTitles: Array<Record<string, unknown>> = [];
+  for (const [slotId, displayName] of [["anthropic", "Anthropic"], ["openai", "OpenAI"], ["gemini", "Google Gemini"], ["openrouter", "OpenRouter"]] as const) {
+    const surface = await openSurface();
+    try {
+      await page(surface.window, `document.querySelector('[data-focus-key="add-provider"]')?.click()`);
+      await waitFor(surface.window, `document.querySelector('.provider-picker [data-slot-id="${slotId}"] button') !== null`);
+      await page(surface.window, `document.querySelector('.provider-picker [data-slot-id="${slotId}"] button')?.click()`);
+      await waitFor(surface.window, `document.querySelector("#credential-secret") !== null`);
+      const title = await page<string>(surface.window, `(() => { const dialog = document.querySelector("dialog"); const id = dialog?.getAttribute("aria-labelledby"); return id === null || id === undefined ? "" : document.getElementById(id)?.textContent ?? ""; })()`);
+      saveDialogTitles.push({ slotId, title, expected: `Save credential — ${displayName}` });
+    } finally { await closeSurface(surface); }
+  }
+  record("four-provider-save-dialog-grammar", saveDialogTitles.length === 4 && saveDialogTitles.every((item) => item["title"] === item["expected"]), saveDialogTitles);
 
   const finiteOutcomes = [
     { outcome: "valid" as const, title: "Connection works", fact: "provider accepted the credential" },
@@ -1168,8 +1201,8 @@ async function runMutationPresentationRegressions(): Promise<void> {
   } finally { await closeSurface(disabled); }
 
   const recoveryCases = [
-    { state: "revoked" as const, badge: "Removed", expectedDisclosure: "local encrypted value was removed", normalStorage: "Encrypted value removed; re-entry available" },
-    { state: "unrecoverable" as const, badge: "Re-entry required", expectedDisclosure: "saved encrypted credential cannot be read", normalStorage: "Re-entry required" },
+    { state: "revoked" as const, badge: "Removed", expectedDisclosure: "local encrypted value was removed", normalStorage: "Encrypted value removed; re-entry available", correctedNickname: "Corrected removed credential" },
+    { state: "unrecoverable" as const, badge: "Re-entry required", expectedDisclosure: "saved encrypted credential cannot be read", normalStorage: "Re-entry required", correctedNickname: "Corrected recovered credential" },
   ];
   const reentries: Array<Record<string, unknown>> = [];
   for (const candidate of recoveryCases) {
@@ -1180,10 +1213,10 @@ async function runMutationPresentationRegressions(): Promise<void> {
       await chooseMode(surface, "developer");
       await page(surface.window, `[...document.querySelectorAll(".detail-card button")].find((node) => node.textContent?.trim() === "Re-enter credential")?.click()`);
       await waitFor(surface.window, `document.querySelector("#credential-secret") !== null`);
-      const disclosure = await page<Record<string, unknown>>(surface.window, `(() => { const node = document.querySelector("dialog"); const text = node?.textContent ?? ""; const describedBy = node?.getAttribute("aria-describedby") ?? ""; return { text, operation: text.includes("credential-reenter"), state: text.includes(${JSON.stringify(candidate.state)}), camera: text.includes("camera can still photograph it"), clipboard: text.includes("after confirmed re-entry"), described: describedBy.length > 0 && (document.getElementById(describedBy)?.textContent ?? "").includes(${JSON.stringify(candidate.expectedDisclosure)}) }; })()`);
-      await page(surface.window, `(() => { const input = document.querySelector("#credential-secret"); if (input instanceof HTMLInputElement) { input.value = ${JSON.stringify(SYNTHETIC_REPLACEMENT)}; input.dispatchEvent(new Event("input", { bubbles: true })); } [...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Re-enter securely")?.click(); })()`);
+      const disclosure = await page<Record<string, unknown>>(surface.window, `(() => { const node = document.querySelector("dialog"); const body = node?.querySelector(".dialog-body"); const foot = node?.querySelector(".dialog-foot"); const rect = node?.getBoundingClientRect(); const footRect = foot?.getBoundingClientRect(); const text = node?.textContent ?? ""; const describedBy = node?.getAttribute("aria-describedby") ?? ""; return { text, operation: text.includes("credential-reenter"), state: text.includes(${JSON.stringify(candidate.state)}), camera: text.includes("camera can still photograph it"), clipboard: text.includes("after confirmed re-entry"), described: describedBy.length > 0 && (document.getElementById(describedBy)?.textContent ?? "").includes(${JSON.stringify(candidate.expectedDisclosure)}), nicknameVisible: document.querySelector("#credential-nickname") !== null, ownershipVisible: document.querySelector('input[name="credential-ownership"]') !== null, dialogWithinViewport: rect !== undefined && rect.top >= 0 && rect.bottom <= innerHeight, footerWithinViewport: footRect !== undefined && footRect.top >= 0 && footRect.bottom <= innerHeight, bodyOwnsOverflow: body !== null && getComputedStyle(body).overflowY === "auto" }; })()`);
+      await page(surface.window, `(() => { const input = document.querySelector("#credential-secret"); const nickname = document.querySelector("#credential-nickname"); if (input instanceof HTMLInputElement) { input.value = ${JSON.stringify(SYNTHETIC_REPLACEMENT)}; input.dispatchEvent(new Event("input", { bubbles: true })); } if (nickname instanceof HTMLInputElement) { nickname.value = ${JSON.stringify(candidate.correctedNickname)}; nickname.dispatchEvent(new Event("input", { bubbles: true })); } [...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Re-enter securely")?.click(); })()`);
       await waitFor(surface.window, `document.querySelector("dialog") === null && document.querySelector(".notice h2")?.textContent === "Credential re-entered" && document.querySelector(".badge")?.textContent === "Saved · not validated"`);
-      const after = await page<Record<string, unknown>>(surface.window, `(() => ({ notice: document.querySelector(".notice")?.textContent ?? "", passwordCount: document.querySelectorAll('input[type="password"]').length, enabled: Object.fromEntries([...document.querySelectorAll(".facts dt")].map((term) => [term.textContent?.trim(), term.nextElementSibling?.textContent?.trim()]))["Enabled"] }))()`);
+      const after = await page<Record<string, unknown>>(surface.window, `(() => { const facts = Object.fromEntries([...document.querySelectorAll(".facts dt")].map((term) => [term.textContent?.trim(), term.nextElementSibling?.textContent?.trim()])); return { notice: document.querySelector(".notice")?.textContent ?? "", passwordCount: document.querySelectorAll('input[type="password"]').length, enabled: facts["Enabled"], nickname: document.querySelector(".provider-title h2")?.textContent?.trim() ?? "" }; })()`);
       await page(surface.window, `document.querySelector('.rail button[data-view="activity"]')?.click()`);
       await waitFor(surface.window, `document.querySelector(".activity-list") !== null`);
       const activity = await page<string>(surface.window, `document.querySelector(".activity-list")?.textContent ?? ""`);
@@ -1195,7 +1228,7 @@ async function runMutationPresentationRegressions(): Promise<void> {
     const facts = before["facts"] as Record<string, unknown>;
     const disclosure = item["disclosure"] as Record<string, unknown>;
     const after = item["after"] as Record<string, unknown>;
-    return before["badge"] === item["badge"] && facts["Storage"] === item["normalStorage"] && facts["Presentation metadata"] === undefined && String(disclosure["text"]).includes(String(item["expectedDisclosure"])) && disclosure["operation"] === true && disclosure["state"] === true && disclosure["camera"] === true && disclosure["clipboard"] === true && disclosure["described"] === true && String(after["notice"]).includes("This re-entry did not validate or contact the provider") && String(after["enabled"]).startsWith("Yes") && after["passwordCount"] === 0 && String(item["activity"]).includes("Re-entered Anthropic credential locally") && !String(item["activity"]).includes("Re-entered or rotated") && item["rotateCalls"] === 1;
+    return before["badge"] === item["badge"] && facts["Storage"] === item["normalStorage"] && facts["Presentation metadata"] === undefined && String(disclosure["text"]).includes(String(item["expectedDisclosure"])) && disclosure["operation"] === true && disclosure["state"] === true && disclosure["camera"] === true && disclosure["clipboard"] === true && disclosure["described"] === true && disclosure["nicknameVisible"] === true && disclosure["ownershipVisible"] === true && disclosure["dialogWithinViewport"] === true && disclosure["footerWithinViewport"] === true && disclosure["bodyOwnsOverflow"] === true && String(after["notice"]).includes("This re-entry did not validate or contact the provider") && String(after["enabled"]).startsWith("Yes") && after["nickname"] === item["correctedNickname"] && after["passwordCount"] === 0 && String(item["activity"]).includes("Re-entered Anthropic credential locally") && !String(item["activity"]).includes("Re-entered or rotated") && item["rotateCalls"] === 1;
   }), reentries);
 
   const conflict = await openSurface({ seedCredential: true, rotateConflictOnce: true });
@@ -1209,7 +1242,7 @@ async function runMutationPresentationRegressions(): Promise<void> {
     conflict.releaseGate("describe");
     await waitFor(conflict.window, `document.querySelector(".notice h2")?.textContent === "Current credential state refreshed" && document.querySelector('[data-focus-key="rotate-anthropic"]')?.hasAttribute("disabled") === false`);
     const settled = await page<Record<string, unknown>>(conflict.window, `(() => ({ tone: document.querySelector(".notice")?.getAttribute("data-tone"), notice: document.querySelector(".notice")?.textContent ?? "", rotateEnabled: document.querySelector('[data-focus-key="rotate-anthropic"]')?.hasAttribute("disabled") === false, passwordCount: document.querySelectorAll('input[type="password"]').length }))()`);
-    record("revision-conflict-refresh-and-retry", conflict.rotateCalls() === 1 && pending["title"] === "The credential list changed" && pending["tone"] === "warn" && String(pending["body"]).includes("This attempt made no storage change") && String(pending["body"]).includes("refreshed current saved state") && String(pending["code"]).includes("VAULT_REVISION_CONFLICT") && pending["actionsBlocked"] === true && String(pending["reasons"]).includes("Storage change in progress") && settled["tone"] === "info" && settled["rotateEnabled"] === true && settled["passwordCount"] === 0 && String(settled["notice"]).includes("VAULT_REVISION_CONFLICT") && String(settled["notice"]).includes("Nothing was retried automatically"), { calls: conflict.rotateCalls(), pending, settled });
+    record("revision-conflict-refresh-and-retry", conflict.rotateCalls() === 1 && pending["title"] === "The credential list changed" && pending["tone"] === "warn" && String(pending["body"]).includes("This attempt made no storage change") && String(pending["body"]).includes("refreshed current saved state") && String(pending["code"]).includes("VAULT_REVISION_CONFLICT") && pending["actionsBlocked"] === true && String(pending["reasons"]).includes("A storage change is in progress") && settled["tone"] === "info" && settled["rotateEnabled"] === true && settled["passwordCount"] === 0 && String(settled["notice"]).includes("VAULT_REVISION_CONFLICT") && String(settled["notice"]).includes("Nothing was retried automatically"), { calls: conflict.rotateCalls(), pending, settled });
   } finally { await closeSurface(conflict); }
 
   const failedRefresh = await openSurface({ seedCredential: true, rotateConflictOnce: true, describeRefusalAfter: 2 });

@@ -2,7 +2,7 @@
 
 This Windows-only Stage 18E adapter binds the pure application vault to Electron 43's asynchronous `safeStorage` API and to one fixed, atomically replaced file beneath `%APPDATA%/<AppName>/secrets`. Electron is a peer and development dependency, never a production dependency of the package graph.
 
-The runtime floor is Electron `42.4.1`; development is pinned to the newest patched compatible stable line, `~43.4.1`. The adapter declares Node `>=22.12.0`, matching Electron 43's tooling requirement while leaving the repository-wide floor unchanged. Construction is lazy and performs no Electron load merely because the package was imported. Every operation checks Windows, Electron readiness, and asynchronous encryption availability. There is no plaintext fallback.
+The runtime floor is Electron `42.4.1`; development is pinned to the exactly reviewed runtime, `43.4.1`. The adapter declares Node `>=22.12.0`, matching Electron 43's tooling requirement while leaving the repository-wide floor unchanged. Construction is lazy and performs no Electron load merely because the package was imported. Every operation checks Windows, Electron readiness, and asynchronous encryption availability. There is no plaintext fallback.
 
 Writes use an in-process queue, an exclusive inter-process lock, an exclusive temporary file, file flush, close, previous-generation backup, and atomic rename. The revision is re-read and the complete current document is parsed and integrity-checked while the lock is held. An unreadable primary is never quarantined, replaced, or silently treated as absent by a normal mutation.
 

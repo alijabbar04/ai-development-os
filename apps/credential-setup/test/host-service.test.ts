@@ -2,14 +2,15 @@ import { setImmediate as waitImmediate, setTimeout as waitTimeout } from "node:t
 import { describe, expect, it, vi } from "vitest";
 import type { CredentialMutationResult, CredentialSlotView, CredentialSlotsResult, CredentialValidatedResult } from "@ai-dev-os/credential-ui";
 import type { PolicyRequest } from "@ai-dev-os/policy";
-import { SecretBrokerError, type PolicyAwareSecretResolver, type SecretAccessContext, type SecretMaterial, type SecretRef } from "@ai-dev-os/secrets";
-import { CredentialHostService } from "../src/main/host-service.js";
+import { SecretBrokerError, type SecretAccessContext, type SecretMaterial, type SecretRef } from "@ai-dev-os/secrets";
+import { CREDENTIAL_RESOLVER_BINDING_KEYS, CredentialHostService } from "../src/main/host-service.js";
 import { CredentialEntrySession } from "../src/main/session-machine.js";
 import { createDeterministicCredentialValidationPort, type CredentialValidationPort } from "../src/main/validation.js";
 import { createTestCredentialHost } from "../src/testing/test-host.js";
 
 const SYNTHETIC = "SYNTHETIC_CREDENTIAL_VALUE_FOR_BOUNDED_TESTS";
 const base = Object.freeze({ schemaVersion: 1 as const, requestId: "1".repeat(32), sessionToken: "2".repeat(64) });
+const existingRotation = Object.freeze({ entryMode: "rotate" as const, nickname: null, ownership: null, authorizedBy: null });
 
 async function slots(service: CredentialHostService, requestId = "1".repeat(32)): Promise<CredentialSlotsResult> {
   const result = await service.describe({ ...base, requestId, operation: "describe" });
@@ -40,6 +41,16 @@ describe("exact vault composition", () => {
     expect(result).toMatchObject({ vaultState: "absent", revision: null, validationEnabled: false, productionDisabled: true, metadataAvailable: true });
     expect(result.slots.every((item) => item.developer.referenceFingerprint.length === 64 && item.developer.containerBinding.length === 64)).toBe(true);
     await service.close();
+  });
+
+  it("exposes only the narrow policy-aware resolver boundary", () => {
+    const control = createTestCredentialHost();
+    const binding = control.resolvers.anthropic;
+    expect(Reflect.ownKeys(binding).sort()).toEqual([...CREDENTIAL_RESOLVER_BINDING_KEYS].sort());
+    expect("broker" in binding).toBe(false);
+    expect("resolver" in binding).toBe(false);
+    expect("withSecret" in binding).toBe(false);
+    expect(Object.values(binding).some((value) => typeof value === "object" && value !== null && "withSecret" in value)).toBe(false);
   });
 
   it("projects secure-storage unavailability before soliciting any credential action", async () => {
@@ -102,7 +113,7 @@ describe("exact vault composition", () => {
     const beforeVault = await control.manager.describeSnapshot();
     const beforeMetadata = control.metadata.snapshot();
     const beforeAuditLength = control.audit.length;
-    const result = await service.rotate({ ...base, requestId: "4".repeat(32), operation: "rotate", ...identity(current), secret: "Synthetic", clearClipboard: false });
+    const result = await service.rotate({ ...base, requestId: "4".repeat(32), operation: "rotate", ...identity(current), secret: "Synthetic", clearClipboard: false, ...existingRotation });
     expect(result).toMatchObject({ ok: false, code: "SCHEMA_REJECTED" });
     expect(await control.manager.describeSnapshot()).toEqual(beforeVault);
     expect(control.metadata.snapshot()).toEqual(beforeMetadata);
@@ -126,7 +137,7 @@ describe("exact vault composition", () => {
       const beforeVault = await control.manager.describeSnapshot();
       const beforeMetadata = control.metadata.snapshot();
       const beforeAuditLength = control.audit.length;
-      const result = await service.rotate({ ...base, requestId: "5".repeat(32), operation: "rotate", ...identity(current), secret: candidate.secret, clearClipboard: false });
+      const result = await service.rotate({ ...base, requestId: "5".repeat(32), operation: "rotate", ...identity(current), secret: candidate.secret, clearClipboard: false, ...existingRotation });
       expect(result).toMatchObject({ ok: false, code: "SCHEMA_REJECTED" });
       expect(await control.manager.describeSnapshot()).toEqual(beforeVault);
       expect(control.metadata.snapshot()).toEqual(beforeMetadata);
@@ -202,10 +213,15 @@ describe("exact vault composition", () => {
     const disableService = control.createService();
     const beforeDisable = await slots(disableService);
     await disableService.setEnabled({ ...base, requestId: "3".repeat(32), operation: "set-enabled", ...identity(beforeDisable), enabled: false });
+    const deniedService = control.createService();
+    const beforeDenied = await slots(deniedService, "4".repeat(32));
+    const deniedRename = await deniedService.rotate({ ...base, requestId: "5".repeat(32), operation: "rotate", ...identity(beforeDenied), secret: "SYNTHETIC_DISABLED_ROTATION_VALUE", clearClipboard: false, entryMode: "reenter", nickname: "Rename denied", ownership: "owned", authorizedBy: "" });
+    expect(deniedRename).toMatchObject({ ok: false, code: "ILLEGAL_TRANSITION" });
     const rotateService = control.createService();
-    const beforeRotate = await slots(rotateService, "4".repeat(32));
-    const rotated = await rotateService.rotate({ ...base, requestId: "5".repeat(32), operation: "rotate", ...identity(beforeRotate), secret: "SYNTHETIC_DISABLED_ROTATION_VALUE", clearClipboard: false });
+    const beforeRotate = await slots(rotateService, "6".repeat(32));
+    const rotated = await rotateService.rotate({ ...base, requestId: "7".repeat(32), operation: "rotate", ...identity(beforeRotate), secret: "SYNTHETIC_DISABLED_ROTATION_VALUE", clearClipboard: false, ...existingRotation });
     expect(rotated).toMatchObject({ ok: true, kind: "rotated", slot: { state: "present", enabled: false } });
+    expect(rotated).toMatchObject({ slot: { nickname: "Synthetic", ownership: "owned" } });
     expect(control.metadata.snapshot().activity[0]?.text).toContain("Rotated Anthropic credential");
     await rotateService.close();
   });
@@ -218,12 +234,44 @@ describe("exact vault composition", () => {
     const removed = await removeService.remove({ ...base, requestId: "3".repeat(32), operation: "remove", ...identity(beforeRemove), acknowledgedRemoval: true });
     expect(removed).toMatchObject({ ok: true, kind: "removed", slot: { state: "revoked", enabled: false } });
     expect(control.metadata.snapshot().activity[0]?.text).toContain("not revoked at provider");
+    const refusedService = control.createService();
+    const beforeRefused = await slots(refusedService);
+    const refusedRotation = await refusedService.rotate({ ...base, requestId: "4".repeat(32), operation: "rotate", ...identity(beforeRefused), secret: "SYNTHETIC_REENTRY_VALUE", clearClipboard: false, ...existingRotation });
+    expect(refusedRotation).toMatchObject({ ok: false, code: "ILLEGAL_TRANSITION" });
     const reenterService = control.createService();
-    const beforeReenter = await slots(reenterService);
-    const reentered = await reenterService.rotate({ ...base, requestId: "4".repeat(32), operation: "rotate", ...identity(beforeReenter), secret: "SYNTHETIC_REENTRY_VALUE", clearClipboard: false });
-    expect(reentered).toMatchObject({ ok: true, kind: "rotated", slot: { state: "present", enabled: true, validation: null } });
+    const beforeReenter = await slots(reenterService, "5".repeat(32));
+    const reentered = await reenterService.rotate({ ...base, requestId: "6".repeat(32), operation: "rotate", ...identity(beforeReenter), secret: "SYNTHETIC_REENTRY_VALUE", clearClipboard: false, entryMode: "reenter", nickname: "Corrected nickname", ownership: "authorized", authorizedBy: "Platform lead" });
+    expect(reentered).toMatchObject({ ok: true, kind: "rotated", slot: { state: "present", enabled: true, validation: null, nickname: "Corrected nickname", ownership: "authorized", authorizedBy: "Platform lead" } });
+    expect(control.metadata.snapshot().slots.anthropic).toMatchObject({ nickname: "Corrected nickname", ownership: "authorized", authorizedBy: "Platform lead" });
     expect(control.metadata.snapshot().activity[0]?.text).toContain("Re-entered Anthropic credential");
     await reenterService.close();
+  });
+
+  it("reports an unknown re-entry outcome if corrected labels cannot commit after secure storage", async () => {
+    const control = createTestCredentialHost();
+    await save(control.createService());
+    const removeService = control.createService();
+    const beforeRemove = await slots(removeService);
+    await removeService.remove({ ...base, requestId: "3".repeat(32), operation: "remove", ...identity(beforeRemove), acknowledgedRemoval: true });
+    const service = new CredentialHostService({
+      manager: control.manager,
+      resolvers: control.resolvers,
+      metadata: {
+        read: () => control.metadata.read(),
+        write: (snapshot) => control.metadata.write(snapshot),
+        async update() { throw new Error("synthetic-reentry-metadata-failure"); },
+      },
+      validation: createDeterministicCredentialValidationPort(),
+      validationEnabled: false,
+      clock: control.clock,
+      clipboard: { async clear() { return true; } },
+    });
+    const beforeReentry = await slots(service, "4".repeat(32));
+    const result = await service.rotate({ ...base, requestId: "5".repeat(32), operation: "rotate", ...identity(beforeReentry), secret: "SYNTHETIC_REENTRY_UNKNOWN", clearClipboard: false, entryMode: "reenter", nickname: "Requested correction", ownership: "owned", authorizedBy: "" });
+    expect(result).toMatchObject({ ok: false, kind: "unknown", code: "UNKNOWN_OUTCOME" });
+    expect((await control.manager.describeSnapshot()).slots[0]).toMatchObject({ state: "present" });
+    expect(control.metadata.snapshot().slots.anthropic).toMatchObject({ nickname: "Synthetic", enabled: false });
+    await service.close();
   });
 
   it("rejects stale renderer identity/revision/token and uses the current main-held revision", async () => {
@@ -234,7 +282,7 @@ describe("exact vault composition", () => {
     const stale = identity(before);
     const snapshot = await control.manager.describeSnapshot();
     await control.manager.create({ slotId: "openai", secret: "SYNTHETIC_UNRELATED_VALUE", expectRevision: snapshot.revision });
-    const result = await service.rotate({ ...base, requestId: "3".repeat(32), operation: "rotate", ...stale, secret: "SYNTHETIC_ROTATION_VALUE", clearClipboard: false });
+    const result = await service.rotate({ ...base, requestId: "3".repeat(32), operation: "rotate", ...stale, secret: "SYNTHETIC_ROTATION_VALUE", clearClipboard: false, ...existingRotation });
     expect(result).toMatchObject({ ok: false, code: "VAULT_REVISION_CONFLICT", retryable: true });
     expect(service.session.state).toBe("editing");
     await service.close();
@@ -267,15 +315,16 @@ describe("policy-gated validation", () => {
     await save(control.createService());
     const observed: SecretAccessContext[] = [];
     const original = control.resolvers.anthropic;
-    const resolver: PolicyAwareSecretResolver = Object.freeze({
-      async withSecret<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>) {
+    const binding = Object.freeze({
+      ...original,
+      async resolve<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>) {
         observed.push(input.context);
-        return await original.resolver.withSecret(input, callback);
+        return await original.resolve(input, callback);
       },
     });
     const service = new CredentialHostService({
       manager: control.manager,
-      resolvers: Object.freeze({ ...control.resolvers, anthropic: Object.freeze({ ...original, resolver }) }),
+      resolvers: Object.freeze({ ...control.resolvers, anthropic: binding }),
       metadata: control.metadata,
       validation: createDeterministicCredentialValidationPort({ outcome: "valid" }),
       validationEnabled: true,
@@ -348,13 +397,14 @@ describe("policy-gated validation", () => {
     const control = createTestCredentialHost();
     await save(control.createService());
     const original = control.resolvers.anthropic;
-    const deniedResolver: PolicyAwareSecretResolver = Object.freeze({
-      async withSecret() { throw new SecretBrokerError("ACCESS_DENIED", "synthetic-policy-denial"); },
+    const deniedBinding = Object.freeze({
+      ...original,
+      async resolve() { throw new SecretBrokerError("ACCESS_DENIED", "synthetic-policy-denial"); },
     });
     const validation = createDeterministicCredentialValidationPort({ outcome: "valid" });
     const service = new CredentialHostService({
       manager: control.manager,
-      resolvers: Object.freeze({ ...control.resolvers, anthropic: Object.freeze({ ...original, resolver: deniedResolver }) }),
+      resolvers: Object.freeze({ ...control.resolvers, anthropic: deniedBinding }),
       metadata: control.metadata,
       validation,
       validationEnabled: true,
@@ -401,8 +451,8 @@ describe("policy-gated validation", () => {
       await save(control.createService());
       const original = control.resolvers.anthropic;
       const validation = createDeterministicCredentialValidationPort();
-      const resolver: PolicyAwareSecretResolver = Object.freeze({ async withSecret() { throw new Error("synthetic-pre-dispatch-resolver-failure"); } });
-      const service = new CredentialHostService({ manager: control.manager, resolvers: Object.freeze({ ...control.resolvers, anthropic: Object.freeze({ ...original, resolver }) }), metadata: control.metadata, validation, validationEnabled: true, clock: control.clock, clipboard: { async clear() { return true; } } });
+      const binding = Object.freeze({ ...original, async resolve() { throw new Error("synthetic-pre-dispatch-resolver-failure"); } });
+      const service = new CredentialHostService({ manager: control.manager, resolvers: Object.freeze({ ...control.resolvers, anthropic: binding }), metadata: control.metadata, validation, validationEnabled: true, clock: control.clock, clipboard: { async clear() { return true; } } });
       const current = await slots(service);
       expect(await service.validate({ ...base, operation: "validate", ...identity(current), acknowledgedDisclosure: true })).toMatchObject({ ok: false, code: "REFUSED" });
       expect(validation.dispatches()).toBe(0);
@@ -427,8 +477,8 @@ describe("policy-gated validation", () => {
     const refreshed = await slots(service, "8".repeat(32));
     expect(refreshed.slots[0]).toMatchObject({ state: "unrecoverable", credentialId: bound.credentialId, generation: 1 });
     expect(refreshed.slots[0]?.recordToken).not.toBe(bound.recordToken);
-    const reentered = await service.rotate({ ...base, requestId: "9".repeat(32), operation: "rotate", ...identity(refreshed), secret: "SYNTHETIC_UNRECOVERABLE_REENTRY", clearClipboard: false });
-    expect(reentered).toMatchObject({ ok: true, kind: "rotated", slot: { state: "present", enabled: true } });
+    const reentered = await service.rotate({ ...base, requestId: "9".repeat(32), operation: "rotate", ...identity(refreshed), secret: "SYNTHETIC_UNRECOVERABLE_REENTRY", clearClipboard: false, entryMode: "reenter", nickname: "Recovered credential", ownership: "owned", authorizedBy: "" });
+    expect(reentered).toMatchObject({ ok: true, kind: "rotated", slot: { state: "present", enabled: true, nickname: "Recovered credential" } });
     expect(control.metadata.snapshot().activity[0]?.text).toContain("Re-entered Anthropic credential");
     await service.close();
   });
@@ -608,12 +658,13 @@ describe("policy-gated validation", () => {
     const original = control.resolvers.anthropic;
     let callbackInvocations = 0;
     let observedAborted = false;
-    const resolver: PolicyAwareSecretResolver = Object.freeze({
-      async withSecret<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>) {
+    const binding = Object.freeze({
+      ...original,
+      async resolve<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>) {
         startedNow();
         await gate;
         observedAborted = input.context.signal?.aborted === true;
-        return await original.resolver.withSecret(input, async (secret, decisionFingerprint) => {
+        return await original.resolve(input, async (secret, decisionFingerprint) => {
           callbackInvocations += 1;
           return await callback(secret, decisionFingerprint);
         });
@@ -622,7 +673,7 @@ describe("policy-gated validation", () => {
     const validation = createDeterministicCredentialValidationPort({ outcome: "valid" });
     const service = new CredentialHostService({
       manager: control.manager,
-      resolvers: Object.freeze({ ...control.resolvers, anthropic: Object.freeze({ ...original, resolver }) }),
+      resolvers: Object.freeze({ ...control.resolvers, anthropic: binding }),
       metadata: control.metadata,
       validation,
       validationEnabled: true,
@@ -658,9 +709,10 @@ describe("policy-gated validation", () => {
       const now = vi.spyOn(Date, "now").mockImplementation(() => wallNow);
       let dispatches = 0;
       const original = control.resolvers.anthropic;
-      const resolver: PolicyAwareSecretResolver = Object.freeze({
-        async withSecret<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>) {
-          return await original.resolver.withSecret(input, async (secret, decisionFingerprint) => {
+      const binding = Object.freeze({
+        ...original,
+        async resolve<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>) {
+          return await original.resolve(input, async (secret, decisionFingerprint) => {
             const pending = callback(secret, decisionFingerprint);
             wallNow = 11_000;
             return await pending;
@@ -669,7 +721,7 @@ describe("policy-gated validation", () => {
       });
       const service = new CredentialHostService({
         manager: control.manager,
-        resolvers: Object.freeze({ ...control.resolvers, anthropic: Object.freeze({ ...original, resolver }) }),
+        resolvers: Object.freeze({ ...control.resolvers, anthropic: binding }),
         metadata: control.metadata,
         validation: { async validate() { dispatches += 1; return Object.freeze({ outcome: "valid" as const, resultCode: "VALIDATION_OK" as const }); } },
         validationEnabled: true,
@@ -799,14 +851,15 @@ describe("policy-gated validation", () => {
     const control = createTestCredentialHost();
     await save(control.createService());
     const original = control.resolvers.anthropic;
-    const resolver: PolicyAwareSecretResolver = Object.freeze({
-      async withSecret<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>) {
-        await original.resolver.withSecret(input, callback);
+    const binding = Object.freeze({
+      ...original,
+      async resolve<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>) {
+        await original.resolve(input, callback);
         throw new Error("synthetic-post-callback-resolver-failure");
       },
     });
     const validation = createDeterministicCredentialValidationPort({ outcome: "valid" });
-    const service = new CredentialHostService({ manager: control.manager, resolvers: Object.freeze({ ...control.resolvers, anthropic: Object.freeze({ ...original, resolver }) }), metadata: control.metadata, validation, validationEnabled: true, clock: control.clock, clipboard: { async clear() { return true; } } });
+    const service = new CredentialHostService({ manager: control.manager, resolvers: Object.freeze({ ...control.resolvers, anthropic: binding }), metadata: control.metadata, validation, validationEnabled: true, clock: control.clock, clipboard: { async clear() { return true; } } });
     const current = await slots(service);
     const result = await service.validate({ ...base, operation: "validate", ...identity(current), acknowledgedDisclosure: true });
     expect(result).toMatchObject({ ok: true, kind: "validated", outcome: "valid", providerDispatched: true, resultRecording: "recorded", activityRecording: "recorded" });
@@ -857,7 +910,7 @@ describe("policy-gated validation", () => {
     const bound = identity(current);
     const pending = service.validate({ ...base, operation: "validate", ...bound, acknowledgedDisclosure: true });
     while (validation.dispatches() === 0) await waitImmediate();
-    const blockedRotate = await service.rotate({ ...base, requestId: "3".repeat(32), operation: "rotate", ...bound, secret: "SYNTHETIC_BLOCKED_ROTATION", clearClipboard: false });
+    const blockedRotate = await service.rotate({ ...base, requestId: "3".repeat(32), operation: "rotate", ...bound, secret: "SYNTHETIC_BLOCKED_ROTATION", clearClipboard: false, ...existingRotation });
     const blockedRemove = await service.remove({ ...base, requestId: "4".repeat(32), operation: "remove", ...bound, acknowledgedRemoval: true });
     expect(blockedRotate).toMatchObject({ ok: false, code: "ILLEGAL_TRANSITION" });
     expect(blockedRemove).toMatchObject({ ok: false, code: "ILLEGAL_TRANSITION" });
@@ -991,6 +1044,29 @@ describe("bounded fallback and failure projections", () => {
     await corrupt.close();
   });
 
+  it.each(["save", "rotate", "set-enabled", "remove", "validate"] as const)("refuses a corrupt vault with the exact finite code before %s", async (operation) => {
+    const control = createTestCredentialHost();
+    let currentIdentity: ReturnType<typeof identity> | null = null;
+    if (operation !== "save") {
+      await save(control.createService());
+      currentIdentity = identity(await slots(control.createService()));
+    }
+    control.storage.replacePrimary(new TextEncoder().encode("{corrupt"));
+    const service = control.createService({ validationEnabled: true });
+    const requestId = "9".repeat(32);
+    expect(await slots(service, "8".repeat(32))).toMatchObject({ vaultState: "corrupt", recovery: { issueCode: "VAULT_CORRUPT" } });
+    const result = operation === "save"
+      ? await service.save({ ...base, requestId, operation, slotId: "openai", secret: "SYNTHETIC_CORRUPT_SAVE", nickname: "Synthetic", ownership: "owned", authorizedBy: "", clearClipboard: false })
+      : operation === "rotate"
+        ? await service.rotate({ ...base, requestId, operation, ...currentIdentity!, secret: "SYNTHETIC_CORRUPT_ROTATE", clearClipboard: false, ...existingRotation })
+        : operation === "set-enabled"
+          ? await service.setEnabled({ ...base, requestId, operation, ...currentIdentity!, enabled: false })
+          : operation === "remove"
+            ? await service.remove({ ...base, requestId, operation, ...currentIdentity!, acknowledgedRemoval: true })
+            : await service.validate({ ...base, requestId, operation, ...currentIdentity!, acknowledgedDisclosure: true });
+    expect(result).toMatchObject({ ok: false, kind: "refused", code: "VAULT_CORRUPT", retryable: false });
+  });
+
   it("uses host randomness, reports metadata/clipboard failures, and rejects unavailable enable metadata", async () => {
     const control = createTestCredentialHost();
     let metadataUpdates = 0;
@@ -1020,7 +1096,7 @@ describe("bounded fallback and failure projections", () => {
     const recovery = control.createService();
     const recoverable = await slots(recovery, "4".repeat(32));
     expect(recoverable.metadataAvailable).toBe(true);
-    const rotated = await recovery.rotate({ ...base, requestId: "5".repeat(32), operation: "rotate", ...identity(recoverable), secret: "SYNTHETIC_RECOVERY_ROTATION", clearClipboard: false });
+    const rotated = await recovery.rotate({ ...base, requestId: "5".repeat(32), operation: "rotate", ...identity(recoverable), secret: "SYNTHETIC_RECOVERY_ROTATION", clearClipboard: false, ...existingRotation });
     expect(rotated).toMatchObject({ ok: true, kind: "rotated", slot: { state: "present", nickname: "Synthetic" } });
     await recovery.close();
     await service.close();
@@ -1133,8 +1209,9 @@ describe("bounded fallback and failure projections", () => {
     const closes: string[] = [];
     const manager = Object.freeze({ close() { closes.push("manager"); throw new Error("PRIVATE_MANAGER_CLOSE"); } });
     const binding = (name: string, reject = false) => Object.freeze({
-      broker: Object.freeze({ async close() { closes.push(name); if (reject) throw new Error(`PRIVATE_${name.toUpperCase()}_CLOSE`); } }),
-      resolver: Object.freeze({}),
+      async close() { closes.push(name); if (reject) throw new Error(`PRIVATE_${name.toUpperCase()}_CLOSE`); },
+      describeContainerBinding() { throw new Error("unused"); },
+      async resolve() { throw new Error("unused"); },
       evaluatePolicy() { throw new Error("unused"); },
     });
     const service = new CredentialHostService({

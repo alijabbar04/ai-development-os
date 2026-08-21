@@ -170,7 +170,7 @@ export type CredentialResponse =
 export interface CredentialUiBridge {
   describe(): Promise<CredentialResponse>;
   save(slotId: CredentialSlotId, secret: string, nickname: string, ownership: CredentialOwnership, authorizedBy: string, clearClipboard: boolean): Promise<CredentialResponse>;
-  rotate(slotId: CredentialSlotId, secret: string, credentialId: string, recordRevision: number, recordToken: string, clearClipboard: boolean): Promise<CredentialResponse>;
+  rotate(slotId: CredentialSlotId, secret: string, credentialId: string, recordRevision: number, recordToken: string, clearClipboard: boolean, entryMode: "rotate" | "reenter", nickname: string | null, ownership: CredentialOwnership | null, authorizedBy: string | null): Promise<CredentialResponse>;
   setEnabled(slotId: CredentialSlotId, credentialId: string, recordRevision: number, recordToken: string, enabled: boolean): Promise<CredentialResponse>;
   remove(slotId: CredentialSlotId, credentialId: string, recordRevision: number, recordToken: string, acknowledgedRemoval: true): Promise<CredentialResponse>;
   validate(slotId: CredentialSlotId, credentialId: string, recordRevision: number, recordToken: string, acknowledgedDisclosure: true): Promise<CredentialResponse>;

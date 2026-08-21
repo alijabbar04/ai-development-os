@@ -28,7 +28,7 @@ export interface SavePayload extends Envelope {
   readonly authorizedBy: string;
   readonly clearClipboard: boolean;
 }
-export interface RotatePayload extends Envelope {
+interface RotatePayloadBase extends Envelope {
   readonly operation: "rotate";
   readonly slotId: AppVaultSlotId;
   readonly secret: string;
@@ -37,6 +37,19 @@ export interface RotatePayload extends Envelope {
   readonly recordToken: string;
   readonly clearClipboard: boolean;
 }
+export interface ExistingCredentialRotatePayload extends RotatePayloadBase {
+  readonly entryMode: "rotate";
+  readonly nickname: null;
+  readonly ownership: null;
+  readonly authorizedBy: null;
+}
+export interface CredentialReentryPayload extends RotatePayloadBase {
+  readonly entryMode: "reenter";
+  readonly nickname: string;
+  readonly ownership: CredentialOwnership;
+  readonly authorizedBy: string;
+}
+export type RotatePayload = ExistingCredentialRotatePayload | CredentialReentryPayload;
 export interface SetEnabledPayload extends Envelope {
   readonly operation: "set-enabled";
   readonly slotId: AppVaultSlotId;
@@ -174,7 +187,7 @@ const BASE = Object.freeze(["schemaVersion", "requestId", "sessionToken"] as con
 const PROJECTED_KEYS: Readonly<Record<CredentialChannel, readonly (readonly string[])[]>> = Object.freeze({
   [CREDENTIAL_CHANNELS.describe]: Object.freeze([BASE]),
   [CREDENTIAL_CHANNELS.save]: Object.freeze([Object.freeze([...BASE, "slotId", "secret", "nickname", "ownership", "authorizedBy", "clearClipboard"])]),
-  [CREDENTIAL_CHANNELS.rotate]: Object.freeze([Object.freeze([...BASE, "slotId", "secret", "credentialId", "recordRevision", "recordToken", "clearClipboard"])]),
+  [CREDENTIAL_CHANNELS.rotate]: Object.freeze([Object.freeze([...BASE, "slotId", "secret", "credentialId", "recordRevision", "recordToken", "clearClipboard", "entryMode", "nickname", "ownership", "authorizedBy"])]),
   [CREDENTIAL_CHANNELS.remove]: Object.freeze([
     Object.freeze([...BASE, "action", "slotId", "credentialId", "recordRevision", "recordToken", "enabled"]),
     Object.freeze([...BASE, "action", "slotId", "credentialId", "recordRevision", "recordToken", "acknowledgedRemoval"]),
@@ -215,10 +228,20 @@ export function parseSavePayload(value: unknown): SavePayload {
 }
 
 export function parseRotatePayload(value: unknown): RotatePayload {
-  const record = projectExact(value, [...BASE, "slotId", "secret", "credentialId", "recordRevision", "recordToken", "clearClipboard"]);
+  const record = projectExact(value, [...BASE, "slotId", "secret", "credentialId", "recordRevision", "recordToken", "clearClipboard", "entryMode", "nickname", "ownership", "authorizedBy"]);
   const bound = identity(record);
   if (typeof record["clearClipboard"] !== "boolean") throw new CredentialHostError("SCHEMA_REJECTED");
-  return Object.freeze({ ...envelope(record), operation: "rotate", ...bound, secret: secret(record["secret"]), clearClipboard: record["clearClipboard"] });
+  const secretValue = secret(record["secret"]);
+  if (record["entryMode"] === "rotate") {
+    if (record["nickname"] !== null || record["ownership"] !== null || record["authorizedBy"] !== null) throw new CredentialHostError("SCHEMA_REJECTED");
+    return Object.freeze({ ...envelope(record), operation: "rotate", ...bound, secret: secretValue, clearClipboard: record["clearClipboard"], entryMode: "rotate", nickname: null, ownership: null, authorizedBy: null });
+  }
+  if (record["entryMode"] !== "reenter" || (record["ownership"] !== "owned" && record["ownership"] !== "authorized")) throw new CredentialHostError("SCHEMA_REJECTED");
+  const nickname = primitiveString(record["nickname"], 1, 40).trim();
+  const authorizedBy = primitiveString(record["authorizedBy"], 0, 40).trim();
+  if (nickname.length === 0 || (record["ownership"] === "authorized" && authorizedBy.length === 0) || (record["ownership"] === "owned" && authorizedBy.length !== 0)) throw new CredentialHostError("SCHEMA_REJECTED");
+  assertCredentialMetadataSeparatedFromSecret(secretValue, nickname, authorizedBy);
+  return Object.freeze({ ...envelope(record), operation: "rotate", ...bound, secret: secretValue, clearClipboard: record["clearClipboard"], entryMode: "reenter", nickname, ownership: record["ownership"], authorizedBy });
 }
 
 export function parseRemoveChannelPayload(value: unknown): SetEnabledPayload | RemovePayload {

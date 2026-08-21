@@ -4,13 +4,16 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { selectSmokePreview } from "./smoke-preview-policy.mjs";
 
 const require = createRequire(import.meta.url);
 const electron = require("electron");
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const entry = join(root, "dist", "testing", "electron-smoke-main.js");
-const preview = resolve(root, "..", "..", "docs", "release-evidence", "stage-18e-h-credential-setup.png");
 const smokeRoot = await mkdtemp(join(tmpdir(), "ai-dev-os-credential-smoke-"));
+const committedPreview = resolve(root, "..", "..", "docs", "release-evidence", "stage-18e-h-credential-setup.png");
+const previewPolicy = selectSmokePreview(process.argv.slice(2), { smokeRoot, committedPreview });
+const preview = previewPolicy.path;
 const reports = [];
 
 async function run(mode) {
@@ -56,4 +59,4 @@ async function run(mode) {
 }
 
 for (const mode of ["default", "reduced", "forced"]) await run(mode);
-process.stdout.write(`${JSON.stringify({ ok: true, electron: require("electron/package.json").version, smokeRoot, preview, reports }, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, electron: require("electron/package.json").version, smokeRoot, preview, regeneratesEvidence: previewPolicy.regeneratesEvidence, reports }, null, 2)}\n`);

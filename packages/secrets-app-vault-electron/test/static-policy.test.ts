@@ -15,11 +15,11 @@ function productionSources(): readonly string[] {
 }
 
 describe("Electron adapter static authority", () => {
-  it("pins the newest patched stable line in dev/peer fields only", () => {
+  it("pins the reviewed development runtime exactly while retaining the supported peer floor", () => {
     const manifest = JSON.parse(source("../package.json")) as { dependencies: Record<string, string>; devDependencies: Record<string, string>; peerDependencies: Record<string, string>; scripts: Record<string, string> };
     expect(manifest.dependencies).toEqual({ "@ai-dev-os/secrets-app-vault": "^0.1.0" });
     expect(manifest.peerDependencies.electron).toBe(">=42.4.1");
-    expect(manifest.devDependencies.electron).toBe("~43.4.1");
+    expect(manifest.devDependencies.electron).toBe("43.4.1");
     for (const hook of ["preinstall", "install", "postinstall", "prepare"]) expect(manifest.scripts[hook]).toBeUndefined();
   });
 
