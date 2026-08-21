@@ -130,30 +130,32 @@ manifest-only child commit.
 - Clean root `npm ci`: PASS; 194 packages installed, 239 audited, and zero vulnerabilities. `npm audit --audit-level=high` was rerun after the complete gate sequence and again reported zero vulnerabilities.
 - `npm run check`: PASS; every configured workspace typecheck, test, and build completed. Material suites included credential host 181/181, credential UI 27/27, integrator 64/64, workspace 114/114, process broker 445 passing with one skipped, Claude Code 257 passing with seven skipped, Codex 100 passing with four skipped, and OpenAI 325 passing with two skipped.
 - `npm run test:coverage`: PASS as one uninterrupted repository-wide run. Credential host coverage was 92.77% statements (1,323/1,426), 87.81% branches (829/944), 100% functions (238/238), and 97.72% lines (1,073/1,098) across 14 files and 181 tests. Credential UI coverage was 100% statements (94/94), 98.59% branches (140/142), 100% functions (27/27), and 100% lines (60/60) across two files and 27 tests.
-- Stage 18 completeness audit: 10/10 tests PASS. The final root coverage run also passed the long integrator suite at 64/64 in 282.53 seconds and the workspace suite at 114/114 in 90.39 seconds.
+- Stage 18 completeness audit: 10/10 tests PASS. The final root coverage run also passed the long integrator suite at 64/64 in 285.56 seconds and the workspace suite at 114/114 in 95.75 seconds.
 - Windows native addon boundary: PASS (`windows-native-addon-shape:ok;credential-manager-calls:0`). The exact export shape was inspected without invoking `availability` or `read`; no Credential Manager operation ran.
-- Ordinary host real-Electron smoke: PASS on Electron 43.4.1 with 71 assertions: 65 default, two reduced-motion, and four forced-colours. Its screenshot remained below disposable root `C:\Users\mrali\AppData\Local\Temp\ai-dev-os-credential-smoke-53CCuT`; the default, reduced, and forced report SHA-256 values were respectively `591854d28eabca81fa52e1ddd6c28715915fc29e7766fcca31cab8bd41298036`, `f133bd2476150e01babaabce56eee6de02cfc1dcec248c5fb3dcb39a38960c31`, and `41c0ec0f3e531004b5c5e7839621c72139bbd77dda4cc88c1d7c841fcccfd514`. The tracked evidence PNG was not selected or changed.
-- The default smoke proved corrected metadata-unavailable copy, state-bound revoked and unreadable re-entry metadata correction, null-metadata ordinary rotation, default-size entry fit, re-entry dialog/footer fit with body-owned scrolling, compact and wide viewports, reduced motion, forced colours, leakage canaries, and the seven-method bridge. Minimum text contrast was 4.911459:1, minimum essential non-text contrast 3.012572:1, the composited info-badge boundary 3.282958:1, and render-to-frame 32.6 ms with no long tasks.
+- Ordinary host real-Electron smoke: PASS on Electron 43.4.1 with 77 assertions: 71 default, two reduced-motion, and four forced-colours. Its screenshot remained below disposable root `C:\Users\mrali\AppData\Local\Temp\ai-dev-os-credential-smoke-ooKXZO`; the default, reduced, and forced report SHA-256 values were respectively `100005cc0f8a1bcce5c31aefd0876d2b6864ad338dd90713ac53177db398e9eb`, `7793969e0f10f4950c007eb3ab2d86dc9fef9ad67d2c545c64b252f699b9351e`, and `7d153b6ac62f13ac86ac601190070a77d712fbdef2d3020e56f045be7bfc99d6`. The tracked evidence PNG was not selected or changed.
+- The default smoke proved corrected metadata-unavailable copy, state-bound revoked and unreadable re-entry metadata correction, null-metadata ordinary rotation, exact 1180x780 content-size entry fit with a 579/579-pixel body client/scroll height, deliberate picker and secret-field focus, re-entry dialog/footer fit with body-owned scrolling, compact and wide viewports, reduced motion, forced colours, leakage canaries, and the seven-method bridge. Minimum text contrast was 4.911459:1, minimum essential non-text contrast 3.012572:1, the composited info-badge boundary 3.282958:1, and render-to-frame 32.6 ms with no long tasks.
+- The first exact-head correction CI run, `32486896069`, passed six jobs but failed the Windows application smoke in the former aggregate `keyboard-picker-entry` assertion. Its one authorized unchanged failed-job retry reproduced that single failure. The harness had sampled an initial 1180x780 outer window even though this checkpoint's acceptance contract is a 1180x780 content viewport; platform non-client metrics therefore made the aggregate assertion CI-dependent. The final harness explicitly binds and verifies the content size, waits for each expected focus transfer, and reports seven finite picker/entry assertions. The final exact-head CI result follows publication of the new manifest child and is reported in the final handoff.
 - Host packed verifier: PASS; nine packed workspaces, 65 application files, exactly three renderer assets, scripts-disabled lockfile-exact clean install, high-severity audit clean, exact seven-method bridge, and the packed production main running in Electron 43.4.1. Final packed root: `C:\Users\mrali\AppData\Local\Temp\ai-dev-os-credential-packed-BUVjYY`.
 - AM-02 packed consumer: PASS with 27/27 probes, lockfile-exact scripts-disabled install, zero high-severity audit findings, and the pinned Account Manager reader identity. Foundation app-vault packed consumer: PASS (`pure`, `filesystem`, manager/broker-only production boundary, no secret projection). Foundation real-Electron safe-storage smoke: PASS (`electronAsyncSafeStorage`, production broker, synthetic-only).
 - Protected-package diff for `packages/secrets`, `packages/policy`, `packages/provider-anthropic`, and `packages/secrets-windows`: empty relative to stack base `cf24aa5fb726e1135947050f34367b935419fe47`.
 
-Exactly two independent internal reviews covered the corrected implementation. The
-source/security reviewer returned PASS with no advisories over a 36-file,
-817,098-byte exact worktree subject (checkpoint excluded, manifest not yet
-generated), aggregated as
-`3dcc270b80ee0651cbcb4f21d0fb820f3a0f827ae58051b7e8464909c9da82bc` from
+Exactly two independent internal reviews covered the corrected implementation.
+After the CI-only harness correction, the same two reviewers reran their affected
+scopes against the final bytes. The source/security reviewer returned PASS with no
+advisories over a 36-file, 818,452-byte exact worktree subject (checkpoint
+excluded, manifest not yet generated), aggregated as
+`e083f9e266e2e1bf8943fa4649978950dba1fa9879a3235ce374c5119647e5a6` from
 ordinal paths and `<sha256>\t<byteCount>\t<path>\n` rows. The UX/accessibility
-reviewer independently returned PASS with no advisories over 16 exact runtime
+reviewer independently returned PASS with no advisories over 15 exact runtime
 paths plus the three smoke reports identified above and the evidence PNG. Both
 reviews cover the final implementation bytes; only this excluded checkpoint is
 updated here to record their results.
 
-Final local disk accounting retained all task output without destructive cleanup:
+Pre-publication local disk accounting retained all task output without destructive cleanup:
 the shared `node_modules` installation has 3,413 files / 484,335,770 bytes; host
-and UI `dist` plus coverage output has 159 files / 2,004,817 bytes; the Windows
-native build has 22 files / 4,193,505 bytes; and 79 task smoke, packed-host, and
-packed-consumer temp roots have 19,749 files / 336,929,881 bytes. The tracked
+and UI `dist` plus coverage output has 159 files / 2,007,159 bytes; the Windows
+native build has 22 files / 4,193,505 bytes; and 82 task smoke, packed-host, and
+packed-consumer temp roots have 19,941 files / 338,250,987 bytes. The tracked
 1475x975 evidence PNG is 97,181 bytes with SHA-256
 `f5de0e5cf11e72123c5d4fa6275bb09e08fc4a91e2bd7af3ad3e098b15fd31a7`.
 No task output was destructively removed.
