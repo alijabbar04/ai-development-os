@@ -101,12 +101,8 @@ describe("Electron hardening wiring", () => {
     window.contentsEvents.get("render-process-gone")?.();
     expect(window.destroyed).toBe(true);
     expect(window.windowOpenHandler?.()).toEqual({ action: "deny" });
-    window.destroyed = false;
-    window.events.get("ready-to-show")?.();
-    expect(window.show).toHaveBeenCalledOnce();
-    window.destroyed = true;
-    window.events.get("ready-to-show")?.();
-    expect(window.show).toHaveBeenCalledOnce();
+    expect(window.events.has("ready-to-show")).toBe(false);
+    expect(window.show).not.toHaveBeenCalled();
     await loadCredentialWindow(window as never);
     expect(window.loadURL).toHaveBeenCalledWith(CREDENTIAL_ENTRY_URL);
   });

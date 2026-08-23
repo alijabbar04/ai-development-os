@@ -239,6 +239,7 @@ async function createWatchdogFixture(mode) {
   await writeFile(join(fixture, "package.json"), `${JSON.stringify({ name: `watchdog-${mode}`, version: "0.0.0", private: true, type: "module", main: "bootstrap.cjs" }, null, 2)}\n`, "utf8");
   await writeFile(join(fixture, "bootstrap.cjs"), bootstrapSource(), "utf8");
   await copyFile(join(appRoot, "dist", "main", "startup-diagnostic.js"), join(fixture, "startup-diagnostic.js"));
+  await copyFile(join(appRoot, "dist", "main", "startup-deadline.cjs"), join(fixture, "startup-deadline.cjs"));
   await writeFile(join(fixture, "main.mjs"), watchdogMainSource(mode), "utf8");
   return fixture;
 }

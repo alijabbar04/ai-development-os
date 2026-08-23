@@ -3,6 +3,158 @@
 Date: 2026-08-23
 Status: `READY_FOR_PUBLICATION`
 
+## 2026-08-23 external-review follow-up
+
+This follow-up is bound to starting branch
+`fix/stage-18e-h-production-startup`, commit
+`78cb2a6f8bfae7f5c70118b788eaf84649a40a44`, tree
+`28d246d59501356208e2b6de015848c839c59047`, source commit
+`54ee2de403aeeaa51e0bf19981e386359d9f22cf`, source tree
+`cb31f23f8c57465156f5f415724bf04a73dc9dbb`, and stack base
+`cf24aa5fb726e1135947050f34367b935419fe47`. The starting canonical
+manifest contained 82 files, zero deletions, and 1,157,502 bytes with aggregate
+`14262b74e6801986c67284bd02bb3ad208429491a43c94fff0b4fd5a51e10d2a`
+and manifest-file SHA-256
+`c9162993b8084fe84205be8cb1e8b6653f571c77c1700e7b3d7cf398c4bc663d`.
+Its exact-head hosted run `32610586678`, attempt 2, passed. Both external
+dossiers were read and independently identity-checked before work began.
+
+The external Opus review failed that exact subject on two startup findings.
+MF-1 found that renderer load completion could mark `surface-ready`, cancel the
+deadline, and report success even if the hidden `BrowserWindow` never became
+observably visible. MF-2 found that the production 30-second deadline began
+only after Electron binding, protocol registration, runtime-module import, and
+handoff, leaving those pre-watchdog paths unbounded. The external Fable
+review passed overall, but its FR-ADV-01 independently described the same
+visibility race. This correction changes no project acceptance claim.
+
+On branch `fix/stage-18e-h-visible-startup-deadline`, one module-cached startup
+controller now arms exactly one fixed, non-configurable 30-second deadline in
+the first synchronous CommonJS bootstrap, before Electron selection, protocol
+registration, runtime loading, or asynchronous handoff. Bootstrap and runtime
+claim the same controller once; no reset, extension, second timer, alternate
+deadline, environment route, argument route, or retry exists. One terminal
+latch owns the bounded diagnostic, controlled exit, timer cancellation, and
+cleanup-failure conversion. Pre-ready process failures enter that same finite
+boundary without serializing attacker-controlled error content.
+
+The lifecycle now observes `ready-to-show`, close, renderer-gone, and abort
+before renderer load begins. It calls `show()`, requires a non-destroyed window
+whose `isVisible()` is true, and permits only one event-loop turn for that
+observable state. Renderer load and visibility are fail-fast peers. Only after
+both pass and a final window-state recheck does the lifecycle enter
+`surface-ready` and cancel the original bootstrap deadline. A pre-ready close,
+renderer loss, or abort cannot be converted into normal application success.
+The launcher also owns exact-tree Windows failure cleanup and removes its
+one-shot signal handlers after child settlement. Packed verification now
+requires an actually visible window.
+
+Before the sole authorized launch, ordinary credential-host tests passed 231
+Vitest cases across 17 files plus six launcher regressions. Affected coverage
+passed at 92.24% statements (1464/1587), 87.47% branches (894/1022), 100%
+functions (268/268), and 97.45% lines (1188/1219). Credential UI coverage
+passed 27 tests at 100% statements/functions/lines and 98.59% branches. Root
+typecheck/build, CommonJS syntax and three source/build byte-identity checks,
+the visible-startup disposable Electron probe, packed-host verification,
+packed Account Manager and app-vault consumers, safe-storage and credential
+host Electron smokes, native build/shape, Stage 18 completeness, dependency
+audit/tree, changed-path credential scan, and diff checks passed. The native
+shape reported zero Credential Manager calls; the prohibited native credential
+smoke was not run. The first affected-coverage attempt truthfully failed its
+100% function threshold because a new inline default writer was uncalled; the
+implementation was narrowed to the shared named writer and the fresh rerun
+passed.
+
+GPT-5.6 Sol Max performed an independent read-only source/security review before
+the launch and returned PASS with zero must-fix findings. Its late-abort
+advisory was addressed with explicit signal gates after asynchronous window
+construction; focused lifecycle coverage then passed 22/22, and a delta review
+again returned PASS with zero blockers. Remaining non-blocking advisories are
+that the Windows tree-reaper regression uses a mock rather than a live orphan,
+post-ready fatal behavior remains intentionally outside this startup boundary,
+and the packed visibility wrapper is supporting test instrumentation rather
+than production-route proof.
+
+External Opus advisories ADV-1 through ADV-6 are addressed: pre-ready process
+fatal events have one finite terminal owner; Windows interruption reaps the
+exact spawned PID tree; the vestigial protocol phase is removed; cleanup
+failure uses `cleanup`/`CLEANUP_FAILED`; bootstrap is not re-invocable through
+its exports; and that cleanup vocabulary is now live. ADV-7 remains an
+accepted test-only temporary-identity override, statically absent from the
+normal launcher. Fable FR-ADV-01 and FR-ADV-02 are addressed by the visible
+readiness contract and visibility probes. Optional launcher prose
+(FR-ADV-03) and second-instance focus (FR-ADV-04) were not adopted; the former
+would conflict with silent successful startup and neither is required by this
+repair. FR-ADV-05 is addressed by this dated evidence refresh. FR-ADV-06
+remains explicitly deferred because post-ready fatal behavior is outside the
+bootstrap-to-visible boundary.
+
+The launch-confirmed source/test inventory froze at
+`2026-08-23T11:23:56.515Z`: 23 present Git paths, zero staged paths, and
+aggregate `1378161829ed0fd2b6f6ebb01cac26ebef83a6a6eae2e26d74bac4ec9a303c41`.
+The immediate pre-launch check reconfirmed that aggregate, Electron `43.4.1`,
+zero task processes, all three named persistent files absent, production
+disabled, validation disabled, and no provider transport in production
+composition.
+
+The exact normal route `npm --prefix apps/credential-setup start` was invoked
+once and only once. After 10.010 seconds it had emitted no diagnostic and
+exposed exactly one responsive, accessibility-targetable Electron window with
+nonzero handle `8849566` and title `Credential setup — AI Development OS`.
+The accessibility document showed the normal `Providers & integrations`
+surface, exactly four provider items (Anthropic, OpenAI, Google Gemini, and
+OpenRouter), zero saved credentials, `Production disabled`, `Development build
+— tasks do not run against providers`, and `Live validation disabled`; it had
+no password/edit field and no credential-entry dialog. The protected screenshot
+did not expose the app surface and is not treated as readiness evidence. No
+control was invoked. Only that exact window received `Alt+F4`; the route exited
+normally with code `0`, no additional output, no task-scoped termination, and
+no remaining exact window or task process.
+
+At `2026-08-23T11:28:46.0870606Z`, all three named persistent files remained
+absent and the frozen aggregate remained exact. No credential entry, paste,
+save, rotation, removal, read-back, decryption, or validation occurred; no real
+credential dialog opened; and no provider, network-validation, clipboard,
+Windows Credential Manager, Account Manager private-state, or production action
+occurred. The launch authorization is consumed. No further real launch is
+authorized.
+
+Post-confirmation documentation is current. A fresh root `npm run check` passed
+with exit `0`, including full typecheck, every workspace test, and every
+workspace build. Exactly one final full root `npm run test:coverage` passed with
+exit `0` across all workspaces; credential-host coverage remained 92.24%
+statements (1464/1587), 87.47% branches (894/1022), 100% functions (268/268),
+and 97.45% lines (1188/1219). Dependency audit passed with zero
+vulnerabilities, and `npm ls --all` exited `0` with only expected unmet
+optional dependencies.
+
+Fresh post-confirmation packed-host verification passed on Electron `43.4.1`
+with 9 packages, 76 application files, 3 renderer files, a visible window,
+four provider cards, zero password inputs, production disabled, seven preload
+methods, and no renderer Node globals. Packed Account Manager and app-vault
+consumers passed, including `electronProductionBoundary=manager-broker-only`
+and `secretProjected=false`. The first native-build attempt exited `1` only
+because `node-gyp` could not discover Python in that process environment; no
+credential smoke ran. A scoped retry using the already-installed Python
+`3.13.14` executable built successfully, and native shape again reported zero
+Windows Credential Manager calls. Stage 18 completeness passed 10/10, all
+three startup CommonJS files passed syntax and source/build byte identity, the
+starting manifest independently reverified, the protected-foundation diff was
+empty, and `git diff --check` passed with line-ending warnings only.
+
+The fresh changed-path credential scan covered 26 present paths, found zero
+candidate paths, emitted zero matched values, and disclosed no values. The
+launch-confirmed source/test aggregate remained exact, all three named
+persistent files remained absent, and zero scoped Electron/Node task processes
+remained. The final independent GPT-5.6 Sol Max read-only source/security/
+evidence review passed this exact 27-entry source/evidence candidate with zero
+must-fix findings. Its independent non-Electron checks passed 73/73 focused
+tests, 6/6 launcher regressions, all three CommonJS syntax and byte-identity
+checks, and `git diff --check`; it performed no launch or repository mutation.
+Only the append-only source/evidence plus manifest-only publication sequence
+remains pending. Its immutable identities belong in the external handover and
+are not predicted here.
+
 ## Scope and identity
 
 This repair record started from branch `fix/stage-18e-h-external-review`, commit

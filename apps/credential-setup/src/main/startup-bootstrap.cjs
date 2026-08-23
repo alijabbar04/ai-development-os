@@ -1,7 +1,16 @@
 "use strict";
 
-const bootstrap = require("./startup-bootstrap-runtime.cjs");
+const deadlineRuntime = require("./startup-deadline.cjs");
+const startupDeadline = deadlineRuntime.armProductionCredentialStartupDeadline();
+let bootstrapStarted = false;
 
-const bootstrapStarted = bootstrap.startProductionCredentialBootstrap();
+if (startupDeadline.isActive()) {
+  try {
+    const bootstrap = require("./startup-bootstrap-runtime.cjs");
+    bootstrapStarted = bootstrap.startProductionCredentialBootstrap(startupDeadline);
+  } catch {
+    startupDeadline.fail("STARTUP_FAILED");
+  }
+}
 
-module.exports = Object.freeze({ ...bootstrap, bootstrapStarted });
+module.exports = Object.freeze({ bootstrapStarted });

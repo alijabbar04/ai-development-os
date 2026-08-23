@@ -1,4 +1,5 @@
 import { writeSync } from "node:fs";
+import { createRequire } from "node:module";
 import { types } from "node:util";
 
 export const CREDENTIAL_STARTUP_PHASES = Object.freeze([
@@ -69,6 +70,39 @@ const PRODUCTION_STARTUP_TIMER: CredentialStartupTimer = Object.freeze({
   cancel(handle: CredentialStartupTimerHandle) { clearTimeout(handle as NodeJS.Timeout); },
 });
 
+export interface CredentialStartupDeadlineController {
+  readonly deadlineMs: number;
+  beginBootstrap(): boolean;
+  bindElectronExit(exit: (code: 1) => void): boolean;
+  claim(owner: Readonly<{
+    exit(code: 1): void;
+    fallbackExit(code: 1): void;
+    onTerminal(result: boolean): void;
+  }>): boolean;
+  setPhase(phase: CredentialStartupPhase): boolean;
+  fail(code: CredentialStartupCode): boolean;
+  complete(): boolean;
+  isActive(): boolean;
+  isClaimed(): boolean;
+  didSucceed(): boolean;
+  currentPhase(): CredentialStartupPhase;
+}
+
+interface CredentialStartupDeadlineRuntime {
+  createCredentialStartupDeadline(options: Readonly<{
+    timer: CredentialStartupTimer;
+    writeLine(line: string): void;
+    setExitCode(code: 1): void;
+    exit(code: 1): void;
+    fallbackExit(code: 1): void;
+    installFatalHandlers?: (onFatal: () => void) => () => void;
+  }>): CredentialStartupDeadlineController;
+  productionCredentialStartupDeadline(): CredentialStartupDeadlineController | null;
+}
+
+const require = createRequire(import.meta.url);
+const DEADLINE_RUNTIME = require("./startup-deadline.cjs") as CredentialStartupDeadlineRuntime;
+
 export class CredentialStartupKnownError extends Error {
   readonly code: keyof typeof INTERNAL_CODE_MAP;
 
@@ -101,7 +135,9 @@ export function credentialStartupDiagnosticRecord(phase: CredentialStartupPhase,
   });
 }
 
-export function createCredentialStartupDiagnostic(writeLine: (line: string) => void = (line) => { writeSync(2, line); }): Readonly<{
+function writeStartupDiagnosticLine(line: string): void { writeSync(2, line); }
+
+export function createCredentialStartupDiagnostic(writeLine: (line: string) => void = writeStartupDiagnosticLine): Readonly<{
   emitFailure(phase: CredentialStartupPhase, error: unknown): boolean;
 }> {
   let emitted = false;
@@ -117,19 +153,28 @@ export function createCredentialStartupDiagnostic(writeLine: (line: string) => v
 }
 
 export function runCredentialStartupTask(options: Readonly<{
-  readonly run: (setPhase: (phase: CredentialStartupPhase) => void) => Promise<void> | void;
+  readonly run: (setPhase: (phase: CredentialStartupPhase) => void, signal: AbortSignal) => Promise<void> | void;
   readonly exit: (code: 1) => void;
   readonly fallbackExit: (code: 1) => void;
   readonly writeLine?: (line: string) => void;
   readonly timer?: CredentialStartupTimer;
+  readonly deadline?: CredentialStartupDeadlineController;
 }>): Promise<boolean> {
+  const deadline = options.deadline
+    ?? (options.timer !== undefined || options.writeLine !== undefined
+      ? DEADLINE_RUNTIME.createCredentialStartupDeadline({
+        timer: options.timer ?? PRODUCTION_STARTUP_TIMER,
+        writeLine: options.writeLine ?? writeStartupDiagnosticLine,
+        setExitCode: () => undefined,
+        exit: options.exit,
+        fallbackExit: options.fallbackExit,
+      })
+      : DEADLINE_RUNTIME.productionCredentialStartupDeadline());
+  if (deadline === null) throw new Error("Credential startup deadline is not armed.");
+
   return new Promise<boolean>((resolveResult) => {
-    let phase: CredentialStartupPhase = "runtime-binding";
-    let terminal = false;
     let settled = false;
-    let watchdog: CredentialStartupTimerHandle | null = null;
-    const diagnostic = createCredentialStartupDiagnostic(options.writeLine);
-    const timer = options.timer ?? PRODUCTION_STARTUP_TIMER;
+    const startupAbort = new AbortController();
 
     const settle = (result: boolean): void => {
       if (settled) return;
@@ -137,66 +182,39 @@ export function runCredentialStartupTask(options: Readonly<{
       resolveResult(result);
     };
 
-    const cancelWatchdog = (): boolean => {
-      const handle = watchdog;
-      watchdog = null;
-      if (handle === null) return true;
-      try { timer.cancel(handle); return true; }
-      catch { return false; }
-    };
-
-    const fail = (error: unknown): boolean => {
-      if (terminal) return false;
-      terminal = true;
-      cancelWatchdog();
-      diagnostic.emitFailure(phase, error);
-      try { options.exit(1); }
-      catch {
-        try { options.fallbackExit(1); } catch { /* no further output or retry */ }
-      }
-      settle(false);
-      return true;
-    };
-
     const setPhase = (next: CredentialStartupPhase): void => {
-      if (terminal) return;
-      if (!CREDENTIAL_STARTUP_PHASES.includes(next)) throw new Error("Invalid credential startup phase.");
-      phase = next;
-      if (next === "surface-ready" && !cancelWatchdog()) throw new Error("Credential startup watchdog cancellation failed.");
+      deadline.setPhase(next);
     };
 
-    try {
-      const scheduled = timer.schedule(() => { fail(new CredentialStartupKnownError("STARTUP_TIMEOUT")); }, CREDENTIAL_STARTUP_DEADLINE_MS);
-      watchdog = scheduled;
-      if (terminal) {
-        cancelWatchdog();
-        return;
-      }
-      try { scheduled.unref?.(); }
-      catch { throw new Error("Credential startup watchdog detachment failed."); }
-
-      let running: Promise<void> | void;
-      try { running = options.run(setPhase); }
-      catch (error) { fail(error); return; }
-
-      void Promise.resolve(running).then(
-        () => {
-          if (terminal) return;
-          if (phase !== "surface-ready") {
-            fail(new CredentialStartupKnownError("APP_NOT_READY"));
-            return;
-          }
-          if (!cancelWatchdog()) {
-            fail(new Error("Credential startup watchdog cancellation failed."));
-            return;
-          }
-          terminal = true;
-          settle(true);
-        },
-        (error: unknown) => { fail(error); },
-      );
-    } catch (error) {
-      fail(error);
+    const claimed = deadline.claim({
+      exit: options.exit,
+      fallbackExit: options.fallbackExit,
+      onTerminal(result) {
+        if (!result) startupAbort.abort();
+        settle(result);
+      },
+    });
+    if (!claimed) {
+      deadline.fail("STARTUP_FAILED");
+      settle(false);
+      return;
     }
+
+    let running: Promise<void> | void;
+    try { running = options.run(setPhase, startupAbort.signal); }
+    catch (error) { deadline.fail(finiteCode(error)); settle(false); return; }
+
+    void Promise.resolve(running).then(
+      () => {
+        if (!deadline.isActive()) {
+          settle(deadline.didSucceed());
+          return;
+        }
+        if (deadline.currentPhase() !== "surface-ready") deadline.fail("APP_NOT_READY");
+        else deadline.complete();
+        settle(deadline.didSucceed());
+      },
+      (error: unknown) => { deadline.fail(finiteCode(error)); settle(false); },
+    );
   });
 }

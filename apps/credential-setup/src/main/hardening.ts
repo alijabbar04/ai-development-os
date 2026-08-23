@@ -76,7 +76,6 @@ export async function createHardenedCredentialWindow(options: CredentialWindowOp
   });
   window.webContents.on("render-process-gone", () => { if (!window.isDestroyed()) window.destroy(); });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.once("ready-to-show", () => { if (!window.isDestroyed()) window.show(); });
   return window;
 }
 

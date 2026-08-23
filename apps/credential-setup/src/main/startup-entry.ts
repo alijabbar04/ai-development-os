@@ -8,13 +8,13 @@ import { installCredentialIpc } from "./ipc.js";
 import { installCredentialProtocol } from "./protocol.js";
 import { createProductionCredentialHost, credentialRendererRoot } from "./production-composition.js";
 import { CredentialStartupKnownError, type CredentialStartupPhase } from "./startup-diagnostic.js";
-import { launchCredentialSurface, waitForCredentialAppReady } from "./startup-lifecycle.js";
+import { launchCredentialSurface, waitForCredentialAppReady, waitForCredentialSurfaceVisible } from "./startup-lifecycle.js";
 
 export function exitProductionCredentialHost(code: 1): void {
   app.exit(code);
 }
 
-export async function startProductionCredentialHost(setPhase: (phase: CredentialStartupPhase) => void): Promise<void> {
+export async function startProductionCredentialHost(setPhase: (phase: CredentialStartupPhase) => void, signal: AbortSignal): Promise<void> {
   setPhase("runtime-binding");
   const electronVersion = process.versions["electron"];
   if (electronVersion === undefined) throw new CredentialStartupKnownError("ELECTRON_RUNTIME_REQUIRED");
@@ -25,7 +25,6 @@ export async function startProductionCredentialHost(setPhase: (phase: Credential
     throw new CredentialStartupKnownError("ELECTRON_VERSION_UNREVIEWED");
   }
 
-  setPhase("protocol-registration");
   setPhase("app-readiness");
   app.setName("AI Development OS Credential Setup");
   installGlobalWebContentsGuard(app);
@@ -51,6 +50,8 @@ export async function startProductionCredentialHost(setPhase: (phase: Credential
     }),
     installIpc: (window, touch) => installCredentialIpc(ipcMain, { token, webContentsId: window.webContents.id, credentialSession, service, window, touch }),
     load: loadCredentialWindow,
+    waitForVisible: waitForCredentialSurfaceVisible,
+    signal,
     onPhase: setPhase,
   });
 }

@@ -25,7 +25,7 @@
     "ensure:electron": "node scripts/ensure-electron-runtime.mjs",
     "presmoke:real": "npm run build && npm run ensure:electron",
     "smoke:real": "node scripts/real-electron-smoke.mjs",
-    "probe:startup-lifecycle": "node scripts/real-electron-startup-lifecycle-probe.mjs",
+    "probe:startup-lifecycle": "node scripts/real-electron-startup-lifecycle-probe.mjs && node scripts/real-electron-visible-startup-probe.mjs",
     "preregenerate:evidence-screenshot": "npm run build && npm run ensure:electron",
     "regenerate:evidence-screenshot": "node scripts/real-electron-smoke.mjs --regenerate-evidence",
     "preverify:packed": "npm run build && npm run ensure:electron",

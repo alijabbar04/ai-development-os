@@ -88,6 +88,38 @@ export async function resolveProductionHostLaunch() {
   return target;
 }
 
+export function terminateProductionHostTree(child, signal, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const spawnChild = options.spawnChild ?? spawn;
+  if (platform !== "win32") return child.kill(signal);
+  if (!Number.isSafeInteger(child.pid) || child.pid <= 0) return child.kill(signal);
+  const systemRoot = options.systemRoot ?? process.env.SystemRoot;
+  if (typeof systemRoot !== "string" || !isAbsolute(systemRoot)) return child.kill(signal);
+  const root = resolve(systemRoot);
+  const taskkill = resolve(root, "System32", "taskkill.exe");
+  if (relative(root, taskkill) !== join("System32", "taskkill.exe")) return child.kill(signal);
+  try {
+    const reaper = spawnChild(taskkill, ["/PID", String(child.pid), "/T", "/F"], {
+      cwd: root,
+      env: productionHostEnvironment(process.env),
+      stdio: "ignore",
+      windowsHide: true,
+      shell: false,
+    });
+    let fallbackUsed = false;
+    const fallback = () => {
+      if (fallbackUsed) return;
+      fallbackUsed = true;
+      try { child.kill(signal); } catch { /* the exact tree reaper remains the primary path */ }
+    };
+    reaper.once("error", fallback);
+    reaper.once("close", (code) => { if (code !== 0) fallback(); });
+    return true;
+  } catch {
+    return child.kill(signal);
+  }
+}
+
 export async function launchProductionHost() {
   const target = await resolveProductionHostLaunch();
   const child = spawn(target.executable, [target.application], {
@@ -98,13 +130,26 @@ export async function launchProductionHost() {
     shell: false,
   });
   let closed = false;
+  let terminating = false;
+  const signalHandlers = new Map();
   for (const signal of ["SIGINT", "SIGTERM", "SIGBREAK"]) {
-    process.once(signal, () => { if (!closed) child.kill(signal); });
+    const handler = () => {
+      if (closed || terminating) return;
+      terminating = true;
+      terminateProductionHostTree(child, signal);
+    };
+    signalHandlers.set(signal, handler);
+    process.once(signal, handler);
   }
+  const removeSignalHandlers = () => {
+    for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
+    signalHandlers.clear();
+  };
   return await new Promise((resolveExit, reject) => {
-    child.once("error", reject);
+    child.once("error", (error) => { closed = true; removeSignalHandlers(); reject(error); });
     child.once("close", (code) => {
       closed = true;
+      removeSignalHandlers();
       resolveExit(typeof code === "number" ? code : 1);
     });
   });

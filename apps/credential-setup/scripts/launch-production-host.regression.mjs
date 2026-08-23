@@ -9,6 +9,7 @@ import {
   PRODUCTION_STARTUP_FAILURE_LINE,
   productionHostEnvironment,
   productionHostTargetFromLayout,
+  terminateProductionHostTree,
 } from "./launch-production-host.mjs";
 
 const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -76,16 +77,41 @@ test("launcher failure output is one finite non-secret startup record", () => {
   });
 });
 
+test("Windows interruption targets only the exact spawned Electron process tree", () => {
+  const directKill = [];
+  const child = { pid: 48123, kill: (signal) => { directKill.push(signal); return true; } };
+  const calls = [];
+  const reaper = { once() { return reaper; } };
+  const result = terminateProductionHostTree(child, "SIGINT", {
+    platform: "win32",
+    systemRoot: "C:\\Windows",
+    spawnChild(executable, args, options) { calls.push({ executable, args, options }); return reaper; },
+  });
+  assert.equal(result, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].executable, resolve("C:\\Windows", "System32", "taskkill.exe"));
+  assert.deepEqual(calls[0].args, ["/PID", "48123", "/T", "/F"]);
+  assert.equal(calls[0].options.cwd, resolve("C:\\Windows"));
+  assert.equal(calls[0].options.shell, false);
+  assert.equal(calls[0].options.windowsHide, true);
+  assert.deepEqual(directKill, []);
+
+  assert.equal(terminateProductionHostTree(child, "SIGTERM", { platform: "linux" }), true);
+  assert.deepEqual(directKill, ["SIGTERM"]);
+});
+
 test("CommonJS bootstrap enters synchronously and bounds a non-Electron runtime failure", async () => {
   const disposableRoot = await mkdtemp(join(tmpdir(), "ai-dev-os-bootstrap-regression-"));
   try {
     const bootstrap = join(disposableRoot, "startup-bootstrap.cjs");
     const runtime = join(disposableRoot, "startup-bootstrap-runtime.cjs");
+    const deadline = join(disposableRoot, "startup-deadline.cjs");
     const syntheticElectronRoot = join(disposableRoot, "node_modules", "electron");
     await mkdir(syntheticElectronRoot, { recursive: true });
     await Promise.all([
       copyFile(resolve(appRoot, "src", "main", "startup-bootstrap.cjs"), bootstrap),
       copyFile(resolve(appRoot, "src", "main", "startup-bootstrap-runtime.cjs"), runtime),
+      copyFile(resolve(appRoot, "src", "main", "startup-deadline.cjs"), deadline),
       writeFile(join(syntheticElectronRoot, "index.js"), '"use strict"; module.exports = "synthetic-non-electron-binding";\n', { encoding: "utf8", flag: "wx" }),
     ]);
     const result = spawnSync(process.execPath, [bootstrap], { cwd: disposableRoot, encoding: "utf8", windowsHide: true, shell: false });

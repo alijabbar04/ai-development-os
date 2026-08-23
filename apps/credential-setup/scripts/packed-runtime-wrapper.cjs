@@ -56,7 +56,7 @@ async function run() {
     const window = await waitForWindow();
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
-      const ready = await window.webContents.executeJavaScript(`document.querySelectorAll(".provider-card").length === 4`, true).catch(() => false);
+      const ready = window.isVisible() && await window.webContents.executeJavaScript(`document.querySelectorAll(".provider-card").length === 4`, true).catch(() => false);
       if (ready === true) break;
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
     }
@@ -70,6 +70,7 @@ async function run() {
     }))()`, true);
     result = {
       ok: renderer.url === "app-credential://entry/index.html"
+        && window.isVisible()
         && renderer.providerCards === 4
         && renderer.passwordInputs === 0
         && renderer.productionDisabled === true
@@ -78,6 +79,7 @@ async function run() {
       electronVersion: process.versions.electron,
       appDataPath: app.getPath("appData"),
       userDataPath: app.getPath("userData"),
+      visible: window.isVisible(),
       renderer,
     };
   } catch {

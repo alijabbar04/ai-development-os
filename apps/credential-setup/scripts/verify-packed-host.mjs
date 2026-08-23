@@ -5,7 +5,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { productionHostEnvironment } from "./launch-production-host.mjs";
+import { productionHostEnvironment, terminateProductionHostTree } from "./launch-production-host.mjs";
 
 const require = createRequire(import.meta.url);
 const electronExecutable = require("electron");
@@ -67,6 +67,7 @@ const requiredAppFiles = [
   "dist/main/main.js",
   "dist/main/startup-bootstrap.cjs",
   "dist/main/startup-bootstrap-runtime.cjs",
+  "dist/main/startup-deadline.cjs",
   "dist/main/host-service.js",
   "dist/preload/credential.cjs",
   "dist/renderer/credential/index.html",
@@ -113,7 +114,7 @@ const child = spawn(electronExecutable, [installedApp, `--packed-root=${runtimeR
   env: productionHostEnvironment(process.env),
   shell: false,
   stdio: ["ignore", "pipe", "pipe"],
-  windowsHide: true,
+  windowsHide: false,
 });
 let stdout = "";
 let stderr = "";
@@ -122,7 +123,7 @@ child.stderr.setEncoding("utf8");
 child.stdout.on("data", (chunk) => { stdout = `${stdout}${chunk}`.slice(-200_000); });
 child.stderr.on("data", (chunk) => { stderr = `${stderr}${chunk}`.slice(-200_000); });
 let timedOut = false;
-const timeout = setTimeout(() => { timedOut = true; child.kill(); }, 45_000);
+const timeout = setTimeout(() => { timedOut = true; terminateProductionHostTree(child, "SIGTERM"); }, 45_000);
 const exitCode = await new Promise((resolveExit, reject) => {
   child.once("error", reject);
   child.once("exit", (code) => resolveExit(code));
@@ -130,6 +131,7 @@ const exitCode = await new Promise((resolveExit, reject) => {
 if (timedOut) throw new Error("Packed production host runtime smoke timed out.");
 const runtime = JSON.parse(await readFile(runtimeReport, "utf8"));
 if (exitCode !== 0 || runtime.ok !== true) throw new Error(`Packed production host runtime failed: ${JSON.stringify(runtime)} ${stderr.trim()}`);
+if (runtime.visible !== true) throw new Error("Packed production host was not visibly ready.");
 if (!resolve(runtime.appDataPath).startsWith(resolve(runtimeRoot) + sep) || !resolve(runtime.userDataPath).startsWith(resolve(runtimeRoot) + sep)) throw new Error("Packed production host escaped its disposable paths.");
 if (JSON.stringify(runtime.renderer?.bridge) !== JSON.stringify(["cancel", "describe", "remove", "rotate", "save", "setEnabled", "validate"])) throw new Error("Packed production host bridge drifted.");
 if (stdout.includes("SYNTHETIC_CREDENTIAL") || stderr.includes("SYNTHETIC_CREDENTIAL")) throw new Error("Packed runtime emitted a synthetic credential canary.");

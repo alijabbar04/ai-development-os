@@ -15,7 +15,7 @@ const expectOrdered = (source: string, left: string, right: string): void => {
 const sources = [
   "src/main/constants.ts", "src/main/hardening.ts", "src/main/ipc.ts", "src/main/ipc-schema.ts",
   "src/main/protocol.ts", "src/main/production-composition.ts", "src/main/main.ts",
-  "src/main/host-service.ts", "src/main/metadata-safety.ts", "src/main/metadata-store.ts", "src/main/startup-bootstrap.cjs", "src/main/startup-bootstrap-runtime.cjs", "src/main/startup-diagnostic.ts", "src/main/startup-entry.ts", "src/main/startup-lifecycle.ts", "src/main/validation.ts",
+  "src/main/host-service.ts", "src/main/metadata-safety.ts", "src/main/metadata-store.ts", "src/main/startup-bootstrap.cjs", "src/main/startup-bootstrap-runtime.cjs", "src/main/startup-deadline.cjs", "src/main/startup-diagnostic.ts", "src/main/startup-entry.ts", "src/main/startup-lifecycle.ts", "src/main/validation.ts",
   "src/preload/credential.cts",
 ].map(read).join("\n");
 
@@ -41,16 +41,23 @@ describe("Electron and dependency static policy", () => {
   it("bounds module loading and registers the scheme before awaiting readiness", () => {
     const packageEntry = read("src/main/startup-bootstrap.cjs");
     const bootstrap = read("src/main/startup-bootstrap-runtime.cjs");
+    const deadline = read("src/main/startup-deadline.cjs");
     const main = read("src/main/main.ts");
     const entry = read("src/main/startup-entry.ts");
     const manifest = JSON.parse(read("package.json")) as { main: string };
     expect(manifest.main).toBe("dist/main/startup-bootstrap.cjs");
     expect(packageEntry).toContain('require("./startup-bootstrap-runtime.cjs")');
-    expect(packageEntry).toContain("bootstrap.startProductionCredentialBootstrap()");
+    expect(packageEntry).toContain("bootstrap.startProductionCredentialBootstrap(startupDeadline)");
+    expect(packageEntry).toContain("module.exports = Object.freeze({ bootstrapStarted })");
+    expectOrdered(packageEntry, "armProductionCredentialStartupDeadline()", 'require("./startup-bootstrap-runtime.cjs")');
     expect(packageEntry).not.toContain("require.main");
     expectOrdered(bootstrap, "credentialProtocol.registerSchemesAsPrivileged([{", "options.loadMain()");
     expect(bootstrap).toContain('loadMain: () => import("./main.js")');
     expect(bootstrap).not.toMatch(/process\.env|process\.argv|\bawait\b/u);
+    expect(deadline).toContain("const CREDENTIAL_STARTUP_DEADLINE_MS = 30_000");
+    expect(deadline).toContain('process.on("unhandledRejection"');
+    expect(deadline).toContain('process.on("uncaughtException"');
+    expect(deadline).not.toMatch(/process\.env|process\.argv/u);
     expectOrdered(main, 'setPhase("runtime-binding")', 'await import("electron")');
     expectOrdered(main, 'await import("electron")', 'await import("./startup-entry.js")');
     expect(main).toContain("await runCredentialStartupTask({");
@@ -59,6 +66,7 @@ describe("Electron and dependency static policy", () => {
     expect(entry).toContain("await waitForCredentialAppReady(app)");
     expect(entry).not.toContain("app.whenReady");
     expect(entry).not.toContain("registerSchemesAsPrivileged");
+    expect(entry).not.toContain('setPhase("protocol-registration")');
     expect(entry).toContain("requestSingleInstanceLock");
     expect(main).not.toContain(".catch(() => { app.exit(1); })");
     expect(main).toContain("fallbackExit(code) { process.exitCode = code; process.exit(code); }");
@@ -148,6 +156,7 @@ describe("Electron and dependency static policy", () => {
     expect(read("src/preload/credential.cts")).toContain('require("electron")');
     expect(bootstrapCopy).toContain('"startup-bootstrap.cjs"');
     expect(bootstrapCopy).toContain('"startup-bootstrap-runtime.cjs"');
+    expect(bootstrapCopy).toContain('"startup-deadline.cjs"');
     expect(bootstrapCopy).toContain("credential-startup-bootstrap-copy-mismatch");
   });
 
@@ -168,6 +177,7 @@ describe("Electron and dependency static policy", () => {
     expectOrdered(wrapper, "bootstrap.bootstrapStarted", "async function run()");
     expect(wrapper).toContain('require("electron")');
     expect(wrapper).toContain("if (bootstrapStarted) void run()");
+    expect(wrapper).toContain("window.isVisible()");
     expect(wrapper).not.toContain("PACKED_BOOTSTRAP_FAILED");
     expect(wrapper).not.toMatch(/^\s*import\s/mu);
     const exactBridge = '["cancel", "describe", "remove", "rotate", "save", "setEnabled", "validate"]';

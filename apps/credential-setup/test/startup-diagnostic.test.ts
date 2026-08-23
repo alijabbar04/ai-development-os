@@ -227,7 +227,7 @@ describe("bounded credential-host startup diagnostics", () => {
       timer: timer.timer,
     })).resolves.toBe(false);
     expect(writeLine).toHaveBeenCalledOnce();
-    expect(writeLine.mock.calls[0]![0]).toContain('"phase":"surface-ready","code":"STARTUP_FAILED"');
+    expect(writeLine.mock.calls[0]![0]).toContain('"phase":"cleanup","code":"CLEANUP_FAILED"');
     expect(writeLine.mock.calls[0]![0]).not.toContain("private");
     expect(exit).toHaveBeenCalledOnce();
   });
