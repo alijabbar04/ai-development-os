@@ -869,14 +869,14 @@ function auditSummary(bundle: AuditBundle): Record<string, unknown> {
 const compiledAudit = compileAudit();
 
 describe("Stage 18 audit-overlay-bound completeness audit", () => {
-  it("gives only the two audit-executing hosted jobs the required subject history", () => {
+  it("gives only audit-executing and candidate-binding jobs the required subject history", () => {
     const workflow = readFileSync(resolve(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8")
       .replaceAll("\r\n", "\n");
-    // Six hosted jobs since the production-disabled credential-host packed gate joined this
-    // workflow. Only the two audit-executing jobs may carry subject history.
+    // Check and coverage execute the audit. The two packed jobs reconstruct the
+    // published candidate binding. Only those four jobs require full history.
     expect(workflow.match(/uses: actions\/checkout@/g)).toHaveLength(6);
     expect(workflow.match(/persist-credentials: false/g)).toHaveLength(6);
-    expect(workflow.match(/fetch-depth: 0/g)).toHaveLength(2);
+    expect(workflow.match(/fetch-depth: 0/g)).toHaveLength(4);
     const job = (
       name: "check" | "audit" | "coverage" | "postgres" | "packed-consumer" | "credential-host-packed",
       next: string,
@@ -905,10 +905,10 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
     }
     expect(check.match(/fetch-depth: 0/g)).toHaveLength(1);
     expect(coverage.match(/fetch-depth: 0/g)).toHaveLength(1);
+    expect(packedConsumer.match(/fetch-depth: 0/g)).toHaveLength(1);
+    expect(credentialHostPacked.match(/fetch-depth: 0/g)).toHaveLength(1);
     expect(audit).not.toContain("fetch-depth:");
     expect(postgres).not.toContain("fetch-depth:");
-    expect(packedConsumer).not.toContain("fetch-depth:");
-    expect(credentialHostPacked).not.toContain("fetch-depth:");
   });
 
   it("binds operator-authorized inputs to every row without authorizing their outcome", () => {

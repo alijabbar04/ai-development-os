@@ -1,6 +1,6 @@
 # Stage 18E-I Anthropic validation-enablement checkpoint
 
-Date: 2026-08-23
+Date: 2026-08-24
 
 Status: `READY_FOR_PUBLICATION`
 
@@ -138,13 +138,15 @@ promote `ANT-02`. Inconclusive outcomes preserve earlier definitive knowledge.
 
 ## Validation snapshot
 
-- Focused final truthfulness checks: credential-host `host-service` 58/58 and
-  credential-UI browser contract 19/19; both relevant TypeScript checks passed.
-- Full affected ordinary suites: credential host 20 files and 257 tests plus
+- Post-CI focused truthfulness checks: credential-host `host-service` 58/58,
+  Stage 18 completeness audit 10/10, and credential-UI browser contract 19/19;
+  the relevant TypeScript checks passed.
+- Full affected ordinary suites: credential host 20 files and 258 tests plus
   launcher regressions 6/6; Anthropic provider 8 files and 216 tests;
   credential UI 2 files and 29 tests.
-- Fresh root `npm run test:coverage` passed with exit 0 after the final source
-  review, including every workspace suite. Affected package floors passed:
+- Before the CI-only test corrections, fresh root `npm run test:coverage`
+  passed with exit 0, including every workspace suite. Affected package floors
+  passed:
   credential host 91.15% statements, 87.22% branches, 100% functions,
   and 95.78% lines; Anthropic provider 91.82%, 87.25%, 97.66%, and 95.06%;
   credential UI 100%, 98.64%, 100%, and 100%, respectively. One initial host
@@ -156,8 +158,9 @@ promote `ANT-02`. Inconclusive outcomes preserve earlier definitive knowledge.
   and 4 forced-colours assertions. It covered Cancel, exactly one fake dispatch,
   double confirmation, consumption, preconsumption refusal, postcommit locking,
   normal/developer parity, focus, and bounded diagnostic leakage.
-- Local unpublished packed-host verification passed with a clean packed install
-  and high-severity audit, 10 packages, 84 application files, a visible
+- Local published packed-host verification of replacement candidate `1328e3d`
+  passed with a clean packed install and high-severity audit, 10 packages, 85
+  application files, a visible
   renderer, four provider cards, zero validation buttons without authorization,
   production disabled, and exactly seven preload bridge methods.
 - `npm audit --audit-level=high` reported zero vulnerabilities. `npm ls --all`
@@ -169,9 +172,13 @@ promote `ANT-02`. Inconclusive outcomes preserve earlier definitive knowledge.
   emitted no candidate binding. Manifest inverse tests include wrong-base,
   parent drift, malformed inventory, dirty-worktree publication, and independent
   fixed-base assertions.
-- Fresh root `npm run check` passed with exit 0 after the final source review,
-  including every workspace typecheck, test, and build. The build confirmed
-  `status: unpublished` and wrote no candidate binding.
+- A fresh post-CI root `npm run check` completed every workspace typecheck and
+  test successfully, including credential host 258/258 and evaluation 30/30.
+  Its final credential-host build then correctly refused the still-dirty
+  source/evidence working tree with `CANDIDATE_BINDING_WORKTREE_NOT_CLEAN`; the
+  already-doomed aggregate was stopped while later independent workspace builds
+  continued. This is the intended publication guard, not a pass claim. A clean
+  source-parent check and build necessarily follow this source/evidence commit.
 - Hosted Actions run `32671992668`, attempt 1, for the first published candidate
   SHA `a819d85f5ba3c5db1dbb0daa7668a0588487acda` was not rerun. Its packed-host
   and packed-consumer build jobs exposed that both still used the default
@@ -179,15 +186,29 @@ promote `ANT-02`. Inconclusive outcomes preserve earlier definitive knowledge.
   parent with `CANDIDATE_BINDING_PARENT_REFUSED`. The workflow now fetches full
   read-only history in all four jobs that build or verify the candidate binding,
   and a static inverse test prevents that checkout-depth regression.
+- Hosted Actions run `32672581622`, attempt 1, for replacement candidate SHA
+  `1328e3d8540b9d8c15c7f8130980ab50ec2591ec` was also not rerun. Both packed
+  jobs, PostgreSQL integration, and dependency audit passed, directly proving
+  the checkout-history correction. Windows check and coverage exposed that the
+  inherited Stage 18 inverse test still globally expected two rather than the
+  now-required four full-history checkouts. Ubuntu check exposed that defect
+  plus a five-millisecond validation-timeout test that let a loaded runner
+  expire before the intended synthetic dispatch. The inverse
+  test now identifies the exact four jobs and still refuses history in the
+  other two. The timeout remains five milliseconds, but Vitest fake time now
+  advances it only after the pre-timeout microtask chain, eliminating scheduler
+  load as an unstated input without weakening the timeout or runtime behavior.
+  Focused regressions pass 10/10 and 58/58 respectively.
 - Final static-policy tests passed 15/15 for the credential host and 3/3 for
-  the Anthropic provider. A non-copying scan of all 49 changed source/evidence
+  the Anthropic provider. A non-copying scan of all 50 changed source/evidence
   paths found no credential-shaped token, private key, or ambient credential
   environment read. It also confirmed no authorization packet, marker root, or
   unpublished candidate binding was present and that the Stage 18 acceptance
   matrix was unchanged.
-- The superseded subject manifest was committed by `a819d85` and is deliberately
-  absent from this corrected source-parent tree because its source parent
-  predated the CI checkout-depth correction. A newly generated manifest-only
+- The first superseded subject manifest was committed by `a819d85`. The second
+  was committed by `1328e3d` and proved the checkout-depth repair through both
+  packed jobs before its Ubuntu test failures. Both are deliberately absent
+  from this next corrected source-parent tree. A newly generated manifest-only
   child must bind this corrected source parent before publication resumes.
 - Canonical manifest generation, independent Git-blob recomputation, clean
   published build binding, non-force push, and exact-head CI necessarily follow
@@ -217,6 +238,16 @@ reachability. Its remaining advisories are non-blocking follow-up hardening:
 - prefer the phrase “one request attempt” where the dispatch observation occurs
   immediately before `req.end` and provider receipt is not knowable.
 
+After run `32672581622`, the same independent reviewer inspected the exact
+test/evidence delta and returned PASS with no must-fix finding. It confirmed the
+runtime timeout remains five milliseconds; fake time is test-local and restored
+in `finally`; dispatch, finite-result, single-attempt, drain, and close
+assertions remain; the history inverse individually pins exactly the four jobs
+that require it and excludes the other two; the 50-path inventory matches the
+fixed-base diff; and deleting the second superseded manifest preserves the
+required next source-parent/manifest-only-child topology. No runtime source,
+verifier, generator, or binding implementation changed in that correction.
+
 The reviewer accessed no secret, vault, clipboard, Account Manager state,
 environment-variable value, real marker, or provider/network endpoint.
 
@@ -242,7 +273,7 @@ Project truth remains unchanged:
 
 ## Source/evidence changed-path inventory
 
-The source/evidence candidate contains these 49 paths relative to the reviewed
+The source/evidence candidate contains these 50 paths relative to the reviewed
 base; the canonical subject manifest is intentionally absent until these blobs
 are committed:
 
@@ -282,19 +313,20 @@ are committed:
 34. `packages/credential-ui/src/projections.ts`
 35. `packages/credential-ui/test/browser-contract.test.ts`
 36. `packages/credential-ui/test/projections.test.ts`
-37. `packages/provider-anthropic/README.md`
-38. `packages/provider-anthropic/package.json`
-39. `packages/provider-anthropic/src/testing/live-canary-diagnostics.ts`
-40. `packages/provider-anthropic/src/testing/live-canary.ts`
-41. `packages/provider-anthropic/src/validation/index.ts`
-42. `packages/provider-anthropic/src/validation/live-canary-diagnostics.ts`
-43. `packages/provider-anthropic/src/validation/live-canary.ts`
-44. `packages/provider-anthropic/test/anthropic-live-canary.test.ts`
-45. `packages/provider-anthropic/test/static-policy.test.ts`
-46. `scripts/generate-stage-18e-i-subject-manifest.mjs`
-47. `scripts/stage-18e-i-subject-manifest-lib.mjs`
-48. `scripts/verify-stage-18e-i-if-published.mjs`
-49. `scripts/verify-stage-18e-i-subject-manifest.mjs`
+37. `packages/evaluation/test/stage-18-completeness-audit.test.ts`
+38. `packages/provider-anthropic/README.md`
+39. `packages/provider-anthropic/package.json`
+40. `packages/provider-anthropic/src/testing/live-canary-diagnostics.ts`
+41. `packages/provider-anthropic/src/testing/live-canary.ts`
+42. `packages/provider-anthropic/src/validation/index.ts`
+43. `packages/provider-anthropic/src/validation/live-canary-diagnostics.ts`
+44. `packages/provider-anthropic/src/validation/live-canary.ts`
+45. `packages/provider-anthropic/test/anthropic-live-canary.test.ts`
+46. `packages/provider-anthropic/test/static-policy.test.ts`
+47. `scripts/generate-stage-18e-i-subject-manifest.mjs`
+48. `scripts/stage-18e-i-subject-manifest-lib.mjs`
+49. `scripts/verify-stage-18e-i-if-published.mjs`
+50. `scripts/verify-stage-18e-i-subject-manifest.mjs`
 
 Publication requires a clean source/evidence commit followed by one manifest-
 only child, canonical and independent verification, a clean build that emits

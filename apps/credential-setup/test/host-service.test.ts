@@ -699,7 +699,15 @@ describe("policy-gated validation", () => {
     const transport = createDeterministicCredentialValidationPort({ gate: transportGate });
     const timed = timeoutControl.createService({ validation: transport, validationTimeoutMs: 5 });
     const timedCurrent = await slots(timed);
-    const timedResult = await timed.validate({ ...base, operation: "validate", ...identity(timedCurrent), acknowledgedDisclosure: true });
+    vi.useFakeTimers();
+    let timedResult: CredentialValidatedResult;
+    try {
+      const pendingTimeout = timed.validate({ ...base, operation: "validate", ...identity(timedCurrent), acknowledgedDisclosure: true });
+      await vi.advanceTimersByTimeAsync(5);
+      timedResult = await pendingTimeout as CredentialValidatedResult;
+    } finally {
+      vi.useRealTimers();
+    }
     expect(timedResult).toMatchObject({ ok: true, kind: "validated", outcome: "unreachable", definitive: false, providerDispatched: true, discarded: false });
     expect(transport.dispatches()).toBe(1);
     expect(await timed.validate({ ...base, requestId: "8".repeat(32), operation: "validate", ...identity(timedCurrent), acknowledgedDisclosure: true })).toMatchObject({ ok: false, code: "ILLEGAL_TRANSITION" });
