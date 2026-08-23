@@ -5,6 +5,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { productionHostEnvironment } from "./launch-production-host.mjs";
 
 const require = createRequire(import.meta.url);
 const electronExecutable = require("electron");
@@ -64,6 +65,8 @@ for (const workspace of workspaces) {
 
 const requiredAppFiles = [
   "dist/main/main.js",
+  "dist/main/startup-bootstrap.cjs",
+  "dist/main/startup-bootstrap-runtime.cjs",
   "dist/main/host-service.js",
   "dist/preload/credential.cjs",
   "dist/renderer/credential/index.html",
@@ -97,24 +100,21 @@ if (ui.projectCredentialStatus === undefined || ui.captureModeActionSet === unde
 const installedApp = join(consumer, "node_modules", "@ai-dev-os", "credential-setup");
 const installedManifestPath = join(installedApp, "package.json");
 const installedManifest = JSON.parse(await readFile(installedManifestPath, "utf8"));
-if (installedManifest.main !== "dist/main/main.js") throw new Error("Packed credential host main entry drifted.");
-installedManifest.main = "packed-runtime-wrapper.mjs";
+if (installedManifest.main !== "dist/main/startup-bootstrap.cjs") throw new Error("Packed credential host main entry drifted.");
+installedManifest.main = "packed-runtime-wrapper.cjs";
 await writeFile(installedManifestPath, JSON.stringify(installedManifest, null, 2), "utf8");
-await cp(join(appRoot, "scripts", "packed-runtime-wrapper.mjs"), join(installedApp, "packed-runtime-wrapper.mjs"));
+await cp(join(appRoot, "scripts", "packed-runtime-wrapper.cjs"), join(installedApp, "packed-runtime-wrapper.cjs"));
 
 const runtimeRoot = join(root, "runtime");
 const runtimeReport = join(runtimeRoot, "report.json");
 await mkdir(join(runtimeRoot, "app-data"), { recursive: true });
 await mkdir(join(runtimeRoot, "user-data"), { recursive: true });
-const priorRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
-let child;
-try {
-  delete process.env.ELECTRON_RUN_AS_NODE;
-  child = spawn(electronExecutable, [installedApp, `--packed-root=${runtimeRoot}`, `--packed-report=${runtimeReport}`], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-} finally {
-  if (priorRunAsNode === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
-  else process.env.ELECTRON_RUN_AS_NODE = priorRunAsNode;
-}
+const child = spawn(electronExecutable, [installedApp, `--packed-root=${runtimeRoot}`, `--packed-report=${runtimeReport}`], {
+  env: productionHostEnvironment(process.env),
+  shell: false,
+  stdio: ["ignore", "pipe", "pipe"],
+  windowsHide: true,
+});
 let stdout = "";
 let stderr = "";
 child.stdout.setEncoding("utf8");

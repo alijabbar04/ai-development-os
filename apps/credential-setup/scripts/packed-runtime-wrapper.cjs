@@ -1,7 +1,10 @@
-import { writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { relative, resolve } from "node:path";
-import { app, BrowserWindow } from "electron";
+"use strict";
+
+const { writeFile } = require("node:fs/promises");
+const { writeSync } = require("node:fs");
+const { tmpdir } = require("node:os");
+const { relative, resolve } = require("node:path");
+const { app, BrowserWindow } = require("electron");
 
 function argument(name) {
   const prefix = `--${name}=`;
@@ -22,6 +25,20 @@ if (!withinTemporary(root) || !withinTemporary(reportPath)) throw new Error("PAC
 app.setPath("appData", resolve(root, "app-data"));
 app.setPath("userData", resolve(root, "user-data"));
 
+function startBootstrap() {
+  let bootstrap;
+  try { bootstrap = require("./dist/main/startup-bootstrap.cjs"); }
+  catch {
+    try { writeSync(2, '{"schemaVersion":1,"operation":"credential-host-startup","phase":"runtime-binding","code":"STARTUP_FAILED","terminal":true}\n'); } catch { /* finite test-harness output is best effort */ }
+    process.exitCode = 1;
+    try { app.exit(1); } catch { process.exit(1); }
+    return false;
+  }
+  return bootstrap.bootstrapStarted === true;
+}
+
+const bootstrapStarted = startBootstrap();
+
 async function waitForWindow() {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
@@ -35,8 +52,7 @@ async function waitForWindow() {
 async function run() {
   let result = { ok: false, code: "PACKED_RUNTIME_FAILED" };
   try {
-    await import("./dist/main/main.js");
-    await app.whenReady();
+    if (!app.isReady()) await new Promise((resolveReady) => { app.once("ready", resolveReady); });
     const window = await waitForWindow();
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
@@ -76,4 +92,4 @@ async function run() {
   }
 }
 
-void run();
+if (bootstrapStarted) void run();

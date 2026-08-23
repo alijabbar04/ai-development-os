@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { launchCredentialSurface } from "../src/main/startup-lifecycle.js";
+import { launchCredentialSurface, waitForCredentialAppReady } from "../src/main/startup-lifecycle.js";
 
 function fixture() {
   const appEvents = new Map<string, () => void>();
@@ -23,6 +23,33 @@ function fixture() {
 }
 
 describe("credential surface startup ownership", () => {
+  it("continues immediately when asynchronous ESM loading observes an already-ready app", async () => {
+    const once = vi.fn();
+    await expect(waitForCredentialAppReady({ isReady: () => true, once })).resolves.toBeUndefined();
+    expect(once).not.toHaveBeenCalled();
+  });
+
+  it("waits on the finite ready event when startup reaches the app before readiness", async () => {
+    let ready: (() => void) | undefined;
+    const waiting = waitForCredentialAppReady({
+      isReady: () => false,
+      once: vi.fn((_event: "ready", listener: () => void) => { ready = listener; }),
+    });
+    expect(ready).toBeTypeOf("function");
+    ready?.();
+    await expect(waiting).resolves.toBeUndefined();
+  });
+
+  it("remains pending when readiness never arrives so the owning startup watchdog can adjudicate it", async () => {
+    const once = vi.fn();
+    let settled = false;
+    void waitForCredentialAppReady({ isReady: () => false, once }).then(() => { settled = true; });
+    await Promise.resolve();
+    expect(once).toHaveBeenCalledOnce();
+    expect(once).toHaveBeenCalledWith("ready", expect.any(Function));
+    expect(settled).toBe(false);
+  });
+
   it("closes the service when window construction fails", async () => {
     const f = fixture();
     const failure = new Error("window-construction-failure");
@@ -75,6 +102,23 @@ describe("credential surface startup ownership", () => {
     expect(f.dispose).toHaveBeenCalledOnce();
     expect(f.service.close).toHaveBeenCalledOnce();
     expect(f.app.exit).not.toHaveBeenCalled();
+  });
+
+  it("reports the finite window, IPC, renderer, and ready startup phases in order", async () => {
+    const f = fixture();
+    const phases: string[] = [];
+    await launchCredentialSurface({
+      app: f.app,
+      service: f.service,
+      createWindow: async () => f.window,
+      installIpc: () => f.dispose,
+      load: async () => undefined,
+      onPhase: (phase) => { phases.push(phase); },
+      idleMs: 60_000,
+    });
+    expect(phases).toEqual(["window-creation", "ipc-installation", "renderer-load", "surface-ready"]);
+    f.windowEvents.get("closed")?.();
+    await vi.waitFor(() => expect(f.app.quit).toHaveBeenCalledOnce());
   });
 
   it("destroys and closes an idle credential surface", async () => {

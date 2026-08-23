@@ -317,6 +317,113 @@ correct ambiguities found during external review without widening authority:
   its exact export shape, but neither `availability` nor `read` is invoked by this
   checkpoint. The measured call count remains zero.
 
+### 12. Production-host startup correction (2026-08-22)
+
+The original production command delegated directly to Electron. On the repair
+workstation, the allowlisted Electron runtime control `ELECTRON_RUN_AS_NODE` was
+inherited and active. The pinned Electron executable consequently ran the built
+entry as Node instead of entering the Electron application lifecycle. The one
+authorized instrumented pre-fix launch returned without a visible window. No
+bounded record was observable, and the Windows GUI launch route exposed no
+captured exit code. Whether or which finite diagnostic phase executed is
+unavailable; no phase or public code is inferred.
+
+Read-only inspection and non-host synthetic probes established that first cause
+without another real launch. The compiled entry executed under plain Node reached
+the bounded `runtime-binding` failure and exited `1`, while a pinned-Electron
+expression probe showed that the executable was operating in Node mode. No raw
+control value or unrelated environment content was recorded.
+
+The first repair candidate added a fixed launcher that removed only the proven
+Node-mode control and then passed the compiled ESM entry directly to Electron.
+The one authorized post-fix production-disabled launch consumed that candidate.
+It produced one responsive Electron process but no renderer/GPU child and no
+visible or accessibility-discoverable window; it emitted no bounded diagnostic
+record and remained running past the bounded observation period. The launch was
+interrupted once. The launcher then exited `1`, its task-scoped Electron child was
+still present, and that exact child was terminated. No normal ready state, normal
+close, clean self-shutdown, or finite phase/code was observed or inferred.
+
+That consumed confirmation led to a synchronous CommonJS/package-root correction
+that preserved privileged-scheme ordering and deterministic application-root
+binding. Its later, separately authorized production-disabled launch created
+three Electron processes, but after 67.6 seconds the responsive main process
+still had window handle `0`, no visible or accessibility-discoverable window, and
+no bounded diagnostic. The route was interrupted once; its exact remaining
+six-process task tree was verified and terminated. All three named persistent
+files remained absent, and no credential-capable action occurred.
+
+A disposable Electron `43.4.1` lifecycle matrix then tested the leading
+top-level-await hypothesis. A direct ESM package main with module-level awaited
+readiness did deadlock. In contrast, both awaited and detached ESM startup reached
+readiness and created a window when entered through the candidate's synchronously
+completing CommonJS package main and dynamic import. The candidate's CJS-to-ESM
+top-level await therefore did not cause the consumed 67.6-second failure.
+Package-root controls established the actual cause: Electron evaluates its
+package main with `require.main === module` false. The guarded CommonJS entry
+never invoked startup, while an otherwise identical unconditional entry reached
+readiness and created a window, exactly reproducing and resolving the responsive,
+diagnostic-free, handle-`0` host state.
+
+The current local correction uses a minimal unconditional
+`startup-bootstrap.cjs` package entry and a
+separate testable `startup-bootstrap-runtime.cjs`. The runtime validates exact
+Electron `43.4.1`, fixes the application name, synchronously registers the
+privileged `app-credential` scheme, and invokes asynchronous startup exactly once.
+The fixed no-argument launcher validates that package main and passes the
+application package root as Electron's sole argument, with a fixed working
+directory. Using exact ASCII folding, it removes inherited `ELECTRON_` and
+`NODE_` control namespaces plus `GOOGLE_API_KEY`, then fixes
+`NODE_ENV=production`; it spawns without a shell. It accepts no forwarded
+arguments and provides no development URL, storage override, debug-mode option,
+or retry. The packed wrapper consumes the exported start result and does not
+invoke startup twice.
+
+The diagnostic boundary exposes only schema version `1`, the fixed operation
+`credential-host-startup`, one reviewed phase, one reviewed public code, and
+`terminal: true`. Foreign, hostile, inherited, accessor-backed, proxy, cyclic, or
+otherwise unknown failures collapse to `STARTUP_FAILED`; raw messages, stacks,
+paths, command lines, environment content, causes, and object serializations are
+never emitted. It emits at most one JSON line, preserves exit code `1`, and uses a
+hard process fallback only when no safe application exit exists or application
+exit itself fails. Success is silent. A fixed, non-configurable 30-second
+watchdog starts before asynchronous startup, tracks only the last reviewed phase,
+is unreferenced, and is cleared at `surface-ready` or terminal failure. Expiry
+emits one `STARTUP_TIMEOUT` record through the same one-terminal, one-exit
+boundary. No environment, command-line, alternate-deadline, or retry route exists,
+and late failure cannot emit or exit twice.
+
+After exhaustive pre-launch gates and independent review, the candidate froze at
+aggregate `2c7df08478a2688d6409cc7d83acf119d00214c0c8d153f9100d2ad52c7b2e30`.
+Its one authorized production-disabled launch used exactly
+`npm --prefix apps/credential-setup start`. Within the first 10.005-second
+observation, Electron exposed one responsive accessibility window titled
+`Credential setup — AI Development OS`. Its normal overview showed four provider
+cards, zero saved credentials, production and live validation disabled, no
+password/edit field, and no credential dialog. No action control was invoked.
+The exact window then closed through `Alt+F4`; the route session completed, zero
+task processes remained, all three named credential-state files remained absent,
+and the frozen aggregate was unchanged. No numeric route exit code was retained,
+so none is inferred. No credential, provider, clipboard, Windows Credential
+Manager, Account Manager private-state, production, or network-validation action
+occurred, and the launch authorization is consumed.
+
+Focused source tests, a disposable Electron lifecycle probe, packed-runtime
+validation, a fresh root check, and one fresh complete root coverage run exercise
+the correction, including synchronous bootstrap order,
+package-root identity, guarded-versus-unconditional entry behavior, watchdog
+timeout/cancellation, hostile binding reads, failure terminality,
+sandbox/context isolation, production-disabled state, and custom-protocol
+renderer loading. The required real visible-ready confirmation and every
+post-confirmation local gate passed. Final independent current-byte review also
+passed with zero must-fix findings. The correction remains an uncommitted,
+unpublished candidate with status `READY_FOR_PUBLICATION`; the authorized
+source/evidence commit, manifest-only child, non-force push, and exact-head CI
+remain to be performed.
+No additional real launch is authorized. The correction grants no credential,
+clipboard, provider, Windows Credential Manager, Account Manager, production, or
+retry authority.
+
 ## Consequences
 
 ### Enabled

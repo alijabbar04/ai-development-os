@@ -1,3 +1,15 @@
+import type { CredentialStartupPhase } from "./startup-diagnostic.js";
+
+export interface CredentialReadyApp {
+  isReady(): boolean;
+  once(event: "ready", listener: () => void): unknown;
+}
+
+export async function waitForCredentialAppReady(app: CredentialReadyApp): Promise<void> {
+  if (app.isReady()) return;
+  await new Promise<void>((resolveReady) => { app.once("ready", resolveReady); });
+}
+
 export interface CredentialSurfaceWindow {
   readonly webContents: Readonly<{ readonly id: number }>;
   isDestroyed(): boolean;
@@ -18,6 +30,7 @@ export interface CredentialSurfaceLifecycleOptions<TWindow extends CredentialSur
   readonly createWindow: () => Promise<TWindow>;
   readonly installIpc: (window: TWindow, touch: () => void) => () => void;
   readonly load: (window: TWindow) => Promise<void>;
+  readonly onPhase?: (phase: Extract<CredentialStartupPhase, "window-creation" | "ipc-installation" | "renderer-load" | "surface-ready">) => void;
   readonly idleMs?: number;
 }
 
@@ -47,6 +60,7 @@ export async function launchCredentialSurface<TWindow extends CredentialSurfaceW
   };
 
   try {
+    options.onPhase?.("window-creation");
     window = await options.createWindow();
     const closeFromSurface = (): void => { void beginClose(true).catch(() => undefined); };
     allClosed = closeFromSurface;
@@ -57,8 +71,11 @@ export async function launchCredentialSurface<TWindow extends CredentialSurfaceW
       idleTimer = setTimeout(() => { if (window !== null && !window.isDestroyed()) window.destroy(); }, options.idleMs ?? 600_000);
     };
     touch();
+    options.onPhase?.("ipc-installation");
     disposeIpc = options.installIpc(window, touch);
+    options.onPhase?.("renderer-load");
     await options.load(window);
+    options.onPhase?.("surface-ready");
   } catch (error) {
     const cleanup = beginClose(false);
     if (window !== null && !window.isDestroyed()) window.destroy();

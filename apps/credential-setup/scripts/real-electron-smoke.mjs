@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { productionHostEnvironment } from "./launch-production-host.mjs";
 import { selectSmokePreview } from "./smoke-preview-policy.mjs";
 
 const require = createRequire(import.meta.url);
@@ -21,15 +22,12 @@ async function run(mode) {
   const reportPath = join(modeRoot, "report.json");
   const args = [entry, `--smoke-root=${modeRoot}`, `--smoke-report=${reportPath}`, `--smoke-mode=${mode}`];
   if (mode === "default") args.push(`--smoke-preview=${preview}`);
-  const priorRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
-  let child;
-  try {
-    delete process.env.ELECTRON_RUN_AS_NODE;
-    child = spawn(electron, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-  } finally {
-    if (priorRunAsNode === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
-    else process.env.ELECTRON_RUN_AS_NODE = priorRunAsNode;
-  }
+  const child = spawn(electron, args, {
+    env: productionHostEnvironment(process.env),
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8");

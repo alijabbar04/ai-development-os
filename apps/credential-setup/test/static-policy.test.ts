@@ -7,10 +7,15 @@ import { CREDENTIAL_ELECTRON_VERSION } from "../src/main/constants.js";
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repository = resolve(appRoot, "..", "..");
 const read = (path: string): string => readFileSync(join(appRoot, path), "utf8");
+const expectOrdered = (source: string, left: string, right: string): void => {
+  expect(source).toContain(left);
+  expect(source).toContain(right);
+  expect(source.indexOf(left)).toBeLessThan(source.indexOf(right));
+};
 const sources = [
   "src/main/constants.ts", "src/main/hardening.ts", "src/main/ipc.ts", "src/main/ipc-schema.ts",
   "src/main/protocol.ts", "src/main/production-composition.ts", "src/main/main.ts",
-  "src/main/host-service.ts", "src/main/metadata-safety.ts", "src/main/metadata-store.ts", "src/main/startup-lifecycle.ts", "src/main/validation.ts",
+  "src/main/host-service.ts", "src/main/metadata-safety.ts", "src/main/metadata-store.ts", "src/main/startup-bootstrap.cjs", "src/main/startup-bootstrap-runtime.cjs", "src/main/startup-diagnostic.ts", "src/main/startup-entry.ts", "src/main/startup-lifecycle.ts", "src/main/validation.ts",
   "src/preload/credential.cts",
 ].map(read).join("\n");
 
@@ -20,26 +25,44 @@ describe("Electron and dependency static policy", () => {
     expect(manifest.dependencies?.["electron"]).toBeUndefined();
     expect(manifest.devDependencies?.["electron"]).toBe(CREDENTIAL_ELECTRON_VERSION);
     expect(manifest.peerDependencies?.["electron"]).toBe(CREDENTIAL_ELECTRON_VERSION);
-    const main = read("src/main/main.ts");
-    expect(main.indexOf("assertAppVaultElectronVersion")).toBeLessThan(main.indexOf("registerSchemesAsPrivileged"));
-    expect(main.indexOf("assertCredentialElectronVersion")).toBeLessThan(main.indexOf("registerSchemesAsPrivileged"));
+    const bootstrap = read("src/main/startup-bootstrap-runtime.cjs");
+    const entry = read("src/main/startup-entry.ts");
+    expectOrdered(bootstrap, "version !== ELECTRON_VERSION", "credentialProtocol.registerSchemesAsPrivileged([{");
+    expectOrdered(entry, "assertAppVaultElectronVersion", "createProductionCredentialHost");
+    expectOrdered(entry, "assertCredentialElectronVersion", "createProductionCredentialHost");
     const ensure = read("scripts/ensure-electron-runtime.mjs");
     for (const denied of ["ELECTRON_OVERRIDE_DIST_PATH", "ELECTRON_INSTALL_PLATFORM", "ELECTRON_INSTALL_ARCH", "electron_use_remote_checksums", "npm_config_electron_use_remote_checksums", "ELECTRON_USE_REMOTE_CHECKSUMS", "NPM_CONFIG_ELECTRON_USE_REMOTE_CHECKSUMS"]) expect(ensure).toContain(`\"${denied}\"`);
     for (const binding of ['manifest.version !== "43.4.1"', 'join(distRoot, "version")', 'join(packageRoot, "path.txt")', 'rel.startsWith("..")']) expect(ensure).toContain(binding);
     const rootManifest = JSON.parse(read("../../package.json")) as { scripts: Record<string, string> };
     const foundationSmoke = rootManifest.scripts["verify:app-vault-electron-smoke"];
-    expect(foundationSmoke.indexOf("ensure:electron")).toBeLessThan(foundationSmoke.indexOf("@ai-dev-os/secrets-app-vault-electron"));
+    expectOrdered(foundationSmoke, "ensure:electron", "@ai-dev-os/secrets-app-vault-electron");
   });
 
-  it("registers the scheme synchronously and awaits readiness only inside a launched async bootstrap", () => {
+  it("bounds module loading and registers the scheme before awaiting readiness", () => {
+    const packageEntry = read("src/main/startup-bootstrap.cjs");
+    const bootstrap = read("src/main/startup-bootstrap-runtime.cjs");
     const main = read("src/main/main.ts");
-    const bootstrap = main.indexOf("async function startCredentialHost");
-    const ready = main.indexOf("await app.whenReady()");
-    expect(main.indexOf("registerSchemesAsPrivileged")).toBeLessThan(bootstrap);
-    expect(bootstrap).toBeGreaterThan(-1);
-    expect(bootstrap).toBeLessThan(ready);
-    expect(main).toContain("requestSingleInstanceLock");
-    expect(main).toContain("else void startCredentialHost().catch");
+    const entry = read("src/main/startup-entry.ts");
+    const manifest = JSON.parse(read("package.json")) as { main: string };
+    expect(manifest.main).toBe("dist/main/startup-bootstrap.cjs");
+    expect(packageEntry).toContain('require("./startup-bootstrap-runtime.cjs")');
+    expect(packageEntry).toContain("bootstrap.startProductionCredentialBootstrap()");
+    expect(packageEntry).not.toContain("require.main");
+    expectOrdered(bootstrap, "credentialProtocol.registerSchemesAsPrivileged([{", "options.loadMain()");
+    expect(bootstrap).toContain('loadMain: () => import("./main.js")');
+    expect(bootstrap).not.toMatch(/process\.env|process\.argv|\bawait\b/u);
+    expectOrdered(main, 'setPhase("runtime-binding")', 'await import("electron")');
+    expectOrdered(main, 'await import("electron")', 'await import("./startup-entry.js")');
+    expect(main).toContain("await runCredentialStartupTask({");
+    expect(main).not.toContain("void runCredentialStartupTask({");
+    expect(main).not.toMatch(/from "electron"|@ai-dev-os\//u);
+    expect(entry).toContain("await waitForCredentialAppReady(app)");
+    expect(entry).not.toContain("app.whenReady");
+    expect(entry).not.toContain("registerSchemesAsPrivileged");
+    expect(entry).toContain("requestSingleInstanceLock");
+    expect(main).not.toContain(".catch(() => { app.exit(1); })");
+    expect(main).toContain("fallbackExit(code) { process.exitCode = code; process.exit(code); }");
+    expectOrdered(main, "process.exitCode = code;", "process.exit(code);");
   });
 
   it("contains exactly the six reviewed channel literals and no raw/generic bridge exposure", () => {
@@ -59,9 +82,26 @@ describe("Electron and dependency static policy", () => {
     expect(sources).not.toMatch(/ClaudeAccountManager|Local State|CredEnum|setUsePlainTextEncryption/u);
   });
 
+  it("uses one fixed no-argument production launcher with a bounded child environment", () => {
+    const manifest = JSON.parse(read("package.json")) as { scripts: Record<string, string> };
+    const launcher = read("scripts/launch-production-host.mjs");
+    expect(manifest.scripts["start"]).toBe("node scripts/launch-production-host.mjs");
+    expect(launcher).toContain('Object.freeze(["ELECTRON_", "NODE_"])');
+    expect(launcher).toContain('Object.freeze(["GOOGLE_API_KEY"])');
+    expect(launcher).toContain('output.NODE_ENV = "production"');
+    expect(launcher).toContain('const productionMain = "dist/main/startup-bootstrap.cjs"');
+    expect(launcher).toContain("resolve(appRoot, applicationMain)");
+    expect(launcher).toContain("applicationManifest.main");
+    expect(launcher).toContain("spawn(target.executable, [target.application]");
+    expect(launcher).toContain("process.argv.length !== 2");
+    expect(launcher).toContain("shell: false");
+    expect(launcher).toContain("writeSync(2, PRODUCTION_STARTUP_FAILURE_LINE)");
+    expect(launcher).not.toMatch(/process\.argv\.slice|shell: true|exec\(|execFile\(|ELECTRON_OVERRIDE_DIST_PATH|app\.setPath/u);
+  });
+
   it("locks scheme privileges, CSP, web preferences, permissions, navigation, downloads, and the three-file protocol", () => {
-    const main = read("src/main/main.ts");
-    expect(main).toContain("privileges: { standard: true, secure: true }");
+    const bootstrap = read("src/main/startup-bootstrap-runtime.cjs");
+    expect(bootstrap).toContain("privileges: { standard: true, secure: true }");
     expect(sources).not.toMatch(/supportFetchAPI|corsEnabled|bypassCSP|allowServiceWorkers|Cross-Origin-Opener-Policy|Cross-Origin-Embedder-Policy|webRequest/u);
     const hardening = read("src/main/hardening.ts");
     for (const setting of ["sandbox: true", "contextIsolation: true", "nodeIntegration: false", "nodeIntegrationInSubFrames: false", "nodeIntegrationInWorker: false", "webSecurity: true", "allowRunningInsecureContent: false", "webviewTag: false", "devTools: false", "spellcheck: false"]) expect(hardening).toContain(setting);
@@ -89,22 +129,26 @@ describe("Electron and dependency static policy", () => {
     const realistic = /(sk-ant-api\d{2}-[A-Za-z0-9_-]{16,}|sk-proj-[A-Za-z0-9_-]{16,}|sk-or-v1-[A-Za-z0-9]{16,}|AIza[0-9A-Za-z_-]{35}|sk-[A-Za-z0-9]{32,})/u;
     expect(all).not.toMatch(realistic);
     expect(sources).not.toMatch(/console\.(log|warn|error|debug)|JSON\.stringify\(.*secret/u);
+    const diagnostic = read("src/main/startup-diagnostic.ts");
+    expect(diagnostic).not.toMatch(/\.message|\.stack|process\.env|Object\.keys\(error|JSON\.stringify\(error/u);
+    expect(diagnostic).toContain("writeSync(2, line)");
   });
 
   it("runs non-copying secret/metadata containment before any composed label check", () => {
     const safety = read("src/main/metadata-safety.ts");
-    const separated = safety.indexOf("export function assertCredentialMetadataSeparatedFromSecret");
-    const virtualScan = safety.indexOf("const candidates:", separated);
-    const labelCheck = safety.indexOf("assertCredentialMetadataLabelsSafe(nickname, authorizedBy, code)", separated);
-    expect(virtualScan).toBeGreaterThan(separated);
-    expect(labelCheck).toBeGreaterThan(virtualScan);
+    expectOrdered(safety, "export function assertCredentialMetadataSeparatedFromSecret", "const candidates:");
+    expectOrdered(safety, "const candidates:", "assertCredentialMetadataLabelsSafe(nickname, authorizedBy, code)");
   });
 
   it("copies exactly the reviewed three renderer files and emits a CommonJS sandbox preload", () => {
     const copy = read("scripts/copy-renderer.mjs");
+    const bootstrapCopy = read("scripts/copy-main-bootstrap.mjs");
     expect([...copy.matchAll(/"(index\.html|entry\.js|entry\.css)"/gu)].map((match) => match[1]).sort()).toEqual(["entry.css", "entry.js", "index.html"]);
     expect(read("tsconfig.json")).toContain('"src/**/*.cts"');
     expect(read("src/preload/credential.cts")).toContain('require("electron")');
+    expect(bootstrapCopy).toContain('"startup-bootstrap.cjs"');
+    expect(bootstrapCopy).toContain('"startup-bootstrap-runtime.cjs"');
+    expect(bootstrapCopy).toContain("credential-startup-bootstrap-copy-mismatch");
   });
 
   it("verifies the compiled Windows addon without invoking Credential Manager", () => {
@@ -119,8 +163,13 @@ describe("Electron and dependency static policy", () => {
 
   it("binds the packed host entry and exact preload bridge before accepting runtime success", () => {
     const verifier = read("scripts/verify-packed-host.mjs");
-    const wrapper = read("scripts/packed-runtime-wrapper.mjs");
-    expect(verifier.indexOf('installedManifest.main !== "dist/main/main.js"')).toBeLessThan(verifier.indexOf('installedManifest.main = "packed-runtime-wrapper.mjs"'));
+    const wrapper = read("scripts/packed-runtime-wrapper.cjs");
+    expectOrdered(verifier, 'installedManifest.main !== "dist/main/startup-bootstrap.cjs"', 'installedManifest.main = "packed-runtime-wrapper.cjs"');
+    expectOrdered(wrapper, "bootstrap.bootstrapStarted", "async function run()");
+    expect(wrapper).toContain('require("electron")');
+    expect(wrapper).toContain("if (bootstrapStarted) void run()");
+    expect(wrapper).not.toContain("PACKED_BOOTSTRAP_FAILED");
+    expect(wrapper).not.toMatch(/^\s*import\s/mu);
     const exactBridge = '["cancel", "describe", "remove", "rotate", "save", "setEnabled", "validate"]';
     expect(verifier).toContain(exactBridge);
     expect(wrapper).toContain(exactBridge);
