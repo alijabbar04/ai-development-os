@@ -1,0 +1,614 @@
+{
+  "schemaVersion": 1,
+  "algorithm": "ai-dev-os.stage-18e-h.git-blob-subject.v1",
+  "baseCommit": "cf24aa5fb726e1135947050f34367b935419fe47",
+  "sourceCommit": "54ee2de403aeeaa51e0bf19981e386359d9f22cf",
+  "sourceTree": "cb31f23f8c57465156f5f415724bf04a73dc9dbb",
+  "manifestPath": "docs/release-evidence/stage-18e-h-subject-manifest.json",
+  "rules": {
+    "subject": "all non-deleted Git blobs changed by baseCommit..sourceCommit with rename detection disabled; deletions are recorded separately",
+    "pathOrder": "ascending raw UTF-8 byte order; CR, LF, TAB, NUL, backslash, absolute, dot, and empty path segments refused",
+    "blobBytes": "exact committed Git blob bytes at sourceCommit; working-tree and filesystem bytes are not inputs",
+    "rowFormat": "<sha256>\\t<byteCount>\\t<blobOid>\\t<path>\\n encoded as UTF-8 with LF",
+    "manifestCommit": "the verifier requires a one-parent HEAD whose only parent-to-HEAD change is addition of manifestPath and whose parent equals sourceCommit"
+  },
+  "inventory": {
+    "changedPathCount": 82,
+    "blobPathCount": 82,
+    "deletedPathCount": 0,
+    "totalBlobBytes": 1157502,
+    "deletedPaths": []
+  },
+  "excludedPaths": [
+    {
+      "path": "docs/release-evidence/stage-18e-h-subject-manifest.json",
+      "reason": "not present in sourceCommit; added only by its manifest-only child commit to avoid self-reference"
+    }
+  ],
+  "aggregateSha256": "14262b74e6801986c67284bd02bb3ad208429491a43c94fff0b4fd5a51e10d2a",
+  "files": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "changeType": "M",
+      "byteCount": 15882,
+      "blobOid": "e45ac3c64456367aa667bb4dcde96f529fa6c02e",
+      "sha256": "4f05c2f26d5b64bbbe5303a73b3156915adf86ebc4441c8ff41586e5ab5079c4"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "changeType": "M",
+      "byteCount": 12059,
+      "blobOid": "7a0c53e569de6ae8559a323cdec7bff7b74d62ee",
+      "sha256": "cb9fb5d15c634566e50275a81007f09f80043c868024ccbb4de59521a8caf2b2"
+    },
+    {
+      "path": "apps/credential-setup/README.md",
+      "changeType": "A",
+      "byteCount": 4316,
+      "blobOid": "ccb011d3e6270f8dcabd3152cf41433543c9b77f",
+      "sha256": "429bcc1e69a87362c3c4340821a828a81f2f9bc13bd53fc67dc3661838d2ac04"
+    },
+    {
+      "path": "apps/credential-setup/package.json",
+      "changeType": "A",
+      "byteCount": 2191,
+      "blobOid": "febbffd8a95dfdde92d23faa46f8fe08a6865c61",
+      "sha256": "17c585a9a9d032deaba615ec529f1e0a3678436c019d0fc0e6d947fd5b30816b"
+    },
+    {
+      "path": "apps/credential-setup/scripts/copy-main-bootstrap.mjs",
+      "changeType": "A",
+      "byteCount": 642,
+      "blobOid": "e6f9cdb8b67412ec3066f53d35100594e9689a97",
+      "sha256": "c2aeabacf1ad319dd076687489b90ab74efba3713086523608ac7212fda9ef45"
+    },
+    {
+      "path": "apps/credential-setup/scripts/copy-renderer.mjs",
+      "changeType": "A",
+      "byteCount": 768,
+      "blobOid": "51730407ce91b508d1f493f6ee46d237f031582f",
+      "sha256": "7fbe5c50d9e307bf6997b29d062e3bc76d47f2cdc0cbc3d0b420000f336c6d88"
+    },
+    {
+      "path": "apps/credential-setup/scripts/ensure-electron-runtime.mjs",
+      "changeType": "A",
+      "byteCount": 2404,
+      "blobOid": "14caed9d7113c5247480892d5911e1dc879e1fc1",
+      "sha256": "08fcb58dc494830a652d99931bc1f77e7a0a6526266d4e169ccad9e0b7140d3b"
+    },
+    {
+      "path": "apps/credential-setup/scripts/launch-production-host.mjs",
+      "changeType": "A",
+      "byteCount": 5116,
+      "blobOid": "ca5addcf47e843ef0a087e97f40b44d7ab3c7304",
+      "sha256": "e5586f925b31d1e03cea6269ee31911bba5542df1310e05bd378f8177d101221"
+    },
+    {
+      "path": "apps/credential-setup/scripts/launch-production-host.regression.mjs",
+      "changeType": "A",
+      "byteCount": 6046,
+      "blobOid": "b601036244dd86e5b46690bddbcfb4a3f9d50329",
+      "sha256": "aac04ac07b3df9de6dd9b23af820d92f33e389b1c486e1a73e93f026a9462a80"
+    },
+    {
+      "path": "apps/credential-setup/scripts/packed-runtime-wrapper.cjs",
+      "changeType": "A",
+      "byteCount": 4118,
+      "blobOid": "352fe823d58336e6e362209c56ce265e9fe8c156",
+      "sha256": "cf52f679fb89753dd5a6f5aa75d80705f47217a3a3bed73f4bb7fc059fa6d358"
+    },
+    {
+      "path": "apps/credential-setup/scripts/real-electron-smoke.mjs",
+      "changeType": "A",
+      "byteCount": 3330,
+      "blobOid": "786a80c8815d608464985821b03fc34af2f74783",
+      "sha256": "e9cd2c8bcd40681d2d084aeceedbed19e541726f9d8704debc2a66d6a92f630a"
+    },
+    {
+      "path": "apps/credential-setup/scripts/real-electron-startup-lifecycle-probe.mjs",
+      "changeType": "A",
+      "byteCount": 15136,
+      "blobOid": "1da2deb4a3c0be589c0d795bc55ed956a38c6a77",
+      "sha256": "01715ab592ef053529d6107df1c71fa0309f437a0d8e33b72fc71588a22c5421"
+    },
+    {
+      "path": "apps/credential-setup/scripts/smoke-preview-policy.mjs",
+      "changeType": "A",
+      "byteCount": 890,
+      "blobOid": "ded2b7fead279a8c430879966592083fe2b56c75",
+      "sha256": "653fb7978b5bc44abd61f7e243974d44d426cb46da3faf4f471b0deccbe9aedb"
+    },
+    {
+      "path": "apps/credential-setup/scripts/verify-packed-host.mjs",
+      "changeType": "A",
+      "byteCount": 7882,
+      "blobOid": "025aed5836f5b6f1b36acc55c10c58dcb66312dc",
+      "sha256": "f3881f98c51e4ca7963440e9987c526c9e291096348b55a7580d14816e3660fe"
+    },
+    {
+      "path": "apps/credential-setup/scripts/verify-windows-credential-addon-shape.mjs",
+      "changeType": "A",
+      "byteCount": 1232,
+      "blobOid": "08e3ab7108b4ae9cf79f06aea92bfeb5e0d7cf51",
+      "sha256": "2bf4c6e9d165a7a2cda971d305e2adeb26a28fb638523f72fcc3fe60d347e594"
+    },
+    {
+      "path": "apps/credential-setup/src/main/constants.ts",
+      "changeType": "A",
+      "byteCount": 1468,
+      "blobOid": "5a9cc26185f642e510a636214a055ab3ada7cdeb",
+      "sha256": "ea2dcd6de3dc40965c4a8f87bffdc0df89b921b0ced3b08aa78893e2fe0f4cf0"
+    },
+    {
+      "path": "apps/credential-setup/src/main/hardening.ts",
+      "changeType": "A",
+      "byteCount": 4409,
+      "blobOid": "624d69c78dd2c0789809ed47b6736cfd5a497c40",
+      "sha256": "b1e1ff2016f46648da738387fe4a0b51a0c12888b3fd65cdc32cfdee1f78a6dd"
+    },
+    {
+      "path": "apps/credential-setup/src/main/host-error.ts",
+      "changeType": "A",
+      "byteCount": 2164,
+      "blobOid": "746307e9d9706690c80277cf26126dc92711d988",
+      "sha256": "bbcb1afd5772f5a9d7eb43c31e0f309ac4081508f809601a3e94681cf5b8da69"
+    },
+    {
+      "path": "apps/credential-setup/src/main/host-service.ts",
+      "changeType": "A",
+      "byteCount": 51313,
+      "blobOid": "fcd3be8fd96b8db7e91772e9c4b4057f4f5725ee",
+      "sha256": "9adf449d200ff1e2044690c504e1c935e258ab50d0a71fb9f741a0338cb8cd9f"
+    },
+    {
+      "path": "apps/credential-setup/src/main/ipc-schema.ts",
+      "changeType": "A",
+      "byteCount": 14753,
+      "blobOid": "7884427f544326d24dae4118e36f8808a37eced5",
+      "sha256": "f8f101d89c0117ca139e6f901161bfb6673b8e6afa934674d9d39b5234144c70"
+    },
+    {
+      "path": "apps/credential-setup/src/main/ipc.ts",
+      "changeType": "A",
+      "byteCount": 5945,
+      "blobOid": "f0387fab86f7b0e0ef0355d4347def9e5c5c1b54",
+      "sha256": "33f740378b85c4b4de08101b40b1487ef3142f67a4523343c848023074ce3e52"
+    },
+    {
+      "path": "apps/credential-setup/src/main/main.ts",
+      "changeType": "A",
+      "byteCount": 906,
+      "blobOid": "364e580cde6dc3cc8cea59727bdaf4cfa8c430cc",
+      "sha256": "891f0407dd361fd521c74dad0c7ddf204224f91bc2a752f7733a08c74fe302f5"
+    },
+    {
+      "path": "apps/credential-setup/src/main/metadata-safety.ts",
+      "changeType": "A",
+      "byteCount": 6725,
+      "blobOid": "e3935d9b1030c1ba2c837fd0062f48ea7089bdc8",
+      "sha256": "6246c360275a43a4438896ff8729083e72d3d745766fee5cfc2c5ab1ae896522"
+    },
+    {
+      "path": "apps/credential-setup/src/main/metadata-store.ts",
+      "changeType": "A",
+      "byteCount": 14821,
+      "blobOid": "7ddca10f63c75f85dce8da57332501f84934d330",
+      "sha256": "8c5ab817f09737d0af0e8ce2246816aa4ffeb3e9d21a617b519385bb2e892603"
+    },
+    {
+      "path": "apps/credential-setup/src/main/production-composition.ts",
+      "changeType": "A",
+      "byteCount": 3802,
+      "blobOid": "9c3d8b1fce6ed6feb3221d027ec48c964be89c86",
+      "sha256": "61fffc5c50269696d065e9cf563668540808a149d0196749f585ca9f502a3393"
+    },
+    {
+      "path": "apps/credential-setup/src/main/protocol.ts",
+      "changeType": "A",
+      "byteCount": 2934,
+      "blobOid": "e44b455fa2f90b08cafa92134edc7b5d2b217603",
+      "sha256": "6ba425d2e1eea0057db67a239f5478820f876373d1ca37b54206f0f3f12a285c"
+    },
+    {
+      "path": "apps/credential-setup/src/main/session-machine.ts",
+      "changeType": "A",
+      "byteCount": 3403,
+      "blobOid": "01551d160cce77effa36ba8008d4f1072207d096",
+      "sha256": "20c9671353dff178b45fe866e2e475260065d580ac55cdee7acf3f41e4a3601f"
+    },
+    {
+      "path": "apps/credential-setup/src/main/startup-bootstrap-runtime.cjs",
+      "changeType": "A",
+      "byteCount": 3869,
+      "blobOid": "9b7c6fb3e08f35bb9286316a6633cb3716e2eb1b",
+      "sha256": "556469aba80c1c6645ccdfd3575fdec896ad2a5f08c064323c305452f970d98c"
+    },
+    {
+      "path": "apps/credential-setup/src/main/startup-bootstrap.cjs",
+      "changeType": "A",
+      "byteCount": 220,
+      "blobOid": "87840d75c5ab4fa01bfc8fe26c17c25a4c03336e",
+      "sha256": "d416649c6f2cecfe75fbe0b4ccc86a79a54cb544de7e43e0c9759126256360f5"
+    },
+    {
+      "path": "apps/credential-setup/src/main/startup-diagnostic.ts",
+      "changeType": "A",
+      "byteCount": 6924,
+      "blobOid": "c8698a95383fda6664e790bbb14e4ac9cff83bbe",
+      "sha256": "e6d674ddb1e6db8f69d87168b55dfa54f938ab3c0b53008e00a190edf4f706ce"
+    },
+    {
+      "path": "apps/credential-setup/src/main/startup-entry.ts",
+      "changeType": "A",
+      "byteCount": 2779,
+      "blobOid": "1d91891745047b5351d40311d337b9b094a3b25b",
+      "sha256": "7196e3130b6b413fb6329540055b9fce1ac1314da84d987b635842d5485208a8"
+    },
+    {
+      "path": "apps/credential-setup/src/main/startup-lifecycle.ts",
+      "changeType": "A",
+      "byteCount": 3494,
+      "blobOid": "06cb16c54db4d3e14ea6dcef95932faab986f668",
+      "sha256": "fd06ec2a959f73a1f87818bc41e5bd4c71b80bf364f5f14299db42794d4882f2"
+    },
+    {
+      "path": "apps/credential-setup/src/main/validation.ts",
+      "changeType": "A",
+      "byteCount": 4025,
+      "blobOid": "c21a9a03e1a96859e5588a72a4571503a31718c3",
+      "sha256": "6f0319d251318cab912539395f90b6a86849bdbc5609e96cd3e4c95ad84cd621"
+    },
+    {
+      "path": "apps/credential-setup/src/preload/credential.cts",
+      "changeType": "A",
+      "byteCount": 2687,
+      "blobOid": "29b2207e1b9291befb562bcb15692bbce9db1e05",
+      "sha256": "0b642c15a1814e31dca8dd048c8deee758e2f3cbb31bd74d6371ad58ea26ed21"
+    },
+    {
+      "path": "apps/credential-setup/src/testing/electron-smoke-main.ts",
+      "changeType": "A",
+      "byteCount": 162920,
+      "blobOid": "f24c3f45a115a36ba080366d30e550221a3831e9",
+      "sha256": "0fde6b7874298aa1f2f85bcf0d965ebf772542cd6333f3d18215627225e25480"
+    },
+    {
+      "path": "apps/credential-setup/src/testing/test-host.ts",
+      "changeType": "A",
+      "byteCount": 5668,
+      "blobOid": "5bcef000c21fb38a4a85268e1f5638714df5d434",
+      "sha256": "8824ab3821b863dded3eaa339a0b2f9ae34c7fccfe66ab3921807f1b7e524e36"
+    },
+    {
+      "path": "apps/credential-setup/test/errors-and-validation.test.ts",
+      "changeType": "A",
+      "byteCount": 5293,
+      "blobOid": "e20acad735d63d518b2cdd0bd6dc3d78e988284f",
+      "sha256": "3b3f8b6635d6ce44fd5375a8cceaf60bec0b9f809216e17180dffbebb6802c9c"
+    },
+    {
+      "path": "apps/credential-setup/test/hardening-and-protocol-wiring.test.ts",
+      "changeType": "A",
+      "byteCount": 10983,
+      "blobOid": "3ad4bb94f5e6c9564ad6849ffc36e4d68ce8d66d",
+      "sha256": "2976a78df151c2e63f5168c5f0205b1ea96c9a32f5dd5dee5731e29075abe04d"
+    },
+    {
+      "path": "apps/credential-setup/test/host-service.test.ts",
+      "changeType": "A",
+      "byteCount": 78833,
+      "blobOid": "97b4bea0d20c4867eea0d028f6dac79da9c7acc7",
+      "sha256": "62865f8060c3af6b0628c410137a99875ad92a5816eca6011e6b4eaa9979f2ca"
+    },
+    {
+      "path": "apps/credential-setup/test/ipc-boundary.test.ts",
+      "changeType": "A",
+      "byteCount": 10457,
+      "blobOid": "23b27728bf7b6cc0b5876abb4f04243bd56c1bd3",
+      "sha256": "4c37af95332b2966c1975480c68741c930f79bf2eb8ac079c135e12df44e3fa8"
+    },
+    {
+      "path": "apps/credential-setup/test/ipc-schema.test.ts",
+      "changeType": "A",
+      "byteCount": 11136,
+      "blobOid": "6314eac63357d3bee2728c91102766611ed96ee4",
+      "sha256": "26f40f23c7edb346596a40b0a64d8559c2a729b766fe29b930fb81562810418e"
+    },
+    {
+      "path": "apps/credential-setup/test/metadata-store-write-recovery.test.ts",
+      "changeType": "A",
+      "byteCount": 2382,
+      "blobOid": "9d436a7759f5dac702f02790112030b90428cce4",
+      "sha256": "00782eb160cef665a0f1adb6c307291833526991eab406edd3c8a415b868590c"
+    },
+    {
+      "path": "apps/credential-setup/test/metadata-store.test.ts",
+      "changeType": "A",
+      "byteCount": 10147,
+      "blobOid": "f6c859b4fad3c618f789ad7fd3da952daa15e586",
+      "sha256": "fcd876dfc8641ec569cf7aefdce0a809763feb0f2a1d68571f2e5a02a6533f83"
+    },
+    {
+      "path": "apps/credential-setup/test/production-composition.test.ts",
+      "changeType": "A",
+      "byteCount": 8074,
+      "blobOid": "7cfe4b4f898ca01badd5d5cab7e524849719772b",
+      "sha256": "6e81d72f342d8070e4498774853b336cf7b9e9fc8eca4ae14b5645dfd857c852"
+    },
+    {
+      "path": "apps/credential-setup/test/protocol-and-watchdog.test.ts",
+      "changeType": "A",
+      "byteCount": 3240,
+      "blobOid": "9bf6b058b76e2abd3dad98b1417de5fd5c81c582",
+      "sha256": "27064dce7457179d1e44bd90a51e01a875d90a8eadf009ac699b6e14320a5ddd"
+    },
+    {
+      "path": "apps/credential-setup/test/session-machine.test.ts",
+      "changeType": "A",
+      "byteCount": 3892,
+      "blobOid": "fb54dfdef72d72bbd4560a2fb6cc512c5f1cd899",
+      "sha256": "3ad2f0432f1f25909961b142ad5bbaedbd7e0d6b37cf0848468d998171ff81bc"
+    },
+    {
+      "path": "apps/credential-setup/test/smoke-preview-policy.test.ts",
+      "changeType": "A",
+      "byteCount": 1455,
+      "blobOid": "18db0d6cca1b0733bc103ba679936b70a27ccc0f",
+      "sha256": "50e446f45e40fff15dfad09b1bc775d1b62668e8f235fa15bc84173308f79585"
+    },
+    {
+      "path": "apps/credential-setup/test/startup-bootstrap.test.ts",
+      "changeType": "A",
+      "byteCount": 7849,
+      "blobOid": "45d6a394cc1cd4b45ec231f1abf8b84def1c3a3d",
+      "sha256": "b73811ee2c1cea51c1dfb189d7309b188c1bc667a1ad059343c02acd76d24342"
+    },
+    {
+      "path": "apps/credential-setup/test/startup-diagnostic.test.ts",
+      "changeType": "A",
+      "byteCount": 12691,
+      "blobOid": "3e3785e1762508be564a83e53c414069315476fc",
+      "sha256": "bdb26e6d4ef8ff41932df19d145e6cf034612ffd7a473743c9388b0e7be23745"
+    },
+    {
+      "path": "apps/credential-setup/test/startup-lifecycle.test.ts",
+      "changeType": "A",
+      "byteCount": 7098,
+      "blobOid": "defa1d02bfba2a1cf6c464b2593c3003c3e06495",
+      "sha256": "3e657607a0c68adb600840ce5e6cc670a70a407ece33defcd349457bd2342d82"
+    },
+    {
+      "path": "apps/credential-setup/test/static-policy.test.ts",
+      "changeType": "A",
+      "byteCount": 13200,
+      "blobOid": "7f7bc66bae8defcb86b03bab6539e5b4b657ecff",
+      "sha256": "6d4fc4986a8d22d5317f286e4844a4a12d47f67b8b9ddc6f2f8d370acc56f26d"
+    },
+    {
+      "path": "apps/credential-setup/test/subject-manifest.test.ts",
+      "changeType": "A",
+      "byteCount": 7296,
+      "blobOid": "483f09f549914072f84c27d0b3855f76bb15e965",
+      "sha256": "b6d5ad47a042cfb49cecd72c59724f057eefaa6f4c63089953f045055abd3f38"
+    },
+    {
+      "path": "apps/credential-setup/tsconfig.json",
+      "changeType": "A",
+      "byteCount": 302,
+      "blobOid": "eaef14631f205417db29aa94c70a631026c9553f",
+      "sha256": "bf068ec8435d3b4792f58b61468c0289308471b86da6621cea830487d20ee832"
+    },
+    {
+      "path": "apps/credential-setup/vitest.config.ts",
+      "changeType": "A",
+      "byteCount": 365,
+      "blobOid": "2a096b46f781d8aa2633a4022a94d631d8620d50",
+      "sha256": "18348eae54f49d8da3b84f06298cc2d058c66c75a0274d614001e4a4a1f50e95"
+    },
+    {
+      "path": "docs/adr/0033-stage-18e-application-owned-credential-vault.md",
+      "changeType": "M",
+      "byteCount": 28466,
+      "blobOid": "fbb0b94c5fd6dc8d10ef3f0e7dadb03976deb02b",
+      "sha256": "f9089db3cf655df96f4e57c00fe3b6ffd2391f78b642745a76b5a46a10dab673"
+    },
+    {
+      "path": "docs/release-evidence/stage-18e-h-credential-setup-checkpoint.md",
+      "changeType": "A",
+      "byteCount": 29417,
+      "blobOid": "2e6be6750ee177ae9aaf8129699d61b725434e8f",
+      "sha256": "618fb5cb92634dc71431b379b40be550d04cc6bcce10fc060f9799c239e3cd7e"
+    },
+    {
+      "path": "docs/release-evidence/stage-18e-h-credential-setup.png",
+      "changeType": "A",
+      "byteCount": 97181,
+      "blobOid": "f3c90bc4f3e2e767465e855537a011101333d287",
+      "sha256": "f5de0e5cf11e72123c5d4fa6275bb09e08fc4a91e2bd7af3ad3e098b15fd31a7"
+    },
+    {
+      "path": "docs/release-evidence/stage-18e-h-production-startup-repair-checkpoint.md",
+      "changeType": "A",
+      "byteCount": 15004,
+      "blobOid": "f5e3259e7900dfbadca99d6af659d451f2cdebc3",
+      "sha256": "1a33b89707ec45530c5eb8da831b98b8692dfcf38aba5d18a8ebab7f782b79cb"
+    },
+    {
+      "path": "docs/release-evidence/stage-18e-h-production-startup-repair-ledger.md",
+      "changeType": "A",
+      "byteCount": 28616,
+      "blobOid": "510298f0280b6c6315e8147ee4aac80ccdd8b42b",
+      "sha256": "dcb74eac2aaa89477274c9415685b5569cfd470f83529bc30651c2838ab691ac"
+    },
+    {
+      "path": "package-lock.json",
+      "changeType": "M",
+      "byteCount": 118534,
+      "blobOid": "e7dc236c04a24d7dacf3af261a9ac07158878bfb",
+      "sha256": "84ec97472ca8a961cfa64d1533b3e104b8b2715e76c198761bfadb2e0d9f0ea1"
+    },
+    {
+      "path": "package.json",
+      "changeType": "M",
+      "byteCount": 1910,
+      "blobOid": "5913571f9882fe39e8ba5757217e5c56012cdd88",
+      "sha256": "4ee3f252d2acd45a157fbca936f3e75ffc7025dcee4a30a5105498bdac095d97"
+    },
+    {
+      "path": "packages/credential-ui/README.md",
+      "changeType": "A",
+      "byteCount": 1487,
+      "blobOid": "d6a6cd365956bb7b08773cca5aeafe1ae19ca6b7",
+      "sha256": "03f04e63af446c28985ef9563a9e52d162eb534b931e0b319a6d82d3bae6a921"
+    },
+    {
+      "path": "packages/credential-ui/package.json",
+      "changeType": "A",
+      "byteCount": 564,
+      "blobOid": "6bd094bd19f783ed6fb9ecfd7684483ff9429ced",
+      "sha256": "dd4ed3c3cc102f76b3dda734509aa4ca9b2b723b3a82e82ae48102603b42da72"
+    },
+    {
+      "path": "packages/credential-ui/scripts/copy-browser-assets.mjs",
+      "changeType": "A",
+      "byteCount": 464,
+      "blobOid": "820d4244690c4d3a13f061477e029348becff8f4",
+      "sha256": "69cee956c11fad09773c7534f4c754dab0181eca4becdb3623c06eb1279e7da9"
+    },
+    {
+      "path": "packages/credential-ui/src/browser/entry.css",
+      "changeType": "A",
+      "byteCount": 14552,
+      "blobOid": "99978d1055d5b4190af8e9beaf27baeb8d0e04e0",
+      "sha256": "a4581b93010483809bc1f0ebe7489a4bd169e83aa03073dc5830e19b1c8d59ea"
+    },
+    {
+      "path": "packages/credential-ui/src/browser/entry.ts",
+      "changeType": "A",
+      "byteCount": 102300,
+      "blobOid": "0587f0ec453b199e26674c7c2ac15bde33a8b1c6",
+      "sha256": "f3b558cb90b79225d758b5e6be669a60761d269c51e04de7524b3a3a47b40bb6"
+    },
+    {
+      "path": "packages/credential-ui/src/browser/index.html",
+      "changeType": "A",
+      "byteCount": 1992,
+      "blobOid": "e168dab833cb23da149bc8d9b870835e4146e239",
+      "sha256": "eb5272074a485029c743a60a3a92844bdd5fe953479723afe6b1e4e0a1118527"
+    },
+    {
+      "path": "packages/credential-ui/src/contracts.ts",
+      "changeType": "A",
+      "byteCount": 7309,
+      "blobOid": "16ecc858281bb40cc67d19d6f2931f4f6e72a1d9",
+      "sha256": "013ad2e36d965f38c9d6af08b6cb11c14c946b97cbfa5713afe52e5fe9aed180"
+    },
+    {
+      "path": "packages/credential-ui/src/errors.ts",
+      "changeType": "A",
+      "byteCount": 5535,
+      "blobOid": "49db214b4965ebd5f6adf258c458e053f0391e3c",
+      "sha256": "cf4690cf8a52b3500ce9d341f59210a9655d9b83ff72d1bac9181ac27e108158"
+    },
+    {
+      "path": "packages/credential-ui/src/index.ts",
+      "changeType": "A",
+      "byteCount": 1228,
+      "blobOid": "e32a06e87a56f9add212b0cf1c27c88c6e37a39b",
+      "sha256": "c51c47d5fb998cb87d3cbb44b6b94c9ad0f9c64385e7f354bb2f745b0960c426"
+    },
+    {
+      "path": "packages/credential-ui/src/projections.ts",
+      "changeType": "A",
+      "byteCount": 10868,
+      "blobOid": "0080b3c6566c1813bf9525863332d1d293635e92",
+      "sha256": "7f5c3a4302c350c672c50c398be18e8a94237d68b1b61e6d5ceab2eac6070854"
+    },
+    {
+      "path": "packages/credential-ui/test/browser-contract.test.ts",
+      "changeType": "A",
+      "byteCount": 14825,
+      "blobOid": "9f16cdff000f4120aef8abd0cadf87e0e64a7fc6",
+      "sha256": "907c34c104da62e5f151bc76cde410ef37f32ec8f2713f82a32cff735be63cde"
+    },
+    {
+      "path": "packages/credential-ui/test/projections.test.ts",
+      "changeType": "A",
+      "byteCount": 15420,
+      "blobOid": "9901b29eb92b44b47bd8c4ad9da1a6f3fd16a6d5",
+      "sha256": "475ec95d12392978f1d8270cd96bf6c42b067a5fd2b6254870469c928e0ac2a9"
+    },
+    {
+      "path": "packages/credential-ui/tsconfig.json",
+      "changeType": "A",
+      "byteCount": 284,
+      "blobOid": "b73f7e716e74f24845ed8caca4f73756506e212b",
+      "sha256": "ae1ed9c532d4afe2a98a000397a5a9b1c6fd90977400f52a7f5691c0f19379cf"
+    },
+    {
+      "path": "packages/credential-ui/vitest.config.ts",
+      "changeType": "A",
+      "byteCount": 338,
+      "blobOid": "4b34a17e2410e5f16ed721a80c1d1226de4d5ae9",
+      "sha256": "8ced7beeb281017e8d43b554d3af41f70eebd752eca4e66d339d8da295c54de9"
+    },
+    {
+      "path": "packages/evaluation/test/stage-18-completeness-audit.test.ts",
+      "changeType": "M",
+      "byteCount": 58855,
+      "blobOid": "2186a83014e37c2218360fd8339bf4e6931822b8",
+      "sha256": "2482ae281cbbd414892884104d53d2fd8f6ab8626c926b84c8c6ae5158e405e7"
+    },
+    {
+      "path": "packages/secrets-app-vault-electron/README.md",
+      "changeType": "M",
+      "byteCount": 3012,
+      "blobOid": "fb4959e3add0caafd65a1f183ad1f940569e1883",
+      "sha256": "e8d520e762b383588e6ac71e1370e06d0240f503df727838331c447304dedeaf"
+    },
+    {
+      "path": "packages/secrets-app-vault-electron/package.json",
+      "changeType": "M",
+      "byteCount": 1271,
+      "blobOid": "06aa598a5a317c43781dee04f12775e025331f02",
+      "sha256": "84762d62acac2998485bf6e717814df7c989fec50028b19b796f605e69b0726f"
+    },
+    {
+      "path": "packages/secrets-app-vault-electron/test/static-policy.test.ts",
+      "changeType": "M",
+      "byteCount": 3589,
+      "blobOid": "c1c8ed9e7b04ac9343bbca5612cf7329b8418d36",
+      "sha256": "75835275c726ea2d7c8aa7490f18c0dfe9e7618f006e5ad814a54b59127f6bac"
+    },
+    {
+      "path": "scripts/generate-stage-18e-h-subject-manifest.mjs",
+      "changeType": "A",
+      "byteCount": 2261,
+      "blobOid": "189fbaef5bdad19fdc364681a2dffe6c25d0a125",
+      "sha256": "8ca4359423670b1ede92d8a7828f46e9d0b86e20de54c6de19c7f3082374c2d0"
+    },
+    {
+      "path": "scripts/stage-18e-h-subject-manifest-lib.mjs",
+      "changeType": "A",
+      "byteCount": 8341,
+      "blobOid": "7c42e23fda88d236aae55df91706b173ea0f1e95",
+      "sha256": "cb5292da59aa2132fe13416a22e3b748375a05f9dc73ff4347d244b1d4b7949e"
+    },
+    {
+      "path": "scripts/verify-stage-18e-h-subject-manifest.mjs",
+      "changeType": "A",
+      "byteCount": 1945,
+      "blobOid": "864cd40215305b47840f3c2d781efea895bcfb3e",
+      "sha256": "04d6a4c169d789a25172d3102e93198bb851d863f8cbc36174bb4d7d1e9a761b"
+    }
+  ],
+  "generator": {
+    "identity": "scripts/generate-stage-18e-h-subject-manifest.mjs",
+    "version": 1
+  },
+  "verifier": {
+    "identity": "scripts/verify-stage-18e-h-subject-manifest.mjs",
+    "command": "npm run verify:stage-18e-h-subject-manifest",
+    "writesRepository": false
+  }
+}
