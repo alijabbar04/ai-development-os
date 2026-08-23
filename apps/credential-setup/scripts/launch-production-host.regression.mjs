@@ -78,20 +78,21 @@ test("launcher failure output is one finite non-secret startup record", () => {
 });
 
 test("Windows interruption targets only the exact spawned Electron process tree", () => {
+  const syntheticSystemRoot = resolve(appRoot, "synthetic-system-root");
   const directKill = [];
   const child = { pid: 48123, kill: (signal) => { directKill.push(signal); return true; } };
   const calls = [];
   const reaper = { once() { return reaper; } };
   const result = terminateProductionHostTree(child, "SIGINT", {
     platform: "win32",
-    systemRoot: "C:\\Windows",
+    systemRoot: syntheticSystemRoot,
     spawnChild(executable, args, options) { calls.push({ executable, args, options }); return reaper; },
   });
   assert.equal(result, true);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].executable, resolve("C:\\Windows", "System32", "taskkill.exe"));
+  assert.equal(calls[0].executable, resolve(syntheticSystemRoot, "System32", "taskkill.exe"));
   assert.deepEqual(calls[0].args, ["/PID", "48123", "/T", "/F"]);
-  assert.equal(calls[0].options.cwd, resolve("C:\\Windows"));
+  assert.equal(calls[0].options.cwd, syntheticSystemRoot);
   assert.equal(calls[0].options.shell, false);
   assert.equal(calls[0].options.windowsHide, true);
   assert.deepEqual(directKill, []);

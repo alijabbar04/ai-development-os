@@ -151,9 +151,64 @@ evidence review passed this exact 27-entry source/evidence candidate with zero
 must-fix findings. Its independent non-Electron checks passed 73/73 focused
 tests, 6/6 launcher regressions, all three CommonJS syntax and byte-identity
 checks, and `git diff --check`; it performed no launch or repository mutation.
-Only the append-only source/evidence plus manifest-only publication sequence
-remains pending. Its immutable identities belong in the external handover and
-are not predicted here.
+That reviewed candidate was published as source/evidence commit
+`aceb39af3efb7c7bddef29f24d976629d1f0c34e` (tree
+`d3fc6a030a18e576a90b421c291352c4c241abf4`) followed by manifest-only child
+`435057cf040d37df92f6f36479d760718f8a8c9c` (tree
+`27ae8ed955db6103512bd2d7b8cb934e73059506`). The first visibility/deadline
+manifest bound 87 committed blobs, zero deletions, and 1,232,779 bytes with
+aggregate `68ca6dc3b9973e1605bb6f2a031a4649551e747c05ef9e4f4e417972ec2d75a0`
+and manifest-file SHA-256
+`0b67f993a114e5b34fb94a02c5a86e14319c69811c4005f05849a654cf25b239`.
+Both the canonical verifier and an independent Git-plumbing implementation
+passed before the non-force push.
+
+### First visibility/deadline hosted run and test-only correction
+
+Exact-head run `32640580936`, attempt 1, ran against
+`435057cf040d37df92f6f36479d760718f8a8c9c` and completed `failure`.
+Dependency audit, PostgreSQL integration, packed credential host on Windows,
+packed consumers on Windows, and full coverage passed. The Ubuntu check found
+a genuine portability defect in the new regression `Windows interruption
+targets only the exact spawned Electron process tree`: the test injected
+`platform: "win32"` but supplied the literal `C:\Windows` to the host
+platform's `path.isAbsolute()`. Linux therefore selected the direct-kill
+fallback and observed zero taskkill calls instead of one.
+
+The Windows check separately timed out after 6.986 seconds in the unchanged
+application test `reopens exact reservation, dispatch, pending, and reconciled
+boundaries without redispatch`, whose fixed test timeout is 5 seconds. Its
+source blob `490edee30f9f5cdbac8b82b22ba5cdb6fa947c1c` is identical at stack
+base, failed-run HEAD, and the current candidate, and the path has no stack-base
+diff. The credential-host suite and all six launcher regressions passed in that
+Windows job. Because the same run contained a genuine changed-test defect, no
+failed-job rerun was requested; the one unrelated-runner rerun allowance
+remains unused.
+
+The correction is test-only. It derives a synthetic absolute system root from
+the application root and asserts the corresponding `System32/taskkill.exe`
+path and working directory. Production startup, credential, provider, IPC,
+private-state, and hardening source bytes remain identical to source commit
+`aceb39af3efb7c7bddef29f24d976629d1f0c34e`; no Electron process was
+launched. Direct launcher regressions pass 6/6, the full credential-host suite
+passes 17 files and 231 Vitest tests plus those six regressions, and a fresh
+root `npm run check` passes with exit `0`, including full typecheck, every
+workspace test, and every workspace build. The already-consumed single final
+full local coverage gate was not repeated. The superseded manifest is
+intentionally absent while a replacement append-only publication pair is
+prepared.
+
+A fresh independent GPT-5.6 Sol Max read-only delta review returned PASS with
+zero must-fix findings. It confirmed that the host-absolute synthetic root
+exercises the injected Windows branch without weakening the exact executable,
+PID-tree, argument, working-directory, no-shell, or hidden-window assertions;
+that production source is byte-identical to the launch-confirmed source commit;
+that both CI classifications and the unused rerun allowance are accurate; and
+that the manifest deletion preserves the required source/evidence then
+manifest-only topology. Its independent non-Electron launcher run passed 6/6,
+and it found no diagnostic leakage, capability expansion, or boundary
+weakening. It performed no launch, private-state access, or repository
+mutation.
 
 ## Scope and identity
 
