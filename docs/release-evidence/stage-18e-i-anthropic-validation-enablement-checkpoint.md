@@ -156,10 +156,10 @@ promote `ANT-02`. Inconclusive outcomes preserve earlier definitive knowledge.
   and 4 forced-colours assertions. It covered Cancel, exactly one fake dispatch,
   double confirmation, consumption, preconsumption refusal, postcommit locking,
   normal/developer parity, focus, and bounded diagnostic leakage.
-- Packed-host verification passed with a clean packed install and high-severity
-  audit, 10 packages, 84 application files, a visible renderer, four provider
-  cards, zero validation buttons without authorization, production disabled,
-  and exactly seven preload bridge methods.
+- Local unpublished packed-host verification passed with a clean packed install
+  and high-severity audit, 10 packages, 84 application files, a visible
+  renderer, four provider cards, zero validation buttons without authorization,
+  production disabled, and exactly seven preload bridge methods.
 - `npm audit --audit-level=high` reported zero vulnerabilities. `npm ls --all`
   exited 0 with only expected unmet optional platform dependencies.
 - An independent PowerShell/.NET SHA-256 computation reproduced the exact
@@ -172,12 +172,23 @@ promote `ANT-02`. Inconclusive outcomes preserve earlier definitive knowledge.
 - Fresh root `npm run check` passed with exit 0 after the final source review,
   including every workspace typecheck, test, and build. The build confirmed
   `status: unpublished` and wrote no candidate binding.
-- Final static-policy tests passed 14/14 for the credential host and 3/3 for
+- Hosted Actions run `32671992668`, attempt 1, for the first published candidate
+  SHA `a819d85f5ba3c5db1dbb0daa7668a0588487acda` was not rerun. Its packed-host
+  and packed-consumer build jobs exposed that both still used the default
+  shallow checkout, so the binding writer correctly refused the unavailable
+  parent with `CANDIDATE_BINDING_PARENT_REFUSED`. The workflow now fetches full
+  read-only history in all four jobs that build or verify the candidate binding,
+  and a static inverse test prevents that checkout-depth regression.
+- Final static-policy tests passed 15/15 for the credential host and 3/3 for
   the Anthropic provider. A non-copying scan of all 49 changed source/evidence
   paths found no credential-shaped token, private key, or ambient credential
-  environment read. It also confirmed no authorization packet, marker root,
-  unpublished candidate binding, or subject manifest had been created in the
-  repository and that the Stage 18 acceptance matrix was unchanged.
+  environment read. It also confirmed no authorization packet, marker root, or
+  unpublished candidate binding was present and that the Stage 18 acceptance
+  matrix was unchanged.
+- The superseded subject manifest was committed by `a819d85` and is deliberately
+  absent from this corrected source-parent tree because its source parent
+  predated the CI checkout-depth correction. A newly generated manifest-only
+  child must bind this corrected source parent before publication resumes.
 - Canonical manifest generation, independent Git-blob recomputation, clean
   published build binding, non-force push, and exact-head CI necessarily follow
   this source/evidence commit and are not claimed complete in this record.

@@ -21,6 +21,24 @@ const sources = [
 ].map(read).join("\n");
 
 describe("Electron and dependency static policy", () => {
+  it("fetches full history in every CI job that builds or verifies the candidate binding", () => {
+    const workflow = read("../../.github/workflows/ci.yml");
+    const jobSection = (job: string, nextJob?: string): string => {
+      const start = workflow.indexOf(`  ${job}:`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const end = nextJob === undefined ? workflow.length : workflow.indexOf(`  ${nextJob}:`, start + 1);
+      expect(end).toBeGreaterThan(start);
+      return workflow.slice(start, end);
+    };
+
+    for (const section of [
+      jobSection("check", "audit"),
+      jobSection("coverage", "postgres"),
+      jobSection("packed-consumer", "credential-host-packed"),
+      jobSection("credential-host-packed"),
+    ]) expect(section).toContain("fetch-depth: 0");
+  });
+
   it("pins Electron 43.4.1 as development-only and asserts the runtime floor before registering the surface", () => {
     const manifest = JSON.parse(read("package.json")) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string>; peerDependencies?: Record<string, string> };
     expect(manifest.dependencies?.["electron"]).toBeUndefined();
