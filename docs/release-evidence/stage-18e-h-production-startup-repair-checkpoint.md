@@ -5,15 +5,24 @@ Status: `READY_FOR_PUBLICATION`
 
 ## Scope and identity
 
-This is an unpublished local repair record, not a published checkpoint. Work
-started from branch `fix/stage-18e-h-external-review`, commit
+This repair record started from branch `fix/stage-18e-h-external-review`, commit
 `c58936daefa2c3e463d1840d37f122691d6b3021`, and tree
 `338b4b077f3f8e5bb3c9299e5e1787c16cc037b2`, on repair branch
-`fix/stage-18e-h-production-startup`. HEAD remains the starting commit while
-publication is pending. The repaired bytes passed their one authorized real
-confirmation, the complete post-confirmation local validation set, and final
-independent current-byte review, but there is not yet an ending checkpoint
-HEAD/tree, final manifest, publication, or exact-head CI result.
+`fix/stage-18e-h-production-startup`. The confirmed repair was first published
+as source/evidence commit `03645e29d5b2c4c2c0e83021ad324e2243473e11`
+(tree `3a7d88ea6403a6d1c77a98ba2d12b110b71245a6`) and manifest-only
+child `927d36c6922aa35011c33508d194837aad5c3f2b` (tree
+`b42b11863eaee365867cfda3c7004a1c59e8ecae`). Local, tracking, and
+live remote refs then matched that child.
+
+The first exact-head hosted run exposed one non-hermetic Node regression, not a
+production-startup failure. The current worktree changes only that regression
+and this evidence, while intentionally removing the superseded manifest for a
+new append-only source/evidence plus manifest-only publication pair. Production
+startup, credential, provider, IPC, and private-state source bytes are unchanged
+from the launch-confirmed source commit. The affected local gates and fresh
+independent read-only correction review pass; the replacement publication/CI
+sequence remains pending.
 
 The repair grants no credential entry, save, rotation, removal, decryption,
 validation, read-back, provider, clipboard-read, Windows Credential Manager,
@@ -108,6 +117,47 @@ poll and is not invented. At `2026-08-22T23:19:08.2611705Z`, all three named fil
 remained absent and the frozen aggregate remained exact. The one launch
 authorization is consumed; no relaunch is permitted.
 
+## First publication and hosted-CI correction
+
+The first authorized publication used source/evidence commit
+`03645e29d5b2c4c2c0e83021ad324e2243473e11` and manifest-only child
+`927d36c6922aa35011c33508d194837aad5c3f2b`. The child bound 82
+committed blobs, zero deletions, and 1,148,051 total bytes with aggregate
+`0d8df3d84671002fe0fb37483536b2473812a5c3207fa3bb75096ab3d734d42b`.
+The manifest file SHA-256 was
+`ac07d6474e2a61f156a1192ffd3fd6083e4d5fd5750e79e1b4b63c4aed56a235`;
+the canonical verifier and a separate PowerShell/.NET implementation both
+passed before the non-force push.
+
+Exact-head push run `32608234691` for `927d36c6922aa35011c33508d194837aad5c3f2b`
+completed `failure`. PostgreSQL integration, dependency audit, packed
+credential host on Windows, and packed consumer on Windows passed. The Ubuntu
+check, Windows check, and coverage jobs all failed at the same launcher
+regression, `CommonJS bootstrap enters synchronously and bounds a non-Electron
+runtime failure`: actual stdout was `Downloading Electron binary...\n` while
+the assertion required empty stdout. The production startup and Vitest suite
+had not failed.
+
+The regression had spawned the real source bootstrap under plain Node from the
+application root. On a clean runner, `require("electron")` reached the package's
+binary-recovery path before the intended non-Electron binding adjudication,
+making the test depend on local Electron installation state. This is a genuine
+test-hermeticity defect, not an unrelated runner failure, so no CI rerun was
+used. The correction copies the exact bootstrap and runtime into a disposable
+temporary root, supplies a synthetic `electron` module exporting a deliberately
+invalid binding, retains the exit-`1`, empty-stdout, one-finite-stderr-record
+assertions, and removes only that disposable root in `finally`. It changes no
+production source and launches no Electron process.
+
+Affected validation after the correction passed: the launcher regressions 5/5;
+the credential-host ordinary suite, 16 files and 209 Vitest tests plus the five
+regressions; targeted credential-host coverage with the unchanged 92.75%
+statements, 87.82% branches, 100% functions, and 97.46% lines; and a fresh full
+root `npm run check`, exit `0`. The already-required single final full local
+root coverage run remains the earlier passing run and was not repeated for this
+test-only correction. A new push will create a new exact-head run; it is not a
+rerun of run `32608234691`.
+
 ## Safety and persistence
 
 All four real repair launches began and ended with the primary vault, backup,
@@ -130,22 +180,26 @@ action occurred.
 - Dependency audit: PASS, zero vulnerabilities; `npm ls --all`: PASS with only expected unmet optional platform/tooling dependencies.
 - Current changed-path credential scan: 22 present files, zero candidates; no value emitted.
 - Protected-foundation diff: empty. Post-confirmation named-file/process check: all three named persistent files absent and zero task processes. `git diff --check`: PASS with line-ending warnings only.
-- Starting manifest: PASS. The prior canonical manifest is intentionally absent from the source/evidence candidate so it can be regenerated from the new committed Git blobs and re-added only by the manifest-only child commit. No final candidate manifest has yet been generated.
+- First published repair manifest: PASS through both the canonical verifier and an independent implementation, with the exact identities recorded above. The superseded manifest is intentionally absent from the corrective source/evidence candidate so it can be regenerated from the new committed Git blobs and re-added only by a new manifest-only child commit.
 - Earlier independent reviews cleared earlier exact candidates and drove the listed corrections. The first fresh review of the 22-entry unconditional-entry/watchdog candidate found one inherited-environment must-fix issue. Correcting it also bound all disposable Electron harnesses to the same environment policy, producing the launch-confirmed 23-entry/22-present candidate; affected ordinary, coverage, launcher, static-policy, lifecycle-probe, packed-host, and real-Electron smoke gates pass. Fresh GPT-5.6 Sol Max read-only rereview: PASS, zero must-fix findings.
 - Final post-confirmation GPT-5.6 Sol Max read-only source/security/evidence review: PASS, zero must-fix findings. It cleared the exact startup correction and evidence for the source/evidence commit, confirmed all hardening and credential/private-state/provider boundaries remain intact, and identified only two non-blocking scope advisories about packed-host instrumentation and unused finite cleanup vocabulary.
+- Fresh hosted-CI-correction GPT-5.6 Sol Max read-only review: PASS, zero must-fix findings and zero advisories. It confirmed clean-runner hermeticity, exact finite assertions, task-local temporary cleanup, cross-platform behavior, an empty production-source diff from `03645e29d5b2c4c2c0e83021ad324e2243473e11`, factual failed-run evidence, and correct append-only manifest topology.
 
 ## Publication truth
 
-The one authorized real visible-ready/normal-close confirmation passed. Status
-is `READY_FOR_PUBLICATION`: every required post-confirmation local gate and the
-final independent current-byte review passed. The explicit launch authorization
-is consumed, and no additional real launch is permitted.
+The one authorized real visible-ready/normal-close confirmation passed. The
+first source/evidence and manifest-only commits were published non-forced, and
+the resulting exact-head CI failure is preserved above without relabeling or
+rerun. The production repair remains launch-confirmed and unchanged. The
+explicit launch authorization is consumed, and no additional real launch is
+permitted.
 
-The local if-and-only-if publication gate passed, so the authorized
-source/evidence and manifest-only commit sequence may proceed. At this record
-point, no commit, manifest regeneration, push, hosted CI, PR, merge, tag,
-release, force-push, history rewrite, production enablement, or destructive
-cleanup occurred.
+Status is `READY_FOR_PUBLICATION`: all affected local gates and the independent
+read-only review for the test-only hermeticity correction pass. New append-only
+source/evidence and manifest-only commits, replacement exact-head CI, final ref
+equality, and a clean published worktree remain pending. No PR,
+merge, tag, release, force-push, history rewrite, production enablement, or
+destructive cleanup occurred.
 
 `AM-02` and `INT-01` remain proven; `ANT-02` and `PLN-02` remain
 incomplete; `developmentAccepted=false`; `productionAdmitted=false`; Stage

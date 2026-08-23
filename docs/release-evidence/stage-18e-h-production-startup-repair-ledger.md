@@ -13,7 +13,11 @@ Status: `READY_FOR_PUBLICATION`
 - Starting exact-head CI: run `32498542181`, green on attempt 2
 - External Opus and Fable reviews: PASS on the starting exact bytes
 - Repair branch: `fix/stage-18e-h-production-startup`
-- Current HEAD remains the starting HEAD. The repair candidate is uncommitted and unpublished, so there is no ending checkpoint HEAD or tree.
+- First repair source/evidence commit: `03645e29d5b2c4c2c0e83021ad324e2243473e11`
+- First repair source tree: `3a7d88ea6403a6d1c77a98ba2d12b110b71245a6`
+- First repair manifest-only child/current HEAD: `927d36c6922aa35011c33508d194837aad5c3f2b`
+- First repair manifest-only tree: `b42b11863eaee365867cfda3c7004a1c59e8ecae`
+- Local, tracking, and live remote refs matched that child after the non-force push. The current worktree contains only the subsequent test-hermeticity correction, evidence updates, and intentional deletion of the superseded manifest pending a new append-only commit pair.
 
 ## Authority and frozen state
 
@@ -116,12 +120,27 @@ Status: `READY_FOR_PUBLICATION`
 - Post-close check at `2026-08-22T23:19:08.2611705Z`: task process count zero; all three named files absent; 23-entry aggregate unchanged and exact. The application root and `secrets` directory were present and the credential metadata directory was absent; their pre-launch directory presence was not measured, so no directory-creation inference is made.
 - No credential was entered, pasted, saved, rotated, removed, decrypted, read, or validated. No provider, clipboard, Windows Credential Manager, Account Manager private-state, production, or network-validation action occurred.
 
+## First publication and hosted-CI correction
+
+- Source/evidence commit `03645e29d5b2c4c2c0e83021ad324e2243473e11` (tree `3a7d88ea6403a6d1c77a98ba2d12b110b71245a6`) was created with parent `c58936daefa2c3e463d1840d37f122691d6b3021` and subject `fix(credential-setup): repair production startup lifecycle`.
+- Manifest-only child `927d36c6922aa35011c33508d194837aad5c3f2b` (tree `b42b11863eaee365867cfda3c7004a1c59e8ecae`) was created with that source commit as its sole parent and subject `docs(stage-18e-h): refresh startup repair subject manifest`.
+- The first manifest bound 82 committed blobs, zero deletions, and 1,148,051 total bytes with aggregate `0d8df3d84671002fe0fb37483536b2473812a5c3207fa3bb75096ab3d734d42b`; its file SHA-256 was `ac07d6474e2a61f156a1192ffd3fd6083e4d5fd5750e79e1b4b63c4aed56a235`. The canonical verifier and an independent PowerShell/.NET implementation both passed.
+- The pair was pushed non-forced to `fix/stage-18e-h-production-startup`. No PR, merge, tag, release, production activation, force-push, or history rewrite occurred.
+- Exact-head push run `32608234691`, URL `https://github.com/alijabbar04/ai-development-os/actions/runs/32608234691`, ran against `927d36c6922aa35011c33508d194837aad5c3f2b` and completed `failure`.
+- PostgreSQL integration, dependency audit, packed credential host on Windows, and packed consumer on Windows passed. Ubuntu check, Windows check, and coverage failed at the same launcher regression: `CommonJS bootstrap enters synchronously and bounds a non-Electron runtime failure` observed stdout `Downloading Electron binary...\n` instead of the required empty stdout. The credential-host Vitest suite and production startup behavior were not the failure.
+- Cause: the regression executed the real bootstrap under plain Node from the application root. A clean runner's real `electron` package entered its binary-recovery path before the expected invalid-runtime adjudication, so the test depended on local Electron installation state.
+- Classification: genuine changed-test hermeticity defect, not unrelated runner infrastructure. No failed-job rerun was requested; the single unrelated-runner rerun allowance remains unused. No Electron or production host was launched while diagnosing or correcting it.
+- Correction: copy the exact `startup-bootstrap.cjs` and `startup-bootstrap-runtime.cjs` into a fresh disposable root, install a synthetic `node_modules/electron/index.js` that exports a deliberately invalid binding, execute that copied bootstrap under plain Node, retain the exact exit-`1`, empty-stdout, finite-stderr assertions, and remove only the disposable root in `finally`.
+- Scope: only `apps/credential-setup/scripts/launch-production-host.regression.mjs` changed in code. Production startup, credential, IPC, provider, private-state, and hardening source bytes remain identical to the launch-confirmed source commit.
+
 ## Validation of the current local bytes
 
 - Credential host ordinary suite: PASS, 16 files and 209 Vitest tests.
 - Launcher regressions: PASS, 5/5.
 - Targeted credential-host coverage: PASS, 209 tests plus 5 launcher regressions; 92.75% statements (1422/1533), 87.82% branches (866/986), 100% functions (257/257), and 97.46% lines (1153/1183).
 - Fresh post-confirmation root `npm run check`: PASS, exit `0`, including full typecheck, all workspace tests, and all workspace builds.
+- After the hosted-CI test-hermeticity correction, direct launcher regressions passed 5/5; the credential-host ordinary suite passed 16 files and 209 Vitest tests plus five regressions; targeted credential-host coverage passed with 92.75% statements (1422/1533), 87.82% branches (866/986), 100% functions (257/257), and 97.46% lines (1153/1183); and one fresh root `npm run check` passed with exit `0`, including full typecheck, all workspace tests, and all workspace builds.
+- The already-required single final full local root coverage run was not repeated for the test-only correction. The earlier passing full run remains authoritative locally; a new exact-head hosted coverage job will exercise the corrected test on a clean runner.
 - First root `npm run test:coverage`: completed all workspaces but exited `1`. One unchanged credential-host test with a 5 ms synthetic timeout observed `providerDispatched=false` instead of `true`; the same test had passed in the immediately preceding root check. Every later workspace coverage suite passed.
 - The targeted unchanged credential-host coverage rerun then passed. This supports a transient coverage-timing classification, but the original root command remains recorded as failed and is not relabeled green.
 - Exactly one fresh complete post-confirmation root `npm run test:coverage` then passed with exit `0` across all workspaces. Credential-host coverage was 92.75% statements (1422/1533), 87.82% branches (866/986), 100% functions (257/257), and 97.46% lines (1153/1183); the unchanged 5 ms timing test passed in that first and only final full run.
@@ -140,7 +159,8 @@ Status: `READY_FOR_PUBLICATION`
 - Post-confirmation named-file/process check: zero named persistent files present and zero task processes.
 - `git diff --check`: PASS, with line-ending warnings only.
 - Starting canonical manifest verification: PASS for HEAD `c58936daefa2c3e463d1840d37f122691d6b3021`, 70 source files, and aggregate `b26a01fd6574a37d60486a11a83f23cec19a46a1e12517ff032922f0ec6599aa`.
-- The prior canonical manifest is intentionally absent from the source/evidence candidate so it can be regenerated from the new committed Git blobs and re-added only by the manifest-only child commit. No final candidate manifest has yet been generated.
+- First published repair manifest: PASS with the exact identities and two implementations recorded above. It remains historical evidence for source commit `03645e29d5b2c4c2c0e83021ad324e2243473e11` and exact-head run `32608234691`.
+- The superseded manifest is intentionally absent from the corrective source/evidence candidate so it can be regenerated from the new committed Git blobs and re-added only by a new manifest-only child commit. No replacement manifest has yet been generated.
 
 ## Independent final source/security review
 
@@ -150,11 +170,12 @@ Status: `READY_FOR_PUBLICATION`
 - The launcher and regressions were corrected to strip the inherited ASCII `ELECTRON_` and `NODE_` control namespaces plus `GOOGLE_API_KEY` while fixing `NODE_ENV=production`; the disposable lifecycle, packed-host, and real-Electron smoke launchers now consume the same policy. The affected ordinary, coverage, launcher, static-policy, lifecycle-probe, packed-host, and real-Electron smoke gates pass on the resulting 23-entry/22-present candidate.
 - Fresh GPT-5.6 Sol Max read-only rereview of that corrected candidate: PASS, zero must-fix findings. It confirmed the bounded child environment, unchanged startup/watchdog/hardening boundaries, absence of new credential/private-state/provider capabilities, honest harness limitations, current metrics and inventory, and the unused real-launch authorization.
 - Final post-confirmation GPT-5.6 Sol Max read-only source/security/evidence review: PASS, zero must-fix findings. It cleared the exact startup correction and evidence for the source/evidence commit; confirmed exactly-once unconditional CJS startup, watchdog ownership and terminality, Electron/package-root/environment binding, preserved Electron/IPC hardening, and absence of new credential/private-state/provider/production capability. Its only advisories were non-blocking: packed-host instrumentation remains supporting rather than production-route proof, and finite `cleanup`/`CLEANUP_FAILED` vocabulary is not used by normal post-ready shutdown.
+- Fresh GPT-5.6 Sol Max read-only review of the exact hosted-CI corrective candidate: PASS, zero must-fix findings and zero advisories. It confirmed that the temp-root synthetic Electron binding is hermetic on clean runners; the exact exit, stdout, finite stderr, and newline assertions remain; cleanup targets only the atomic temporary root; the approach is cross-platform; production source has no diff from `03645e29d5b2c4c2c0e83021ad324e2243473e11`; failed-run evidence reconciles; and the append-only manifest topology is correct.
 
 ## Publication decision and remaining truth
 
-- The one repaired-candidate confirmation passed visible readiness, normal close, clean self-shutdown, and named-file absence. Every required post-confirmation local gate and the final independent current-byte review passed. Status is `READY_FOR_PUBLICATION`.
-- The current unconditional-entry/watchdog correction is an uncommitted local candidate only. There is no corrected exact head, ending tree, source/evidence commit, manifest-only child commit, final aggregate, upstream publication, exact-head CI run, or clean published worktree to report.
-- Phase 6's local if-and-only-if publication condition passed, so its authorized commit/manifest/push/CI sequence may proceed. At this record point, no commit, manifest regeneration, push, CI dispatch/rerun, PR, merge, tag, release, force-push, history rewrite, production enablement, or destructive cleanup has occurred.
+- The one repaired-candidate confirmation passed visible readiness, normal close, clean self-shutdown, and named-file absence. Its production bytes are unchanged by the hosted-CI correction. The explicit real-launch authority remains consumed, and no further launch is authorized.
+- The first append-only source/evidence plus manifest-only pair was published and its exact-head failed run is preserved above. Current status is `READY_FOR_PUBLICATION`: all affected local gates and the independent review for the test-only correction pass, while a second append-only source/evidence plus manifest-only pair, replacement exact-head CI, final ref equality, and a clean published worktree remain pending.
+- The failed run was not rerun. No PR, merge, tag, release, force-push, history rewrite, production enablement, destructive cleanup, credential-capable action, provider call, private-state access, or clipboard access occurred.
 - The explicit real-launch authority is consumed. No further launch is authorized. Its scope remained limited to visible-ready observation, normal close, clean shutdown, and named-file absence; it never authorized credential interaction.
 - Project truth remains `AM-02` proven, `INT-01` proven, `ANT-02` incomplete, `PLN-02` incomplete, `developmentAccepted=false`, `productionAdmitted=false`, and Stage 20A ineligible.

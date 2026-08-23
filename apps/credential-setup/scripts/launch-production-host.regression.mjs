@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -75,19 +76,32 @@ test("launcher failure output is one finite non-secret startup record", () => {
   });
 });
 
-test("CommonJS bootstrap enters synchronously and bounds a non-Electron runtime failure", () => {
-  const bootstrap = resolve(appRoot, "src", "main", "startup-bootstrap.cjs");
-  const result = spawnSync(process.execPath, [bootstrap], { cwd: appRoot, encoding: "utf8", windowsHide: true, shell: false });
-  assert.equal(result.status, 1);
-  assert.equal(result.stdout, "");
-  assert.deepEqual(JSON.parse(result.stderr), {
-    schemaVersion: 1,
-    operation: "credential-host-startup",
-    phase: "runtime-binding",
-    code: "ELECTRON_BINDING_UNAVAILABLE",
-    terminal: true,
-  });
-  assert.equal(result.stderr.match(/\n/gu)?.length, 1);
+test("CommonJS bootstrap enters synchronously and bounds a non-Electron runtime failure", async () => {
+  const disposableRoot = await mkdtemp(join(tmpdir(), "ai-dev-os-bootstrap-regression-"));
+  try {
+    const bootstrap = join(disposableRoot, "startup-bootstrap.cjs");
+    const runtime = join(disposableRoot, "startup-bootstrap-runtime.cjs");
+    const syntheticElectronRoot = join(disposableRoot, "node_modules", "electron");
+    await mkdir(syntheticElectronRoot, { recursive: true });
+    await Promise.all([
+      copyFile(resolve(appRoot, "src", "main", "startup-bootstrap.cjs"), bootstrap),
+      copyFile(resolve(appRoot, "src", "main", "startup-bootstrap-runtime.cjs"), runtime),
+      writeFile(join(syntheticElectronRoot, "index.js"), '"use strict"; module.exports = "synthetic-non-electron-binding";\n', { encoding: "utf8", flag: "wx" }),
+    ]);
+    const result = spawnSync(process.execPath, [bootstrap], { cwd: disposableRoot, encoding: "utf8", windowsHide: true, shell: false });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.deepEqual(JSON.parse(result.stderr), {
+      schemaVersion: 1,
+      operation: "credential-host-startup",
+      phase: "runtime-binding",
+      code: "ELECTRON_BINDING_UNAVAILABLE",
+      terminal: true,
+    });
+    assert.equal(result.stderr.match(/\n/gu)?.length, 1);
+  } finally {
+    await rm(disposableRoot, { recursive: true, force: true });
+  }
 });
 
 test("launcher never accepts forwarded arguments or invokes a shell", async () => {
