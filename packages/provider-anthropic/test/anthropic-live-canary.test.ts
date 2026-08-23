@@ -196,6 +196,7 @@ interface CanaryFixtureOptions {
     request: AnthropicLiveCanaryPreflightRequest,
   ) => Promise<Record<string, unknown>>;
   readonly now?: () => Date;
+  readonly observeFailurePhase?: AnthropicLiveCanaryOptions["observeFailurePhase"];
 }
 
 function canaryOptions(options: CanaryFixtureOptions): AnthropicLiveCanaryOptions {
@@ -222,6 +223,7 @@ function canaryOptions(options: CanaryFixtureOptions): AnthropicLiveCanaryOption
     },
     transport: options.transport ?? transport(observations),
     now: options.now ?? (() => new Date(tick++ === 0 ? 1_000 : 1_025)),
+    ...(options.observeFailurePhase === undefined ? {} : { observeFailurePhase: options.observeFailurePhase }),
   };
 }
 
@@ -237,6 +239,63 @@ describe("explicit opt-in Anthropic live canary", () => {
       "response-received",
       "post-response",
     ]);
+  });
+
+  it("reports bounded phase advances and accepts external cancellation without widening the result", async () => {
+    const phases: string[] = [];
+    let started!: () => void;
+    const transportStarted = new Promise<void>((resolve) => { started = resolve; });
+    const external = new AbortController();
+    const live = canary({
+      observeFailurePhase(phase) { phases.push(phase); },
+      transport: Object.freeze({
+        kind: "deterministic-fake" as const,
+        async post(request: AnthropicLiveCanaryTransportRequest) {
+          started();
+          await new Promise<void>((_resolve, reject) => {
+            request.signal.addEventListener("abort", () => reject(new Error("synthetic abort")), { once: true });
+          });
+          throw new Error("unreachable");
+        },
+      }),
+    });
+    const pending = live.run(ANTHROPIC_LIVE_CANARY_OPT_IN, external.signal);
+    await transportStarted;
+    external.abort();
+    await expect(pending).rejects.toMatchObject({ code: "TIMEOUT", failurePhase: "possibly-dispatched" });
+    expect(phases).toEqual(["possibly-dispatched"]);
+    await expect(live.run(ANTHROPIC_LIVE_CANARY_OPT_IN)).rejects.toMatchObject({ code: "ALREADY_ATTEMPTED" });
+  });
+
+  it("refuses a success when external cancellation wins after the response callback", async () => {
+    const observations: string[] = [];
+    const external = new AbortController();
+    const base = broker(observations);
+    const cancelAfterCallback: SecretBroker = Object.freeze({
+      ...base,
+      async withSecret<T>(
+        _ref: SecretRef,
+        _context: SecretAccessContext,
+        callback: Parameters<SecretBroker["withSecret"]>[2],
+      ): Promise<T> {
+        observations.push("secret");
+        const material = createSecretMaterial(
+          "text",
+          new TextEncoder().encode("owned-test-key"),
+        );
+        try {
+          const value = await callback(material) as T;
+          external.abort();
+          return value;
+        } finally {
+          material.dispose();
+        }
+      },
+    });
+    const live = canary({ observations, secretBroker: cancelAfterCallback });
+    await expect(live.run(ANTHROPIC_LIVE_CANARY_OPT_IN, external.signal))
+      .rejects.toMatchObject({ code: "TIMEOUT", failurePhase: "post-response" });
+    expect(observations).toEqual(["preflight", "availability", "secret", "transport"]);
   });
 
   it("refuses before policy, secret, or transport without the exact sentinel", async () => {
@@ -383,6 +442,26 @@ describe("explicit opt-in Anthropic live canary", () => {
         failurePhase: "response-received",
       });
     expect([...errorBody].every((byte) => byte === 0)).toBe(true);
+  });
+
+  it("rejects duplicate JSON members at the root and nested response boundaries", async () => {
+    const model = ANTHROPIC_LIVE_CANARY_MODEL;
+    const cases = [
+      `{"type":"message","role":"assistant","model":"substituted","model":"${model}","content":[{"type":"text","text":"OK"}],"usage":{"input_tokens":8,"output_tokens":1}}`,
+      `{"type":"message","role":"assistant","\\u006dodel":"substituted","model":"${model}","content":[{"type":"text","text":"OK"}],"usage":{"input_tokens":8,"output_tokens":1}}`,
+      `{"type":"message","role":"assistant","model":"${model}","content":[{"type":"text","text":"NOT_OK","text":"OK"}],"usage":{"input_tokens":8,"output_tokens":1}}`,
+      `{"type":"message","role":"assistant","model":"${model}","content":[{"type":"text","text":"OK"}],"usage":{"input_tokens":8,"output_tokens":4,"output_tokens":1}}`,
+    ];
+    for (const raw of cases) {
+      const body = new TextEncoder().encode(raw);
+      await expect(canary({
+        transport: transport([], { body }),
+      }).run(ANTHROPIC_LIVE_CANARY_OPT_IN)).rejects.toMatchObject({
+        code: "RESPONSE_INVALID",
+        failurePhase: "response-received",
+      });
+      expect([...body].every((byte) => byte === 0)).toBe(true);
+    }
   });
 
   it("zeros response bytes through an intrinsic despite fill substitution", async () => {

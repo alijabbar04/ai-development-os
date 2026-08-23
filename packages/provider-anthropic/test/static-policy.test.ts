@@ -40,11 +40,14 @@ describe("Anthropic package boundary", () => {
   it("exports the fake factory only from the testing subpath", () => {
     const productionIndex = read(resolve(packageRoot, "src", "index.ts"));
     const testingIndex = read(resolve(packageRoot, "src", "testing", "index.ts"));
+    const validationIndex = read(resolve(packageRoot, "src", "validation", "index.ts"));
     expect(productionIndex).not.toContain("createAnthropicProviderForTesting");
     expect(productionIndex).not.toContain("createAnthropicLiveCanary");
     expect(testingIndex).toContain("createAnthropicProviderForTesting");
     expect(testingIndex).toContain("createAnthropicLiveCanary");
     expect(testingIndex).not.toContain("createDirectAnthropicLiveCanaryTransportForTesting");
+    expect(validationIndex).toContain("createProductionDisabledAnthropicValidation");
+    expect(validationIndex).not.toContain("createAnthropicProviderForTesting");
   });
 
   it("declares only reviewed first-party dependencies and bounded package files", () => {
@@ -61,7 +64,7 @@ describe("Anthropic package boundary", () => {
       "@ai-dev-os/secrets",
     ]);
     expect(manifest.files).toEqual(["dist", "README.md"]);
-    expect(Object.keys(manifest.exports).sort()).toEqual([".", "./testing"]);
+    expect(Object.keys(manifest.exports).sort()).toEqual([".", "./testing", "./validation"]);
     expect(JSON.stringify(manifest)).not.toContain("@anthropic-ai/sdk");
     expect(manifest.scripts["test"]).toBe("vitest run");
   });

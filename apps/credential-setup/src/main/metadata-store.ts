@@ -45,7 +45,10 @@ export interface CredentialMetadataSnapshot {
 export interface CredentialMetadataStore {
   read(): Promise<CredentialMetadataSnapshot>;
   write(snapshot: CredentialMetadataSnapshot): Promise<void>;
-  update(transform: (current: CredentialMetadataSnapshot) => CredentialMetadataSnapshot): Promise<CredentialMetadataSnapshot>;
+  update(
+    transform: (current: CredentialMetadataSnapshot) => CredentialMetadataSnapshot,
+    commitAllowed?: () => boolean,
+  ): Promise<CredentialMetadataSnapshot>;
 }
 
 function emptySlots(): Record<AppVaultSlotId, CredentialSlotMetadata | null> {
@@ -161,10 +164,11 @@ export function createMemoryCredentialMetadataStore(initial: CredentialMetadataS
       const work = async (): Promise<void> => { current = parsed; };
       await enqueue(work);
     },
-    async update(transform: (snapshot: CredentialMetadataSnapshot) => CredentialMetadataSnapshot) {
+    async update(transform: (snapshot: CredentialMetadataSnapshot) => CredentialMetadataSnapshot, commitAllowed?: () => boolean) {
       let updated: CredentialMetadataSnapshot | null = null;
       const work = async (): Promise<void> => {
         updated = parseCredentialMetadata(transform(current));
+        if (commitAllowed !== undefined && !commitAllowed()) throw new CredentialHostError("VALIDATION_STALE");
         current = updated;
       };
       await enqueue(work);
@@ -216,7 +220,7 @@ export function createFileCredentialMetadataStore(root: string): CredentialMetad
       try { await handle?.close(); } catch { /* bounded read cleanup */ }
     }
   }
-  async function writeInternal(parsed: CredentialMetadataSnapshot): Promise<void> {
+  async function writeInternal(parsed: CredentialMetadataSnapshot, commitAllowed?: () => boolean): Promise<void> {
     const bytes = new TextEncoder().encode(`${JSON.stringify(parsed)}\n`);
     if (bytes.byteLength > MAX_METADATA_BYTES) throw new CredentialHostError("METADATA_UNAVAILABLE");
     await mkdir(resolvedRoot, { recursive: true });
@@ -228,6 +232,7 @@ export function createFileCredentialMetadataStore(root: string): CredentialMetad
       await handle.sync();
       await handle.close();
       handle = undefined;
+      if (commitAllowed !== undefined && !commitAllowed()) throw new CredentialHostError("VALIDATION_STALE");
       await rename(temporary, target);
     } catch {
       try { await handle?.close(); } catch { /* fixed cleanup */ }
@@ -245,12 +250,12 @@ export function createFileCredentialMetadataStore(root: string): CredentialMetad
       };
       await enqueue(work);
     },
-    async update(transform: (snapshot: CredentialMetadataSnapshot) => CredentialMetadataSnapshot) {
+    async update(transform: (snapshot: CredentialMetadataSnapshot) => CredentialMetadataSnapshot, commitAllowed?: () => boolean) {
       let updated: CredentialMetadataSnapshot | null = null;
       const work = async (): Promise<void> => {
         const current = await readInternal();
         updated = parseCredentialMetadata(transform(current));
-        await writeInternal(updated);
+        await writeInternal(updated, commitAllowed);
       };
       await enqueue(work);
       return updated!;

@@ -11,7 +11,25 @@ type ErrorCode =
   | "VAULT_BACKEND_MISMATCH" | "VAULT_SCHEMA_AHEAD" | "VAULT_REVISION_CONFLICT"
   | "VAULT_BUSY" | "VAULT_WRITE_FAILED" | "DECRYPT_FAILED" | "METADATA_UNAVAILABLE"
   | "VALIDATION_DISABLED" | "VALIDATION_DISCLOSURE_MISSING" | "VALIDATION_POLICY_DENIED" | "VALIDATION_CANCELLED"
+  | "VALIDATION_AUTHORIZATION_UNAVAILABLE" | "VALIDATION_AUTHORIZATION_INVALID" | "VALIDATION_AUTHORIZATION_EXPIRED"
+  | "VALIDATION_AUTHORIZATION_CONSUMED" | "VALIDATION_AUTHORIZATION_AMBIGUOUS"
   | "VALIDATION_STALE" | "UNKNOWN_OUTCOME" | "REFUSED";
+
+interface ValidationAuthorizationView {
+  readonly schemaVersion: 1;
+  readonly state: "unavailable" | "invalid" | "expired" | "consumed" | "available";
+  readonly slotId: "anthropic" | null;
+  readonly providerInstanceId: "anthropic-default" | null;
+  readonly modelId: "claude-haiku-4-5-20251001" | null;
+  readonly requestFingerprint: string | null;
+  readonly packetFingerprint: string | null;
+  readonly authorizationReference: string | null;
+  readonly expiresAt: string | null;
+  readonly maximumOutputTokens: 4 | null;
+  readonly effectTimeoutMs: 15_000 | null;
+  readonly callbackDrainMs: 5_000 | null;
+  readonly retentionMode: "standard-commercial-api" | null;
+}
 
 interface DeveloperFacts {
   readonly referenceDisplay: string;
@@ -74,6 +92,7 @@ interface SlotsResult {
   readonly activity: readonly Activity[];
   readonly clipboardClearDefault: boolean;
   readonly validationEnabled: boolean;
+  readonly validationAuthorization: ValidationAuthorizationView | null;
   readonly productionDisabled: true;
   readonly metadataAvailable: boolean;
 }
@@ -239,9 +258,14 @@ const ERROR_COPY: Readonly<Record<ErrorCode, Readonly<{ title: string; body: str
   DECRYPT_FAILED: { title: "This credential could not be read", body: "Review the refreshed status before trying again. Re-entry is offered only if secure storage marks the saved copy unreadable." },
   METADATA_UNAVAILABLE: { title: "Credential details are unavailable", body: "The local details read or update did not complete. Earlier saved details may still be intact. Close and reopen to inspect them before deciding whether any repair is needed." },
   VALIDATION_DISABLED: { title: "Live validation is off in this build", body: "Saving remains local. A provider request is unavailable until a separately enabled build is reviewed." },
-  VALIDATION_DISCLOSURE_MISSING: { title: "Validation was not approved", body: "Review the one-request disclosure and choose Validate now explicitly." },
+  VALIDATION_DISCLOSURE_MISSING: { title: "Validation was not approved", body: "Review the one-request disclosure and choose Confirm and validate explicitly." },
   VALIDATION_POLICY_DENIED: { title: "Validation wasn't allowed by policy", body: "Nothing was sent to the provider. The refusal was recorded in Activity." },
   VALIDATION_CANCELLED: { title: "Validation was cancelled", body: "The credential was not judged and no retry was attempted." },
+  VALIDATION_AUTHORIZATION_UNAVAILABLE: { title: "Validation authorization is unavailable", body: "No provider request was made. A reviewed, candidate-bound one-shot authorization must be loaded first." },
+  VALIDATION_AUTHORIZATION_INVALID: { title: "Validation authorization was refused", body: "No provider request was made. The authorization did not match this exact candidate and request." },
+  VALIDATION_AUTHORIZATION_EXPIRED: { title: "Validation authorization expired", body: "No provider request was made. An expired authorization cannot be reused." },
+  VALIDATION_AUTHORIZATION_CONSUMED: { title: "Validation authorization was already consumed", body: "No additional request was made. Reopening or repeating the action cannot restore this one-shot authorization." },
+  VALIDATION_AUTHORIZATION_AMBIGUOUS: { title: "Validation authorization outcome is ambiguous", body: "Do not retry. The one-shot authorization remains consumed because its durable marker could not be finalized." },
   VALIDATION_STALE: { title: "The validation result was discarded", body: "The saved credential changed while the check was in flight, so the result was not applied." },
   UNKNOWN_OUTCOME: { title: "The action outcome is unknown", body: "The response was interrupted. Reopen credential setup to inspect the current saved state before trying again." },
   REFUSED: { title: "The action was refused", body: "No optimistic success is shown. Close this window and inspect the current state." },
@@ -285,9 +309,11 @@ const REFUSAL_TONE: Readonly<Record<ErrorCode, Readonly<{ tone: Tone; urgent: bo
   VAULT_BACKUP_ONLY: { tone: "danger", urgent: true }, VAULT_IDENTITY_MISMATCH: { tone: "danger", urgent: true }, VAULT_BACKEND_MISMATCH: { tone: "danger", urgent: true }, VAULT_SCHEMA_AHEAD: { tone: "danger", urgent: true },
   VAULT_REVISION_CONFLICT: { tone: "warn", urgent: false }, VAULT_BUSY: { tone: "warn", urgent: false }, VAULT_WRITE_FAILED: { tone: "warn", urgent: false }, DECRYPT_FAILED: { tone: "danger", urgent: true },
   METADATA_UNAVAILABLE: { tone: "warn", urgent: false }, VALIDATION_DISABLED: { tone: "info", urgent: false }, VALIDATION_DISCLOSURE_MISSING: { tone: "info", urgent: false }, VALIDATION_POLICY_DENIED: { tone: "warn", urgent: false },
-  VALIDATION_CANCELLED: { tone: "info", urgent: false }, VALIDATION_STALE: { tone: "warn", urgent: false }, UNKNOWN_OUTCOME: { tone: "warn", urgent: false }, REFUSED: { tone: "danger", urgent: true },
+  VALIDATION_CANCELLED: { tone: "info", urgent: false }, VALIDATION_AUTHORIZATION_UNAVAILABLE: { tone: "info", urgent: false }, VALIDATION_AUTHORIZATION_INVALID: { tone: "warn", urgent: false },
+  VALIDATION_AUTHORIZATION_EXPIRED: { tone: "warn", urgent: false }, VALIDATION_AUTHORIZATION_CONSUMED: { tone: "warn", urgent: false }, VALIDATION_AUTHORIZATION_AMBIGUOUS: { tone: "danger", urgent: true },
+  VALIDATION_STALE: { tone: "warn", urgent: false }, UNKNOWN_OUTCOME: { tone: "warn", urgent: false }, REFUSED: { tone: "danger", urgent: true },
 });
-const TERMINAL_VALIDATION_CODES = new Set<ErrorCode>(["SENDER_REJECTED", "TOKEN_REJECTED", "REPLAYED", "SCHEMA_REJECTED", "RATE_LIMITED", "UNKNOWN_OUTCOME", "REFUSED"]);
+const TERMINAL_VALIDATION_CODES = new Set<ErrorCode>(["SENDER_REJECTED", "TOKEN_REJECTED", "REPLAYED", "SCHEMA_REJECTED", "RATE_LIMITED", "VALIDATION_AUTHORIZATION_INVALID", "VALIDATION_AUTHORIZATION_EXPIRED", "VALIDATION_AUTHORIZATION_CONSUMED", "VALIDATION_AUTHORIZATION_AMBIGUOUS", "UNKNOWN_OUTCOME", "REFUSED"]);
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, options: { className?: string; text?: string; attrs?: Readonly<Record<string, string>> } = {}): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -721,7 +747,11 @@ function renderOverview(parent: HTMLElement): void {
   const strip = element("section", { className: "strip", attrs: { "aria-label": "Credential summary" } });
   const validationAvailability = model === null
     ? pending ? "Loading validation availability" : "Validation availability unavailable"
-    : model.validationEnabled ? "Live validation available" : "Live validation disabled";
+    : model.validationEnabled && model.validationAuthorization?.state === "available"
+      ? "One-shot Anthropic validation available"
+      : model.validationAuthorization?.state === "consumed"
+        ? "Anthropic validation authorization consumed"
+        : "Live validation disabled";
   append(strip, element("strong", { text: model === null ? pending ? "Loading secure storage…" : "Secure storage is unavailable — close and reopen credential setup" : aggregate(model) }), element("span", { text: "Development build — tasks do not run against providers" }), element("span", { text: validationAvailability }));
   parent.append(strip);
   if (model === null) return;
@@ -763,11 +793,19 @@ function validationReason(reason: string | null = null): string | null {
   return reason;
 }
 
+function validationAuthorizationFor(slot: SlotView): ValidationAuthorizationView | null {
+  const authorization = model?.validationAuthorization ?? null;
+  return model?.validationEnabled === true && slot.slotId === "anthropic" &&
+    authorization?.state === "available" && authorization.slotId === "anthropic"
+    ? authorization
+    : null;
+}
+
 function renderDetail(parent: HTMLElement, slot: SlotView): void {
   const header = element("div", { className: "view-head" });
   const heading = element("div");
   const back = button("← Providers", () => { rememberFocus(); selectedSlotId = null; render(); }, "btn subtle", null, "back-providers");
-  const h1 = element("h1", { text: slot.displayName, attrs: { tabindex: "-1" } });
+  const h1 = element("h1", { text: slot.displayName, attrs: { tabindex: "-1", "data-focus-key": `detail-heading-${slot.slotId}` } });
   append(heading, back, h1, element("p", { className: "sub", text: slot.productName }));
   append(header, heading);
   parent.append(header);
@@ -800,7 +838,9 @@ function renderDetail(parent: HTMLElement, slot: SlotView): void {
   if (slot.state === "revoked" || slot.state === "unrecoverable") {
     actions.append(detailActionButton(slot, "Re-enter credential", () => openEntry(slot, "reenter"), `reenter-${slot.slotId}`, storageChangeReason(inputs === null ? "Secure storage recovery is required first" : null)));
   } else if (slot.state === "present") {
-    actions.append(detailActionButton(slot, "Validate connection", () => openValidation(slot), `validate-${slot.slotId}`, validationReason(model?.validationEnabled === true ? (slot.enabled ? null : "Enable this credential first") : "Live validation is off in this build"), "btn primary"));
+    if (validationAuthorizationFor(slot) !== null) {
+      actions.append(detailActionButton(slot, "Validate connection", () => openValidation(slot), `validate-${slot.slotId}`, validationReason(slot.enabled ? null : "Enable this credential first"), "btn primary"));
+    }
     actions.append(detailActionButton(slot, "Rotate credential", () => openEntry(slot, "rotate"), `rotate-${slot.slotId}`, storageChangeReason()));
     actions.append(detailActionButton(slot, slot.enabled ? "Disable" : "Enable", () => { void setEnabled(slot, !slot.enabled); }, `enabled-${slot.slotId}`, storageChangeReason(inputs === null ? "Refresh required" : model?.metadataAvailable === false ? "Presentation metadata is unavailable" : null)));
   }
@@ -845,25 +885,27 @@ function render(): void {
   main.append(root);
   for (const nav of document.querySelectorAll<HTMLButtonElement>(".rail button[data-view]")) nav.setAttribute("aria-current", nav.dataset["view"] === view ? "page" : "false");
   requestAnimationFrame(() => {
-    const openDialog = document.querySelector<HTMLDialogElement>("dialog[open]");
-    if (openDialog !== null) {
-      const active = document.activeElement;
-      if (!openDialog.contains(active) || (active instanceof HTMLButtonElement && active.disabled) || (active instanceof HTMLInputElement && active.disabled)) {
-        openDialog.querySelector<HTMLElement>("[data-busy-focus], button:not(:disabled), input:not(:disabled)")?.focus();
-      }
-      return;
-    }
-    if (deferredFocusKey !== null) {
-      const deferred = document.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(deferredFocusKey)}"]`);
-      if (deferred !== null && !deferred.hasAttribute("disabled")) {
-        lastFocusKey = deferredFocusKey;
-        deferredFocusKey = null;
-        deferred.focus();
+    requestAnimationFrame(() => {
+      const openDialog = document.querySelector<HTMLDialogElement>("dialog[open]");
+      if (openDialog !== null) {
+        const active = document.activeElement;
+        if (!openDialog.contains(active) || (active instanceof HTMLButtonElement && active.disabled) || (active instanceof HTMLInputElement && active.disabled)) {
+          openDialog.querySelector<HTMLElement>("[data-busy-focus], button:not(:disabled), input:not(:disabled)")?.focus();
+        }
         return;
       }
-      if (!refreshInFlight) deferredFocusKey = null;
-    }
-    restoreFocus();
+      if (deferredFocusKey !== null) {
+        const deferred = document.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(deferredFocusKey)}"]`);
+        if (deferred !== null && !deferred.hasAttribute("disabled")) {
+          lastFocusKey = deferredFocusKey;
+          deferredFocusKey = null;
+          deferred.focus();
+          return;
+        }
+        if (!refreshInFlight) deferredFocusKey = null;
+      }
+      restoreFocus();
+    });
   });
 }
 
@@ -891,8 +933,10 @@ function destroyDialog(dialog: HTMLDialogElement, password: HTMLInputElement | n
   if (dialog.open) dialog.close();
   dialog.replaceChildren();
   dialog.remove();
-  if (opener !== null && opener.isConnected && !(opener instanceof HTMLButtonElement && opener.disabled)) opener.focus();
-  else document.querySelector<HTMLElement>("h1")?.focus();
+  requestAnimationFrame(() => {
+    if (opener !== null && opener.isConnected && !(opener instanceof HTMLButtonElement && opener.disabled)) opener.focus();
+    else document.querySelector<HTMLElement>("h1")?.focus();
+  });
 }
 
 function inputField(label: string, id: string, help: string): { wrap: HTMLElement; input: HTMLInputElement; error: HTMLElement } {
@@ -1268,6 +1312,7 @@ async function applyResponse(result: Response, expected: ExpectedResponse): Prom
     notice = { tone: mutation.kind === "removed" || mutationHasWarning ? "warn" : "ok", title: mutation.kind === "removed" ? "Removed from this PC" : mutation.kind === "rotated" ? expected === "reentered" ? "Credential re-entered" : "Credential rotated" : mutation.kind === "saved" ? "Saved securely" : mutation.kind === "enabled" ? "Credential enabled" : "Credential disabled", body: mutationSentence(mutation, expected) };
     announce(`${notice.title}. ${notice.body}`);
     selectedSlotId = mutation.slot.slotId;
+    deferredFocusKey = `detail-heading-${mutation.slot.slotId}`;
     if (model !== null) model = Object.freeze({ ...model, requestId: mutation.requestId, vaultState: "ready", recovery: null, revision: mutation.slot.revision, slots: Object.freeze(model.slots.map((slot) => slot.slotId === mutation.slot.slotId ? mutation.slot : slot)) });
     render();
     const refreshed = await refresh(false, true);
@@ -1341,8 +1386,8 @@ async function applyResponse(result: Response, expected: ExpectedResponse): Prom
       valid: { tone: "ok", title: "Connection works", body: `The provider accepted the credential at ${observed}. Exactly one separately disclosed check completed, and nothing was retried.` },
       invalid: { tone: "danger", title: "Credential not accepted", body: `The provider rejected the credential at ${observed}. Exactly one separately disclosed check completed, and nothing was retried.` },
       unauthorized: { tone: "warn", title: "Permission limited", body: `The provider accepted the credential but reported limited permission at ${observed}. Exactly one separately disclosed check completed, and nothing was retried.` },
-      ambiguous: { tone: "warn", title: "Check unclear", body: `The provider response did not clearly accept or reject the credential at ${observed}. Nothing was retried, and earlier definitive information was preserved.` },
-      unreachable: { tone: "warn", title: "Provider unreachable", body: result.providerDispatched ? `The provider could not be reached or did not complete the check at ${observed}. Nothing was retried, and earlier definitive information was preserved.` : `The deadline expired at ${observed} before a provider request was sent. Nothing was retried, and earlier definitive information was preserved.` },
+      ambiguous: { tone: "warn", title: "Check unclear", body: `The check did not clearly accept or reject the credential at ${observed}. Nothing was retried, and earlier definitive information was preserved.` },
+      unreachable: { tone: "warn", title: "Provider unreachable", body: result.providerDispatched ? `The provider could not be reached or did not complete the check at ${observed}. Nothing was retried, and earlier definitive information was preserved.` : result.deadlineExpired ? `The deadline expired at ${observed} before a provider request was sent. Nothing was retried, and earlier definitive information was preserved.` : `The check ended at ${observed} before provider dispatch. No provider request was sent; nothing was retried, and earlier definitive information was preserved.` },
     };
     notice = outcomeNotice[result.outcome];
     announce(`${notice.title}. ${notice.body}`, result.outcome === "invalid");
@@ -1362,31 +1407,39 @@ async function applyResponse(result: Response, expected: ExpectedResponse): Prom
 function openValidation(slot: SlotView): void {
   const inputs = mutationInputs(slot);
   if (inputs === null) return;
-  if (model?.validationEnabled !== true) {
-    showRefusal({ schemaVersion: 1, requestId: "0".repeat(32), ok: false, kind: "refused", code: "VALIDATION_DISABLED", retryable: false });
+  const authorization = validationAuthorizationFor(slot);
+  if (authorization === null) {
+    showRefusal({ schemaVersion: 1, requestId: "0".repeat(32), ok: false, kind: "refused", code: "VALIDATION_AUTHORIZATION_UNAVAILABLE", retryable: false });
     return;
   }
-  const shell = dialogShell(`Validate ${slot.nickname ?? slot.displayName} with ${slot.displayName}?`);
+  const shell = dialogShell("Make the one authorised Anthropic validation request?");
   const validationIntroId = `${shell.dialog.getAttribute("aria-labelledby") ?? "credential-validation"}-intro`;
   const validationDisclosureId = `${shell.dialog.getAttribute("aria-labelledby") ?? "credential-validation"}-description`;
-  const validationIntro = element("p", { text: `This credential window sends exactly one request to ${slot.providerHost} using the saved credential.`, attrs: { id: validationIntroId } });
+  const validationIntro = element("p", { text: "Confirming makes exactly one Anthropic API request using the saved credential.", attrs: { id: validationIntroId } });
   const list = element("ul", { className: "disclosure", attrs: { id: validationDisclosureId } });
   shell.dialog.setAttribute("aria-describedby", `${validationIntroId} ${validationDisclosureId}`);
   append(shell.body, validationIntro, list);
   for (const sentence of [
-    "Purpose: check whether the credential is accepted for provider authentication.",
-    `Destination: the approved ${slot.providerHost} provider host over an encrypted connection.`,
-    "One attempt, up to 10 seconds. No automatic retry.",
-    "Cost: none expected. The check performs one authentication-only provider read and sends no prompt or task content.",
-    "No task runs and no provider setting changes.",
-    "Only the non-sensitive result, which saved credential it applies to, the check time, and an Activity entry are recorded. The credential, raw request, raw response, and provider text are not recorded.",
-    "The provider attempt is limited to 10 seconds. This dialog may remain briefly while secure local cleanup finishes.",
+    `Provider and model: Anthropic, ${authorization.modelId}.`,
+    'Request content: only the fixed synthetic phrase “Reply with exactly OK.” No user, project, repository, or task data is sent.',
+    "Maximum output: four tokens.",
+    "Standard Anthropic commercial API retention applies; zero-data retention is not claimed.",
+    "One attempt only. No automatic or hidden retry will occur.",
+    "The saved credential is used only inside the secure main-process boundary and will not be displayed.",
+    "Cancel makes no network request and does not consume the one-shot authorization.",
+    "Confirm consumes the one-shot authorization immediately before credential resolution and possible dispatch.",
+    "The provider effect is limited to 15 seconds, followed by at most five seconds for callback and broker cleanup.",
   ]) list.append(element("li", { text: sentence }));
   if (mode === "developer") shell.body.append(developerFactsBlock([
-    ["operation", "credential-validate"],
-    ["provider", slot.slotId],
-    ["endpointProfile", slot.providerHost],
-    ["timeout", "10 seconds absolute"],
+    ["operation", "ai-dev-os.stage-18e-i.anthropic-validation.v1"],
+    ["provider", "anthropic-default"],
+    ["endpointProfile", "https://api.anthropic.com/v1/messages"],
+    ["model", authorization.modelId ?? "unavailable"],
+    ["requestFingerprint", displayFingerprint(authorization.requestFingerprint)],
+    ["authorizationPacket", displayFingerprint(authorization.packetFingerprint)],
+    ["authorizationReference", authorization.authorizationReference ?? "unavailable"],
+    ["expiresAt", authorization.expiresAt ?? "unavailable"],
+    ["timeout", "15 seconds effect + 5 seconds callback drain"],
     ["retry", "never"],
     ["policyAction", "provider-disclosure then secret-access"],
     ["policyDecision.fingerprint", "minted by main after approval"],
@@ -1395,7 +1448,7 @@ function openValidation(slot: SlotView): void {
   ]));
   let validationSubmitting = false;
   const cancel = button("Cancel", () => destroyDialog(shell.dialog));
-  const validate = button("Validate now", () => { void run(); }, "btn primary");
+  const validate = button("Confirm and validate", () => { void run(); }, "btn primary");
   append(shell.foot, cancel, validate);
   shell.dialog.addEventListener("cancel", (event) => { event.preventDefault(); if (!validationSubmitting) destroyDialog(shell.dialog); });
   shell.dialog.addEventListener("close", () => {
@@ -1410,20 +1463,20 @@ function openValidation(slot: SlotView): void {
     validate.disabled = true;
     cancel.disabled = true;
     validatingCredentialId = inputs!.credentialId;
-    const progressHeading = element("h3", { text: "Validating… one request, up to 10 seconds.", attrs: { tabindex: "-1", "data-busy-focus": "true" } });
+    const progressHeading = element("h3", { text: "Validating… one request, up to 15 seconds.", attrs: { tabindex: "-1", "data-busy-focus": "true" } });
     shell.body.append(
       progressHeading,
       element("p", { className: "help", text: "Rotate, re-enter, enable or disable, and remove are unavailable until this check finishes." }),
       element("div", { className: "progress validation-progress", attrs: { "aria-hidden": "true" } }),
     );
-    announce(`Validating ${slot.displayName}. One request, up to 10 seconds.`);
+    announce(`Validating ${slot.displayName}. One request, up to 15 seconds, then bounded secure cleanup.`);
     render();
     progressHeading.focus();
     const result = api === undefined
       ? ({ schemaVersion: 1, requestId: "0".repeat(32), ok: false, kind: "refused", code: "SENDER_REJECTED", retryable: false } as const)
-      : await finite(api.validate(slot.slotId, inputs!.credentialId, inputs!.revision, inputs!.token, true), 12_000);
+      : await finite(api.validate(slot.slotId, inputs!.credentialId, inputs!.revision, inputs!.token, true), 22_000);
     if (!(result.ok && result.kind === "validated" && !result.workSettled)) validatingCredentialId = null;
-    deferredFocusKey = `validate-${slot.slotId}`;
+    deferredFocusKey = `detail-heading-${slot.slotId}`;
     destroyDialog(shell.dialog);
     await applyResponse(result, "validation");
   }

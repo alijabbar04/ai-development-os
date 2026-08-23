@@ -4,7 +4,17 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain, Menu, protocol, session } from "electron";
 import type { CredentialSlotView, CredentialSlotsResult, CredentialValidationOutcome } from "@ai-dev-os/credential-ui";
-import { createDeterministicCredentialValidationPort } from "../main/validation.js";
+import {
+  ANTHROPIC_VALIDATION_AUTHORIZATION_RELATIVE_PATH,
+  ANTHROPIC_VALIDATION_MARKER_NAMESPACE_PREFIX,
+  STAGE_18E_I_MANIFEST_PATH,
+  createAnthropicValidationAuthorizationGate,
+  createAnthropicValidationAuthorizationPacket,
+  serializeAnthropicValidationAuthorizationPacket,
+  type ConsumedAnthropicValidationAuthorization,
+  type Stage18eICandidateBinding,
+} from "../main/anthropic-validation-authorization.js";
+import { createDeterministicCredentialValidationPort, type CredentialValidationPort } from "../main/validation.js";
 import { CREDENTIAL_ENTRY_URL, CREDENTIAL_PROTOCOL, CREDENTIAL_SESSION_PARTITION } from "../main/constants.js";
 import { createHardenedCredentialWindow, hardenCredentialSession, installGlobalWebContentsGuard, installMinimalEditMenu, loadCredentialWindow } from "../main/hardening.js";
 import { installCredentialIpc } from "../main/ipc.js";
@@ -15,6 +25,17 @@ const SYNTHETIC_CANARY = "SYNTHETIC_CREDENTIAL_STAGE18E";
 const SYNTHETIC_REPLACEMENT = "SYNTHETIC_REPLACEMENT_STAGE18E";
 const SYNTHETIC_ACTIVITY_SHAPE = ["sk", "ant", "api03", "SYNTHETIC_ACTIVITY_CANARY"].join("-");
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const SYNTHETIC_CANDIDATE_BINDING: Stage18eICandidateBinding = Object.freeze({
+  schemaVersion: 1,
+  status: "published",
+  head: "1".repeat(40),
+  tree: "2".repeat(40),
+  sourceCommit: "3".repeat(40),
+  sourceTree: "4".repeat(40),
+  manifestPath: STAGE_18E_I_MANIFEST_PATH,
+  manifestSha256: "5".repeat(64),
+  manifestAggregate: "6".repeat(64),
+});
 
 function argument(name: string): string {
   const prefix = `--${name}=`;
@@ -161,6 +182,57 @@ async function press(window: BrowserWindow, keyCode: string, modifiers?: Array<"
 }
 
 let surfaceSequence = 0;
+
+type SyntheticAuthorizedValidationPort = CredentialValidationPort & {
+  dispatches(): number;
+};
+
+async function createSyntheticAuthorizedValidationPort(
+  control: TestCredentialHostControl,
+  sequence: number,
+  outcome: CredentialValidationOutcome,
+): Promise<SyntheticAuthorizedValidationPort> {
+  const root = resolve(smokeRoot, "synthetic-anthropic-authorizations", sequence.toString(16).padStart(8, "0"));
+  const issuedAt = "2026-08-20T09:59:00.000Z";
+  const expiresAt = "2026-08-20T11:00:00.000Z";
+  const packet = createAnthropicValidationAuthorizationPacket({
+    candidate: SYNTHETIC_CANDIDATE_BINDING,
+    authorizationReference: `synthetic-electron-smoke-${sequence}`,
+    markerNamespace: `${ANTHROPIC_VALIDATION_MARKER_NAMESPACE_PREFIX}${sequence.toString(16).padStart(32, "0")}`,
+    issuedAt,
+    expiresAt,
+  });
+  const packetPath = resolve(root, ...ANTHROPIC_VALIDATION_AUTHORIZATION_RELATIVE_PATH.split("/"));
+  await mkdir(dirname(packetPath), { recursive: true });
+  await writeFile(packetPath, serializeAnthropicValidationAuthorizationPacket(packet), "utf8");
+  const gate = await createAnthropicValidationAuthorizationGate({
+    root,
+    candidateBinding: SYNTHETIC_CANDIDATE_BINDING,
+    now: control.clock.now,
+  });
+  if (gate.authorization().state !== "available") throw new Error("SMOKE_SYNTHETIC_AUTHORIZATION_UNAVAILABLE");
+  const deterministic = createDeterministicCredentialValidationPort({ outcome });
+  return Object.freeze({
+    authorization: gate.authorization,
+    async prepare(input: Parameters<NonNullable<CredentialValidationPort["prepare"]>>[0]) {
+      if (
+        input.signal.aborted || input.slotId !== "anthropic" ||
+        input.providerInstanceId !== "anthropic-default"
+      ) throw new Error("SMOKE_SYNTHETIC_AUTHORIZATION_INPUT_INVALID");
+      return await gate.consume({
+        slotId: "anthropic",
+        providerInstanceId: "anthropic-default",
+        secretRefFingerprint: input.secretRefFingerprint,
+      });
+    },
+    async validate(input: Parameters<CredentialValidationPort["validate"]>[0]) {
+      gate.claim(input.authorizationAttempt as ConsumedAnthropicValidationAuthorization);
+      return await deterministic.validate(input);
+    },
+    dispatches: deterministic.dispatches,
+  });
+}
+
 async function openSurface(options: SurfaceOptions = {}): Promise<Surface> {
   surfaceSequence += 1;
   let failDecrypt = false;
@@ -231,7 +303,9 @@ async function openSurface(options: SurfaceOptions = {}): Promise<Surface> {
       if (!recovered.ok || recovered.kind !== "slots" || recovered.slots[0]?.state !== "unrecoverable") throw new Error("SMOKE_UNRECOVERABLE_STATE_NOT_PERSISTED");
     }
   }
-  const validation = createDeterministicCredentialValidationPort({ outcome: options.validationOutcome ?? "valid" });
+  const validation = options.validationEnabled === true
+    ? await createSyntheticAuthorizedValidationPort(control, surfaceSequence, options.validationOutcome ?? "valid")
+    : createDeterministicCredentialValidationPort({ outcome: options.validationOutcome ?? "valid" });
   const service = control.createService({ validation, validationEnabled: options.validationEnabled ?? false, encryptionAvailable: options.encryptionAvailable ?? true, clipboardSucceeds: options.clipboardSucceeds ?? true });
   const gates: Partial<Record<SurfaceGateName, Readonly<{ started: Promise<void>; startedNow(): void; released: Promise<void>; releaseNow(): void }>>> = Object.create(null) as Partial<Record<SurfaceGateName, Readonly<{ started: Promise<void>; startedNow(): void; released: Promise<void>; releaseNow(): void }>>>;
   function armGateInternal(name: SurfaceGateName): void {
@@ -638,7 +712,9 @@ async function runHappyPath(): Promise<void> {
     const postCommitPending = await page<Record<string, unknown>>(surface.window, `(() => { const actions = [...document.querySelectorAll(".detail-card .button-row button")]; return { dialog: document.querySelector("dialog") !== null, actionCount: actions.length, allDisabled: actions.length > 0 && actions.every((node) => node.hasAttribute("disabled")), reasons: actions.map((node) => node.getAttribute("title")), visible: document.querySelector(".action-reasons")?.textContent ?? null }; })()`);
     record("post-commit-refresh-blocking", postCommitPending["dialog"] === false && Number(postCommitPending["actionCount"]) > 0 && postCommitPending["allDisabled"] === true && (postCommitPending["reasons"] as unknown[]).every((reason) => reason === "A storage change is in progress") && String(postCommitPending["visible"]).includes("A storage change is in progress"), postCommitPending);
     surface.releaseGate("describe");
-    await waitFor(surface.window, `document.querySelector("dialog") === null && document.querySelector(".detail-card") !== null && document.querySelector('[data-focus-key="validate-anthropic"]')?.getAttribute("title") === "Live validation is off in this build" && document.activeElement?.tagName === "H1" && (document.querySelector("#status-region")?.textContent ?? "").includes("Saved securely")`);
+    await waitFor(surface.window, `document.querySelector("dialog") === null && document.querySelector(".detail-card") !== null && document.querySelector('[data-focus-key="validate-anthropic"]') === null && (document.querySelector("#status-region")?.textContent ?? "").includes("Saved securely")`);
+    await delay(100);
+    await waitFor(surface.window, `document.activeElement?.tagName === "H1"`);
 
     const saved = await page<Record<string, unknown>>(surface.window, `(() => ({
       passwordCount: document.querySelectorAll('input[type="password"]').length,
@@ -647,8 +723,7 @@ async function runHappyPath(): Promise<void> {
       status: document.querySelector(".badge")?.textContent ?? null,
       notice: document.querySelector(".notice")?.textContent ?? null,
       active: document.activeElement?.tagName ?? null,
-      validateDisabled: document.querySelector('[data-focus-key="validate-anthropic"]')?.hasAttribute("disabled") ?? false,
-      validateReason: document.querySelector('[data-focus-key="validate-anthropic"]')?.getAttribute("title") ?? null,
+      validatePresent: document.querySelector('[data-focus-key="validate-anthropic"]') !== null,
       visibleDisabledReason: [...document.querySelectorAll(".action-reasons")].map((node) => node.textContent ?? "").join(" "),
       visibleNoticeRole: document.querySelector(".notice")?.getAttribute("role") ?? null,
       populatedLiveRegions: [document.querySelector("#status-region")?.textContent, document.querySelector("#alert-region")?.textContent].filter((text) => (text ?? "").trim().length > 0).length,
@@ -659,7 +734,7 @@ async function runHappyPath(): Promise<void> {
     record("clipboard-main-result", surface.control.clipboard.clears === 1 && String(saved["notice"]).includes("current clipboard item was cleared") && String(saved["notice"]).includes("history or cloud sync"), { clears: surface.control.clipboard.clears, notice: saved["notice"] });
     record("single-result-announcement", saved["visibleNoticeRole"] === "region" && saved["populatedLiveRegions"] === 1, { visibleNoticeRole: saved["visibleNoticeRole"], populatedLiveRegions: saved["populatedLiveRegions"] });
     record("save-never-validates", surface.validation.dispatches() === 0, surface.validation.dispatches());
-    record("validation-disabled-visible", saved["validateDisabled"] === true && saved["validateReason"] === "Live validation is off in this build" && String(saved["visibleDisabledReason"]).includes("Live validation is off in this build"), { disabled: saved["validateDisabled"], reason: saved["validateReason"], visible: saved["visibleDisabledReason"] });
+    record("validation-authorization-unavailable-hidden", saved["validatePresent"] === false && !String(saved["visibleDisabledReason"]).includes("Live validation is off in this build"), { present: saved["validatePresent"], visible: saved["visibleDisabledReason"] });
 
     const normalActions = await page<Array<Record<string, unknown>>>(surface.window, `[...document.querySelectorAll(".detail-card .button-row button")].map((node) => ({ label: node.textContent?.trim() ?? "", disabled: node.hasAttribute("disabled"), reason: node.getAttribute("title") }))`);
     const disabledDangerStyle = await page<Record<string, unknown>>(surface.window, `(() => {
@@ -685,7 +760,7 @@ async function runHappyPath(): Promise<void> {
     })()`);
     const developerActions = await page<Array<Record<string, unknown>>>(surface.window, `[...document.querySelectorAll(".detail-card .button-row button")].map((node) => ({ label: node.textContent?.trim() ?? "", disabled: node.hasAttribute("disabled"), reason: node.getAttribute("title") }))`);
     const developerFacts = await page<Record<string, unknown>>(surface.window, `(() => { const text = document.querySelector(".dev-block")?.textContent ?? ""; return { count: document.querySelectorAll(".dev-block").length, text, buttons: document.querySelectorAll(".dev-block button").length, fullHexVisible: /\\b[0-9a-f]{64}\\b/iu.test(text), truncatedFingerprints: (text.match(/fp:[0-9a-f]{4}…[0-9a-f]{4}/giu) ?? []).length }; })()`);
-    const committedActionsTruthful = normalActions.filter((action) => action["label"] !== "Validate connection").every((action) => action["disabled"] === true && action["reason"] === "Reopen credential setup before another storage change");
+    const committedActionsTruthful = normalActions.every((action) => action["label"] !== "Validate connection" && action["disabled"] === true && action["reason"] === "Reopen credential setup before another storage change");
     const disabledDangerNeutral = disabledDangerStyle["comparable"] === true && disabledDangerStyle["removeColor"] === disabledDangerStyle["rotateColor"] && disabledDangerStyle["removeBorder"] === disabledDangerStyle["rotateBorder"];
     record("mode-action-parity", normalActions.length > 0 && JSON.stringify(normalActions) === JSON.stringify(developerActions) && committedActionsTruthful && disabledDangerNeutral && developerFacts["count"] === 1 && developerFacts["buttons"] === 0 && developerFacts["fullHexVisible"] === false && Number(developerFacts["truncatedFingerprints"]) >= 3, { normalActions, developerActions, committedActionsTruthful, disabledDangerNeutral, disabledDangerStyle, developerFacts });
     record("render-performance", Number(renderPerformance["frameMs"]) < 60 && Array.isArray(renderPerformance["longTasks"]) && renderPerformance["longTasks"].length === 0, renderPerformance);
@@ -776,7 +851,7 @@ async function runInFlightActionRegression(): Promise<void> {
     surface.armGate("validate");
     await page(surface.window, `document.querySelector('[data-focus-key="validate-anthropic"]')?.click()`);
     await waitFor(surface.window, `document.querySelector("dialog") !== null`);
-    await page(surface.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Validate now")?.click()`);
+    await page(surface.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Confirm and validate")?.click()`);
     await surface.waitForGate("validate");
     await press(surface.window, "Escape");
     await press(surface.window, "Escape");
@@ -787,7 +862,7 @@ async function runInFlightActionRegression(): Promise<void> {
       return {
         dialogOpen: document.querySelector("dialog")?.hasAttribute("open") ?? false,
         cancelDisabled: dialogButtons.find((node) => node.textContent?.trim() === "Cancel")?.hasAttribute("disabled") ?? false,
-        submitDisabled: dialogButtons.find((node) => node.textContent?.trim() === "Validate now")?.hasAttribute("disabled") ?? false,
+        submitDisabled: dialogButtons.find((node) => node.textContent?.trim() === "Confirm and validate")?.hasAttribute("disabled") ?? false,
         actionCount: actions.length,
         allDisabled: actions.length > 0 && actions.every((node) => node.hasAttribute("disabled")),
         validateReason: actions.find((node) => node.textContent?.trim() === "Validate connection")?.getAttribute("title") ?? null,
@@ -801,14 +876,14 @@ async function runInFlightActionRegression(): Promise<void> {
     })()`);
     record("validation-in-flight-ui-lock", validating["dialogOpen"] === true && validating["cancelDisabled"] === true && validating["submitDisabled"] === true && Number(validating["actionCount"]) === 4 && validating["allDisabled"] === true && validating["validateReason"] === "A credential validation check is in progress" && (validating["storageReasons"] as unknown[]).every((reason) => reason === "A credential validation check is in progress") && String(validating["visible"]).includes("A credential validation check is in progress") && validating["progressDuration"] === "12s" && validating["focusInside"] === true && validating["busyFocus"] === "true" && String(validating["busyName"]).includes("Validating"), validating);
     surface.releaseGate("validate");
-    await waitFor(surface.window, `document.querySelector("dialog") === null && (document.querySelector(".badge")?.textContent ?? "").startsWith("Validated")`);
+    await waitFor(surface.window, `document.querySelector("dialog") === null && (document.querySelector(".badge")?.textContent ?? "").startsWith("Validated") && document.activeElement?.tagName === "H1"`);
     const normalValidationLanguage = await page<Record<string, unknown>>(surface.window, `(() => {
       const term = [...document.querySelectorAll(".facts dt")].find((node) => node.textContent?.trim() === "Last validation");
       const value = term?.nextElementSibling?.textContent?.trim() ?? "";
       const view = document.querySelector(".view")?.textContent ?? "";
-      return { value, rawOutcomeVisible: /(^|\\s)(valid|invalid|unauthorized|ambiguous|unreachable)(\\s|·|$)/iu.test(view), developerBlocks: document.querySelectorAll(".dev-block").length, focusKey: document.activeElement?.getAttribute("data-focus-key") ?? null };
+      return { value, rawOutcomeVisible: /(^|\\s)(valid|invalid|unauthorized|ambiguous|unreachable)(\\s|·|$)/iu.test(view), developerBlocks: document.querySelectorAll(".dev-block").length, focusTag: document.activeElement?.tagName ?? null, validatePresent: document.querySelector('[data-focus-key="validate-anthropic"]') !== null };
     })()`);
-    record("normal-validation-language-and-focus-return", String(normalValidationLanguage["value"]).startsWith("Accepted · ") && normalValidationLanguage["rawOutcomeVisible"] === false && normalValidationLanguage["developerBlocks"] === 0 && normalValidationLanguage["focusKey"] === "validate-anthropic", normalValidationLanguage);
+    record("normal-validation-language-and-consumed-focus", String(normalValidationLanguage["value"]).startsWith("Accepted · ") && normalValidationLanguage["rawOutcomeVisible"] === false && normalValidationLanguage["developerBlocks"] === 0 && normalValidationLanguage["focusTag"] === "H1" && normalValidationLanguage["validatePresent"] === false, normalValidationLanguage);
 
     await page(surface.window, `document.querySelector('[data-focus-key="remove-anthropic"]')?.click()`);
     await waitFor(surface.window, `document.querySelector("dialog") !== null`);
@@ -838,7 +913,7 @@ async function runInFlightActionRegression(): Promise<void> {
         busyName: document.activeElement?.textContent?.trim() ?? null
       };
     })()`);
-    record("removal-in-flight-ui-lock", removing["dialogOpen"] === true && removing["keepDisabled"] === true && removing["submitDisabled"] === true && Number(removing["actionCount"]) === 4 && removing["allDisabled"] === true && String(removing["visible"]).includes("A storage change is in progress") && removing["described"] === true && Number(removing["acknowledgementTargetHeight"]) >= 24 && removing["progressDuration"] === "30s" && removing["focusInside"] === true && removing["busyFocus"] === "true" && String(removing["busyName"]).includes("Removing"), removing);
+    record("removal-in-flight-ui-lock", removing["dialogOpen"] === true && removing["keepDisabled"] === true && removing["submitDisabled"] === true && Number(removing["actionCount"]) === 3 && removing["allDisabled"] === true && String(removing["visible"]).includes("A storage change is in progress") && removing["described"] === true && Number(removing["acknowledgementTargetHeight"]) >= 24 && removing["progressDuration"] === "30s" && removing["focusInside"] === true && removing["busyFocus"] === "true" && String(removing["busyName"]).includes("Removing"), removing);
     surface.releaseGate("remove");
     await waitFor(surface.window, `document.querySelector("dialog") === null && document.querySelector(".badge")?.textContent === "Removed"`);
     const removedCommitted = await page<Record<string, unknown>>(surface.window, `(() => {
@@ -1030,23 +1105,50 @@ async function runValidationPresentationRegressions(): Promise<void> {
     return common && expected;
   }), groupObservations);
 
-  const allProviderDisclosures = await openSurface({ seedCredential: true, viewScenario: "tones", validationEnabled: true });
+  const anthropicOnlyValidation = await openSurface({ seedCredential: true, viewScenario: "tones", validationEnabled: true });
   try {
-    const disclosures: Array<Record<string, unknown>> = [];
-    for (const [slotId, host] of [["anthropic", "api.anthropic.com"], ["openai", "api.openai.com"], ["gemini", "generativelanguage.googleapis.com"], ["openrouter", "openrouter.ai"]] as const) {
-      await page(allProviderDisclosures.window, `document.querySelector('[data-focus-key="manage-${slotId}"]')?.click()`);
-      await waitFor(allProviderDisclosures.window, `document.querySelector(".detail-card") !== null`);
-      await page(allProviderDisclosures.window, `document.querySelector('[data-focus-key="validate-${slotId}"]')?.click()`);
-      await waitFor(allProviderDisclosures.window, `document.querySelector("dialog") !== null`);
-      const disclosure = await page<Record<string, unknown>>(allProviderDisclosures.window, `(() => { const dialog = document.querySelector("dialog"); const text = dialog?.textContent ?? ""; const progress = document.querySelector(".validation-progress"); return { slotId: ${JSON.stringify(slotId)}, host: text.includes(${JSON.stringify(host)}), authenticationOnly: text.includes("one authentication-only provider read"), noModelClaim: !text.includes("lists available models"), noPrompt: text.includes("sends no prompt or task content"), cleanup: text.includes("may remain briefly while secure local cleanup finishes"), described: (dialog?.getAttribute("aria-describedby") ?? "").split(/\\s+/u).filter(Boolean).every((id) => document.getElementById(id) !== null), progressClassReserved: progress === null }; })()`);
-      disclosures.push(disclosure);
-      await page(allProviderDisclosures.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Cancel")?.click()`);
-      await waitFor(allProviderDisclosures.window, `document.querySelector("dialog") === null`);
-      await page(allProviderDisclosures.window, `document.querySelector('[data-focus-key="back-providers"]')?.click()`);
-      await waitFor(allProviderDisclosures.window, `document.querySelector(".provider-grid") !== null`);
+    const authority: Array<Record<string, unknown>> = [];
+    for (const slotId of ["anthropic", "openai", "gemini", "openrouter"] as const) {
+      await page(anthropicOnlyValidation.window, `document.querySelector('[data-focus-key="manage-${slotId}"]')?.click()`);
+      await waitFor(anthropicOnlyValidation.window, `document.querySelector(".detail-card") !== null`);
+      const action = await page<Record<string, unknown>>(anthropicOnlyValidation.window, `(() => ({ slotId: ${JSON.stringify(slotId)}, validateButtons: document.querySelectorAll('[data-focus-key="validate-${slotId}"]').length, allValidateButtons: document.querySelectorAll('[data-focus-key^="validate-"]').length }))()`);
+      if (slotId === "anthropic") {
+        await page(anthropicOnlyValidation.window, `document.querySelector('[data-focus-key="validate-anthropic"]')?.click()`);
+        await waitFor(anthropicOnlyValidation.window, `document.querySelector("dialog") !== null`);
+        action["disclosure"] = await page<Record<string, unknown>>(anthropicOnlyValidation.window, `(() => {
+          const dialog = document.querySelector("dialog");
+          const text = dialog?.textContent ?? "";
+          const ids = (dialog?.getAttribute("aria-describedby") ?? "").split(/\\s+/u).filter(Boolean);
+          return {
+            title: document.querySelector("dialog h2")?.textContent?.trim() === "Make the one authorised Anthropic validation request?",
+            oneRequest: text.includes("exactly one Anthropic API request"),
+            model: text.includes("Anthropic, claude-haiku-4-5-20251001"),
+            fixedPhrase: text.includes("Reply with exactly OK."),
+            noUserData: text.includes("No user, project, repository, or task data is sent"),
+            fourTokens: text.includes("Maximum output: four tokens"),
+            standardRetention: text.includes("Standard Anthropic commercial API retention applies") && text.includes("zero-data retention is not claimed"),
+            noRetry: text.includes("No automatic or hidden retry"),
+            credentialHidden: text.includes("will not be displayed"),
+            cancelSemantics: text.includes("Cancel makes no network request and does not consume"),
+            confirmSemantics: text.includes("Confirm consumes the one-shot authorization immediately before credential resolution and possible dispatch"),
+            boundedTime: text.includes("15 seconds") && text.includes("five seconds"),
+            confirmLabel: [...document.querySelectorAll("dialog button")].some((node) => node.textContent?.trim() === "Confirm and validate"),
+            described: ids.length === 2 && ids.every((id) => document.getElementById(id) !== null),
+          };
+        })()`);
+        await page(anthropicOnlyValidation.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Cancel")?.click()`);
+        await waitFor(anthropicOnlyValidation.window, `document.querySelector("dialog") === null`);
+        action["cancelPreservedAuthorization"] = await page<boolean>(anthropicOnlyValidation.window, `document.querySelector('[data-focus-key="validate-anthropic"]') !== null`);
+      }
+      authority.push(action);
+      await page(anthropicOnlyValidation.window, `document.querySelector('[data-focus-key="back-providers"]')?.click()`);
+      await waitFor(anthropicOnlyValidation.window, `document.querySelector(".provider-grid") !== null`);
     }
-    record("four-provider-validation-disclosures", disclosures.length === 4 && disclosures.every((item) => Object.entries(item).every(([key, value]) => key === "slotId" || value === true)), disclosures);
-  } finally { await closeSurface(allProviderDisclosures); }
+    const anthropic = authority.find((item) => item["slotId"] === "anthropic");
+    const otherProvidersHidden = authority.filter((item) => item["slotId"] !== "anthropic").every((item) => item["validateButtons"] === 0 && item["allValidateButtons"] === 0);
+    const disclosure = anthropic?.["disclosure"] as Record<string, unknown> | undefined;
+    record("anthropic-only-one-shot-validation-disclosure", authority.length === 4 && anthropic?.["validateButtons"] === 1 && anthropic["allValidateButtons"] === 1 && anthropic["cancelPreservedAuthorization"] === true && anthropicOnlyValidation.validation.dispatches() === 0 && disclosure !== undefined && Object.values(disclosure).every((value) => value === true) && otherProvidersHidden, authority);
+  } finally { await closeSurface(anthropicOnlyValidation); }
 
   const acquisitionGuidance: Array<Record<string, unknown>> = [];
   for (const [slotId, expected] of [["anthropic", "Anthropic Console → API keys"], ["openai", "OpenAI dashboard → API keys"], ["gemini", "Google AI Studio → API keys"], ["openrouter", "OpenRouter dashboard → Keys"]] as const) {
@@ -1090,7 +1192,7 @@ async function runValidationPresentationRegressions(): Promise<void> {
       await openAnthropicDetail(completedRefreshFailure);
       await page(completedRefreshFailure.window, `document.querySelector('[data-focus-key="validate-anthropic"]')?.click()`);
       await waitFor(completedRefreshFailure.window, `document.querySelector("dialog") !== null`);
-      await page(completedRefreshFailure.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Validate now")?.click()`);
+      await page(completedRefreshFailure.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Confirm and validate")?.click()`);
       await waitFor(completedRefreshFailure.window, `document.querySelector('[data-notice-kind="refresh-warning"]') !== null`);
       const presentation = await page<Record<string, unknown>>(completedRefreshFailure.window, `(() => { const primary = document.querySelector('[data-notice-kind="outcome"]')?.textContent ?? ""; const warning = document.querySelector('[data-notice-kind="refresh-warning"]')?.textContent ?? ""; const actions = [...document.querySelectorAll(".detail-card .button-row button")]; return { primary, warning, allLocked: actions.length > 0 && actions.every((node) => node.hasAttribute("disabled")), reasons: actions.map((node) => node.getAttribute("title")) }; })()`);
       preservedOutcomes.push({ ...candidate, dispatches: completedRefreshFailure.validation.dispatches(), ...presentation });
@@ -1105,39 +1207,63 @@ async function runValidationPresentationRegressions(): Promise<void> {
       await openAnthropicDetail(surface);
       await page(surface.window, `document.querySelector('[data-focus-key="validate-anthropic"]')?.click()`);
       await waitFor(surface.window, `document.querySelector("dialog") !== null`);
-      await page(surface.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Validate now")?.click()`);
-      await waitFor(surface.window, `document.querySelector("dialog") === null && document.querySelector(".notice h2") !== null`);
-      const state = await page<Record<string, unknown>>(surface.window, `(() => { const actions = [...document.querySelectorAll(".detail-card .button-row button")]; const validate = actions.find((node) => node.textContent?.trim() === "Validate connection"); const storage = actions.filter((node) => node !== validate); return { notice: document.querySelector(".notice")?.textContent ?? "", validateDisabled: validate?.hasAttribute("disabled") ?? false, validateReason: validate?.getAttribute("title") ?? "", storageEnabled: storage.length > 0 && storage.every((node) => !node.hasAttribute("disabled")) }; })()`);
-      terminalValidationRefusals.push({ code, ...state });
+      await page(surface.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Confirm and validate")?.click()`);
+      await waitFor(surface.window, `document.querySelector("dialog") === null && document.querySelector(".notice h2") !== null && document.querySelector('[data-focus-key="validate-anthropic"]')?.hasAttribute("disabled") === true && document.querySelector('[data-focus-key="validate-anthropic"]')?.getAttribute("title") !== "Current credential state is being refreshed"`);
+      const state = await page<Record<string, unknown>>(surface.window, `(() => { const actions = [...document.querySelectorAll(".detail-card .button-row button")]; const validate = actions.find((node) => node.textContent?.trim() === "Validate connection"); return { notice: document.querySelector(".notice")?.textContent ?? "", validatePresent: validate !== undefined, validateDisabled: validate?.hasAttribute("disabled") ?? false, validateReason: validate?.getAttribute("title") ?? "" }; })()`);
+      terminalValidationRefusals.push({ code, dispatches: surface.validation.dispatches(), ...state });
     } finally { await closeSurface(surface); }
   }
-  record("unclassified-validation-refusals-require-reopen", terminalValidationRefusals.length === 2 && terminalValidationRefusals.every((item) => String(item["notice"]).toLowerCase().includes("close") && item["validateDisabled"] === true && String(item["validateReason"]).toLowerCase().includes("close and reopen") && item["storageEnabled"] === true), terminalValidationRefusals);
+  record("pre-consumption-validation-refusals-preserve-authorization", terminalValidationRefusals.length === 2 && terminalValidationRefusals.every((item) => String(item["notice"]).toLowerCase().includes("close") && item["dispatches"] === 0 && item["validatePresent"] === true && item["validateDisabled"] === true && /close|reopen/u.test(String(item["validateReason"]).toLowerCase())), terminalValidationRefusals);
   await mark("validation-presentation-complete");
 }
 
-async function runValidationBudgetRegression(): Promise<void> {
-  await mark("validation-budget-started");
+async function runValidationAuthorizationRegression(): Promise<void> {
+  await mark("validation-authorization-started");
   const surface = await openSurface({ seedCredential: true, validationEnabled: true });
   try {
     await openAnthropicDetail(surface);
-    let disclosure: Record<string, unknown> | null = null;
-    for (let attempt = 1; attempt <= 4; attempt += 1) {
-      await page(surface.window, `document.querySelector('[data-focus-key="validate-anthropic"]')?.click()`);
-      await waitFor(surface.window, `document.querySelector("dialog") !== null`);
-      if (attempt === 1) disclosure = await page<Record<string, unknown>>(surface.window, `(() => { const dialog = document.querySelector("dialog"); const text = dialog?.textContent ?? ""; const ids = (dialog?.getAttribute("aria-describedby") ?? "").split(/\\s+/u).filter(Boolean); return { namedHost: text.includes("api.anthropic.com"), encrypted: text.includes("encrypted connection"), purpose: text.includes("provider authentication"), authenticationOnly: text.includes("one authentication-only provider read"), oneAttempt: text.includes("One attempt, up to 10 seconds"), noRetry: text.includes("No automatic retry"), noPrompt: text.includes("sends no prompt or task content"), cost: text.includes("Cost: none expected"), noSettings: text.includes("no provider setting changes"), recordedFacts: text.includes("non-sensitive result") && text.includes("Activity entry"), cleanup: text.includes("may remain briefly while secure local cleanup finishes"), excludesRaw: text.includes("raw request, raw response, and provider text are not recorded"), described: ids.length === 2 && ids.every((id) => document.getElementById(id) !== null) }; })()`);
-      await page(surface.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Validate now")?.click()`);
-      await waitFor(surface.window, `document.querySelector("dialog") === null && document.querySelector(".notice h2") !== null`);
-      if (attempt < 4) await waitFor(surface.window, `document.querySelector('[data-focus-key="validate-anthropic"]')?.hasAttribute("disabled") === false`);
-    }
-    await waitFor(surface.window, `(document.querySelector("#status-region")?.textContent ?? "").includes("No more validation checks")`);
-    const terminal = await page<Record<string, unknown>>(surface.window, `(() => {
-      const actions = [...document.querySelectorAll(".detail-card .button-row button")];
-      const validate = actions.find((node) => node.textContent?.trim() === "Validate connection");
-      return { title: document.querySelector(".notice h2")?.textContent ?? "", notice: document.querySelector(".notice")?.textContent ?? "", tone: document.querySelector(".notice")?.getAttribute("data-tone"), validateDisabled: validate?.hasAttribute("disabled") ?? false, validateReason: validate?.getAttribute("title") ?? "", storageEnabled: actions.filter((node) => node !== validate).every((node) => !node.hasAttribute("disabled")), live: { status: document.querySelector("#status-region")?.textContent ?? "", alert: document.querySelector("#alert-region")?.textContent ?? "" } };
+    await page(surface.window, `document.querySelector('[data-focus-key="validate-anthropic"]')?.click()`);
+    await waitFor(surface.window, `document.querySelector("dialog") !== null`);
+    const disclosure = await page<Record<string, unknown>>(surface.window, `(() => {
+      const dialog = document.querySelector("dialog");
+      const text = dialog?.textContent ?? "";
+      const ids = (dialog?.getAttribute("aria-describedby") ?? "").split(/\\s+/u).filter(Boolean);
+      return {
+        oneRequest: text.includes("exactly one Anthropic API request"),
+        exactModel: text.includes("Anthropic, claude-haiku-4-5-20251001"),
+        fixedPhrase: text.includes("Reply with exactly OK."),
+        noProjectData: text.includes("No user, project, repository, or task data is sent"),
+        fourTokens: text.includes("Maximum output: four tokens"),
+        retention: text.includes("Standard Anthropic commercial API retention applies") && text.includes("zero-data retention is not claimed"),
+        noRetry: text.includes("No automatic or hidden retry"),
+        noCredentialDisplay: text.includes("will not be displayed"),
+        cancelNoConsume: text.includes("Cancel makes no network request and does not consume"),
+        confirmConsumes: text.includes("Confirm consumes the one-shot authorization immediately before credential resolution and possible dispatch"),
+        boundedTime: text.includes("15 seconds") && text.includes("five seconds"),
+        confirmLabel: [...document.querySelectorAll("dialog button")].some((node) => node.textContent?.trim() === "Confirm and validate"),
+        described: ids.length === 2 && ids.every((id) => document.getElementById(id) !== null),
+      };
     })()`);
+    await page(surface.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Cancel")?.click()`);
+    await waitFor(surface.window, `document.querySelector("dialog") === null && document.querySelector('[data-focus-key="validate-anthropic"]') !== null`);
+    const afterCancel = await page<Record<string, unknown>>(surface.window, `(() => ({ validateEnabled: document.querySelector('[data-focus-key="validate-anthropic"]')?.hasAttribute("disabled") === false }))()`);
+
+    await page(surface.window, `document.querySelector('[data-focus-key="validate-anthropic"]')?.click()`);
+    await waitFor(surface.window, `document.querySelector("dialog") !== null`);
+    await page(surface.window, `(() => { const confirm = [...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Confirm and validate"); confirm?.click(); confirm?.click(); })()`);
+    await waitFor(surface.window, `document.querySelector("dialog") === null && document.querySelector(".notice h2") !== null && document.querySelector('[data-focus-key="validate-anthropic"]') === null`);
+    const normal = await page<Record<string, unknown>>(surface.window, `(() => ({
+      actions: [...document.querySelectorAll(".detail-card .button-row button")].map((node) => node.textContent?.trim() ?? ""),
+      validatePresent: document.querySelector('[data-focus-key="validate-anthropic"]') !== null,
+      storageEnabled: [...document.querySelectorAll(".detail-card .button-row button")].every((node) => !node.hasAttribute("disabled")),
+      notice: document.querySelector(".notice")?.textContent ?? "",
+    }))()`);
     await chooseMode(surface, "developer");
-    const developer = await page<Record<string, unknown>>(surface.window, `(() => ({ notice: document.querySelector(".notice")?.textContent ?? "", buttons: document.querySelectorAll(".notice .dev-block button").length }))()`);
-    record("validation-disclosure-and-terminal-budget", disclosure !== null && Object.values(disclosure).every((value) => value === true) && surface.validation.dispatches() === 3 && terminal["title"] === "No more validation checks are available in this window" && String(terminal["notice"]).includes("Local credential storage changes remain available") && terminal["tone"] === "warn" && terminal["validateDisabled"] === true && String(terminal["validateReason"]).includes("Close and reopen") && terminal["storageEnabled"] === true && String((terminal["live"] as Record<string, unknown>)["status"]).includes("No more validation checks") && (terminal["live"] as Record<string, unknown>)["alert"] === "" && String(developer["notice"]).includes("RATE_LIMITED") && developer["buttons"] === 0, { disclosure, dispatches: surface.validation.dispatches(), terminal, developer });
+    const developer = await page<Record<string, unknown>>(surface.window, `(() => { const text = document.querySelector(".view")?.textContent ?? ""; return { actions: [...document.querySelectorAll(".detail-card .button-row button")].map((node) => node.textContent?.trim() ?? ""), validatePresent: document.querySelector('[data-focus-key="validate-anthropic"]') !== null, fullHexVisible: /\\b[0-9a-f]{64}\\b/iu.test(text) }; })()`);
+    await page(surface.window, `document.querySelector('[data-focus-key="back-providers"]')?.click()`);
+    await waitFor(surface.window, `document.querySelector(".provider-grid") !== null`);
+    const overviewAvailability = await page<string>(surface.window, `document.querySelector(".strip span:last-child")?.textContent ?? ""`);
+    record("synthetic-one-shot-authorization-ui", Object.values(disclosure).every((value) => value === true) && afterCancel["validateEnabled"] === true && surface.validation.dispatches() === 1 && normal["validatePresent"] === false && normal["storageEnabled"] === true && String(normal["notice"]).includes("Connection works") && JSON.stringify(normal["actions"]) === JSON.stringify(developer["actions"]) && developer["validatePresent"] === false && developer["fullHexVisible"] === false && overviewAvailability.includes("authorization consumed"), { disclosure, afterCancel, dispatches: surface.validation.dispatches(), normal, developer, overviewAvailability });
   } finally { await closeSurface(surface); }
 
   const committed = await openSurface({ validationEnabled: true });
@@ -1145,18 +1271,17 @@ async function runValidationBudgetRegression(): Promise<void> {
     await openEntryWithSyntheticValue(committed);
     await page(committed.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Save securely")?.click()`);
     await waitFor(committed.window, `document.querySelector("dialog") === null && document.querySelector('[data-focus-key="validate-anthropic"]')?.hasAttribute("disabled") === false`);
-    for (let attempt = 1; attempt <= 4; attempt += 1) {
-      await page(committed.window, `document.querySelector('[data-focus-key="validate-anthropic"]')?.click()`);
-      await waitFor(committed.window, `document.querySelector("dialog") !== null`);
-      await page(committed.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Validate now")?.click()`);
-      await waitFor(committed.window, `document.querySelector("dialog") === null && document.querySelector(".notice h2") !== null`);
-      if (attempt < 4) await waitFor(committed.window, `document.querySelector('[data-focus-key="validate-anthropic"]')?.hasAttribute("disabled") === false`);
-      else await waitFor(committed.window, `(() => { const actions = [...document.querySelectorAll(".detail-card .button-row button")]; const storage = actions.filter((node) => node.textContent?.trim() !== "Validate connection"); return storage.length > 0 && storage.every((node) => node.hasAttribute("disabled") && (node.getAttribute("title") ?? "").includes("Reopen credential setup")); })()`);
-    }
-    const committedTerminal = await page<Record<string, unknown>>(committed.window, `(() => { const actions = [...document.querySelectorAll(".detail-card .button-row button")]; const validate = actions.find((node) => node.textContent?.trim() === "Validate connection"); const storage = actions.filter((node) => node !== validate); return { notice: document.querySelector(".notice")?.textContent ?? "", validateDisabled: validate?.hasAttribute("disabled") ?? false, storageLocked: storage.length > 0 && storage.every((node) => node.hasAttribute("disabled") && (node.getAttribute("title") ?? "").includes("Reopen credential setup")) }; })()`);
-    record("postcommit-validation-budget-keeps-storage-truthfully-locked", committed.validation.dispatches() === 3 && String(committedTerminal["notice"]).includes("Storage changes in this window remain locked") && !String(committedTerminal["notice"]).includes("storage changes remain available") && committedTerminal["validateDisabled"] === true && committedTerminal["storageLocked"] === true, { dispatches: committed.validation.dispatches(), committedTerminal });
+    await page(committed.window, `document.querySelector('[data-focus-key="validate-anthropic"]')?.click()`);
+    await waitFor(committed.window, `document.querySelector("dialog") !== null`);
+    await page(committed.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Confirm and validate")?.click()`);
+    await waitFor(committed.window, `document.querySelector("dialog") === null && document.querySelector('[data-focus-key="validate-anthropic"]') === null && (() => { const storage = [...document.querySelectorAll(".detail-card .button-row button")]; return storage.length === 3 && storage.every((node) => node.hasAttribute("disabled") && (node.getAttribute("title") ?? "").includes("Reopen credential setup")); })()`);
+    const committedTerminal = await page<Record<string, unknown>>(committed.window, `(() => ({ notice: document.querySelector(".notice")?.textContent ?? "", validatePresent: document.querySelector('[data-focus-key="validate-anthropic"]') !== null, storageLocked: [...document.querySelectorAll(".detail-card .button-row button")].every((node) => node.hasAttribute("disabled") && (node.getAttribute("title") ?? "").includes("Reopen credential setup")) }))()`);
+    await page(committed.window, `document.querySelector('[data-focus-key="back-providers"]')?.click()`);
+    await waitFor(committed.window, `document.querySelector(".provider-grid") !== null`);
+    const committedAvailability = await page<string>(committed.window, `document.querySelector(".strip span:last-child")?.textContent ?? ""`);
+    record("postcommit-one-shot-keeps-storage-truthfully-locked", committed.validation.dispatches() === 1 && String(committedTerminal["notice"]).includes("Exactly one separately disclosed check completed") && committedTerminal["validatePresent"] === false && committedTerminal["storageLocked"] === true && committedAvailability.includes("authorization consumed"), { dispatches: committed.validation.dispatches(), committedTerminal, committedAvailability });
   } finally { await closeSurface(committed); }
-  await mark("validation-budget-complete");
+  await mark("validation-authorization-complete");
 }
 
 async function runMutationPresentationRegressions(): Promise<void> {
@@ -1424,7 +1549,7 @@ async function executeSmoke(): Promise<void> {
       await runInFlightActionRegression();
       await runRecoveryAndMetadataRegressions();
       await runValidationPresentationRegressions();
-      await runValidationBudgetRegression();
+      await runValidationAuthorizationRegression();
       await runMutationPresentationRegressions();
       await runEscapeAndCloseRegression();
     } else {

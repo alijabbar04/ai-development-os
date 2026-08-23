@@ -9,8 +9,10 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const productionMain = "dist/main/startup-bootstrap.cjs";
-const removedRuntimeControlPrefixes = Object.freeze(["ELECTRON_", "NODE_"]);
-const removedRuntimeControls = Object.freeze(["GOOGLE_API_KEY"]);
+const removedRuntimeControlPrefixes = Object.freeze([
+  "ELECTRON_", "NODE_", "DOTNET_", "COMPLUS_", "CORECLR_",
+]);
+const removedRuntimeControls = Object.freeze(["GOOGLE_API_KEY", "ANTHROPIC_API_KEY"]);
 
 function asciiEnvironmentNameStartsWith(left, right) {
   if (left.length < right.length) return false;

@@ -94,6 +94,7 @@ export function projectCredentialActions(
   validatingCredentialId: string | null,
   metadataAvailable = true,
   vaultState: CredentialSlotsResult["vaultState"] = "ready",
+  validationAuthorization: CredentialSlotsResult["validationAuthorization"] = null,
 ): readonly CredentialActionProjection[] {
   const activeValidation = validatingCredentialId ?? (slot.developer.operationPhase === "validation-in-flight" ? slot.credentialId : null);
   const checking = activeValidation !== null && activeValidation === slot.credentialId;
@@ -107,16 +108,19 @@ export function projectCredentialActions(
     { action: "reenter", disabledReason: blocked },
     { action: "remove", disabledReason: blocked },
   ]);
+  const validationAuthorized = validationEnabled && slot.slotId === "anthropic" &&
+    validationAuthorization?.state === "available" &&
+    validationAuthorization.slotId === "anthropic";
   return Object.freeze([
-    { action: "validate", disabledReason: validationBlocked ?? (!validationEnabled ? "Live validation is off in this build" : !slot.enabled ? "Enable this credential first" : null) },
+    ...(validationAuthorized ? [{ action: "validate" as const, disabledReason: validationBlocked ?? (!slot.enabled ? "Enable this credential first" : null) }] : []),
     { action: "rotate", disabledReason: blocked },
     { action: slot.enabled ? "disable" : "enable", disabledReason: blocked },
     { action: "remove", disabledReason: blocked },
   ]);
 }
 
-export function actionSetForSlot(slot: CredentialSlotView, validationEnabled: boolean, validatingCredentialId: string | null): readonly CredentialAction[] {
-  return Object.freeze(projectCredentialActions(slot, validationEnabled, validatingCredentialId).map((item) => item.action));
+export function actionSetForSlot(slot: CredentialSlotView, validationEnabled: boolean, validatingCredentialId: string | null, validationAuthorization: CredentialSlotsResult["validationAuthorization"] = null): readonly CredentialAction[] {
+  return Object.freeze(projectCredentialActions(slot, validationEnabled, validatingCredentialId, true, "ready", validationAuthorization).map((item) => item.action));
 }
 
 export function projectCredentialMode(input: CredentialSlotsResult, mode: PresentationMode, now: Date = new Date()): readonly CredentialModeSlotProjection[] {
@@ -124,7 +128,7 @@ export function projectCredentialMode(input: CredentialSlotsResult, mode: Presen
   return Object.freeze(input.slots.map((slot) => Object.freeze({
     slotId: slot.slotId,
     status: projectCredentialStatus(slot, input.metadataAvailable, input.vaultState, now),
-    actions: projectCredentialActions(slot, input.validationEnabled, validatingCredentialId, input.metadataAvailable, input.vaultState),
+    actions: projectCredentialActions(slot, input.validationEnabled, validatingCredentialId, input.metadataAvailable, input.vaultState, input.validationAuthorization),
     developerFacts: mode === "developer" ? Object.freeze({ ...slot.developer }) : null,
   })));
 }

@@ -2,7 +2,7 @@
   "name": "@ai-dev-os/provider-anthropic",
   "version": "0.1.0",
   "private": true,
-  "description": "Production-disabled direct Anthropic Messages API inference-provider foundation for AI Development OS.",
+  "description": "Production-disabled Anthropic provider foundation with a fixed-request validation-only subpath for AI Development OS.",
   "type": "module",
   "exports": {
     ".": {
@@ -12,6 +12,10 @@
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
+    },
+    "./validation": {
+      "types": "./dist/validation/index.d.ts",
+      "import": "./dist/validation/index.js"
     }
   },
   "files": [

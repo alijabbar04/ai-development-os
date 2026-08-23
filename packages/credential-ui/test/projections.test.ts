@@ -15,6 +15,21 @@ import {
 } from "../src/index.js";
 
 const NOW = new Date("2026-08-20T11:00:00.000Z");
+const AUTHORIZATION = Object.freeze({
+  schemaVersion: 1 as const,
+  state: "available" as const,
+  slotId: "anthropic" as const,
+  providerInstanceId: "anthropic-default" as const,
+  modelId: "claude-haiku-4-5-20251001" as const,
+  requestFingerprint: "d".repeat(64),
+  packetFingerprint: "e".repeat(64),
+  authorizationReference: "review-stage-18e-i",
+  expiresAt: "2026-08-20T12:00:00.000Z",
+  maximumOutputTokens: 4 as const,
+  effectTimeoutMs: 15_000 as const,
+  callbackDrainMs: 5_000 as const,
+  retentionMode: "standard-commercial-api" as const,
+});
 
 function slot(patch: Partial<CredentialSlotView> = {}): CredentialSlotView {
   return {
@@ -64,6 +79,7 @@ function response(slots: readonly CredentialSlotView[]): CredentialSlotsResult {
     activity: [],
     clipboardClearDefault: true,
     validationEnabled: true,
+    validationAuthorization: AUTHORIZATION,
     productionDisabled: true,
     metadataAvailable: true,
   };
@@ -163,15 +179,15 @@ describe("action authority", () => {
     expect(actionSetForSlot(slot({ state: "absent" }), true, null)).toEqual(["save"]);
     expect(actionSetForSlot(slot({ state: "revoked" }), true, null)).toEqual(["reenter"]);
     expect(actionSetForSlot(slot({ state: "unrecoverable", credentialId: null, revision: null, recordToken: null }), true, null)).toEqual([]);
-    expect(actionSetForSlot(slot({ enabled: false }), true, null)).toEqual(["validate", "rotate", "enable", "remove"]);
-    expect(actionSetForSlot(slot(), false, null)).toEqual(["validate", "rotate", "disable", "remove"]);
-    expect(projectCredentialActions(slot(), false, null)[0]).toEqual({ action: "validate", disabledReason: "Live validation is off in this build" });
-    expect(projectCredentialActions(slot(), true, "cred-0d8f3e4a").every((item) => item.disabledReason === "Check in progress")).toBe(true);
-    const otherCheck = projectCredentialActions(slot(), true, "cred-other");
+    expect(actionSetForSlot(slot({ enabled: false }), true, null, AUTHORIZATION)).toEqual(["validate", "rotate", "enable", "remove"]);
+    expect(actionSetForSlot(slot(), false, null, AUTHORIZATION)).toEqual(["rotate", "disable", "remove"]);
+    expect(actionSetForSlot(slot({ slotId: "openai" }), true, null, AUTHORIZATION)).toEqual(["rotate", "disable", "remove"]);
+    expect(projectCredentialActions(slot(), true, "cred-0d8f3e4a", true, "ready", AUTHORIZATION).every((item) => item.disabledReason === "Check in progress")).toBe(true);
+    const otherCheck = projectCredentialActions(slot(), true, "cred-other", true, "ready", AUTHORIZATION);
     expect(otherCheck[0]).toEqual({ action: "validate", disabledReason: "Another check is in progress" });
     expect(otherCheck.slice(1).every((item) => item.disabledReason === null)).toBe(true);
     const authoritativeInFlight = slot({ developer: { ...slot().developer, operationPhase: "validation-in-flight" } });
-    expect(projectCredentialActions(authoritativeInFlight, true, null).every((item) => item.disabledReason === "Check in progress")).toBe(true);
+    expect(projectCredentialActions(authoritativeInFlight, true, null, true, "ready", AUTHORIZATION).every((item) => item.disabledReason === "Check in progress")).toBe(true);
   });
 
   it("projects metadata loss as unknown and blocks every credential action without inventing facts", () => {
@@ -217,11 +233,8 @@ describe("action authority", () => {
     const projected = projectCredentialMode(response([checking, other]), "normal");
 
     expect(projected[0]!.actions.every((item) => item.disabledReason === "Check in progress")).toBe(true);
-    expect(projected[1]!.actions.find((item) => item.action === "validate")).toEqual({
-      action: "validate",
-      disabledReason: "Another check is in progress",
-    });
-    expect(projected[1]!.actions.filter((item) => item.action !== "validate").every((item) => item.disabledReason === null)).toBe(true);
+    expect(projected[1]!.actions.find((item) => item.action === "validate")).toBeUndefined();
+    expect(projected[1]!.actions.every((item) => item.disabledReason === null)).toBe(true);
   });
 });
 

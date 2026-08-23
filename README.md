@@ -77,6 +77,11 @@ Three things are stated plainly because they are easy to assume the other way:
   successful live proof exists, so `ANT-02` and development acceptance remain
   incomplete and `ANT-02` is the only development blocker left. The admission
   schema has no admitted variant and production stays blocked on Stage 17W.
+  Stage 18E-I adds a production-disabled, exact-candidate-bound one-shot
+  Anthropic validation path over the saved application-vault `SecretRef`.
+  It ships no authorization packet or marker and makes no request by default;
+  synthetic transport cannot promote its exact live-success validator. This is
+  preparation for a later separately authorized attempt, not `ANT-02` evidence.
 
 ## Documents
 

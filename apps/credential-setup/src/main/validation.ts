@@ -1,5 +1,8 @@
 import { types as utilTypes } from "node:util";
-import type { CredentialValidationOutcome } from "@ai-dev-os/credential-ui";
+import type {
+  CredentialValidationAuthorizationView,
+  CredentialValidationOutcome,
+} from "@ai-dev-os/credential-ui";
 import type { SecretMaterial } from "@ai-dev-os/secrets";
 import type { AppVaultSlotId } from "@ai-dev-os/secrets-app-vault";
 import { CredentialHostError } from "./host-error.js";
@@ -11,6 +14,12 @@ export interface CredentialValidationInput {
   readonly recordToken: string;
   readonly secret: SecretMaterial;
   readonly signal: AbortSignal;
+  /** The policy-aware resolver's exact allowed decision for this secret use. */
+  readonly policyDecisionFingerprint?: string;
+  /** Opaque one-shot claim prepared before secret resolution. */
+  readonly authorizationAttempt?: unknown;
+  /** Called only once the transport has reached a possibly-dispatched phase. */
+  readonly observeProviderDispatch?: () => void;
 }
 
 export interface CredentialValidationResult {
@@ -19,6 +28,16 @@ export interface CredentialValidationResult {
 }
 
 export interface CredentialValidationPort {
+  /** Precise ports report dispatch through `observeProviderDispatch`. */
+  readonly preciseDispatchObservation?: true;
+  /** Optional because deterministic legacy test ports are not operator gates. */
+  authorization?(): CredentialValidationAuthorizationView;
+  prepare?(input: Readonly<{
+    slotId: AppVaultSlotId;
+    providerInstanceId: string;
+    secretRefFingerprint: string;
+    signal: AbortSignal;
+  }>): Promise<unknown>;
   validate(input: CredentialValidationInput): Promise<unknown>;
 }
 

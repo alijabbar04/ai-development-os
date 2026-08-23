@@ -31,9 +31,27 @@ channels deliberately include no event or mode-setting channel. Developer facts
 are finite nonsecret values already returned by `describe`; the independently
 captured action sets are identical in both modes.
 
+## Candidate-bound Anthropic validation
+
+Live validation is unavailable by default. A build contains a usable candidate
+binding only at the exact Stage 18E-I manifest commit, and the UI exposes
+**Validate connection** only for Anthropic when a separately supplied canonical,
+unexpired one-shot authorization packet matches that binding and the existing
+application-vault `SecretRef`. The authorization is durably consumed before
+credential resolution and possible dispatch. Existing, partial, or ambiguous
+markers remain consumed across restart; there is no retry.
+
+The one possible request is fixed to Anthropic Messages API version `2023-06-01`,
+model `claude-haiku-4-5-20251001`, and the synthetic phrase “Reply with exactly
+OK.”, with four output tokens, 65,536 response bytes, a 15-second effect bound,
+five-second callback drain, and standard commercial API retention. The stored
+credential remains callback-scoped in main and is never displayed. No packet or
+marker is shipped in the repository.
+
 ## Safety and project status
 
-- Production is disabled and live validation is disabled.
+- Production is disabled. Live validation is disabled without the exact
+  published candidate binding and a separately supplied valid one-shot packet.
 - Electron is an exact-pinned development peer. `ensure:electron` explicitly
   restores and verifies the checksummed 43.4.1 runtime when its local dist is absent;
   the package does not rely on a nonexistent Electron lifecycle hook.
@@ -49,7 +67,8 @@ captured action sets are identical in both modes.
   Credential Manager lookup; the foundation's separately authorized native smoke
   is not rerun by this checkpoint.
 - Deterministic validation and memory-vault ports exist only for tests and the
-  disposable synthetic Electron smoke.
+  disposable synthetic Electron smoke; fake transport cannot promote a live
+  validation result.
 - No installer, updater, provider login, credential export, or Stage 20/21 runtime
   capability is included.
 - Clipboard clearing is fixed default-on for each host opening and remains a

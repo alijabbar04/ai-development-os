@@ -34,6 +34,8 @@ import type {
   CredentialSlotView,
   CredentialSlotsResult,
   CredentialValidatedResult,
+  CredentialValidationAuthorizationState,
+  CredentialValidationAuthorizationView,
   CredentialValidationOutcome,
 } from "@ai-dev-os/credential-ui";
 import { CredentialEntrySession } from "./session-machine.js";
@@ -190,6 +192,13 @@ function validationActivityCopy(outcome: CredentialValidationOutcome): Readonly<
   return Object.freeze({ tone: "warn", sentence: "did not judge it" });
 }
 
+function authorizationStateError(state: CredentialValidationAuthorizationState): CredentialErrorCode {
+  if (state === "invalid") return "VALIDATION_AUTHORIZATION_INVALID";
+  if (state === "expired") return "VALIDATION_AUTHORIZATION_EXPIRED";
+  if (state === "consumed") return "VALIDATION_AUTHORIZATION_CONSUMED";
+  return "VALIDATION_AUTHORIZATION_UNAVAILABLE";
+}
+
 const AMBIGUOUS_VALIDATION_RESULT: CredentialValidationResult = Object.freeze({ outcome: "ambiguous", resultCode: "RESULT_AMBIGUOUS" });
 
 function finiteValidationResult(value: unknown): CredentialValidationResult {
@@ -262,6 +271,7 @@ export class CredentialHostService {
   readonly #encryptionAvailable: () => boolean | Promise<boolean>;
   readonly #session: CredentialEntrySession;
   readonly #validating = new Set<string>();
+  readonly #validationControllers = new Set<AbortController>();
   #closed = false;
   #active = 0;
   #closePromise: Promise<void> | null = null;
@@ -273,8 +283,8 @@ export class CredentialHostService {
     this.#metadata = options.metadata;
     this.#validation = options.validation;
     this.#validationEnabled = options.validationEnabled;
-    this.#validationTimeoutMs = options.validationTimeoutMs ?? 10_000;
-    if (!Number.isSafeInteger(this.#validationTimeoutMs) || this.#validationTimeoutMs < 1 || this.#validationTimeoutMs > 10_000) throw new CredentialHostError("REFUSED");
+    this.#validationTimeoutMs = options.validationTimeoutMs ?? 20_000;
+    if (!Number.isSafeInteger(this.#validationTimeoutMs) || this.#validationTimeoutMs < 1 || this.#validationTimeoutMs > 20_000) throw new CredentialHostError("REFUSED");
     this.#clock = options.clock;
     this.#random = options.random ?? defaultRandom();
     this.#clipboard = options.clipboard;
@@ -382,6 +392,14 @@ export class CredentialHostService {
     }
     const issue = encryptionAvailable ? issueCode(snapshot) : "ENCRYPTION_UNAVAILABLE";
     const vaultState = encryptionAvailable ? snapshot.vaultState : "encryption-unavailable";
+    const hasAuthorizationGate = this.#validation.authorization !== undefined;
+    let authorizationReadable = true;
+    let validationAuthorization: CredentialValidationAuthorizationView | null = null;
+    try { validationAuthorization = this.#validation.authorization?.() ?? null; }
+    catch { authorizationReadable = false; validationAuthorization = null; }
+    const validationEnabled = this.#validationEnabled &&
+      authorizationReadable &&
+      (!hasAuthorizationGate || validationAuthorization?.state === "available");
     return Object.freeze({
       schemaVersion: 1,
       requestId: "0".repeat(32),
@@ -397,7 +415,8 @@ export class CredentialHostService {
           : snapshot.recovery === null ? null : Object.freeze({ issueCode: issue, primaryDigest: snapshot.recovery.primaryDigest, backupDigest: snapshot.recovery.backupDigest, actions: snapshot.recovery.actions }),
       activity: metadata.snapshot.activity,
       clipboardClearDefault: metadata.snapshot.clipboardClearDefault,
-      validationEnabled: this.#validationEnabled,
+      validationEnabled,
+      validationAuthorization,
       productionDisabled: true,
       metadataAvailable: metadataComplete,
     });
@@ -629,17 +648,19 @@ export class CredentialHostService {
     let entered = false;
     let ownsValidationReservation = false;
     let releaseHostReservation = (): void => undefined;
+    let validationController: AbortController | null = null;
+    let validationTimer: NodeJS.Timeout | undefined;
     try {
       this.#enter(); entered = true;
       this.#session.begin("validate");
       if (!this.#validationEnabled) throw new CredentialHostError("VALIDATION_DISABLED");
+      const authorization = this.#validation.authorization?.() ?? null;
+      if (authorization !== null && authorization.state !== "available") {
+        throw new CredentialHostError(authorizationStateError(authorization.state));
+      }
       if (this.#validating.size > 0) throw new CredentialHostError("ILLEGAL_TRANSITION");
       this.#validating.add(payload.credentialId);
       ownsValidationReservation = true;
-      const bound = await this.#authoritative(payload.slotId, payload.credentialId, payload.recordRevision, payload.recordToken, false);
-      if (bound.summary.state !== "present" || !bound.slotMetadata.enabled) throw new CredentialHostError("SLOT_ABSENT");
-      if (bound.summary.revision === null) throw new CredentialHostError("REFUSED");
-      const authoritativeRecordRevision = bound.summary.revision;
       const operationRandom = this.#random.hex(16);
       if (!/^[a-f0-9]{32}$/u.test(operationRandom)) throw new CredentialHostError("REFUSED");
       const operationId = `credential-validate.${operationRandom}`;
@@ -648,22 +669,63 @@ export class CredentialHostService {
       const discardActivityId = requiredActivityId(this.#random);
       const trace = Object.freeze({ traceId: `${operationId}.trace`, runId: null, taskId: null, taskRunId: null });
       const abort = new AbortController();
+      validationController = abort;
+      this.#validationControllers.add(abort);
       const absoluteDeadlineAt = Date.now() + this.#validationTimeoutMs;
       let expired = false;
       let deadlineExpired = false;
       let workSettled = true;
       const expire = (): void => { expired = true; deadlineExpired = true; abort.abort(); };
       const unreachable = Object.freeze({ outcome: "unreachable" as const, resultCode: "PROVIDER_UNREACHABLE" as const });
-      let timeout: NodeJS.Timeout | undefined;
       const timedOut = new Promise<CredentialValidationResult>((resolve) => {
-        timeout = setTimeout(() => { expire(); resolve(unreachable); }, this.#validationTimeoutMs);
+        validationTimer = setTimeout(() => { expire(); resolve(unreachable); }, this.#validationTimeoutMs);
       });
       const deadline = new Date(Date.parse(validationStartedAt) + this.#validationTimeoutMs).toISOString();
+      const authoritativeOperation = this.#authoritative(
+        payload.slotId,
+        payload.credentialId,
+        payload.recordRevision,
+        payload.recordToken,
+        false,
+      );
+      let stopAuthoritative!: () => void;
+      const authoritativeStopped = new Promise<void>((resolve) => {
+        stopAuthoritative = (): void => resolve();
+        if (abort.signal.aborted) stopAuthoritative();
+        else abort.signal.addEventListener("abort", stopAuthoritative, { once: true });
+      });
+      let authoritativeResult:
+        | Readonly<{ kind: "bound"; bound: Awaited<typeof authoritativeOperation> }>
+        | Readonly<{ kind: "stopped" }>;
+      try {
+        authoritativeResult = await Promise.race([
+          authoritativeOperation.then((bound) => Object.freeze({ kind: "bound" as const, bound })),
+          authoritativeStopped.then(() => Object.freeze({ kind: "stopped" as const })),
+        ]);
+      } finally {
+        abort.signal.removeEventListener("abort", stopAuthoritative);
+      }
+      if (authoritativeResult.kind === "stopped") {
+        const authoritativeDrain = Promise.allSettled([authoritativeOperation])
+          .then(() => { this.#validating.delete(payload.credentialId); });
+        ownsValidationReservation = false;
+        this.#trackBackground(authoritativeDrain);
+        throw new CredentialHostError(this.#closed ? "APP_NOT_READY" : "VALIDATION_CANCELLED");
+      }
+      const bound = authoritativeResult.bound;
+      if (abort.signal.aborted || Date.now() >= absoluteDeadlineAt || this.#closed) {
+        expire();
+        throw new CredentialHostError(this.#closed ? "APP_NOT_READY" : "VALIDATION_CANCELLED");
+      }
+      if (bound.summary.state !== "present" || !bound.slotMetadata.enabled) throw new CredentialHostError("SLOT_ABSENT");
+      if (bound.summary.revision === null) throw new CredentialHostError("REFUSED");
+      const authoritativeRecordRevision = bound.summary.revision;
       let result: CredentialValidationResult;
       let completedResult: CredentialValidationResult | null = null;
       let policyFingerprint = "";
       let providerDispatched = false;
-      try {
+      let authorizationAttempt: unknown;
+      {
         const reference = appVaultReferenceForSlot(payload.slotId);
         const provider = validationProvider(payload.slotId);
         const scope = Object.freeze({ projectId: null, taskId: null, providerInstanceId: appVaultSlot(payload.slotId).providerInstanceId, workspaceId: null, operationId, traceId: trace.traceId });
@@ -681,6 +743,18 @@ export class CredentialHostService {
           expire();
           result = unreachable;
         } else {
+          if (this.#validation.prepare !== undefined) {
+            authorizationAttempt = await this.#validation.prepare({
+              slotId: payload.slotId,
+              providerInstanceId: scope.providerInstanceId,
+              secretRefFingerprint: secretRefFingerprint(reference),
+              signal: abort.signal,
+            });
+          }
+          if (abort.signal.aborted || Date.now() >= absoluteDeadlineAt) {
+            expire();
+            result = unreachable;
+          } else {
           const context = parseSecretAccessContext({ operationId, providerInstanceId: scope.providerInstanceId, purpose: "provider-authentication", requestedLifetimeMs: this.#validationTimeoutMs, accessForm: "text", classification: "internal", projectId: null, taskId: null, approvalEvidenceRefs: [], disclosureDecisionFingerprint: disclosureDecision.fingerprint, locality: "cloud", trace, deadline, signal: abort.signal });
           const policyRequest = parsePolicyRequest({ ...commonPolicy, action: "secret-access", subjectDigest: secretRefFingerprint(reference) });
           try {
@@ -689,8 +763,18 @@ export class CredentialHostService {
               policyFingerprint = fingerprint;
               const dispatched = Promise.resolve().then(() => {
                 if (abort.signal.aborted || Date.now() >= absoluteDeadlineAt) { expire(); return unreachable; }
-                providerDispatched = true;
-                return this.#validation.validate({ slotId: payload.slotId, credentialId: payload.credentialId, recordRevision: authoritativeRecordRevision, recordToken: payload.recordToken, secret, signal: abort.signal });
+                if (this.#validation.preciseDispatchObservation !== true) providerDispatched = true;
+                return this.#validation.validate({
+                  slotId: payload.slotId,
+                  credentialId: payload.credentialId,
+                  recordRevision: authoritativeRecordRevision,
+                  recordToken: payload.recordToken,
+                  secret,
+                  signal: abort.signal,
+                  policyDecisionFingerprint: fingerprint,
+                  authorizationAttempt,
+                  observeProviderDispatch: () => { providerDispatched = true; },
+                });
               }).then(
                 (value) => finiteValidationResult(value),
                 () => unreachable,
@@ -728,8 +812,22 @@ export class CredentialHostService {
               result = unreachable;
             }
           }
+          }
         }
-      } finally { if (timeout !== undefined) clearTimeout(timeout); abort.abort(); }
+      }
+
+      const recordingAllowed = (): boolean => {
+        if (this.#closed) return false;
+        if (!abort.signal.aborted && Date.now() < absoluteDeadlineAt) return true;
+        return !validationDefinitive(result.outcome);
+      };
+      const refuseLateResult = (): void => {
+        if (!recordingAllowed()) {
+          expire();
+          result = unreachable;
+        }
+      };
+      refuseLateResult();
 
       type Applicability = CredentialValidatedResult["applicability"];
       type ResultRecording = CredentialValidatedResult["resultRecording"];
@@ -743,6 +841,7 @@ export class CredentialHostService {
       };
 
       let applicability = await observeApplicability();
+      refuseLateResult();
       const checkedAt = bestEffortIsoTimestamp(this.#clock, validationStartedAt);
       const hasPolicyFingerprint = /^[a-f0-9]{64}$/u.test(policyFingerprint);
       let resultRecording: ResultRecording = "not-recorded";
@@ -765,9 +864,12 @@ export class CredentialHostService {
               const stored = Object.freeze({ ...currentSlot!, validation: nextValidation, lastValidationAttempt: nextValidation });
               return replaceSlotMetadata(currentMetadata, payload.slotId, stored);
             }
-          });
+          }, recordingAllowed);
           resultRecording = attemptedResultRecording;
-        } catch { resultRecording = "unknown"; }
+        } catch {
+          resultRecording = "unknown";
+          refuseLateResult();
+        }
       }
 
       if (applicability === "current") applicability = await observeApplicability();
@@ -788,12 +890,12 @@ export class CredentialHostService {
         : applicability === "unknown"
           ? providerDispatched
             ? `Validation finished for the checked ${appVaultSlot(payload.slotId).displayName} credential version, but current-version attribution is unconfirmed. Exactly one request; no retry.`
-            : `Validation deadline expired for ${appVaultSlot(payload.slotId).displayName} before dispatch; current-version attribution is unconfirmed. No provider request was sent.`
+            : `Validation ended for ${appVaultSlot(payload.slotId).displayName} before provider dispatch; current-version attribution is unconfirmed. No provider request was sent; nothing was retried.`
           : providerDispatched && !resultRecordComplete
             ? `Validation finished for ${appVaultSlot(payload.slotId).displayName}, but local result recording is unconfirmed. Exactly one request; no retry.`
             : providerDispatched
               ? `Validation finished for the checked ${appVaultSlot(payload.slotId).displayName} credential version: provider ${copy.sentence}. Exactly one request; no retry.`
-              : `Validation deadline expired for ${appVaultSlot(payload.slotId).displayName} before provider dispatch. No provider request was sent.`;
+              : `Validation ended for ${appVaultSlot(payload.slotId).displayName} before provider dispatch. No provider request was sent; nothing was retried.`;
       const primaryActivity = activityFromReservedFacts(primaryActivityId, checkedAt, workSettled && applicability === "current" && providerDispatched && resultRecordComplete ? copy.tone : "warn", activityText);
       try {
         await this.#metadata.update((currentMetadata) => {
@@ -801,7 +903,7 @@ export class CredentialHostService {
           if (applicability === "current" && currentSlot?.credentialId !== payload.credentialId) throw new CredentialHostError("VAULT_REVISION_CONFLICT");
           const stored = applicability === "discarded" ? clearStoredValidationForToken(currentSlot, payload.recordToken) : currentSlot;
           return replaceSlotMetadata(currentMetadata, payload.slotId, stored, primaryActivity);
-        });
+        }, recordingAllowed);
         activityRecording = "recorded";
         if (applicability === "discarded") resultRecording = "not-recorded";
       } catch { activityRecording = "unknown"; }
@@ -818,7 +920,7 @@ export class CredentialHostService {
               const stored = clearStoredValidationForToken(currentSlot, payload.recordToken);
               const withoutSupersededActivity: CredentialMetadataSnapshot = Object.freeze({ ...currentMetadata, activity: Object.freeze(currentMetadata.activity.filter((item) => item.id !== primaryActivity.id)) });
               return replaceSlotMetadata(withoutSupersededActivity, payload.slotId, stored, discardActivity);
-            });
+            }, recordingAllowed);
             resultRecording = "not-recorded";
             activityRecording = "recorded";
           } catch {
@@ -832,6 +934,9 @@ export class CredentialHostService {
       return response;
     } catch (error) { return refused(payload.requestId, error); }
     finally {
+      if (validationTimer !== undefined) clearTimeout(validationTimer);
+      validationController?.abort();
+      if (validationController !== null) this.#validationControllers.delete(validationController);
       releaseHostReservation();
       if (ownsValidationReservation) this.#validating.delete(payload.credentialId);
       if (entered) this.#leave();
@@ -851,6 +956,7 @@ export class CredentialHostService {
     if (this.#closePromise !== null) return this.#closePromise;
     this.#closed = true;
     this.#session.destroy();
+    for (const controller of this.#validationControllers) controller.abort();
     this.#closePromise = (async () => {
       await this.#awaitIdle();
       const closeOperations: Array<() => Promise<void>> = [

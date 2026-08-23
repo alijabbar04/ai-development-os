@@ -118,6 +118,11 @@ jobs:
 
       - run: npm run check
 
+      # Before publication this reports a finite disabled state. At the
+      # manifest-only Stage 18E-I head it independently reconstructs the exact
+      # committed-blob subject and refuses parent, tree, inventory, or byte drift.
+      - run: npm run verify:stage-18e-i-if-published
+
       # The production-disabled Windows credential package owns a two-operation
       # exact-read N-API boundary. gypfile:false prevents an npm-synthesized
       # install hook, and it has no committed binary, so compile it explicitly

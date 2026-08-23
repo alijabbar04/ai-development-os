@@ -2,7 +2,7 @@
   "name": "@ai-dev-os/credential-setup",
   "version": "0.1.0",
   "private": true,
-  "description": "Production-disabled hardened Windows Electron host for Stage 18E-H credential setup.",
+  "description": "Production-disabled hardened Windows Electron host with Stage 18E-I candidate-bound Anthropic validation.",
   "type": "module",
   "main": "dist/main/startup-bootstrap.cjs",
   "files": [
@@ -13,8 +13,8 @@
     "package.json"
   ],
   "scripts": {
-    "prebuild": "npm --prefix ../../packages/credential-ui run build && npm --prefix ../../packages/secrets-app-vault-electron run build && npm --prefix ../../packages/policy run build && npm --prefix ../../packages/secrets run build",
-    "build": "tsc -p tsconfig.json && node scripts/copy-main-bootstrap.mjs && node scripts/copy-renderer.mjs",
+    "prebuild": "npm --prefix ../../packages/credential-ui run build && npm --prefix ../../packages/secrets-app-vault-electron run build && npm --prefix ../../packages/provider-anthropic run build && npm --prefix ../../packages/policy run build && npm --prefix ../../packages/secrets run build",
+    "build": "node scripts/write-stage-18e-i-candidate-binding.mjs && tsc -p tsconfig.json && node scripts/copy-main-bootstrap.mjs && node scripts/copy-renderer.mjs",
     "pretest": "npm run prebuild",
     "test": "vitest run && node --test scripts/launch-production-host.regression.mjs",
     "pretest:coverage": "npm run prebuild",
@@ -35,6 +35,7 @@
     "@ai-dev-os/credential-ui": "^0.1.0",
     "@ai-dev-os/domain": "^0.1.0",
     "@ai-dev-os/policy": "^0.1.0",
+    "@ai-dev-os/provider-anthropic": "^0.1.0",
     "@ai-dev-os/secrets": "^0.1.0",
     "@ai-dev-os/secrets-app-vault": "^0.1.0",
     "@ai-dev-os/secrets-app-vault-electron": "^0.1.0"

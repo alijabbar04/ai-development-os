@@ -147,6 +147,13 @@ describe("browser component contract", () => {
     expect(source).not.toContain('expected === "validation" && result.code === "VALIDATION_POLICY_DENIED"');
   });
 
+  it("describes no-dispatch failures without inventing a deadline or provider response", () => {
+    expect(source).toContain('ambiguous: { tone: "warn", title: "Check unclear", body: `The check did not clearly accept or reject');
+    expect(source).not.toContain("The provider response did not clearly accept or reject");
+    expect(source).toContain(": result.deadlineExpired ? `The deadline expired");
+    expect(source).toContain(": `The check ended at ${observed} before provider dispatch. No provider request was sent; nothing was retried");
+  });
+
   it("blocks the rendered surface and makes Escape inert during validation and removal", () => {
     const validation = source.indexOf("validationSubmitting = true");
     const validationRender = source.indexOf("render();", validation);
@@ -164,6 +171,26 @@ describe("browser component contract", () => {
     expect(removalAwait).toBeGreaterThan(removalRender);
     expect(source).toContain('if (result.kind === "unknown")');
     expect(source).toContain("authoritativeStateFresh = false");
+  });
+
+  it("exposes only the authorized Anthropic action and discloses the exact one-shot request before confirmation", () => {
+    expect(source).toContain('slot.slotId === "anthropic"');
+    expect(source).toContain('authorization?.state === "available"');
+    expect(source).toContain('authorization.slotId === "anthropic"');
+    expect(source).toContain('if (validationAuthorizationFor(slot) !== null)');
+    expect(source).toContain("Confirming makes exactly one Anthropic API request using the saved credential.");
+    expect(source).toContain('Provider and model: Anthropic, ${authorization.modelId}.');
+    expect(source).toContain('only the fixed synthetic phrase “Reply with exactly OK.”');
+    expect(source).toContain("Maximum output: four tokens.");
+    expect(source).toContain("Standard Anthropic commercial API retention applies; zero-data retention is not claimed.");
+    expect(source).toContain("One attempt only. No automatic or hidden retry will occur.");
+    expect(source).toContain("will not be displayed");
+    expect(source).toContain("Cancel makes no network request and does not consume the one-shot authorization.");
+    expect(source).toContain("Confirm consumes the one-shot authorization immediately before credential resolution and possible dispatch.");
+    expect(source).toContain("15 seconds, followed by at most five seconds");
+    expect(source).toContain('button("Confirm and validate"');
+    expect(source).toContain("22_000");
+    expect(source).not.toContain("One attempt, up to 10 seconds");
   });
 
   it("focuses the protected field and blocks the rendered surface before an entry mutation awaits", () => {

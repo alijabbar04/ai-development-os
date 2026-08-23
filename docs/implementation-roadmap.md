@@ -758,6 +758,17 @@ superseded by Stage 21 rather than grown into it. It changes no acceptance row;
 in particular it cannot prove `ANT-02` without a later separately authorized live
 attempt.
 
+ADR 0035 designates **Stage 18E-I** as the production-disabled validation
+enablement candidate. It extracts the already reviewed fixed Anthropic canary
+into a stable validation-only subpath, binds a canonical one-shot packet to the
+exact final HEAD/tree/manifest and application-vault Anthropic `SecretRef`, and
+atomically consumes a nonsecret durable marker before secret resolution. The
+packet is absent by default, no marker is committed, other providers and task
+execution remain unreachable, and only an exact direct-HTTPS success envelope
+can become Valid. This checkpoint performs no credential read or provider call;
+`ANT-02` remains incomplete until a later separately authorized live attempt
+actually succeeds.
+
 Stage 18E foundation recovery is explicit rather than startup-driven: one
 revision-consistent snapshot describes source-state- and digest-bound restore,
 corrupt-state start-over, or identity rebind choices; matching digests cannot roll

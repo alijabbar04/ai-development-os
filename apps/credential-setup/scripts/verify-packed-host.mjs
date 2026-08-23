@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -29,6 +29,7 @@ const workspaces = [
   "@ai-dev-os/secrets",
   "@ai-dev-os/secrets-app-vault",
   "@ai-dev-os/secrets-app-vault-electron",
+  "@ai-dev-os/provider-anthropic",
   "@ai-dev-os/credential-ui",
   "@ai-dev-os/credential-setup",
 ];
@@ -69,6 +70,8 @@ const requiredAppFiles = [
   "dist/main/startup-bootstrap-runtime.cjs",
   "dist/main/startup-deadline.cjs",
   "dist/main/host-service.js",
+  "dist/main/anthropic-validation.js",
+  "dist/main/anthropic-validation-authorization.js",
   "dist/preload/credential.cjs",
   "dist/renderer/credential/index.html",
   "dist/renderer/credential/entry.js",
@@ -76,6 +79,13 @@ const requiredAppFiles = [
   "README.md",
   "package.json",
 ];
+let publishedCandidate = false;
+try {
+  await access(join(repository, "docs", "release-evidence", "stage-18e-i-subject-manifest.json"));
+  publishedCandidate = true;
+} catch { publishedCandidate = false; }
+if (publishedCandidate) requiredAppFiles.push("dist/main/stage-18e-i-candidate-binding.json");
+else if (appFiles.includes("dist/main/stage-18e-i-candidate-binding.json")) throw new Error("Unpublished packed host included a candidate binding.");
 for (const path of requiredAppFiles) if (!appFiles.includes(path)) throw new Error(`Packed host omitted ${path}.`);
 if (appFiles.some((path) => path.startsWith("src/") || path.startsWith("test/") || path.startsWith("scripts/") || path.startsWith("dist/testing/") || path.includes("coverage"))) throw new Error("Packed host included development or test material.");
 const rendererFiles = appFiles.filter((path) => path.startsWith("dist/renderer/credential/")).sort();
@@ -134,6 +144,7 @@ if (exitCode !== 0 || runtime.ok !== true) throw new Error(`Packed production ho
 if (runtime.visible !== true) throw new Error("Packed production host was not visibly ready.");
 if (!resolve(runtime.appDataPath).startsWith(resolve(runtimeRoot) + sep) || !resolve(runtime.userDataPath).startsWith(resolve(runtimeRoot) + sep)) throw new Error("Packed production host escaped its disposable paths.");
 if (JSON.stringify(runtime.renderer?.bridge) !== JSON.stringify(["cancel", "describe", "remove", "rotate", "save", "setEnabled", "validate"])) throw new Error("Packed production host bridge drifted.");
+if (runtime.renderer?.validationButtons !== 0) throw new Error("Packed production host exposed validation without an authorization packet.");
 if (stdout.includes("SYNTHETIC_CREDENTIAL") || stderr.includes("SYNTHETIC_CREDENTIAL")) throw new Error("Packed runtime emitted a synthetic credential canary.");
 
 process.stdout.write(`${JSON.stringify({ ok: true, electron: electronVersion, root, packages: tarballs.size, appFiles: appFiles.length, rendererFiles, audit: "high-severity clean", cleanInstall: true, runtime }, null, 2)}\n`);

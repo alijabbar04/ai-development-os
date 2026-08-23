@@ -502,6 +502,72 @@ describe("policy-gated validation", () => {
     await service.close();
   });
 
+  it("records dispatch only when a precise validation port reports the dispatch boundary", async () => {
+    const control = createTestCredentialHost();
+    await save(control.createService());
+    let observations = 0;
+    const validation: CredentialValidationPort = Object.freeze({
+      preciseDispatchObservation: true,
+      async validate(input) {
+        expect(input.observeProviderDispatch).toBeTypeOf("function");
+        input.observeProviderDispatch?.();
+        observations += 1;
+        return Object.freeze({ outcome: "valid", resultCode: "VALIDATION_OK" });
+      },
+    });
+    const service = control.createService({ validation, validationEnabled: true });
+    const current = await slots(service);
+    const result = await service.validate({
+      ...base,
+      requestId: "5".repeat(32),
+      operation: "validate",
+      ...identity(current),
+      acknowledgedDisclosure: true,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "validated",
+      outcome: "valid",
+      providerDispatched: true,
+      definitive: true,
+    });
+    expect(observations).toBe(1);
+    await service.close();
+  });
+
+  it("does not invent a deadline or provider response for a settled pre-dispatch failure", async () => {
+    const control = createTestCredentialHost();
+    await save(control.createService());
+    const validation: CredentialValidationPort = Object.freeze({
+      preciseDispatchObservation: true,
+      async validate() {
+        return Object.freeze({ outcome: "unreachable", resultCode: "PROVIDER_UNREACHABLE" });
+      },
+    });
+    const service = control.createService({ validation, validationEnabled: true });
+    const current = await slots(service);
+    const result = await service.validate({
+      ...base,
+      requestId: "e".repeat(32),
+      operation: "validate",
+      ...identity(current),
+      acknowledgedDisclosure: true,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "validated",
+      outcome: "unreachable",
+      providerDispatched: false,
+      deadlineExpired: false,
+      workSettled: true,
+    });
+    const activity = control.metadata.snapshot().activity[0]?.text ?? "";
+    expect(activity).toContain("Validation ended for Anthropic before provider dispatch");
+    expect(activity).toContain("No provider request was sent; nothing was retried");
+    expect(activity).not.toMatch(/deadline|provider response/iu);
+    await service.close();
+  });
+
   it("uses reserved finite host facts when clock and randomness become unavailable after provider dispatch", async () => {
     const control = createTestCredentialHost();
     await save(control.createService());
@@ -1203,6 +1269,97 @@ describe("bounded fallback and failure projections", () => {
     expect(await pending).toMatchObject({ ok: true, kind: "validated" });
     await closing;
     expect(closeSettled).toBe(true);
+  });
+
+  it("cannot prepare authorization or dispatch when close wins during the first authoritative read", async () => {
+    const control = createTestCredentialHost();
+    const setup = control.createService();
+    await save(setup);
+    const current = await slots(setup);
+    let authoritativeStarted!: () => void;
+    const atAuthoritative = new Promise<void>((resolve) => { authoritativeStarted = resolve; });
+    let releaseAuthoritative!: () => void;
+    const authoritativeGate = new Promise<void>((resolve) => { releaseAuthoritative = resolve; });
+    const manager = Object.freeze({
+      ...control.manager,
+      async describeSnapshot() {
+        authoritativeStarted();
+        await authoritativeGate;
+        return await control.manager.describeSnapshot();
+      },
+    });
+    let preparations = 0;
+    let dispatches = 0;
+    const validation: CredentialValidationPort = Object.freeze({
+      async prepare() { preparations += 1; return Object.freeze({ schemaVersion: 1 }); },
+      async validate() {
+        dispatches += 1;
+        return Object.freeze({ outcome: "valid", resultCode: "VALIDATION_OK" });
+      },
+    });
+    const session = new CredentialEntrySession();
+    session.begin("describe");
+    session.described();
+    const service = new CredentialHostService({
+      manager,
+      resolvers: control.resolvers,
+      metadata: control.metadata,
+      validation,
+      validationEnabled: true,
+      clock: control.clock,
+      clipboard: { async clear() { return true; } },
+      session,
+    });
+    const pending = service.validate({ ...base, requestId: "c".repeat(32), operation: "validate", ...identity(current), acknowledgedDisclosure: true });
+    await atAuthoritative;
+    let closeSettled = false;
+    const closing = service.close().then(() => { closeSettled = true; });
+    await waitImmediate();
+    expect({ preparations, dispatches, closeSettled }).toEqual({ preparations: 0, dispatches: 0, closeSettled: false });
+    releaseAuthoritative();
+    expect(await pending).toMatchObject({ ok: false, code: "APP_NOT_READY" });
+    await closing;
+    expect({ preparations, dispatches, closeSettled }).toEqual({ preparations: 0, dispatches: 0, closeSettled: true });
+  });
+
+  it("does not persist a definitive result when close wins after provider settlement", async () => {
+    const control = createTestCredentialHost();
+    await save(control.createService());
+    let recordingStarted!: () => void;
+    const atRecording = new Promise<void>((resolve) => { recordingStarted = resolve; });
+    let releaseRecording!: () => void;
+    const recordingGate = new Promise<void>((resolve) => { releaseRecording = resolve; });
+    let updates = 0;
+    const service = new CredentialHostService({
+      manager: control.manager,
+      resolvers: control.resolvers,
+      metadata: {
+        read: () => control.metadata.read(),
+        write: (snapshot) => control.metadata.write(snapshot),
+        async update(transform, commitAllowed) {
+          updates += 1;
+          if (updates === 1) {
+            recordingStarted();
+            await recordingGate;
+          }
+          return await control.metadata.update(transform, commitAllowed);
+        },
+      },
+      validation: createDeterministicCredentialValidationPort({ outcome: "valid" }),
+      validationEnabled: true,
+      clock: control.clock,
+      clipboard: { async clear() { return true; } },
+    });
+    const current = await slots(service);
+    const pending = service.validate({ ...base, requestId: "d".repeat(32), operation: "validate", ...identity(current), acknowledgedDisclosure: true });
+    await atRecording;
+    const closing = service.close();
+    releaseRecording();
+    const result = await pending;
+    await closing;
+    expect(result).toMatchObject({ ok: true, kind: "validated", outcome: "unreachable", definitive: false, providerDispatched: true, deadlineExpired: true });
+    expect(control.metadata.snapshot().slots.anthropic?.validation).toBeNull();
+    expect(control.metadata.snapshot().slots.anthropic?.lastValidationAttempt).toBeNull();
   });
 
   it("attempts every manager and broker close before returning one finite failure", async () => {

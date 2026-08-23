@@ -13,6 +13,7 @@ const expectOrdered = (source: string, left: string, right: string): void => {
   expect(source.indexOf(left)).toBeLessThan(source.indexOf(right));
 };
 const sources = [
+  "src/main/anthropic-validation-authorization.ts", "src/main/anthropic-validation.ts",
   "src/main/constants.ts", "src/main/hardening.ts", "src/main/ipc.ts", "src/main/ipc-schema.ts",
   "src/main/protocol.ts", "src/main/production-composition.ts", "src/main/main.ts",
   "src/main/host-service.ts", "src/main/metadata-safety.ts", "src/main/metadata-store.ts", "src/main/startup-bootstrap.cjs", "src/main/startup-bootstrap-runtime.cjs", "src/main/startup-deadline.cjs", "src/main/startup-diagnostic.ts", "src/main/startup-entry.ts", "src/main/startup-lifecycle.ts", "src/main/validation.ts",
@@ -94,8 +95,7 @@ describe("Electron and dependency static policy", () => {
     const manifest = JSON.parse(read("package.json")) as { scripts: Record<string, string> };
     const launcher = read("scripts/launch-production-host.mjs");
     expect(manifest.scripts["start"]).toBe("node scripts/launch-production-host.mjs");
-    expect(launcher).toContain('Object.freeze(["ELECTRON_", "NODE_"])');
-    expect(launcher).toContain('Object.freeze(["GOOGLE_API_KEY"])');
+    for (const removed of ["ELECTRON_", "NODE_", "DOTNET_", "COMPLUS_", "CORECLR_", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY"]) expect(launcher).toContain(`"${removed}"`);
     expect(launcher).toContain('output.NODE_ENV = "production"');
     expect(launcher).toContain('const productionMain = "dist/main/startup-bootstrap.cjs"');
     expect(launcher).toContain("resolve(appRoot, applicationMain)");
@@ -142,6 +142,15 @@ describe("Electron and dependency static policy", () => {
     expect(diagnostic).toContain("writeSync(2, line)");
   });
 
+  it("keeps real Electron smoke failure output finite and secret-independent", () => {
+    const smoke = read("scripts/real-electron-smoke.mjs");
+    expect(smoke).toContain("CREDENTIAL_DIAGNOSTIC.test(stdout)");
+    expect(smoke).toContain("CREDENTIAL_DIAGNOSTIC.test(stderr)");
+    expect(smoke).toContain("finiteLabel(report.stage");
+    expect(smoke).not.toContain("report.assertions[name]");
+    expect(smoke).not.toMatch(/stderr\.trim|failedAssertions|synthetic-canary-redacted|synthetic-replacement-redacted/u);
+  });
+
   it("runs non-copying secret/metadata containment before any composed label check", () => {
     const safety = read("src/main/metadata-safety.ts");
     expectOrdered(safety, "export function assertCredentialMetadataSeparatedFromSecret", "const candidates:");
@@ -183,5 +192,14 @@ describe("Electron and dependency static policy", () => {
     const exactBridge = '["cancel", "describe", "remove", "rotate", "save", "setEnabled", "validate"]';
     expect(verifier).toContain(exactBridge);
     expect(wrapper).toContain(exactBridge);
+  });
+
+  it("refuses to emit a published candidate binding from a dirty worktree", () => {
+    const writer = read("scripts/write-stage-18e-i-candidate-binding.mjs");
+    expect(writer).toContain('["status", "--porcelain=v1", "--untracked-files=all"]');
+    expectOrdered(writer, "CANDIDATE_BINDING_WORKTREE_NOT_CLEAN", "readCommittedSubjectManifest(repositoryRoot, head)");
+    expect(writer).toContain("assertStage18eIManifestBase(manifest)");
+    expect(writer).toContain("collectSubjectManifest(repositoryRoot, STAGE_18E_I_BASE_COMMIT, parents[1])");
+    expect(writer).not.toContain("collectSubjectManifest(repositoryRoot, manifest.baseCommit");
   });
 });

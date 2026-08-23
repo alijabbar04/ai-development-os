@@ -14,7 +14,7 @@ import {
 
 const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-test("production launch removes inherited Electron and Node controls and fixes production mode", () => {
+test("production launch removes inherited credentials and runtime injection controls and fixes production mode", () => {
   const unicodeLookalikes = Object.freeze({
     electron: "ELECTRO\u017f_ENABLE_LOGGING",
     node: "N\u212aDE_OPTIONS",
@@ -29,6 +29,10 @@ test("production launch removes inherited Electron and Node controls and fixes p
     Node_Extra_CA_Certs: "synthetic-trust-control",
     node_env: "development",
     GOOGLE_API_KEY: "synthetic-network-control",
+    ANTHROPIC_API_KEY: "synthetic-anthropic-control",
+    DOTNET_STARTUP_HOOKS: "synthetic-dotnet-hook",
+    COMPlus_ReadyToRun: "synthetic-dotnet-runtime",
+    CORECLR_ENABLE_PROFILING: "synthetic-profiler-control",
     [unicodeLookalikes.electron]: "preserved-electron-lookalike",
     [unicodeLookalikes.node]: "preserved-node-lookalike",
     PRESERVED: "value",

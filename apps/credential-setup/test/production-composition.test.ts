@@ -60,7 +60,7 @@ afterEach(async () => {
 });
 
 describe("production credential-host composition", () => {
-  it("constructs the sole manager, all fixed brokers, metadata root, and disabled host", async () => {
+  it("constructs the sole manager, all fixed brokers, metadata root, and authorization-disabled host", async () => {
     const appData = await mkdtemp(join(tmpdir(), "credential-composition-"));
     temporaryRoots.push(appData);
     const managerClose = vi.fn(async () => undefined);
@@ -79,13 +79,26 @@ describe("production credential-host composition", () => {
     });
     const clipboardClear = vi.fn();
     const availability = vi.fn(async () => true);
-    const service = await createProductionCredentialHost({ app: { getPath: () => appData, getName: () => "Credential Composition Test" }, clipboard: { clear: clipboardClear }, safeStorage: { isAsyncEncryptionAvailable: availability } } as never);
+    const service = await createProductionCredentialHost({ app: { getPath: () => appData, getName: () => "Credential Composition Test", getAppPath: () => appData }, clipboard: { clear: clipboardClear }, safeStorage: { isAsyncEncryptionAvailable: availability } } as never);
     expect(factories.manager).toHaveBeenCalledOnce();
     expect(factories.broker).toHaveBeenCalledTimes(4);
     expect(factories.broker.mock.calls.map((call) => call[0].reference.providerInstanceId)).toEqual(APP_VAULT_SLOTS.map((slot) => slot.providerInstanceId));
-    expect(await service.describe({ schemaVersion: 1, requestId: "1".repeat(32), sessionToken: "2".repeat(64), operation: "describe" })).toMatchObject({ ok: true, kind: "slots", vaultState: "absent", validationEnabled: false, productionDisabled: true });
+    expect(await service.describe({ schemaVersion: 1, requestId: "1".repeat(32), sessionToken: "2".repeat(64), operation: "describe" })).toMatchObject({ ok: true, kind: "slots", vaultState: "absent", validationEnabled: false, validationAuthorization: { state: "unavailable" }, productionDisabled: true });
     expect(availability).toHaveBeenCalledOnce();
-    expect(await service.save({ schemaVersion: 1, requestId: "3".repeat(32), sessionToken: "2".repeat(64), operation: "save", slotId: "anthropic", secret: "SYNTHETIC_PRODUCTION_COMPOSITION", nickname: "Synthetic", ownership: "owned", authorizedBy: "", clearClipboard: true })).toMatchObject({ ok: true, kind: "saved", clipboard: { requested: true, outcome: "cleared" } });
+    const saved = await service.save({ schemaVersion: 1, requestId: "3".repeat(32), sessionToken: "2".repeat(64), operation: "save", slotId: "anthropic", secret: "SYNTHETIC_PRODUCTION_COMPOSITION", nickname: "Synthetic", ownership: "owned", authorizedBy: "", clearClipboard: true });
+    expect(saved).toMatchObject({ ok: true, kind: "saved", clipboard: { requested: true, outcome: "cleared" } });
+    if (!(saved.ok && saved.kind === "saved")) throw new Error("synthetic save failed");
+    expect(await service.validate({
+      schemaVersion: 1,
+      requestId: "4".repeat(32),
+      sessionToken: "2".repeat(64),
+      operation: "validate",
+      slotId: "anthropic",
+      credentialId: saved.slot.credentialId!,
+      recordRevision: saved.slot.revision!,
+      recordToken: saved.slot.recordToken!,
+      acknowledgedDisclosure: true,
+    })).toMatchObject({ ok: false, code: "VALIDATION_AUTHORIZATION_UNAVAILABLE" });
     expect(clipboardClear).toHaveBeenCalledOnce();
     await service.close();
     expect(managerClose).toHaveBeenCalledOnce();

@@ -12,6 +12,8 @@ export const CREDENTIAL_ERROR_CODES = Object.freeze([
   "VAULT_BACKEND_MISMATCH", "VAULT_SCHEMA_AHEAD", "VAULT_REVISION_CONFLICT",
   "VAULT_BUSY", "VAULT_WRITE_FAILED", "DECRYPT_FAILED", "METADATA_UNAVAILABLE",
   "VALIDATION_DISABLED", "VALIDATION_DISCLOSURE_MISSING", "VALIDATION_POLICY_DENIED", "VALIDATION_CANCELLED",
+  "VALIDATION_AUTHORIZATION_UNAVAILABLE", "VALIDATION_AUTHORIZATION_INVALID", "VALIDATION_AUTHORIZATION_EXPIRED",
+  "VALIDATION_AUTHORIZATION_CONSUMED", "VALIDATION_AUTHORIZATION_AMBIGUOUS",
   "VALIDATION_STALE", "UNKNOWN_OUTCOME", "REFUSED",
 ] as const);
 export type CredentialErrorCode = (typeof CREDENTIAL_ERROR_CODES)[number];
@@ -22,7 +24,25 @@ export type CredentialVaultState =
 export type CredentialRecordState = "absent" | "present" | "revoked" | "unrecoverable";
 export type CredentialOwnership = "owned" | "authorized";
 export type CredentialValidationOutcome = "valid" | "invalid" | "unauthorized" | "ambiguous" | "unreachable";
+export type CredentialValidationAuthorizationState =
+  | "unavailable" | "invalid" | "expired" | "consumed" | "available";
 export type CredentialRecoveryAction = "restore-backup" | "start-over" | "rebind";
+
+export interface CredentialValidationAuthorizationView {
+  readonly schemaVersion: 1;
+  readonly state: CredentialValidationAuthorizationState;
+  readonly slotId: "anthropic" | null;
+  readonly providerInstanceId: "anthropic-default" | null;
+  readonly modelId: "claude-haiku-4-5-20251001" | null;
+  readonly requestFingerprint: string | null;
+  readonly packetFingerprint: string | null;
+  readonly authorizationReference: string | null;
+  readonly expiresAt: string | null;
+  readonly maximumOutputTokens: 4 | null;
+  readonly effectTimeoutMs: 15_000 | null;
+  readonly callbackDrainMs: 5_000 | null;
+  readonly retentionMode: "standard-commercial-api" | null;
+}
 
 export interface CredentialDeveloperFacts {
   readonly referenceDisplay: string;
@@ -94,6 +114,7 @@ export interface CredentialSlotsResult {
   readonly activity: readonly CredentialActivitySentence[];
   readonly clipboardClearDefault: boolean;
   readonly validationEnabled: boolean;
+  readonly validationAuthorization: CredentialValidationAuthorizationView | null;
   readonly productionDisabled: true;
   readonly metadataAvailable: boolean;
 }

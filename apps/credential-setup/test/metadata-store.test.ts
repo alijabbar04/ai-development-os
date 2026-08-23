@@ -37,6 +37,26 @@ describe("bounded nonsecret metadata store", () => {
     expect(recovered.slots.anthropic?.enabled).toBe(false);
   });
 
+  it("checks the validation commit predicate at the atomic persistence boundary", async () => {
+    const fileRoot = await mkdtemp(join(tmpdir(), "ai-dev-os-credential-metadata-commit-gate-"));
+    try {
+      const stores = [
+        createMemoryCredentialMetadataStore(populated()),
+        createFileCredentialMetadataStore(fileRoot),
+      ] as const;
+      await stores[1].write(populated());
+      for (const store of stores) {
+        let checks = 0;
+        await expect(store.update(
+          (current) => replaceSlotMetadata(current, "anthropic", { ...current.slots.anthropic!, enabled: false }),
+          () => { checks += 1; return false; },
+        )).rejects.toMatchObject({ code: expect.stringMatching(/VALIDATION_STALE|METADATA_UNAVAILABLE/u) });
+        expect(checks).toBe(1);
+        expect((await store.read()).slots.anthropic?.enabled).toBe(true);
+      }
+    } finally { await rm(fileRoot, { recursive: true, force: true }); }
+  });
+
   it("round-trips strict bounded metadata atomically without temp remnants", async () => {
     const root = await mkdtemp(join(tmpdir(), "ai-dev-os-credential-metadata-"));
     try {

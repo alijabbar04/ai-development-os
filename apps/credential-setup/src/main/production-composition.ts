@@ -5,7 +5,12 @@ import { APP_VAULT_BROKER_SCHEMA_VERSION, APP_VAULT_SLOTS, appVaultReferenceForS
 import { createAppVaultManager, createAppVaultSecretBroker } from "@ai-dev-os/secrets-app-vault-electron";
 import { createFileCredentialMetadataStore } from "./metadata-store.js";
 import { CredentialHostService, createCredentialResolverBinding, type CredentialResolverBinding } from "./host-service.js";
-import { createDisabledCredentialValidationPort } from "./validation.js";
+import {
+  anthropicValidationAuthorizationRoot,
+  createAnthropicValidationAuthorizationGate,
+  loadStage18eICandidateBinding,
+} from "./anthropic-validation-authorization.js";
+import { createAnthropicCredentialValidationPort } from "./anthropic-validation.js";
 
 function fixedMetadataRoot(appDataPath: string, appName: string): string {
   const root = resolve(appDataPath);
@@ -57,12 +62,22 @@ export async function createProductionCredentialHost(electron: Readonly<{
       mutable[slot.slotId] = createCredentialResolverBinding(broker, policy);
     }
     const metadataRoot = fixedMetadataRoot(electron.app.getPath("appData"), electron.app.getName());
+    const candidateBinding = await loadStage18eICandidateBinding(electron.app.getAppPath());
+    const authorizationGate = await createAnthropicValidationAuthorizationGate({
+      root: anthropicValidationAuthorizationRoot(
+        electron.app.getPath("appData"),
+        electron.app.getName(),
+      ),
+      candidateBinding,
+      now: clock.now,
+    });
     return new CredentialHostService({
       manager,
       resolvers: Object.freeze(mutable),
       metadata: createFileCredentialMetadataStore(metadataRoot),
-      validation: createDisabledCredentialValidationPort(),
-      validationEnabled: false,
+      validation: createAnthropicCredentialValidationPort({ gate: authorizationGate, now: clock.now }),
+      validationEnabled: true,
+      validationTimeoutMs: 20_000,
       clock,
       encryptionAvailable: async () => await electron.safeStorage.isAsyncEncryptionAvailable(),
       clipboard: Object.freeze({ async clear() { electron.clipboard.clear(); return true; } }),

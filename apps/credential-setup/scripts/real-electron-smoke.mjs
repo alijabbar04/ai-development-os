@@ -16,6 +16,12 @@ const committedPreview = resolve(root, "..", "..", "docs", "release-evidence", "
 const previewPolicy = selectSmokePreview(process.argv.slice(2), { smokeRoot, committedPreview });
 const preview = previewPolicy.path;
 const reports = [];
+const FINITE_LABEL = /^[a-z0-9][a-z0-9-]{0,79}$/u;
+const CREDENTIAL_DIAGNOSTIC = /(?:SYNTHETIC_(?:CREDENTIAL|REPLACEMENT)_STAGE18E|sk-ant-api\d{2}-[A-Za-z0-9_-]{16,}|sk-proj-[A-Za-z0-9_-]{16,}|sk-or-v1-[A-Za-z0-9]{16,}|AIza[0-9A-Za-z_-]{35}|sk-[A-Za-z0-9]{32,})/u;
+
+function finiteLabel(value, fallback) {
+  return typeof value === "string" && FINITE_LABEL.test(value) ? value : fallback;
+}
 
 async function run(mode) {
   const modeRoot = join(smokeRoot, mode);
@@ -41,17 +47,21 @@ async function run(mode) {
     child.once("exit", (code) => resolveExit(code));
   }).finally(() => clearTimeout(timeout));
   if (timedOut) {
-    const stage = await readFile(join(modeRoot, "stage.txt"), "utf8").catch(() => "not-started");
-    throw new Error(`Electron ${mode} smoke timed out at ${stage}.`);
+    const rawStage = await readFile(join(modeRoot, "stage.txt"), "utf8").catch(() => "not-started");
+    const stage = finiteLabel(rawStage.trim(), "unclassified");
+    throw new Error(`Electron ${finiteLabel(mode, "unknown")} smoke timed out at ${stage}.`);
   }
-  const diagnosticLeak = stdout.includes("SYNTHETIC_CREDENTIAL_STAGE18E") || stderr.includes("SYNTHETIC_CREDENTIAL_STAGE18E");
+  const diagnosticLeak = CREDENTIAL_DIAGNOSTIC.test(stdout) || CREDENTIAL_DIAGNOSTIC.test(stderr);
   let report;
   try { report = JSON.parse(await readFile(reportPath, "utf8")); }
   catch { throw new Error(`Electron ${mode} smoke did not produce a report (exit ${exitCode}).`); }
   if (diagnosticLeak) throw new Error(`Electron ${mode} smoke leaked its synthetic canary to process diagnostics.`);
   if (exitCode !== 0 || !Array.isArray(report.failures) || report.failures.length !== 0) {
-    const tail = stderr.trim().split(/\r?\n/u).slice(-8).join(" | ");
-    throw new Error(`Electron ${mode} smoke failed (exit ${exitCode}): ${JSON.stringify(report.failures)}${tail.length === 0 ? "" : `; ${tail}`}`);
+    const stage = finiteLabel(report.stage, "unclassified");
+    const failures = report.failures
+      .slice(0, 100)
+      .map((name) => finiteLabel(name, "unclassified"));
+    throw new Error(`Electron ${finiteLabel(mode, "unknown")} smoke failed (exit ${exitCode}): ${JSON.stringify({ stage, failures })}`);
   }
   reports.push({ mode, reportPath, assertions: Object.keys(report.assertions).length });
 }

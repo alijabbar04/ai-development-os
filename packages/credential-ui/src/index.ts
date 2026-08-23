@@ -8,6 +8,8 @@ export {
   type CredentialRecordState,
   type CredentialOwnership,
   type CredentialValidationOutcome,
+  type CredentialValidationAuthorizationState,
+  type CredentialValidationAuthorizationView,
   type CredentialRecoveryAction,
   type CredentialDeveloperFacts,
   type CredentialValidationView,

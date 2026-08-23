@@ -65,6 +65,7 @@ async function run() {
       providerCards: document.querySelectorAll(".provider-card").length,
       passwordInputs: document.querySelectorAll('input[type="password"]').length,
       productionDisabled: document.body.textContent?.includes("tasks do not run against providers") ?? false,
+      validationButtons: [...document.querySelectorAll("button")].filter((button) => button.textContent === "Validate connection").length,
       bridge: Object.keys(window.credentialVault ?? {}).sort(),
       nodeGlobals: [typeof process, typeof require, typeof module]
     }))()`, true);
@@ -74,6 +75,7 @@ async function run() {
         && renderer.providerCards === 4
         && renderer.passwordInputs === 0
         && renderer.productionDisabled === true
+        && renderer.validationButtons === 0
         && JSON.stringify(renderer.bridge) === JSON.stringify(["cancel", "describe", "remove", "rotate", "save", "setEnabled", "validate"])
         && JSON.stringify(renderer.nodeGlobals) === JSON.stringify(["undefined", "undefined", "undefined"]),
       electronVersion: process.versions.electron,

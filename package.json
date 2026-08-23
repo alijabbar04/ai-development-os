@@ -22,6 +22,9 @@
     "regenerate:credential-host-evidence-screenshot": "npm run regenerate:evidence-screenshot --workspace @ai-dev-os/credential-setup",
     "generate:stage-18e-h-subject-manifest": "node scripts/generate-stage-18e-h-subject-manifest.mjs",
     "verify:stage-18e-h-subject-manifest": "node scripts/verify-stage-18e-h-subject-manifest.mjs",
+    "generate:stage-18e-i-subject-manifest": "node scripts/generate-stage-18e-i-subject-manifest.mjs",
+    "verify:stage-18e-i-subject-manifest": "node scripts/verify-stage-18e-i-subject-manifest.mjs",
+    "verify:stage-18e-i-if-published": "node scripts/verify-stage-18e-i-if-published.mjs",
     "verify:credential-host-packed": "npm run verify:packed --workspace @ai-dev-os/credential-setup"
   },
   "engines": {

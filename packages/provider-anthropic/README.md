@@ -7,11 +7,14 @@ consumer session, account UI, or subscription route exists here.
 
 The public provider is compiled production-disabled. Construction performs no
 I/O and `start()` refuses before policy, secret, or transport access. The
-`./testing` entry point contains the injected deterministic provider ports plus
-one separately explicit live-canary harness. Normal tests use only the
-deterministic transport. The canary requires its exact opt-in sentinel, fixed
-policy/catalog/authorization preflight, and one scoped `SecretRef`; it is not
-reachable from the production package entry point.
+`./testing` entry point contains the injected deterministic provider ports.
+The reviewed fixed-request canary implementation is shared with the stable,
+production-disabled `./validation` subpath; the old testing paths re-export the
+same code. The validation surface has no general provider factory and requires
+its exact opt-in, fixed policy/catalog/authorization preflight, one scoped
+`SecretRef`, and an application-owned durable operator gate. Normal tests use
+only deterministic transport. It remains unreachable from the normal provider
+entry point.
 
 The fixed profile is `POST https://api.anthropic.com/v1/messages` with
 `anthropic-version: 2023-06-01`. Deployments configure one explicit model alias
@@ -93,9 +96,10 @@ retention arrangement applies. Primary references:
 - <https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data>
 - <https://privacy.claude.com/en/articles/8956058-i-have-a-zero-data-retention-agreement-with-anthropic-what-products-does-it-apply-to>
 
-The official SDK is not a dependency: this checkpoint has no production
-transport, and the injected HTTP contract is sufficient for deterministic
-compatibility evidence.
+The official SDK is not a dependency. The narrow validation subpath uses the
+reviewed direct `node:https` boundary for only the fixed canary; the normal
+provider remains production-disabled and its deterministic HTTP seam remains
+sufficient for compatibility evidence.
 
 ```powershell
 npm run typecheck --workspace @ai-dev-os/provider-anthropic
@@ -104,7 +108,8 @@ npm run test:coverage --workspace @ai-dev-os/provider-anthropic
 npm run build --workspace @ai-dev-os/provider-anthropic
 ```
 
-The reviewed canary harness is supplied under `./testing`. One separately
+The reviewed canary harness is supplied under `./validation` and re-exported
+for compatibility under `./testing`. One separately
 authorized owned-reference attempt ran on 2026-08-14 and returned the older
 ambiguous finite `TRANSPORT_FAILURE`; it was not retried and its consumed marker
 is preserved. Deterministic diagnosis found and repaired the callback
