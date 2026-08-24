@@ -853,15 +853,13 @@ async function runInFlightActionRegression(): Promise<void> {
     await waitFor(surface.window, `document.querySelector("dialog") !== null`);
     await page(surface.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Confirm and validate")?.click()`);
     await surface.waitForGate("validate");
-    await waitFor(surface.window, `document.querySelector('dialog[open] [data-busy-focus="true"]') === document.activeElement && document.querySelectorAll(".detail-card .button-row button").length === 4 && [...document.querySelectorAll("dialog button, .detail-card .button-row button")].every((node) => node.hasAttribute("disabled"))`);
-    await press(surface.window, "Escape");
-    await press(surface.window, "Escape");
-    await press(surface.window, "Escape");
-    const validating = await page<Record<string, unknown>>(surface.window, `(() => {
+    const readValidationInFlightLock = async (): Promise<Record<string, unknown>> => await page<Record<string, unknown>>(surface.window, `(() => {
       const actions = [...document.querySelectorAll(".detail-card .button-row button")];
       const dialogButtons = [...document.querySelectorAll("dialog button")];
+      const dialog = document.querySelector("dialog");
+      const tracker = globalThis["__aiDevOsValidationEscapeTracker"];
       return {
-        dialogOpen: document.querySelector("dialog")?.hasAttribute("open") ?? false,
+        dialogOpen: dialog?.hasAttribute("open") ?? false,
         cancelDisabled: dialogButtons.find((node) => node.textContent?.trim() === "Cancel")?.hasAttribute("disabled") ?? false,
         submitDisabled: dialogButtons.find((node) => node.textContent?.trim() === "Confirm and validate")?.hasAttribute("disabled") ?? false,
         actionCount: actions.length,
@@ -870,12 +868,57 @@ async function runInFlightActionRegression(): Promise<void> {
         storageReasons: actions.filter((node) => node.textContent?.trim() !== "Validate connection").map((node) => node.getAttribute("title")),
         visible: document.querySelector(".action-reasons")?.textContent ?? "",
         progressDuration: getComputedStyle(document.querySelector("dialog .progress"), "::after").animationDuration,
-        focusInside: document.querySelector("dialog")?.contains(document.activeElement) ?? false,
+        focusInside: dialog?.contains(document.activeElement) ?? false,
         busyFocus: document.activeElement?.getAttribute("data-busy-focus") ?? null,
-        busyName: document.activeElement?.textContent?.trim() ?? null
+        busyName: document.activeElement?.textContent?.trim() ?? null,
+        escapeTrackerPresent: tracker !== undefined,
+        sameDialog: tracker === undefined ? null : tracker.dialog === dialog,
+        escapeCancelCount: tracker?.cancelCount ?? null,
+        escapePreventedCount: tracker?.preventedCount ?? null,
+        escapeUnpreventedCount: tracker?.unpreventedCount ?? null,
+        escapeCloseCount: tracker?.closeCount ?? null,
+        escapeOpenLost: tracker?.openLost ?? null,
+        escapeDialogReplaced: tracker?.dialogReplaced ?? null,
+        escapeControlsUnlocked: tracker?.controlsUnlocked ?? null
       };
     })()`);
-    record("validation-in-flight-ui-lock", validating["dialogOpen"] === true && validating["cancelDisabled"] === true && validating["submitDisabled"] === true && Number(validating["actionCount"]) === 4 && validating["allDisabled"] === true && validating["validateReason"] === "A credential validation check is in progress" && (validating["storageReasons"] as unknown[]).every((reason) => reason === "A credential validation check is in progress") && String(validating["visible"]).includes("A credential validation check is in progress") && validating["progressDuration"] === "12s" && validating["focusInside"] === true && validating["busyFocus"] === "true" && String(validating["busyName"]).includes("Validating"), validating);
+    const validationInFlightUiLocked = (candidate: Record<string, unknown>): boolean => candidate["dialogOpen"] === true && candidate["cancelDisabled"] === true && candidate["submitDisabled"] === true && Number(candidate["actionCount"]) === 4 && candidate["allDisabled"] === true && candidate["validateReason"] === "A credential validation check is in progress" && Array.isArray(candidate["storageReasons"]) && (candidate["storageReasons"] as unknown[]).every((reason) => reason === "A credential validation check is in progress") && String(candidate["visible"]).includes("A credential validation check is in progress") && candidate["progressDuration"] === "12s" && candidate["focusInside"] === true && candidate["busyFocus"] === "true" && String(candidate["busyName"]).includes("Validating");
+    const waitForValidationInFlightLock = async (predicate: (candidate: Record<string, unknown>) => boolean): Promise<Record<string, unknown>> => {
+      const deadline = Date.now() + 5_000;
+      let candidate = await readValidationInFlightLock();
+      while (!predicate(candidate) && Date.now() < deadline) {
+        await delay(25);
+        candidate = await readValidationInFlightLock();
+      }
+      return candidate;
+    };
+    const beforeEscape = await waitForValidationInFlightLock(validationInFlightUiLocked);
+    await page(surface.window, `(() => {
+      const dialog = document.querySelector("dialog[open]");
+      if (dialog === null) return false;
+      const tracker = { dialog, cancelCount: 0, preventedCount: 0, unpreventedCount: 0, closeCount: 0, openLost: false, dialogReplaced: false, controlsUnlocked: false, observer: null };
+      dialog.addEventListener("cancel", (event) => { tracker.cancelCount += 1; queueMicrotask(() => { if (event.defaultPrevented) tracker.preventedCount += 1; else tracker.unpreventedCount += 1; }); });
+      dialog.addEventListener("close", () => { tracker.closeCount += 1; });
+      const observe = () => {
+        if (!dialog.isConnected || !dialog.open) tracker.openLost = true;
+        if (document.querySelector("dialog") !== dialog) tracker.dialogReplaced = true;
+        const actions = [...document.querySelectorAll(".detail-card .button-row button")];
+        const dialogButtons = [...dialog.querySelectorAll("button")];
+        if (actions.length !== 4 || dialogButtons.length !== 2 || [...actions, ...dialogButtons].some((node) => !node.hasAttribute("disabled"))) tracker.controlsUnlocked = true;
+      };
+      tracker.observer = new MutationObserver(observe);
+      tracker.observer.observe(document.body, { attributes: true, attributeFilter: ["open", "disabled"], childList: true, subtree: true });
+      globalThis["__aiDevOsValidationEscapeTracker"] = tracker;
+      return true;
+    })()`);
+    const escapeObservations: Record<string, unknown>[] = [];
+    for (let escapeCount = 1; escapeCount <= 3; escapeCount += 1) {
+      await press(surface.window, "Escape");
+      escapeObservations.push(await waitForValidationInFlightLock((candidate) => validationInFlightUiLocked(candidate) && candidate["escapeTrackerPresent"] === true && candidate["sameDialog"] === true && Number(candidate["escapeCancelCount"]) === escapeCount && Number(candidate["escapePreventedCount"]) + Number(candidate["escapeUnpreventedCount"]) === escapeCount && Number(candidate["escapeUnpreventedCount"]) === Number(candidate["escapeCloseCount"]) && candidate["escapeOpenLost"] === (Number(candidate["escapeCloseCount"]) > 0) && candidate["escapeDialogReplaced"] === false && candidate["escapeControlsUnlocked"] === false));
+    }
+    await page(surface.window, `(() => { const tracker = globalThis["__aiDevOsValidationEscapeTracker"]; tracker?.observer?.disconnect(); delete globalThis["__aiDevOsValidationEscapeTracker"]; })()`);
+    const escapeResistanceHeld = escapeObservations.every((candidate, index) => validationInFlightUiLocked(candidate) && candidate["escapeTrackerPresent"] === true && candidate["sameDialog"] === true && Number(candidate["escapeCancelCount"]) === index + 1 && Number(candidate["escapePreventedCount"]) + Number(candidate["escapeUnpreventedCount"]) === index + 1 && Number(candidate["escapeUnpreventedCount"]) === Number(candidate["escapeCloseCount"]) && candidate["escapeOpenLost"] === (Number(candidate["escapeCloseCount"]) > 0) && candidate["escapeDialogReplaced"] === false && candidate["escapeControlsUnlocked"] === false);
+    record("validation-in-flight-ui-lock", validationInFlightUiLocked(beforeEscape) && escapeResistanceHeld, { beforeEscape, escapeObservations });
     surface.releaseGate("validate");
     await waitFor(surface.window, `document.querySelector("dialog") === null && (document.querySelector(".badge")?.textContent ?? "").startsWith("Validated") && document.activeElement?.tagName === "H1"`);
     const normalValidationLanguage = await page<Record<string, unknown>>(surface.window, `(() => {
