@@ -14,6 +14,7 @@ const expectOrdered = (source: string, left: string, right: string): void => {
 };
 const sources = [
   "src/main/anthropic-validation-authorization.ts", "src/main/anthropic-validation.ts",
+  "src/main/anthropic-validation-receipt.ts", "src/main/anthropic-validation-receipt-store.ts",
   "src/main/constants.ts", "src/main/hardening.ts", "src/main/ipc.ts", "src/main/ipc-schema.ts",
   "src/main/protocol.ts", "src/main/production-composition.ts", "src/main/main.ts",
   "src/main/host-service.ts", "src/main/metadata-safety.ts", "src/main/metadata-store.ts", "src/main/startup-bootstrap.cjs", "src/main/startup-bootstrap-runtime.cjs", "src/main/startup-deadline.cjs", "src/main/startup-diagnostic.ts", "src/main/startup-entry.ts", "src/main/startup-lifecycle.ts", "src/main/validation.ts",
@@ -158,6 +159,40 @@ describe("Electron and dependency static policy", () => {
     const diagnostic = read("src/main/startup-diagnostic.ts");
     expect(diagnostic).not.toMatch(/\.message|\.stack|process\.env|Object\.keys\(error|JSON\.stringify\(error/u);
     expect(diagnostic).toContain("writeSync(2, line)");
+  });
+
+  it("keeps sanitized success evidence main-only, create-only, bounded, non-enumerating, and before Valid reduction", () => {
+    const receipt = read("src/main/anthropic-validation-receipt.ts");
+    const store = read("src/main/anthropic-validation-receipt-store.ts");
+    const validation = read("src/main/anthropic-validation.ts");
+    const host = read("src/main/host-service.ts");
+    const projection = read("scripts/project-anthropic-validation-receipt.mjs");
+    expect(store).toContain('await link(temporary, target)');
+    expect(store).toContain('await handle.sync()');
+    expect(store).not.toMatch(/\breaddir\b|\bopendir\b/u);
+    expect(receipt).toContain("parseAnthropicValidationSuccessReceipt");
+    expect(receipt).toContain("utilTypes.isProxy");
+    expectOrdered(validation, "const success = exactAnthropicValidationSuccess", "const pending: PendingAnthropicValidationSuccessReceipt");
+    expectOrdered(validation, "async settleAfterSecretRelease", 'await options.receiptStore.commit(pending["receipt"])');
+    expectOrdered(validation, 'await options.receiptStore.commit(pending["receipt"])', 'outcome: "valid" as const');
+    expectOrdered(host, 'resolved.kind === "settled"', "await this.#validation.settleAfterSecretRelease(settledValue)");
+    expect(projection).not.toMatch(/electron|clipboard|safeStorage|fetch|https\.request|http\.request|readdir|opendir/u);
+    expect(read("src/preload/credential.cts")).not.toContain("receipt");
+  });
+
+  it("keeps one-shot marker creation atomic and verifies exact filesystem identity before yielding a claim", () => {
+    const authorization = read("src/main/anthropic-validation-authorization.ts");
+    const creation = authorization.indexOf('handle = await open(markerPath, "wx", 0o600)');
+    const consumed = authorization.indexOf('state = "consumed";', creation);
+    expect(creation).toBeGreaterThanOrEqual(0);
+    expect(consumed).toBeGreaterThan(creation);
+    expectOrdered(authorization, 'const openedMarker = await handle.stat()', "await handle.writeFile(marker");
+    expectOrdered(authorization, "await completeMarkerDurabilityBarrier({", "claims.add(attempt)");
+    expect(authorization).toContain("sameFileIdentity(observedMarker, openedMarker)");
+    expect(authorization).toContain("sameResolvedPath(await realpath(input.markerDirectory)");
+    expect(authorization).toContain('const markerHandle = await open(input.markerPath, "r+")');
+    expect(authorization).toContain('const directoryHandle = await open(input.markerDirectory, "r")');
+    expect(authorization).toContain("await directoryHandle.sync()");
   });
 
   it("keeps real Electron smoke failure output finite and secret-independent", () => {

@@ -23,6 +23,9 @@ export interface StoredValidation {
   readonly definitive: boolean;
   readonly resultCode: string;
   readonly policyDecisionFingerprint: string;
+  readonly receiptState: "not-applicable" | "committed" | "historical-missing" | "write-failed";
+  readonly successReceiptId: string | null;
+  readonly successReceiptSha256: string | null;
 }
 
 export interface CredentialSlotMetadata {
@@ -84,15 +87,34 @@ function timestamp(value: unknown): string {
   return text;
 }
 
-function parseValidation(value: unknown): StoredValidation | null {
+function parseValidation(slotId: AppVaultSlotId, value: unknown): StoredValidation | null {
   if (value === null) return null;
-  const record = exactRecord(value, ["outcome", "checkedAt", "recordRevision", "recordToken", "definitive", "resultCode", "policyDecisionFingerprint"]);
-  const outcomes = ["valid", "invalid", "unauthorized", "ambiguous", "unreachable"] as const;
+  const legacy = typeof value === "object" && value !== null && !Array.isArray(value) && Reflect.ownKeys(value).length === 7;
+  const record = exactRecord(value, legacy
+    ? ["outcome", "checkedAt", "recordRevision", "recordToken", "definitive", "resultCode", "policyDecisionFingerprint"]
+    : ["outcome", "checkedAt", "recordRevision", "recordToken", "definitive", "resultCode", "policyDecisionFingerprint", "receiptState", "successReceiptId", "successReceiptSha256"]);
+  const outcomes = ["valid", "invalid", "unauthorized", "ambiguous", "unreachable", "evidence-incomplete"] as const;
   if (!outcomes.includes(record["outcome"] as never) || typeof record["recordRevision"] !== "number" || !Number.isSafeInteger(record["recordRevision"]) || record["recordRevision"] < 1 || typeof record["recordToken"] !== "string" || !TOKEN.test(record["recordToken"]) || typeof record["definitive"] !== "boolean" || typeof record["policyDecisionFingerprint"] !== "string" || !TOKEN.test(record["policyDecisionFingerprint"])) throw new CredentialHostError("METADATA_UNAVAILABLE");
   const outcome = record["outcome"] as CredentialValidationOutcome;
   const resultCode = boundedText(record["resultCode"], 64);
   if (record["definitive"] !== validationDefinitive(outcome) || resultCode !== validationResultCode(outcome)) throw new CredentialHostError("METADATA_UNAVAILABLE");
-  return Object.freeze({ outcome, checkedAt: timestamp(record["checkedAt"]), recordRevision: record["recordRevision"], recordToken: record["recordToken"], definitive: record["definitive"], resultCode, policyDecisionFingerprint: record["policyDecisionFingerprint"] });
+  const observedReceiptState = legacy
+    ? outcome === "valid" ? "historical-missing" as const : "not-applicable" as const
+    : record["receiptState"];
+  const successReceiptId = legacy ? null : record["successReceiptId"];
+  const successReceiptSha256 = legacy ? null : record["successReceiptSha256"];
+  if (
+    !(["not-applicable", "committed", "historical-missing", "write-failed"] as const).includes(observedReceiptState as never) ||
+    (successReceiptId !== null && (typeof successReceiptId !== "string" || !TOKEN.test(successReceiptId))) ||
+    (successReceiptSha256 !== null && (typeof successReceiptSha256 !== "string" || !TOKEN.test(successReceiptSha256))) ||
+    (observedReceiptState === "committed" && slotId !== "anthropic") ||
+    (observedReceiptState === "committed" && (outcome !== "valid" || successReceiptId === null || successReceiptSha256 === null)) ||
+    (observedReceiptState === "historical-missing" && (outcome !== "valid" || successReceiptId !== null || successReceiptSha256 !== null)) ||
+    (observedReceiptState === "write-failed" && (outcome !== "evidence-incomplete" || successReceiptId !== null || successReceiptSha256 !== null)) ||
+    (observedReceiptState === "not-applicable" && (outcome === "valid" || outcome === "evidence-incomplete" || successReceiptId !== null || successReceiptSha256 !== null))
+  ) throw new CredentialHostError("METADATA_UNAVAILABLE");
+  const receiptState = observedReceiptState as StoredValidation["receiptState"];
+  return Object.freeze({ outcome, checkedAt: timestamp(record["checkedAt"]), recordRevision: record["recordRevision"], recordToken: record["recordToken"], definitive: record["definitive"], resultCode, policyDecisionFingerprint: record["policyDecisionFingerprint"], receiptState, successReceiptId: successReceiptId as string | null, successReceiptSha256: successReceiptSha256 as string | null });
 }
 
 function sameValidation(left: StoredValidation, right: StoredValidation): boolean {
@@ -102,10 +124,13 @@ function sameValidation(left: StoredValidation, right: StoredValidation): boolea
     && left.recordToken === right.recordToken
     && left.definitive === right.definitive
     && left.resultCode === right.resultCode
-    && left.policyDecisionFingerprint === right.policyDecisionFingerprint;
+    && left.policyDecisionFingerprint === right.policyDecisionFingerprint
+    && left.receiptState === right.receiptState
+    && left.successReceiptId === right.successReceiptId
+    && left.successReceiptSha256 === right.successReceiptSha256;
 }
 
-function parseSlot(value: unknown): CredentialSlotMetadata | null {
+function parseSlot(slotId: AppVaultSlotId, value: unknown): CredentialSlotMetadata | null {
   if (value === null) return null;
   const record = exactRecord(value, ["credentialId", "nickname", "ownership", "authorizedBy", "enabled", "validation", "lastValidationAttempt"]);
   if (typeof record["credentialId"] !== "string" || !ID.test(record["credentialId"]) || (record["ownership"] !== "owned" && record["ownership"] !== "authorized") || typeof record["enabled"] !== "boolean") throw new CredentialHostError("METADATA_UNAVAILABLE");
@@ -113,8 +138,8 @@ function parseSlot(value: unknown): CredentialSlotMetadata | null {
   const nickname = boundedText(record["nickname"], 40);
   if ((record["ownership"] === "owned" && authorizedBy.length !== 0) || (record["ownership"] === "authorized" && authorizedBy.length === 0)) throw new CredentialHostError("METADATA_UNAVAILABLE");
   assertCredentialMetadataLabelsSafe(nickname, authorizedBy, "METADATA_UNAVAILABLE");
-  const validation = parseValidation(record["validation"]);
-  const lastValidationAttempt = parseValidation(record["lastValidationAttempt"]);
+  const validation = parseValidation(slotId, record["validation"]);
+  const lastValidationAttempt = parseValidation(slotId, record["lastValidationAttempt"]);
   if (validation === null && lastValidationAttempt?.definitive === true) throw new CredentialHostError("METADATA_UNAVAILABLE");
   if (validation !== null && lastValidationAttempt === null) throw new CredentialHostError("METADATA_UNAVAILABLE");
   if (validation !== null && lastValidationAttempt !== null && validation.recordToken !== lastValidationAttempt.recordToken) throw new CredentialHostError("METADATA_UNAVAILABLE");
@@ -139,7 +164,7 @@ export function parseCredentialMetadata(value: unknown): CredentialMetadataSnaps
   if (record["schemaVersion"] !== METADATA_SCHEMA_VERSION || typeof record["clipboardClearDefault"] !== "boolean") throw new CredentialHostError("METADATA_UNAVAILABLE");
   const slotsRecord = exactRecord(record["slots"], APP_VAULT_SLOTS.map((slot) => slot.slotId));
   const slots = emptySlots();
-  for (const descriptor of APP_VAULT_SLOTS) slots[descriptor.slotId] = parseSlot(slotsRecord[descriptor.slotId]);
+  for (const descriptor of APP_VAULT_SLOTS) slots[descriptor.slotId] = parseSlot(descriptor.slotId, slotsRecord[descriptor.slotId]);
   return Object.freeze({ schemaVersion: METADATA_SCHEMA_VERSION, clipboardClearDefault: record["clipboardClearDefault"], slots: Object.freeze(slots), activity: parseActivity(record["activity"]) });
 }
 

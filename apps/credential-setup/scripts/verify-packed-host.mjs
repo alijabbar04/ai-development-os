@@ -72,6 +72,8 @@ const requiredAppFiles = [
   "dist/main/host-service.js",
   "dist/main/anthropic-validation.js",
   "dist/main/anthropic-validation-authorization.js",
+  "dist/main/anthropic-validation-receipt.js",
+  "dist/main/anthropic-validation-receipt-store.js",
   "dist/preload/credential.cjs",
   "dist/renderer/credential/index.html",
   "dist/renderer/credential/entry.js",
@@ -81,7 +83,7 @@ const requiredAppFiles = [
 ];
 let publishedCandidate = false;
 try {
-  await access(join(repository, "docs", "release-evidence", "stage-18e-i-subject-manifest.json"));
+  await access(join(repository, "docs", "release-evidence", "stage-18e-i-sanitized-success-receipt-subject-manifest.json"));
   publishedCandidate = true;
 } catch { publishedCandidate = false; }
 if (publishedCandidate) requiredAppFiles.push("dist/main/stage-18e-i-candidate-binding.json");

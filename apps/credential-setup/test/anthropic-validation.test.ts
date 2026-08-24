@@ -43,6 +43,7 @@ import {
   finiteAnthropicValidationFailure,
   finiteResultForAnthropicOutcome,
 } from "../src/main/anthropic-validation.js";
+import { createMemoryAnthropicValidationSuccessReceiptStore } from "../src/main/anthropic-validation-receipt-store.js";
 
 const POLICY = "7".repeat(64);
 const ISSUED = "2026-08-23T12:00:00.000Z";
@@ -54,7 +55,7 @@ const candidate: Stage18eICandidateBinding = Object.freeze({
   tree: "2".repeat(40),
   sourceCommit: "3".repeat(40),
   sourceTree: "4".repeat(40),
-  manifestPath: "docs/release-evidence/stage-18e-i-subject-manifest.json",
+  manifestPath: "docs/release-evidence/stage-18e-i-sanitized-success-receipt-subject-manifest.json",
   manifestSha256: "5".repeat(64),
   manifestAggregate: "6".repeat(64),
 });
@@ -76,7 +77,7 @@ function successEnvelope(): Record<string, unknown> {
     retentionMode: "standard-30-day",
     statusCategory: "success",
     transportKind: "direct-anthropic-https",
-    durationMs: 14_999,
+    durationMs: 0,
     inputTokens: 256,
     outputTokens: 4,
     modelSubstitutionRejected: true,
@@ -138,12 +139,13 @@ async function authorizationPort() {
   });
   await writeFile(path, serializeAnthropicValidationAuthorizationPacket(packet), "utf8");
   const gate = await createAnthropicValidationAuthorizationGate({ root, candidateBinding: candidate, now: () => new Date(ISSUED) });
-  return { root, gate, port: createAnthropicCredentialValidationPort({ gate, now: () => new Date(ISSUED) }) };
+  const receiptStore = createMemoryAnthropicValidationSuccessReceiptStore();
+  return { root, gate, receiptStore, port: createAnthropicCredentialValidationPort({ gate, receiptStore, now: () => new Date(ISSUED) }) };
 }
 
 describe("Anthropic validation promotion boundary", () => {
   it("accepts only the exact producible direct-HTTPS success envelope", () => {
-    expect(exactAnthropicValidationSuccess(successEnvelope(), POLICY)).toEqual({ outcome: "valid", resultCode: "VALIDATION_OK" });
+    expect(exactAnthropicValidationSuccess(successEnvelope(), POLICY)).toEqual(successEnvelope());
     const mutations: Array<(value: any) => void> = [
       (value) => { value.schemaVersion = 2; },
       (value) => { value.endpoint = "https://example.invalid"; },
@@ -280,6 +282,15 @@ describe("Anthropic validation promotion boundary", () => {
           kinds: ["text"],
         });
         const context = secretContext(boundedSignal);
+        for (const changed of [
+          { ...context, accessForm: "bytes" as const },
+          { ...context, classification: "internal" as const },
+          { ...context, operationId: "substituted-operation" },
+          { ...context, approvalEvidenceRefs: [] },
+          { ...context, approvalEvidenceRefs: ["substituted-authorization"] },
+        ]) {
+          await expect(options.broker.availability(options.apiKeyRef, Object.freeze(changed) as SecretAccessContext)).resolves.toMatchObject({ available: false, reason: "unavailable" });
+        }
         const firstAvailability = await options.broker.availability(options.apiKeyRef, context);
         expect(firstAvailability.available).toBe(true);
         expect(firstAvailability.audit).toMatchObject({
@@ -309,7 +320,9 @@ describe("Anthropic validation promotion boundary", () => {
     }));
 
     const fixture = await authorizationPort();
-    const port = createAnthropicCredentialValidationPort({ gate: fixture.gate });
+    // Exercise the production default clock as part of the complete synthetic
+    // success path; the authorization gate itself remains pinned to ISSUED.
+    const port = createAnthropicCredentialValidationPort({ gate: fixture.gate, receiptStore: fixture.receiptStore });
     expect(port.preciseDispatchObservation).toBe(true);
     expect(port.authorization?.()).toMatchObject({ state: "available" });
     const controller = new AbortController();
@@ -321,8 +334,10 @@ describe("Anthropic validation promotion boundary", () => {
     });
     const material = createSecretMaterial("text", new TextEncoder().encode("synthetic-anthropic-key"));
     let dispatches = 0;
+    const validationStartedAt = new Date().toISOString();
+    let effectResult: unknown;
     try {
-      await expect(port.validate({
+      effectResult = await port.validate({
         slotId: "anthropic",
         credentialId: `cred-${"c".repeat(32)}`,
         recordRevision: 1,
@@ -332,13 +347,100 @@ describe("Anthropic validation promotion boundary", () => {
         policyDecisionFingerprint: POLICY,
         authorizationAttempt: attempt,
         observeProviderDispatch: () => { dispatches += 1; },
-      })).resolves.toEqual({ outcome: "valid", resultCode: "VALIDATION_OK" });
+        operationId: `credential-validate.${"9".repeat(32)}`,
+        validationStartedAt,
+      });
     } finally {
       material.dispose();
     }
+    expect(fixture.receiptStore.commits).toBe(0);
+    await expect(port.settleAfterSecretRelease!(effectResult!)).resolves.toMatchObject({ outcome: "valid", resultCode: "VALIDATION_OK", successReceiptId: expect.stringMatching(/^[a-f0-9]{64}$/u), successReceiptSha256: expect.stringMatching(/^[a-f0-9]{64}$/u) });
     expect(secretReads).toBe(1);
     expect(dispatches).toBe(1);
     expect(validationFactory).toHaveBeenCalledTimes(1);
+    expect(fixture.receiptStore.commits).toBe(1);
+  });
+
+  it("keeps marker consumption before dispatch and receipt durability before Valid reduction, then fails receipt IO finitely without retry", async () => {
+    validationFactory.mockImplementation((options: ProductionDisabledAnthropicValidationOptions): ProductionDisabledAnthropicValidationRunner => ({
+      async runOnce(): Promise<AnthropicLiveCanaryResult> {
+        options.observeFailurePhase?.("possibly-dispatched");
+        return successEnvelope() as unknown as AnthropicLiveCanaryResult;
+      },
+    }));
+    const fixture = await authorizationPort();
+    const sequence: string[] = [];
+    const backing = createMemoryAnthropicValidationSuccessReceiptStore();
+    const orderedStore = Object.freeze({
+      async commit(value: unknown) {
+        expect(fixture.gate.authorization().state).toBe("consumed");
+        sequence.push("receipt-committed");
+        return await backing.commit(value);
+      },
+      readCommitted: backing.readCommitted,
+    });
+    const port = createAnthropicCredentialValidationPort({ gate: fixture.gate, receiptStore: orderedStore, now: () => new Date(ISSUED) });
+    const signal = new AbortController().signal;
+    const attempt = await port.prepare!({ slotId: "anthropic", providerInstanceId: "anthropic-default", secretRefFingerprint: secretRefFingerprint(appVaultReferenceForSlot("anthropic")), signal });
+    expect(fixture.gate.authorization().state).toBe("consumed");
+    const material = createSecretMaterial("text", new TextEncoder().encode("synthetic-ordering-secret"));
+    let effectResult: unknown;
+    try {
+      effectResult = await port.validate({ slotId: "anthropic", credentialId: `cred-${"6".repeat(32)}`, recordRevision: 1, recordToken: "7".repeat(64), secret: material, signal, policyDecisionFingerprint: POLICY, authorizationAttempt: attempt, operationId: `credential-validate.${"8".repeat(32)}`, validationStartedAt: ISSUED });
+      expect(sequence).toEqual([]);
+    } finally { material.dispose(); sequence.push("secret-released"); }
+    const result = await port.settleAfterSecretRelease!(effectResult!);
+    sequence.push("valid-reduced");
+    expect(result).toMatchObject({ outcome: "valid", resultCode: "VALIDATION_OK" });
+    expect(sequence).toEqual(["secret-released", "receipt-committed", "valid-reduced"]);
+
+    const failed = await authorizationPort();
+    let writeAttempts = 0;
+    const failingStore = Object.freeze({
+      async commit() { writeAttempts += 1; throw new Error("synthetic-receipt-write-failure"); },
+      async readCommitted() { throw new Error("not-committed"); },
+    });
+    const failedPort = createAnthropicCredentialValidationPort({ gate: failed.gate, receiptStore: failingStore, now: () => new Date(ISSUED) });
+    const failedAttempt = await failedPort.prepare!({ slotId: "anthropic", providerInstanceId: "anthropic-default", secretRefFingerprint: secretRefFingerprint(appVaultReferenceForSlot("anthropic")), signal });
+    const failedMaterial = createSecretMaterial("text", new TextEncoder().encode("synthetic-write-failure-secret"));
+    let failedEffect: unknown;
+    try {
+      failedEffect = await failedPort.validate({ slotId: "anthropic", credentialId: `cred-${"9".repeat(32)}`, recordRevision: 1, recordToken: "a".repeat(64), secret: failedMaterial, signal, policyDecisionFingerprint: POLICY, authorizationAttempt: failedAttempt, operationId: `credential-validate.${"b".repeat(32)}`, validationStartedAt: ISSUED });
+      expect(writeAttempts).toBe(0);
+    } finally { failedMaterial.dispose(); }
+    await expect(failedPort.settleAfterSecretRelease!(failedEffect!)).resolves.toEqual({ outcome: "evidence-incomplete", resultCode: "EVIDENCE_RECEIPT_UNAVAILABLE" });
+    expect(writeAttempts).toBe(1);
+    expect(failed.gate.authorization().state).toBe("consumed");
+    expect(validationFactory).toHaveBeenCalledTimes(2);
+  });
+
+  it("never writes a success receipt for fake transport or any finite non-success result", async () => {
+    const cases = [
+      { kind: "fake" as const, expected: "ambiguous" },
+      { kind: "credential-unauthenticated" as const, expected: "invalid" },
+      { kind: "permission-denied" as const, expected: "unauthorized" },
+      { kind: "network-transport" as const, expected: "unreachable" },
+      { kind: "response-schema" as const, expected: "ambiguous" },
+    ];
+    for (const [index, testCase] of cases.entries()) {
+      validationFactory.mockImplementation((options: ProductionDisabledAnthropicValidationOptions): ProductionDisabledAnthropicValidationRunner => ({
+        async runOnce(): Promise<AnthropicLiveCanaryResult> {
+          options.observeFailurePhase?.("possibly-dispatched");
+          if (testCase.kind === "fake") return { ...successEnvelope(), transportKind: "deterministic-fake" } as unknown as AnthropicLiveCanaryResult;
+          throw new AnthropicLiveCanaryError("TRANSPORT_FAILURE", "response-received", diagnostics(testCase.kind));
+        },
+      }));
+      const fixture = await authorizationPort();
+      const signal = new AbortController().signal;
+      const attempt = await fixture.port.prepare!({ slotId: "anthropic", providerInstanceId: "anthropic-default", secretRefFingerprint: secretRefFingerprint(appVaultReferenceForSlot("anthropic")), signal });
+      const material = createSecretMaterial("text", new TextEncoder().encode(`synthetic-non-success-${index}`));
+      try {
+        const effectResult = await fixture.port.validate({ slotId: "anthropic", credentialId: `cred-${(index + 1).toString(16).repeat(32)}`, recordRevision: 1, recordToken: (index + 2).toString(16).repeat(64), secret: material, signal, policyDecisionFingerprint: POLICY, authorizationAttempt: attempt, operationId: `credential-validate.${(index + 3).toString(16).repeat(32)}`, validationStartedAt: ISSUED });
+        const result = await fixture.port.settleAfterSecretRelease!(effectResult);
+        expect(result.outcome).toBe(testCase.expected);
+        expect(fixture.receiptStore.commits).toBe(0);
+      } finally { material.dispose(); }
+    }
   });
 
   it("refuses invalid composition inputs and projects ambiguous adapter failures finitely", async () => {
@@ -350,6 +452,21 @@ describe("Anthropic validation promotion boundary", () => {
       secretRefFingerprint: secretRefFingerprint(appVaultReferenceForSlot("anthropic")),
       signal,
     })).rejects.toMatchObject({ code: "VALIDATION_AUTHORIZATION_INVALID" });
+
+    const consumeFailurePort = createAnthropicCredentialValidationPort({
+      gate: {
+        authorization: fixture.gate.authorization,
+        consume() { throw new Error("synthetic-consume-failure"); },
+        claim: fixture.gate.claim,
+      },
+      receiptStore: fixture.receiptStore,
+    });
+    await expect(consumeFailurePort.prepare!({
+      slotId: "anthropic",
+      providerInstanceId: "anthropic-default",
+      secretRefFingerprint: secretRefFingerprint(appVaultReferenceForSlot("anthropic")),
+      signal,
+    })).rejects.toMatchObject({ code: "VALIDATION_AUTHORIZATION_AMBIGUOUS" });
 
     const material = createSecretMaterial("text", new TextEncoder().encode("synthetic-never-read"));
     try {
@@ -363,6 +480,36 @@ describe("Anthropic validation promotion boundary", () => {
         policyDecisionFingerprint: "not-a-fingerprint",
         authorizationAttempt: Object.freeze({}) as never,
       })).rejects.toMatchObject({ code: "VALIDATION_AUTHORIZATION_INVALID" });
+
+      await expect(fixture.port.validate({
+        slotId: "anthropic",
+        credentialId: `cred-${"e".repeat(32)}`,
+        recordRevision: 1,
+        recordToken: "f".repeat(64),
+        secret: material,
+        signal,
+        policyDecisionFingerprint: POLICY,
+        authorizationAttempt: Object.freeze({}) as never,
+        operationId: `credential-validate.${"d".repeat(32)}`,
+        validationStartedAt: ISSUED,
+      })).rejects.toMatchObject({ code: "VALIDATION_AUTHORIZATION_CONSUMED" });
+
+      const claimedAttempt = await fixture.port.prepare!({
+        slotId: "anthropic",
+        providerInstanceId: "anthropic-default",
+        secretRefFingerprint: secretRefFingerprint(appVaultReferenceForSlot("anthropic")),
+        signal,
+      });
+      await expect(fixture.port.validate({
+        slotId: "anthropic",
+        credentialId: `cred-${"e".repeat(32)}`,
+        recordRevision: 1,
+        recordToken: "f".repeat(64),
+        secret: material,
+        signal,
+        policyDecisionFingerprint: POLICY,
+        authorizationAttempt: claimedAttempt,
+      })).rejects.toMatchObject({ code: "VALIDATION_AUTHORIZATION_INVALID" });
     } finally {
       material.dispose();
     }
@@ -372,7 +519,7 @@ describe("Anthropic validation promotion boundary", () => {
       consume: fixture.gate.consume,
       claim() { throw new Error("synthetic-claim-failure"); },
     };
-    const ambiguousPort = createAnthropicCredentialValidationPort({ gate: plainFailureGate });
+    const ambiguousPort = createAnthropicCredentialValidationPort({ gate: plainFailureGate, receiptStore: fixture.receiptStore });
     const ambiguousMaterial = createSecretMaterial("text", new TextEncoder().encode("synthetic-never-read"));
     try {
       await expect(ambiguousPort.validate({
@@ -417,6 +564,7 @@ describe("Anthropic validation promotion boundary", () => {
     const fixture = await authorizationPort();
     const port = createAnthropicCredentialValidationPort({
       gate: fixture.gate,
+      receiptStore: fixture.receiptStore,
       now: () => { throw new Error("synthetic-clock-failure"); },
     });
     const controller = new AbortController();
@@ -437,6 +585,8 @@ describe("Anthropic validation promotion boundary", () => {
         signal: controller.signal,
         policyDecisionFingerprint: POLICY,
         authorizationAttempt: attempt,
+        operationId: `credential-validate.${"5".repeat(32)}`,
+        validationStartedAt: ISSUED,
       });
       expect(result).toEqual({ outcome: "ambiguous", resultCode: "RESULT_AMBIGUOUS" });
       expect(JSON.stringify(result)).not.toContain("PRIVATE_SYNTHETIC_SECRET");

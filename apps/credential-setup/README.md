@@ -24,7 +24,11 @@ the result and Activity sentence were durably recorded, and whether the checked
 version is still current, discarded, or unconfirmed. Once dispatch occurs, later
 local failures cannot be presented as a pre-effect refusal and never cause an
 automatic retry. A deadline response does not release the global validation guard
-or host close drain while secret-derived work is still settling.
+or host close drain while provider/secret work is still settling. If an exact
+success effect settles before that deadline, the resolver first releases the
+secret callback; main then awaits local receipt settlement outside the effect
+deadline before returning anything terminal. The renderer does not abandon that
+evidence phase, and host close drains an already-started receipt commit.
 
 The UI may switch Normal/Developer presentation locally because the reviewed six
 channels deliberately include no event or mode-setting channel. Developer facts
@@ -39,7 +43,9 @@ binding only at the exact Stage 18E-I manifest commit, and the UI exposes
 unexpired one-shot authorization packet matches that binding and the existing
 application-vault `SecretRef`. The authorization is durably consumed before
 credential resolution and possible dispatch. Existing, partial, or ambiguous
-markers remain consumed across restart; there is no retry.
+markers remain consumed across an observed orderly restart; there is no
+application retry path. The Windows hard-power-loss qualification below applies
+to the durability of a newly created marker directory entry.
 
 The one possible request is fixed to Anthropic Messages API version `2023-06-01`,
 model `claude-haiku-4-5-20251001`, and the synthetic phrase “Reply with exactly
@@ -47,6 +53,52 @@ OK.”, with four output tokens, 65,536 response bytes, a 15-second effect bound
 five-second callback drain, and standard commercial API retention. The stored
 credential remains callback-scoped in main and is never displayed. No packet or
 marker is shipped in the repository.
+
+## Sanitized success receipts
+
+The original Stage 18E-I one-shot validation later succeeded, but its complete
+success envelope was reduced to `Valid` before durable evidence persistence.
+Credential validation succeeded, but the full ANT-02 evidence envelope was not
+retained; the authorization is consumed and cannot be reused. The missing
+duration and token observations are not reconstructed, and the historical local
+Valid state is explicitly labelled `historical-missing` for evidence purposes.
+
+For a future separately authorized attempt, main now preserves the complete
+independently validated envelope until a flat, exact 38-field sanitized receipt
+is committed beneath the fixed `success-receipts-v1` application-data root. The
+receipt binds the repaired candidate, authorization digest/reference, hashed
+marker namespace, request and policy fingerprints, direct transport, exact
+duration/usage, one dispatch, timestamps, and terminal success. It contains no
+credential, authorization header, request/response body, provider prose,
+credential ID, record token, private metadata, or clipboard state.
+
+The canonical receipt body is created and flushed first. A separate create-only
+terminal sidecar then binds its ID, SHA-256, and byte count. Only both exact files
+can return reduced `Valid` with a receipt pointer. Provider success followed by
+any receipt failure becomes the finite nondefinitive **Receipt not saved** state;
+the authorization stays consumed, no retry occurs, and prior definitive
+credential knowledge is preserved. Committed pointer mismatch also fails closed
+on restart.
+
+The receipt is not exposed through renderer IPC. A later separately authorized
+evidence session can use `project:anthropic-validation-receipt` to read one
+pre-named receipt with exact candidate bindings. The tool neither enumerates the
+receipt directory nor accesses the vault, credential, marker, metadata,
+clipboard, Electron, task runtime, or provider. See ADR 0036 and the Stage 18E-I
+receipt recovery runbook.
+
+Marker creation remains exclusive `wx` and is verified against opened-handle and
+directory identity before a claim is yielded. POSIX flushes the parent directory.
+On Windows, Node cannot prove parent-directory fsync, so the exact marker is
+reopened and flushed; no parent-directory durability claim is made. A sudden
+power loss can therefore lose the new directory entry even though the target was
+flushed, in which case startup could observe no marker and cannot prove the
+attempt remains consumed. Absolute crash-resistant no-retry is not claimed for
+that Windows failure mode; a future real attempt needs an operational or native
+durable-ledger control before relying on that stronger property. Filesystem
+promises are not wrapped in a detached timeout because they are non-cancellable;
+expiry is rechecked after preparation and prevents any late dispatch in the
+running process.
 
 ## Safety and project status
 

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open } from "node:fs/promises";
+import { lstat, mkdir, open, realpath } from "node:fs/promises";
+import { platform } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { types as utilTypes } from "node:util";
 import { toCanonicalJson } from "@ai-dev-os/domain";
@@ -25,7 +26,7 @@ import {
 export const STAGE_18E_I_CANDIDATE_BINDING_PATH =
   "dist/main/stage-18e-i-candidate-binding.json" as const;
 export const STAGE_18E_I_MANIFEST_PATH =
-  "docs/release-evidence/stage-18e-i-subject-manifest.json" as const;
+  "docs/release-evidence/stage-18e-i-sanitized-success-receipt-subject-manifest.json" as const;
 export const ANTHROPIC_VALIDATION_OPERATION_VERSION =
   "ai-dev-os.stage-18e-i.anthropic-validation.v1" as const;
 export const ANTHROPIC_VALIDATION_RETENTION_MODE =
@@ -460,6 +461,63 @@ function hasErrorCode(error: unknown, expected: string): boolean {
   } catch { return false; }
 }
 
+function sameResolvedPath(left: string, right: string): boolean {
+  const normalizedLeft = resolve(left);
+  const normalizedRight = resolve(right);
+  return platform() === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
+}
+
+function sameFileIdentity(
+  left: Readonly<{ dev: number | bigint; ino: number | bigint }>,
+  right: Readonly<{ dev: number | bigint; ino: number | bigint }>,
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function completeMarkerDurabilityBarrier(input: Readonly<{
+  markerPath: string;
+  markerDirectory: string;
+  markerDirectoryRealPath: string;
+  markerDirectoryIdentity: Readonly<{ dev: number | bigint; ino: number | bigint }>;
+  markerIdentity: Readonly<{ dev: number | bigint; ino: number | bigint }>;
+}>): Promise<void> {
+  if (!sameResolvedPath(await realpath(input.markerDirectory), input.markerDirectoryRealPath)) {
+    throw new Error("MARKER_DIRECTORY_IDENTITY_CHANGED");
+  }
+
+  if (platform() === "win32") {
+    // Node does not expose a reliable Windows parent-directory fsync contract. Re-open and
+    // flush the exact marker identity instead; callers must not describe this as directory durability.
+    const markerHandle = await open(input.markerPath, "r+");
+    try {
+      const marker = await markerHandle.stat();
+      if (!marker.isFile() || !sameFileIdentity(marker, input.markerIdentity)) {
+        throw new Error("MARKER_IDENTITY_CHANGED");
+      }
+      await markerHandle.sync();
+    } finally {
+      await markerHandle.close();
+    }
+    return;
+  }
+
+  const directoryHandle = await open(input.markerDirectory, "r");
+  try {
+    const directory = await directoryHandle.stat();
+    if (
+      !directory.isDirectory() ||
+      !sameFileIdentity(directory, input.markerDirectoryIdentity)
+    ) {
+      throw new Error("MARKER_DIRECTORY_IDENTITY_CHANGED");
+    }
+    await directoryHandle.sync();
+  } finally {
+    await directoryHandle.close();
+  }
+}
+
 function view(
   state: AnthropicValidationAuthorizationState,
   packet: AnthropicValidationAuthorizationPacket | null,
@@ -599,6 +657,9 @@ export async function createAnthropicValidationAuthorizationGate(options: Readon
         input.secretRefFingerprint !== EXPECTED_REFERENCE_FINGERPRINT
       ) fail("AUTHORIZATION_INVALID");
 
+      let preparedMarkerDirectoryIdentity:
+        Readonly<{ dev: number | bigint; ino: number | bigint }> | null = null;
+      let preparedMarkerDirectoryRealPath: string | null = null;
       try {
         await mkdir(markerDirectory, { recursive: true, mode: 0o700 });
         const markerDirectoryStat = await lstat(markerDirectory);
@@ -606,8 +667,22 @@ export async function createAnthropicValidationAuthorizationGate(options: Readon
           state = "invalid";
           fail("AUTHORIZATION_INVALID");
         }
+        const markerDirectoryRealPath = await realpath(markerDirectory);
+        if (!sameResolvedPath(markerDirectoryRealPath, markerDirectory)) {
+          state = "invalid";
+          fail("AUTHORIZATION_INVALID");
+        }
+        preparedMarkerDirectoryIdentity = markerDirectoryStat;
+        preparedMarkerDirectoryRealPath = markerDirectoryRealPath;
       } catch (error) {
         if (error instanceof AnthropicValidationAuthorizationError) throw error;
+        state = "unavailable";
+        fail("AUTHORIZATION_UNAVAILABLE");
+      }
+      if (
+        preparedMarkerDirectoryIdentity === null ||
+        preparedMarkerDirectoryRealPath === null
+      ) {
         state = "unavailable";
         fail("AUTHORIZATION_UNAVAILABLE");
       }
@@ -637,9 +712,27 @@ export async function createAnthropicValidationAuthorizationGate(options: Readon
         candidateManifestAggregate: packet.candidate.manifestAggregate,
         secretRefFingerprint: packet.provider.secretRef.fingerprint,
       });
-      claims.add(attempt);
       let markerUncertain = false;
+      let markerIdentity: Readonly<{ dev: number | bigint; ino: number | bigint }> | null = null;
+      let markerDirectoryIdentity: Readonly<{ dev: number | bigint; ino: number | bigint }> | null = null;
+      let markerDirectoryRealPath: string | null = null;
       try {
+        const markerDirectoryStat = await lstat(markerDirectory);
+        markerDirectoryRealPath = await realpath(markerDirectory);
+        const observedMarker = await lstat(markerPath);
+        const openedMarker = await handle.stat();
+        if (
+          !markerDirectoryStat.isDirectory() || markerDirectoryStat.isSymbolicLink() ||
+          !sameResolvedPath(markerDirectoryRealPath, markerDirectory) ||
+          !sameResolvedPath(markerDirectoryRealPath, preparedMarkerDirectoryRealPath) ||
+          !sameFileIdentity(markerDirectoryStat, preparedMarkerDirectoryIdentity) ||
+          !observedMarker.isFile() || observedMarker.isSymbolicLink() ||
+          !openedMarker.isFile() || !sameFileIdentity(observedMarker, openedMarker)
+        ) {
+          throw new Error("MARKER_IDENTITY_UNCERTAIN");
+        }
+        markerDirectoryIdentity = markerDirectoryStat;
+        markerIdentity = openedMarker;
         const marker = canonicalDocument(Object.freeze({
           schemaVersion: 1,
           operationVersion: ANTHROPIC_VALIDATION_OPERATION_VERSION,
@@ -656,10 +749,46 @@ export async function createAnthropicValidationAuthorizationGate(options: Readon
       }
       try { await handle.close(); }
       catch { markerUncertain = true; }
+      if (
+        !markerUncertain && markerIdentity !== null &&
+        markerDirectoryIdentity !== null && markerDirectoryRealPath !== null
+      ) {
+        try {
+          const observedMarker = await lstat(markerPath);
+          if (
+            !observedMarker.isFile() || observedMarker.isSymbolicLink() ||
+            !sameFileIdentity(observedMarker, markerIdentity)
+          ) {
+            throw new Error("MARKER_IDENTITY_CHANGED");
+          }
+          await completeMarkerDurabilityBarrier({
+            markerPath,
+            markerDirectory,
+            markerDirectoryRealPath,
+            markerDirectoryIdentity,
+            markerIdentity,
+          });
+          const durableMarker = await lstat(markerPath);
+          const durableDirectory = await lstat(markerDirectory);
+          if (
+            !durableMarker.isFile() || durableMarker.isSymbolicLink() ||
+            !sameFileIdentity(durableMarker, markerIdentity) ||
+            !durableDirectory.isDirectory() || durableDirectory.isSymbolicLink() ||
+            !sameFileIdentity(durableDirectory, markerDirectoryIdentity) ||
+            !sameResolvedPath(await realpath(markerDirectory), markerDirectoryRealPath)
+          ) {
+            throw new Error("MARKER_IDENTITY_CHANGED");
+          }
+        } catch {
+          markerUncertain = true;
+        }
+      } else {
+        markerUncertain = true;
+      }
       if (markerUncertain) {
-        claims.delete(attempt);
         fail("AUTHORIZATION_AMBIGUOUS");
       }
+      claims.add(attempt);
       return attempt;
     },
     claim(attempt: ConsumedAnthropicValidationAuthorization) {

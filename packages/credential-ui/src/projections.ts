@@ -78,6 +78,8 @@ export function projectCredentialStatus(
   if (!slot.enabled) return { tone: "neutral", label: "Disabled", sentence: "Saved on this PC but disabled for future use. No tasks run in this build.", connected: false };
   const validation = latestValidation(slot);
   if (validation === null) return { tone: "info", label: "Saved · not validated", sentence: "Saved securely on this PC. Saving did not contact the provider.", connected: false };
+  if (validation.outcome === "evidence-incomplete" && validation.receiptState === "mismatch") return { tone: "warn", label: "Receipt not verifiable", sentence: `Provider validation succeeded, but the saved audit receipt could not be verified for this build. The one-shot attempt was consumed and cannot be retried. ${lastKnownSentence(slot)}`, connected: false };
+  if (validation.outcome === "evidence-incomplete") return { tone: "warn", label: "Receipt not saved", sentence: `Provider validation succeeded, but its audit receipt could not be saved. The one-shot attempt was consumed and cannot be retried. ${lastKnownSentence(slot)}`, connected: false };
   if (!validation.definitive) return { tone: "warn", label: "Check inconclusive", sentence: `The latest check did not judge the credential. ${lastKnownSentence(slot)}`, connected: false };
   if (!validationTimeIsValid(validation.checkedAt, now) && validation.outcome !== "invalid") return { tone: "warn", label: "Check needed", sentence: "The last definitive check has an invalid or future recorded time, so provider acceptance is not inferred.", connected: false };
   if (validation.outcome === "valid") return validationIsStale(validation.checkedAt, now)

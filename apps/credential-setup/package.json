@@ -29,7 +29,8 @@
     "preregenerate:evidence-screenshot": "npm run build && npm run ensure:electron",
     "regenerate:evidence-screenshot": "node scripts/real-electron-smoke.mjs --regenerate-evidence",
     "preverify:packed": "npm run build && npm run ensure:electron",
-    "verify:packed": "node scripts/verify-packed-host.mjs"
+    "verify:packed": "node scripts/verify-packed-host.mjs",
+    "project:anthropic-validation-receipt": "node scripts/project-anthropic-validation-receipt.mjs"
   },
   "dependencies": {
     "@ai-dev-os/credential-ui": "^0.1.0",

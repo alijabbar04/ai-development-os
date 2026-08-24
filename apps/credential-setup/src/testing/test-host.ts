@@ -11,6 +11,7 @@ import {
 import { CredentialHostService, createCredentialResolverBinding, type CredentialResolverBinding } from "../main/host-service.js";
 import { createMemoryCredentialMetadataStore } from "../main/metadata-store.js";
 import { createDeterministicCredentialValidationPort, type CredentialValidationPort } from "../main/validation.js";
+import type { AnthropicValidationSuccessReceiptStore } from "../main/anthropic-validation-receipt-store.js";
 
 export interface TestCredentialHostControl {
   readonly manager: ReturnType<typeof createAppVaultManagerForTesting>;
@@ -22,8 +23,14 @@ export interface TestCredentialHostControl {
   readonly clipboard: { readonly clears: number; readonly succeeds: boolean };
   readonly policyActions: readonly PolicyAction[];
   readonly policyTraceIds: readonly string[];
-  createService(options?: Readonly<{ validation?: CredentialValidationPort; validationEnabled?: boolean; validationTimeoutMs?: number; clipboardSucceeds?: boolean; encryptionAvailable?: boolean | (() => boolean | Promise<boolean>) }>): CredentialHostService;
+  createService(options?: Readonly<{ validation?: CredentialValidationPort; successReceiptStore?: AnthropicValidationSuccessReceiptStore; successReceiptCandidateBinding?: Readonly<{ head: string; tree: string; manifestAggregate: string }> | null; validationEnabled?: boolean; validationTimeoutMs?: number; clipboardSucceeds?: boolean; encryptionAvailable?: boolean | (() => boolean | Promise<boolean>) }>): CredentialHostService;
 }
+
+export const TEST_SUCCESS_RECEIPT_CANDIDATE_BINDING = Object.freeze({
+  head: "1".repeat(40),
+  tree: "2".repeat(40),
+  manifestAggregate: "6".repeat(64),
+});
 
 export function createTestCredentialHost(options: Readonly<{ shouldReEncrypt?: boolean | (() => boolean); failDecrypt?: boolean | (() => boolean); validationPolicyEffect?: "allow" | "deny" }> = {}): TestCredentialHostControl {
   let now = new Date("2026-08-20T10:00:00.000Z").valueOf();
@@ -73,6 +80,12 @@ export function createTestCredentialHost(options: Readonly<{ shouldReEncrypt?: b
         resolvers: bindings,
         metadata,
         validation: options.validation ?? createDeterministicCredentialValidationPort(),
+        ...(options.successReceiptStore === undefined ? {} : { successReceiptStore: options.successReceiptStore }),
+        ...(options.successReceiptStore === undefined ? {} : {
+          successReceiptCandidateBinding: options.successReceiptCandidateBinding === undefined
+            ? TEST_SUCCESS_RECEIPT_CANDIDATE_BINDING
+            : options.successReceiptCandidateBinding,
+        }),
         validationEnabled: options.validationEnabled ?? true,
         ...(options.validationTimeoutMs === undefined ? {} : { validationTimeoutMs: options.validationTimeoutMs }),
         clock,

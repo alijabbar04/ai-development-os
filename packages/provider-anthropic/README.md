@@ -16,6 +16,15 @@ its exact opt-in, fixed policy/catalog/authorization preflight, one scoped
 only deterministic transport. It remains unreachable from the normal provider
 entry point.
 
+The production-disabled wrapper also enforces that runtime boundary rather than
+relying on TypeScript alone. Its options must be one exact ordinary object with
+the required own data properties and only the two reviewed optional callbacks;
+`transport`, unknown or symbol keys, proxies, accessors, arrays, and abnormal
+prototypes are refused. The live canary independently pins its built-in direct
+HTTPS transport as a second layer. A successful HTTP response must have base
+media type exactly `application/json` after parameter splitting; JSONP,
+JSON-seq, suffix JSON, and text types do not enter the success validator.
+
 The fixed profile is `POST https://api.anthropic.com/v1/messages` with
 `anthropic-version: 2023-06-01`. Deployments configure one explicit model alias
 and one exact expected response-model identity. Unknown aliases and model
@@ -74,6 +83,16 @@ tool JSON, cumulative usage, stop reason, and exactly one terminal. It maps only
 finite redacted provider errors and
 never serializes raw headers or provider/request bodies.
 
+The validation package returns the complete bounded success envelope to its
+application caller. It does not define application metadata or evidence
+persistence. Stage 18E-I's credential host independently validates that full
+envelope and, for a future separately authorized success, must commit an exact
+sanitized receipt before reducing it to `VALIDATION_OK`. The receipt retains the
+provider observations required for evidence while excluding credentials,
+headers, request/response bodies, provider prose, and internal credential
+identity. Receipt failure is an application-level evidence-incomplete state and
+never causes a provider retry.
+
 Caller schema depth, nodes, collections, enum values, and evaluation work are
 finite. Malformed supported keywords are rejected before effects. The
 JavaScript `pattern` and floating-point `multipleOf` keywords are intentionally
@@ -117,4 +136,11 @@ classification defect without a credentialed call. After exact-head hosted
 validation, one later independently reviewed, separately authorized attempt
 used a distinct marker, observed a provider response, and failed closed with
 `TRANSPORT_FAILURE` at `response-received`. It was not retried. Neither attempt
-is the exact successful transport proof, so `ANT-02` remains incomplete.
+was the exact successful transport proof. A later candidate-bound one-shot
+attempt genuinely succeeded, but the application reduced the complete envelope
+before durable evidence persistence. Credential validation succeeded, but the
+full ANT-02 evidence envelope was not retained; the authorization is consumed
+and cannot be reused. Because its exact duration and token observations cannot be
+reconstructed, `ANT-02` remains incomplete. ADR 0036 repairs persistence only
+for a future separately authorized attempt and does not alter the fixed provider
+request or enable general inference.

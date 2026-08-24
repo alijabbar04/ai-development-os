@@ -490,6 +490,30 @@ the source repair itself used no credential read or provider call. The later
 single live result is recorded separately and does not retroactively become
 deterministic repair evidence.
 
+A subsequent Stage 18E-I candidate-bound one-shot attempt genuinely satisfied
+the provider success validator. Credential validation succeeded, but the full
+ANT-02 evidence envelope was not retained; the authorization is consumed and
+cannot be reused. The application-level validator had projected all required
+duration, usage, request, transport, retention, and non-retention facts, then
+immediately reduced them to `Valid` before metadata persistence. Packet limits
+and the consumed marker cannot reconstruct those observations, so this remains
+`BLOCKED_EVIDENCE` rather than an `ANT-02` proof.
+
+ADR 0036 adds an application-owned evidence boundary without changing the
+provider request. A future successful full envelope is independently projected
+into an exact flat sanitized receipt bound to the candidate, authorization,
+hashed marker namespace, request and policy fingerprints, one dispatch, exact
+duration/usage, and terminal state. A create-only canonical body and terminal
+digest sidecar must both be durably committed before the result is reduced for
+metadata/UI. The provider effect and receipt candidate finish inside the secret
+callback; the resolver releases `SecretMaterial`, then main awaits receipt
+settlement outside the effect-deadline race and before any terminal renderer
+response. Failure becomes a finite nondefinitive evidence-incomplete result; it
+cannot restore the one-shot authorization. Reopen verification pins the receipt
+to the Anthropic slot and exact current candidate. An isolated pre-named
+projection tool reads no vault, marker, metadata, clipboard, provider, or task
+state.
+
 The subsequent Windows credential checkpoint supplies the missing persistent
 resolution infrastructure without enabling that canary. One exact schema-v1
 `keychain` reference is allowlisted by namespace, service, account, text kind,

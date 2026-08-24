@@ -765,9 +765,25 @@ exact final HEAD/tree/manifest and application-vault Anthropic `SecretRef`, and
 atomically consumes a nonsecret durable marker before secret resolution. The
 packet is absent by default, no marker is committed, other providers and task
 execution remain unreachable, and only an exact direct-HTTPS success envelope
-can become Valid. This checkpoint performs no credential read or provider call;
-`ANT-02` remains incomplete until a later separately authorized live attempt
-actually succeeds.
+can become Valid. The candidate-construction checkpoint performed no credential
+read or provider call. A later separately authorized one-shot attempt genuinely
+succeeded, but the complete validated envelope was reduced before durable
+evidence persistence. Credential validation succeeded, but the full ANT-02
+evidence envelope was not retained; the authorization is consumed and cannot be
+reused. Exact duration and token observations cannot be reconstructed, so
+`ANT-02` remains incomplete.
+
+ADR 0036 defines the **Stage 18E-I sanitized success-receipt repair**. It keeps
+the fixed request, retention, direct transport, SecretRef scope, one-shot marker,
+and production-disabled boundary unchanged. For a future separately authorized
+success, a flat exact receipt binds candidate, authorization, hashed marker
+namespace, request/policy, dispatch, full duration/usage, timestamps, and
+terminal state. A canonical create-only body and terminal digest sidecar must
+commit before Valid reduction. Receipt failure is evidence-incomplete, never a
+credential-invalid claim or retry. Legacy reduced Valid remains locally usable
+but explicitly `historical-missing`; an isolated exact-ID projection boundary
+does not open the vault or contact the provider. This repair enables evidence
+retention only and does not itself prove `ANT-02`.
 
 Stage 18E foundation recovery is explicit rather than startup-driven: one
 revision-consistent snapshot describes source-state- and digest-bound restore,

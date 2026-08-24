@@ -61,6 +61,9 @@ function slot(patch: Partial<CredentialSlotView> = {}): CredentialSlotView {
       operationPhase: "idle",
       resultCode: null,
       policyDecisionFingerprint: null,
+      successReceiptState: null,
+      successReceiptId: null,
+      successReceiptSha256: null,
     },
     ...patch,
   };
@@ -115,6 +118,39 @@ describe("truthful credential projections", () => {
     expect(projectCredentialStatus(slot({ validation: { ...accepted, outcome: "unauthorized", checkedAt: "2026-08-21T10:00:00.000Z" } }), true, "ready", threshold)).toMatchObject({ label: "Check needed", connected: false });
     expect(aggregateSummary(response([slot({ validation: accepted })]), threshold)).toContain("1 accepted provider");
     expect(aggregateSummary(response([slot({ validation: accepted })]), threshold)).toContain("1 credential needs a check");
+  });
+
+  it("treats provider success without a durable audit receipt as evidence-incomplete, not invalid or connected", () => {
+    const prior = { outcome: "valid" as const, checkedAt: "2026-08-20T09:00:00.000Z", recordRevision: 2, recordToken: "a".repeat(64), definitive: true, receiptState: "historical-missing" as const };
+    const incomplete = { outcome: "evidence-incomplete" as const, checkedAt: "2026-08-20T10:00:00.000Z", recordRevision: 2, recordToken: "a".repeat(64), definitive: false, receiptState: "write-failed" as const };
+    const projected = projectCredentialStatus(slot({ validation: prior, lastValidationAttempt: incomplete }), true, "ready", new Date("2026-08-20T10:01:00.000Z"));
+    expect(projected).toMatchObject({ tone: "warn", label: "Receipt not saved", connected: false });
+    expect(projected.sentence).toContain("Provider validation succeeded, but its audit receipt could not be saved");
+    expect(projected.sentence).toContain("one-shot attempt was consumed and cannot be retried");
+    expect(projected.sentence).toContain("Last known: accepted");
+    const persisted = response([slot({ validation: prior, lastValidationAttempt: incomplete })]);
+    for (const mode of ["normal", "developer"] as const) {
+      const reopened = projectCredentialMode(structuredClone(persisted), mode, new Date("2026-08-20T10:01:00.000Z"))[0]!;
+      expect(reopened.status).toMatchObject({ tone: "warn", label: "Receipt not saved", connected: false });
+      expect(reopened.status.sentence).toContain("Provider validation succeeded");
+      expect(reopened.status.sentence).toContain("consumed and cannot be retried");
+      expect(reopened.developerFacts === null).toBe(mode === "normal");
+    }
+    expect(validationIsDefinitive("evidence-incomplete")).toBe(false);
+  });
+
+  it("distinguishes an unverifiable saved receipt from a receipt that was not saved after restart in both modes", () => {
+    const prior = { outcome: "valid" as const, checkedAt: "2026-08-20T09:00:00.000Z", recordRevision: 2, recordToken: "a".repeat(64), definitive: true, receiptState: "committed" as const };
+    const mismatch = { outcome: "evidence-incomplete" as const, checkedAt: "2026-08-20T10:00:00.000Z", recordRevision: 2, recordToken: "a".repeat(64), definitive: false, receiptState: "mismatch" as const };
+    const persisted = response([slot({ validation: prior, lastValidationAttempt: mismatch })]);
+    for (const mode of ["normal", "developer"] as const) {
+      const reopened = projectCredentialMode(structuredClone(persisted), mode, new Date("2026-08-20T10:01:00.000Z"))[0]!;
+      expect(reopened.status).toMatchObject({ tone: "warn", label: "Receipt not verifiable", connected: false });
+      expect(reopened.status.sentence).toContain("saved audit receipt could not be verified for this build");
+      expect(reopened.status.sentence).toContain("consumed and cannot be retried");
+      expect(reopened.status.sentence).not.toContain("could not be saved");
+      expect(reopened.developerFacts === null).toBe(mode === "normal");
+    }
   });
 
   it("projects removed, unreadable, unreachable, and every definitive validation outcome without optimistic wording", () => {

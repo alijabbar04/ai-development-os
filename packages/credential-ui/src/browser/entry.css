@@ -38,6 +38,7 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; color: var(--disabled); }
 :focus { outline: none; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus, h3[data-busy-focus="true"]:focus { outline: 3px solid var(--focus); outline-offset: 4px; border-radius: 3px; }
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .app-shell { height: 100%; display: grid; grid-template: 44px 1fr / 208px 1fr; }
 .titlebar { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--divider); background: var(--nav); }
@@ -194,6 +195,7 @@ fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
   .rail button { color: CanvasText; }
   .bounded-mark { color: CanvasText; border-color: CanvasText; }
   :focus-visible { outline: 3px solid Highlight; }
+  h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus, h3[data-busy-focus="true"]:focus { outline: 3px solid Highlight; }
   .dev-block { color: CanvasText; background: Canvas; border-left-color: Highlight; }
   .dev-block h3 { color: Highlight; }
   .error, .form-error-summary { color: CanvasText; border-color: CanvasText; }

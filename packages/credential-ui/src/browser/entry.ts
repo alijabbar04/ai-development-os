@@ -41,14 +41,18 @@ interface DeveloperFacts {
   readonly operationPhase: "idle" | "validation-in-flight";
   readonly resultCode: string | null;
   readonly policyDecisionFingerprint: string | null;
+  readonly successReceiptState: "not-applicable" | "committed" | "historical-missing" | "write-failed" | "mismatch" | null;
+  readonly successReceiptId: string | null;
+  readonly successReceiptSha256: string | null;
 }
 
 interface ValidationView {
-  readonly outcome: "valid" | "invalid" | "unauthorized" | "ambiguous" | "unreachable";
+  readonly outcome: "valid" | "invalid" | "unauthorized" | "ambiguous" | "unreachable" | "evidence-incomplete";
   readonly checkedAt: string;
   readonly recordRevision: number;
   readonly recordToken: string;
   readonly definitive: boolean;
+  readonly receiptState?: "not-applicable" | "committed" | "historical-missing" | "write-failed" | "mismatch";
 }
 
 interface SlotView {
@@ -116,7 +120,7 @@ interface ValidatedResult {
   readonly credentialId: string;
   readonly recordRevision: number;
   readonly recordToken: string;
-  readonly outcome: "valid" | "invalid" | "unauthorized" | "ambiguous" | "unreachable";
+  readonly outcome: "valid" | "invalid" | "unauthorized" | "ambiguous" | "unreachable" | "evidence-incomplete";
   readonly checkedAt: string;
   readonly definitive: boolean;
   readonly providerDispatched: boolean;
@@ -258,7 +262,7 @@ const ERROR_COPY: Readonly<Record<ErrorCode, Readonly<{ title: string; body: str
   DECRYPT_FAILED: { title: "This credential could not be read", body: "Review the refreshed status before trying again. Re-entry is offered only if secure storage marks the saved copy unreadable." },
   METADATA_UNAVAILABLE: { title: "Credential details are unavailable", body: "The local details read or update did not complete. Earlier saved details may still be intact. Close and reopen to inspect them before deciding whether any repair is needed." },
   VALIDATION_DISABLED: { title: "Live validation is off in this build", body: "Saving remains local. A provider request is unavailable until a separately enabled build is reviewed." },
-  VALIDATION_DISCLOSURE_MISSING: { title: "Validation was not approved", body: "Review the one-request disclosure and choose Confirm and validate explicitly." },
+  VALIDATION_DISCLOSURE_MISSING: { title: "Validation was not approved", body: "Review the one-dispatch-attempt disclosure and choose Confirm and validate explicitly." },
   VALIDATION_POLICY_DENIED: { title: "Validation wasn't allowed by policy", body: "Nothing was sent to the provider. The refusal was recorded in Activity." },
   VALIDATION_CANCELLED: { title: "Validation was cancelled", body: "The credential was not judged and no retry was attempted." },
   VALIDATION_AUTHORIZATION_UNAVAILABLE: { title: "Validation authorization is unavailable", body: "No provider request was made. A reviewed, candidate-bound one-shot authorization must be loaded first." },
@@ -414,6 +418,8 @@ function statusFor(slot: SlotView): Readonly<{ tone: Tone; label: string; senten
   if (!slot.enabled) return { tone: "neutral", label: "Disabled", sentence: "Saved on this PC but disabled for future use. No tasks run in this build.", connected: false };
   const latest = slot.lastValidationAttempt ?? slot.validation;
   if (latest === null) return { tone: "info", label: "Saved · not validated", sentence: "Saved securely on this PC. Saving did not contact the provider.", connected: false };
+  if (latest.outcome === "evidence-incomplete" && latest.receiptState === "mismatch") return { tone: "warn", label: "Receipt not verifiable", sentence: `Provider validation succeeded, but the saved audit receipt could not be verified for this build. The one-shot attempt was consumed and cannot be retried. ${lastKnownValidation(slot)}`, connected: false };
+  if (latest.outcome === "evidence-incomplete") return { tone: "warn", label: "Receipt not saved", sentence: `Provider validation succeeded, but its audit receipt could not be saved. The one-shot attempt was consumed and cannot be retried. ${lastKnownValidation(slot)}`, connected: false };
   if (!latest.definitive) return { tone: "warn", label: "Check inconclusive", sentence: `The latest check did not judge this credential. ${lastKnownValidation(slot)}`, connected: false };
   const age = validationAge(latest.checkedAt);
   if (!age.recorded && latest.outcome !== "invalid") return { tone: "warn", label: "Check needed", sentence: "The last definitive check has an invalid or future recorded time, so provider acceptance is not inferred.", connected: false };
@@ -457,6 +463,7 @@ function validationSummary(validation: ValidationView | null): string {
     unauthorized: "Accepted · permission limited",
     ambiguous: "Inconclusive · unclear result",
     unreachable: "Inconclusive · provider unreachable",
+    "evidence-incomplete": "Inconclusive · audit receipt unavailable",
   });
   const age = validationAge(validation.checkedAt);
   if (validation.definitive && !age.recorded && validation.outcome !== "invalid") return "Provider acceptance unavailable · recorded time is invalid or in the future";
@@ -486,7 +493,20 @@ function validationAge(value: string, now = Date.now()): Readonly<{ short: strin
 function date(value: string | null): string {
   if (value === null) return "Never";
   const parsed = new Date(value);
-  return Number.isNaN(parsed.valueOf()) ? "Recorded time unavailable" : new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(parsed);
+  return Number.isNaN(parsed.valueOf()) ? "Recorded time unavailable" : formatCredentialTimestamp(parsed);
+}
+
+/** Credential Setup uses its reviewed document language and the operator's OS time zone. */
+const CREDENTIAL_TIMESTAMP_FORMAT_CONTRACT = Object.freeze({
+  locale: document.documentElement.lang,
+  options: Object.freeze({ dateStyle: "medium", timeStyle: "short" } as const),
+});
+
+function formatCredentialTimestamp(value: Date): string {
+  return new Intl.DateTimeFormat(
+    CREDENTIAL_TIMESTAMP_FORMAT_CONTRACT.locale,
+    CREDENTIAL_TIMESTAMP_FORMAT_CONTRACT.options,
+  ).format(value);
 }
 
 function displayFingerprint(value: string | null): string {
@@ -576,6 +596,9 @@ function renderDeveloperFacts(slot: SlotView): HTMLElement {
     ["operation.phase", slot.developer.operationPhase],
     ["result.code", slot.developer.resultCode ?? "none"],
     ["policyDecision.fingerprint", displayFingerprint(slot.developer.policyDecisionFingerprint)],
+    ["successReceipt.state", slot.developer.successReceiptState ?? "none"],
+    ["successReceipt.id", displayFingerprint(slot.developer.successReceiptId)],
+    ["successReceipt.sha256", displayFingerprint(slot.developer.successReceiptSha256)],
     ["createdAt", slot.createdAt ?? "none"],
     ["rotatedAt", slot.rotatedAt ?? "none"],
     ["revokedAt", slot.revokedAt ?? "none"],
@@ -750,8 +773,12 @@ function renderOverview(parent: HTMLElement): void {
     : model.validationEnabled && model.validationAuthorization?.state === "available"
       ? "One-shot Anthropic validation available"
       : model.validationAuthorization?.state === "consumed"
-        ? "Anthropic validation authorization consumed"
-        : "Live validation disabled";
+        ? "Anthropic validation authorization consumed — a new separately bound authorization is required for any further attempt"
+        : model.validationAuthorization?.state === "expired"
+          ? "Anthropic validation authorization expired — a new separately bound authorization is required"
+          : model.validationAuthorization?.state === "invalid"
+            ? "Anthropic validation authorization invalid — no provider request is available"
+            : "Live validation disabled";
   append(strip, element("strong", { text: model === null ? pending ? "Loading secure storage…" : "Secure storage is unavailable — close and reopen credential setup" : aggregate(model) }), element("span", { text: "Development build — tasks do not run against providers" }), element("span", { text: validationAvailability }));
   parent.append(strip);
   if (model === null) return;
@@ -1190,6 +1217,11 @@ async function finite(promise: Promise<Response>, timeoutMs = 30_000): Promise<R
   return await Promise.race([guarded, new Promise<Response>((resolve) => window.setTimeout(() => resolve(unknown), timeoutMs))]);
 }
 
+async function awaitValidationSettlement(promise: Promise<Response>): Promise<Response> {
+  const unknown: RefusedResult = { schemaVersion: 1, requestId: "0".repeat(32), ok: false, kind: "unknown", code: "UNKNOWN_OUTCOME", retryable: false };
+  return await promise.catch((): Response => unknown);
+}
+
 function showRefusal(result: RefusedResult, expected: ExpectedResponse | null = null): void {
   refreshWarning = null;
   const copy = result.code === "RATE_LIMITED" && expected === "validation"
@@ -1328,7 +1360,7 @@ async function applyResponse(result: Response, expected: ExpectedResponse): Prom
         tone: "warn",
         title: "Validation deadline reached; check is still closing",
         body: result.providerDispatched
-          ? "One provider request reached the deadline. Cancellation was requested, nothing was retried, and any late outcome will be ignored. Reopen after the check has fully closed."
+          ? "One provider dispatch attempt reached the deadline. Cancellation was requested, nothing was retried, and any late outcome will be ignored. Reopen after the check has fully closed."
           : "The deadline passed while credential access was closing. No provider request was sent or may start late. Reopen after the check has fully closed.",
       };
       announce(`${notice.title}. ${notice.body}`);
@@ -1388,6 +1420,7 @@ async function applyResponse(result: Response, expected: ExpectedResponse): Prom
       unauthorized: { tone: "warn", title: "Permission limited", body: `The provider accepted the credential but reported limited permission at ${observed}. Exactly one separately disclosed check completed, and nothing was retried.` },
       ambiguous: { tone: "warn", title: "Check unclear", body: `The check did not clearly accept or reject the credential at ${observed}. Nothing was retried, and earlier definitive information was preserved.` },
       unreachable: { tone: "warn", title: "Provider unreachable", body: result.providerDispatched ? `The provider could not be reached or did not complete the check at ${observed}. Nothing was retried, and earlier definitive information was preserved.` : result.deadlineExpired ? `The deadline expired at ${observed} before a provider request was sent. Nothing was retried, and earlier definitive information was preserved.` : `The check ended at ${observed} before provider dispatch. No provider request was sent; nothing was retried, and earlier definitive information was preserved.` },
+      "evidence-incomplete": { tone: "warn", title: "Audit receipt not saved", body: `Provider validation succeeded at ${observed}, but its audit receipt could not be saved. The one-shot attempt was consumed, no retry will occur, and earlier definitive information was preserved.` },
     };
     notice = outcomeNotice[result.outcome];
     announce(`${notice.title}. ${notice.body}`, result.outcome === "invalid");
@@ -1412,10 +1445,10 @@ function openValidation(slot: SlotView): void {
     showRefusal({ schemaVersion: 1, requestId: "0".repeat(32), ok: false, kind: "refused", code: "VALIDATION_AUTHORIZATION_UNAVAILABLE", retryable: false });
     return;
   }
-  const shell = dialogShell("Make the one authorised Anthropic validation request?");
+  const shell = dialogShell("Start the one authorised Anthropic validation attempt?");
   const validationIntroId = `${shell.dialog.getAttribute("aria-labelledby") ?? "credential-validation"}-intro`;
   const validationDisclosureId = `${shell.dialog.getAttribute("aria-labelledby") ?? "credential-validation"}-description`;
-  const validationIntro = element("p", { text: "Confirming makes exactly one Anthropic API request using the saved credential.", attrs: { id: validationIntroId } });
+  const validationIntro = element("p", { text: "Confirming starts one validation attempt using the saved credential. One dispatch attempt; no retry.", attrs: { id: validationIntroId } });
   const list = element("ul", { className: "disclosure", attrs: { id: validationDisclosureId } });
   shell.dialog.setAttribute("aria-describedby", `${validationIntroId} ${validationDisclosureId}`);
   append(shell.body, validationIntro, list);
@@ -1428,7 +1461,7 @@ function openValidation(slot: SlotView): void {
     "The saved credential is used only inside the secure main-process boundary and will not be displayed.",
     "Cancel makes no network request and does not consume the one-shot authorization.",
     "Confirm consumes the one-shot authorization immediately before credential resolution and possible dispatch.",
-    "The provider effect is limited to 15 seconds, followed by at most five seconds for callback and broker cleanup.",
+    "The provider effect is limited to 15 seconds within a 20-second host effect deadline. After a successful effect releases the secure callback, local audit-receipt settlement is awaited before completion.",
   ]) list.append(element("li", { text: sentence }));
   if (mode === "developer") shell.body.append(developerFactsBlock([
     ["operation", "ai-dev-os.stage-18e-i.anthropic-validation.v1"],
@@ -1439,7 +1472,7 @@ function openValidation(slot: SlotView): void {
     ["authorizationPacket", displayFingerprint(authorization.packetFingerprint)],
     ["authorizationReference", authorization.authorizationReference ?? "unavailable"],
     ["expiresAt", authorization.expiresAt ?? "unavailable"],
-    ["timeout", "15 seconds effect + 5 seconds callback drain"],
+    ["timeout", "15 seconds provider effect within 20 seconds; receipt settlement awaited afterward"],
     ["retry", "never"],
     ["policyAction", "provider-disclosure then secret-access"],
     ["policyDecision.fingerprint", "minted by main after approval"],
@@ -1463,18 +1496,18 @@ function openValidation(slot: SlotView): void {
     validate.disabled = true;
     cancel.disabled = true;
     validatingCredentialId = inputs!.credentialId;
-    const progressHeading = element("h3", { text: "Validating… one request, up to 15 seconds.", attrs: { tabindex: "-1", "data-busy-focus": "true" } });
+    const progressHeading = element("h3", { text: "Validating… the one-shot authorization is consumed. One dispatch attempt, no retry. Provider effect up to 15 seconds; local audit-receipt settlement follows.", attrs: { tabindex: "-1", "data-busy-focus": "true" } });
     shell.body.append(
       progressHeading,
-      element("p", { className: "help", text: "Rotate, re-enter, enable or disable, and remove are unavailable until this check finishes." }),
+      element("p", { className: "help", text: "The one-shot authorization has been consumed and will not be retried. Rotate, re-enter, enable or disable, and remove are unavailable until this check finishes." }),
       element("div", { className: "progress validation-progress", attrs: { "aria-hidden": "true" } }),
     );
-    announce(`Validating ${slot.displayName}. One request, up to 15 seconds, then bounded secure cleanup.`);
+    announce(`Validating ${slot.displayName}. The one-shot authorization has been consumed. One dispatch attempt, no retry. Provider effect up to 15 seconds, then local audit-receipt settlement is awaited before completion.`);
     render();
     progressHeading.focus();
     const result = api === undefined
       ? ({ schemaVersion: 1, requestId: "0".repeat(32), ok: false, kind: "refused", code: "SENDER_REJECTED", retryable: false } as const)
-      : await finite(api.validate(slot.slotId, inputs!.credentialId, inputs!.revision, inputs!.token, true), 22_000);
+      : await awaitValidationSettlement(api.validate(slot.slotId, inputs!.credentialId, inputs!.revision, inputs!.token, true));
     if (!(result.ok && result.kind === "validated" && !result.workSettled)) validatingCredentialId = null;
     deferredFocusKey = `detail-heading-${slot.slotId}`;
     destroyDialog(shell.dialog);
@@ -1569,7 +1602,16 @@ async function refresh(initial: boolean, preserveOutcome = false): Promise<boole
   render();
   if (initial) {
     document.querySelector<HTMLElement>("h1")?.focus();
-    announce(`Credential storage loaded. ${aggregate(result)}. ${result.validationEnabled ? "Validation availability is enabled." : "Live validation is disabled."}`);
+    const availabilityAnnouncement = result.validationEnabled
+      ? "Validation availability is enabled."
+      : result.validationAuthorization?.state === "consumed"
+        ? "The Anthropic one-shot authorization is consumed. A new separately bound authorization is required for any further attempt."
+        : result.validationAuthorization?.state === "expired"
+          ? "The Anthropic validation authorization is expired. A new separately bound authorization is required."
+          : result.validationAuthorization?.state === "invalid"
+            ? "The Anthropic validation authorization is invalid. No provider request is available."
+            : "Live validation is disabled.";
+    announce(`Credential storage loaded. ${aggregate(result)}. ${availabilityAnnouncement}`);
   }
   return true;
 }

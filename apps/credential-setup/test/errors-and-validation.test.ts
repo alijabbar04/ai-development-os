@@ -34,6 +34,9 @@ describe("deterministic validation ports", () => {
     expect(() => parseCredentialValidationResult({ outcome: "unexpected", resultCode: "VALIDATION_OK" })).toThrow();
     expect(() => parseCredentialValidationResult({ outcome: "valid", resultCode: "AUTHENTICATION_FAILED" })).toThrow();
     expect(() => parseCredentialValidationResult({ outcome: "valid", resultCode: "VALIDATION_OK", providerText: "PRIVATE_PROVIDER_TEXT" })).toThrow();
+    expect(parseCredentialValidationResult({ outcome: "valid", resultCode: "VALIDATION_OK", successReceiptId: "a".repeat(64), successReceiptSha256: "b".repeat(64) })).toEqual({ outcome: "valid", resultCode: "VALIDATION_OK", successReceiptId: "a".repeat(64), successReceiptSha256: "b".repeat(64) });
+    expect(() => parseCredentialValidationResult({ outcome: "valid", resultCode: "VALIDATION_OK", successReceiptId: "a".repeat(64) })).toThrow();
+    expect(() => parseCredentialValidationResult({ outcome: "invalid", resultCode: "AUTHENTICATION_FAILED", successReceiptId: "a".repeat(64), successReceiptSha256: "b".repeat(64) })).toThrow();
 
     let accessorRead = false;
     const accessor = Object.defineProperties({}, {
@@ -57,6 +60,7 @@ describe("deterministic validation ports", () => {
       unauthorized: "AUTHORIZATION_LIMITED",
       ambiguous: "RESULT_AMBIGUOUS",
       unreachable: "PROVIDER_UNREACHABLE",
+      "evidence-incomplete": "EVIDENCE_RECEIPT_UNAVAILABLE",
     } as const;
     for (const [outcome, resultCode] of Object.entries(expected)) {
       const port = createDeterministicCredentialValidationPort({ outcome: outcome as keyof typeof expected });

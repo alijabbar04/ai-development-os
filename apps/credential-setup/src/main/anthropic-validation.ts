@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { types as utilTypes } from "node:util";
 import {
   ANTHROPIC_API_VERSION,
@@ -25,9 +26,19 @@ import {
 import { appVaultReferenceForSlot } from "@ai-dev-os/secrets-app-vault";
 import {
   AnthropicValidationAuthorizationError,
+  ANTHROPIC_VALIDATION_OPERATION_VERSION,
+  ANTHROPIC_VALIDATION_RETENTION_MODE,
+  serializeAnthropicValidationAuthorizationPacket,
   type AnthropicValidationAuthorizationGate,
   type AnthropicValidationAuthorizationPacket,
+  type ConsumedAnthropicValidationAuthorization,
 } from "./anthropic-validation-authorization.js";
+import {
+  ANTHROPIC_SUCCESS_RECEIPT_DIGEST_CONVENTION,
+  ANTHROPIC_SUCCESS_RECEIPT_VERSION,
+  type AnthropicValidationSuccessReceipt,
+} from "./anthropic-validation-receipt.js";
+import type { AnthropicValidationSuccessReceiptStore } from "./anthropic-validation-receipt-store.js";
 import { CredentialHostError } from "./host-error.js";
 import {
   validationResultCode,
@@ -44,6 +55,19 @@ const AMBIGUOUS: CredentialValidationResult = Object.freeze({
   outcome: "ambiguous",
   resultCode: "RESULT_AMBIGUOUS",
 });
+
+const EVIDENCE_INCOMPLETE: CredentialValidationResult = Object.freeze({
+  outcome: "evidence-incomplete",
+  resultCode: "EVIDENCE_RECEIPT_UNAVAILABLE",
+});
+
+const PENDING_SUCCESS_RECEIPT =
+  "ai-dev-os.stage-18e-i.anthropic-success-receipt-pending.v1" as const;
+
+interface PendingAnthropicValidationSuccessReceipt {
+  readonly kind: typeof PENDING_SUCCESS_RECEIPT;
+  readonly receipt: AnthropicValidationSuccessReceipt;
+}
 
 function exactRecord(value: unknown, keys: readonly string[]): Readonly<Record<string, unknown>> | null {
   try {
@@ -77,7 +101,7 @@ function exactRecord(value: unknown, keys: readonly string[]): Readonly<Record<s
 export function exactAnthropicValidationSuccess(
   value: unknown,
   expectedPolicyDecisionFingerprint: string,
-): CredentialValidationResult | null {
+): AnthropicLiveCanaryResult | null {
   if (!SHA256.test(expectedPolicyDecisionFingerprint)) return null;
   const result = exactRecord(value, [
     "schemaVersion", "endpoint", "apiVersion", "modelId", "retentionMode",
@@ -112,7 +136,25 @@ export function exactAnthropicValidationSuccess(
     result["requestFingerprint"] !== ANTHROPIC_LIVE_CANARY_REQUEST_SHA256 ||
     result["policyDecisionFingerprint"] !== expectedPolicyDecisionFingerprint
   ) return null;
-  return Object.freeze({ outcome: "valid", resultCode: "VALIDATION_OK" });
+  return Object.freeze({
+    schemaVersion: 1,
+    endpoint: ANTHROPIC_MESSAGES_ENDPOINT,
+    apiVersion: ANTHROPIC_API_VERSION,
+    modelId: ANTHROPIC_LIVE_CANARY_MODEL,
+    retentionMode: "standard-30-day",
+    statusCategory: "success",
+    transportKind: "direct-anthropic-https",
+    durationMs: durationMs as number,
+    inputTokens: inputTokens as number,
+    outputTokens: outputTokens as number,
+    modelSubstitutionRejected: true,
+    fixedRequestBody: true,
+    repositorySourcePresent: false,
+    credentialRetained: false,
+    responseBodyRetained: false,
+    requestFingerprint: ANTHROPIC_LIVE_CANARY_REQUEST_SHA256,
+    policyDecisionFingerprint: expectedPolicyDecisionFingerprint,
+  });
 }
 
 const UNREACHABLE_CATEGORIES = new Set<AnthropicLiveCanaryDiagnosticCategory>([
@@ -184,6 +226,7 @@ function audit(context: SecretAccessContext, outcome: SecretAuditRecord["outcome
 function callbackScopedBroker(
   material: SecretMaterial,
   expectedDecisionFingerprint: string,
+  expectedAuthorizationReference: string,
   canarySignal: () => AbortSignal | null,
   now: () => Date,
 ): SecretBroker {
@@ -192,6 +235,12 @@ function callbackScopedBroker(
     secretRefFingerprint(ref) === EXPECTED_REFERENCE_FINGERPRINT &&
     context.providerInstanceId === "anthropic-default" &&
     context.purpose === "provider-authentication" &&
+    context.accessForm === "text" &&
+    context.classification === "public" &&
+    context.operationId === "anthropic-live-canary-v1" &&
+    Array.isArray(context.approvalEvidenceRefs) &&
+    context.approvalEvidenceRefs.length === 1 &&
+    context.approvalEvidenceRefs[0] === expectedAuthorizationReference &&
     context.disclosureDecisionFingerprint === expectedDecisionFingerprint &&
     context.signal === canarySignal() &&
     context.locality === "cloud";
@@ -230,11 +279,13 @@ function callbackScopedBroker(
 
 export function createAnthropicCredentialValidationPort(options: Readonly<{
   gate: AnthropicValidationAuthorizationGate;
+  receiptStore: AnthropicValidationSuccessReceiptStore;
   now?: () => Date;
 }>): CredentialValidationPort {
   const now = options.now ?? (() => new Date());
   return Object.freeze({
     preciseDispatchObservation: true as const,
+    requiresSuccessReceipt: true as const,
     authorization: () => options.gate.authorization(),
     async prepare(input: Readonly<{
       slotId: CredentialValidationInput["slotId"];
@@ -261,16 +312,33 @@ export function createAnthropicCredentialValidationPort(options: Readonly<{
         throw new CredentialHostError("VALIDATION_AUTHORIZATION_AMBIGUOUS");
       }
     },
-    async validate(input: CredentialValidationInput): Promise<CredentialValidationResult> {
+    async settleAfterSecretRelease(effectResult: unknown): Promise<unknown> {
+      const pending = exactRecord(effectResult, ["kind", "receipt"]);
+      if (pending?.["kind"] !== PENDING_SUCCESS_RECEIPT) return effectResult;
+      try {
+        const reference = await options.receiptStore.commit(pending["receipt"]);
+        return Object.freeze({
+          outcome: "valid" as const,
+          resultCode: "VALIDATION_OK" as const,
+          successReceiptId: reference.receiptId,
+          successReceiptSha256: reference.receiptSha256,
+        });
+      } catch {
+        return EVIDENCE_INCOMPLETE;
+      }
+    },
+    async validate(input: CredentialValidationInput): Promise<unknown> {
       if (input.signal.aborted) throw new CredentialHostError("VALIDATION_CANCELLED");
       if (
         input.slotId !== "anthropic" ||
         !SHA256.test(input.policyDecisionFingerprint ?? "")
       ) throw new CredentialHostError("VALIDATION_AUTHORIZATION_INVALID");
       let packet: AnthropicValidationAuthorizationPacket;
+      let consumed: ConsumedAnthropicValidationAuthorization;
       try {
+        consumed = input.authorizationAttempt as ConsumedAnthropicValidationAuthorization;
         packet = options.gate.claim(
-          input.authorizationAttempt as Parameters<AnthropicValidationAuthorizationGate["claim"]>[0],
+          consumed,
         );
       } catch (error) {
         if (error instanceof AnthropicValidationAuthorizationError) {
@@ -280,10 +348,16 @@ export function createAnthropicCredentialValidationPort(options: Readonly<{
       }
 
       const policyDecisionFingerprint = input.policyDecisionFingerprint!;
+      if (
+        typeof input.operationId !== "string" ||
+        typeof input.validationStartedAt !== "string"
+      ) throw new CredentialHostError("VALIDATION_AUTHORIZATION_INVALID");
       let boundedCanarySignal: AbortSignal | null = null;
+      let dispatchCount = 0;
       const broker = callbackScopedBroker(
         input.secret,
         policyDecisionFingerprint,
+        packet.authorizationReference,
         () => boundedCanarySignal,
         now,
       );
@@ -309,12 +383,75 @@ export function createAnthropicCredentialValidationPort(options: Readonly<{
         }),
         now,
         observeFailurePhase(phase) {
-          if (phase === "possibly-dispatched") input.observeProviderDispatch?.();
+          if (phase === "possibly-dispatched") {
+            dispatchCount += 1;
+            input.observeProviderDispatch?.();
+          }
         },
       });
       try {
         const result: AnthropicLiveCanaryResult = await runner.runOnce(input.signal);
-        return exactAnthropicValidationSuccess(result, policyDecisionFingerprint) ?? AMBIGUOUS;
+        const success = exactAnthropicValidationSuccess(result, policyDecisionFingerprint);
+        if (success === null) return AMBIGUOUS;
+        if (dispatchCount !== 1) return EVIDENCE_INCOMPLETE;
+        let completedAt: string;
+        try { completedAt = now().toISOString(); }
+        catch { return EVIDENCE_INCOMPLETE; }
+        const observedPacketSha256 = createHash("sha256")
+          .update(serializeAnthropicValidationAuthorizationPacket(packet), "utf8")
+          .digest("hex");
+        if (
+          consumed.packetFingerprint !== observedPacketSha256 ||
+          consumed.authorizationReference !== packet.authorizationReference ||
+          consumed.candidateManifestAggregate !== packet.candidate.manifestAggregate
+        ) return EVIDENCE_INCOMPLETE;
+        // This literal is deliberately separate from the receipt validator's
+        // exact-key projection. The store independently validates it before IO.
+        const receipt: AnthropicValidationSuccessReceipt = Object.freeze({
+          schemaVersion: 1,
+          receiptVersion: ANTHROPIC_SUCCESS_RECEIPT_VERSION,
+          digestConvention: ANTHROPIC_SUCCESS_RECEIPT_DIGEST_CONVENTION,
+          operationVersion: ANTHROPIC_VALIDATION_OPERATION_VERSION,
+          operationId: input.operationId,
+          slotId: "anthropic",
+          providerInstanceId: "anthropic-default",
+          candidateHead: packet.candidate.head,
+          candidateTree: packet.candidate.tree,
+          candidateManifestAggregate: packet.candidate.manifestAggregate,
+          authorizationPacketSha256: observedPacketSha256,
+          authorizationReference: packet.authorizationReference,
+          markerNamespaceSha256: createHash("sha256").update(packet.markerNamespace, "utf8").digest("hex"),
+          authorizationRetentionMode: ANTHROPIC_VALIDATION_RETENTION_MODE,
+          attemptLimit: 1,
+          retryPolicy: "none",
+          authorizationState: "consumed-before-dispatch",
+          resultSchemaVersion: 1,
+          requestFingerprint: ANTHROPIC_LIVE_CANARY_REQUEST_SHA256,
+          endpoint: ANTHROPIC_MESSAGES_ENDPOINT,
+          apiVersion: ANTHROPIC_API_VERSION,
+          modelId: ANTHROPIC_LIVE_CANARY_MODEL,
+          retentionMode: "standard-30-day",
+          statusCategory: "success",
+          transportKind: "direct-anthropic-https",
+          durationMs: success.durationMs,
+          inputTokens: success.inputTokens,
+          outputTokens: success.outputTokens,
+          modelSubstitutionRejected: true,
+          fixedRequestBody: true,
+          repositorySourcePresent: false,
+          credentialRetained: false,
+          responseBodyRetained: false,
+          policyDecisionFingerprint: success.policyDecisionFingerprint,
+          dispatchCount: 1,
+          startedAt: input.validationStartedAt,
+          completedAt,
+          terminalState: "validated-success",
+        });
+        const pending: PendingAnthropicValidationSuccessReceipt = Object.freeze({
+          kind: PENDING_SUCCESS_RECEIPT,
+          receipt,
+        });
+        return pending;
       } catch (error) {
         if (input.signal.aborted && !(error instanceof AnthropicLiveCanaryError)) {
           throw new CredentialHostError("VALIDATION_CANCELLED");

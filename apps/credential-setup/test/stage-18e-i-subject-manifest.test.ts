@@ -16,11 +16,11 @@ import {
   STAGE_18E_I_MANIFEST_PATH,
 } from "../../../scripts/stage-18e-i-subject-manifest-lib.mjs";
 
-describe("Stage 18E-I canonical committed-blob manifest", () => {
+describe("Stage 18E-I sanitized-receipt canonical committed-blob manifest", () => {
   it("uses a distinct namespace and rejects ambiguous or unsafe paths", () => {
-    expect(STAGE_18E_I_MANIFEST_ALGORITHM).toBe("ai-dev-os.stage-18e-i.git-blob-subject.v1");
-    expect(STAGE_18E_I_MANIFEST_PATH).toBe("docs/release-evidence/stage-18e-i-subject-manifest.json");
-    expect(STAGE_18E_I_BASE_COMMIT).toBe("8fc438910c55988f33479136f67acc4bcf74a5de");
+    expect(STAGE_18E_I_MANIFEST_ALGORITHM).toBe("ai-dev-os.stage-18e-i.sanitized-success-receipt.git-blob-subject.v1");
+    expect(STAGE_18E_I_MANIFEST_PATH).toBe("docs/release-evidence/stage-18e-i-sanitized-success-receipt-subject-manifest.json");
+    expect(STAGE_18E_I_BASE_COMMIT).toBe("b438ed13b7213640e6a637d173bfefcf697ca9b8");
     expect(parseNameStatusZ(Buffer.from("M\0z.txt\0A\0a.txt\0D\0old.txt\0", "utf8"))).toEqual([
       { status: "A", path: "a.txt" },
       { status: "D", path: "old.txt" },

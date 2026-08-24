@@ -23,7 +23,7 @@ export type CredentialVaultState =
   | "backend-mismatch" | "schema-ahead" | "encryption-unavailable";
 export type CredentialRecordState = "absent" | "present" | "revoked" | "unrecoverable";
 export type CredentialOwnership = "owned" | "authorized";
-export type CredentialValidationOutcome = "valid" | "invalid" | "unauthorized" | "ambiguous" | "unreachable";
+export type CredentialValidationOutcome = "valid" | "invalid" | "unauthorized" | "ambiguous" | "unreachable" | "evidence-incomplete";
 export type CredentialValidationAuthorizationState =
   | "unavailable" | "invalid" | "expired" | "consumed" | "available";
 export type CredentialRecoveryAction = "restore-backup" | "start-over" | "rebind";
@@ -54,6 +54,9 @@ export interface CredentialDeveloperFacts {
   readonly operationPhase: "idle" | "validation-in-flight";
   readonly resultCode: string | null;
   readonly policyDecisionFingerprint: string | null;
+  readonly successReceiptState: "not-applicable" | "committed" | "historical-missing" | "write-failed" | "mismatch" | null;
+  readonly successReceiptId: string | null;
+  readonly successReceiptSha256: string | null;
 }
 
 export interface CredentialValidationView {
@@ -62,6 +65,7 @@ export interface CredentialValidationView {
   readonly recordRevision: number;
   readonly recordToken: string;
   readonly definitive: boolean;
+  readonly receiptState?: "not-applicable" | "committed" | "historical-missing" | "write-failed" | "mismatch";
 }
 
 export interface CredentialSlotView {

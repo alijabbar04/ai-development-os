@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 
-export const STAGE_18E_I_MANIFEST_PATH = "docs/release-evidence/stage-18e-i-subject-manifest.json";
-export const STAGE_18E_I_MANIFEST_ALGORITHM = "ai-dev-os.stage-18e-i.git-blob-subject.v1";
-export const STAGE_18E_I_BASE_COMMIT = "8fc438910c55988f33479136f67acc4bcf74a5de";
+export const STAGE_18E_I_MANIFEST_PATH = "docs/release-evidence/stage-18e-i-sanitized-success-receipt-subject-manifest.json";
+export const STAGE_18E_I_MANIFEST_ALGORITHM = "ai-dev-os.stage-18e-i.sanitized-success-receipt.git-blob-subject.v1";
+export const STAGE_18E_I_BASE_COMMIT = "b438ed13b7213640e6a637d173bfefcf697ca9b8";
 const HASH = /^[0-9a-f]{64}$/u;
 const OID = /^[0-9a-f]{40,64}$/u;
 const COMMIT = /^[0-9a-f]{40}$/u;

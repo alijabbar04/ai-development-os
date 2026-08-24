@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,7 +31,7 @@ const candidate: Stage18eICandidateBinding = Object.freeze({
   tree: "2".repeat(40),
   sourceCommit: "3".repeat(40),
   sourceTree: "4".repeat(40),
-  manifestPath: "docs/release-evidence/stage-18e-i-subject-manifest.json",
+  manifestPath: "docs/release-evidence/stage-18e-i-sanitized-success-receipt-subject-manifest.json",
   manifestSha256: "5".repeat(64),
   manifestAggregate: "6".repeat(64),
 });
@@ -152,6 +152,21 @@ describe("Stage 18E-I candidate-bound Anthropic authorization", () => {
     const markerFiles = await readdir(join(targetRoot, "markers-v1"));
     expect(markerFiles).toHaveLength(1);
     expect(markerFiles[0]).toBe(`${createHash("sha256").update(MARKER_NAMESPACE).digest("hex")}.attempt`);
+    const markerPath = join(targetRoot, "markers-v1", markerFiles[0]!);
+    const markerStat = await lstat(markerPath);
+    expect(markerStat.isFile()).toBe(true);
+    expect(markerStat.isSymbolicLink()).toBe(false);
+    expect(await readFile(markerPath, "utf8")).toBe(canonical({
+      schemaVersion: 1,
+      operationVersion: "ai-dev-os.stage-18e-i.anthropic-validation.v1",
+      packetFingerprint: createHash("sha256")
+        .update(serializeAnthropicValidationAuthorizationPacket(packet()))
+        .digest("hex"),
+      authorizationReference: "operator-review-stage-18e-i",
+      markerNamespace: MARKER_NAMESPACE,
+      consumedAt: ISSUED,
+      state: "consumed-before-dispatch",
+    }));
     const restarted = await createAnthropicValidationAuthorizationGate({ root: targetRoot, candidateBinding: candidate, now: () => new Date(ISSUED) });
     expect(restarted.authorization().state).toBe("consumed");
     await expect(restarted.consume(inputs)).rejects.toMatchObject({ code: "AUTHORIZATION_CONSUMED" });

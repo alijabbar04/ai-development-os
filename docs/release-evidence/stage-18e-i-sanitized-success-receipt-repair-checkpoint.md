@@ -1,0 +1,182 @@
+# Stage 18E-I sanitized success-receipt repair checkpoint
+
+Date: 2026-08-24
+
+Status: `REPAIR_SOURCE_CANDIDATE`
+
+## Fixed starting subject
+
+The repair began only after verifying the exact published original candidate:
+
+- branch `feat/stage-18e-anthropic-validation-enablement`;
+- HEAD `b438ed13b7213640e6a637d173bfefcf697ca9b8`;
+- tree `e16992277457ae6e621d6579c6bbb1c186e9d1dc`;
+- manifest aggregate
+  `a0932fb572b5fe1f70aec062bc37bd7784581682aabe39ab35a01768d7197e26`;
+- GitHub Actions run `32676577018`, attempt 1, all seven jobs successful.
+
+Local HEAD, upstream, tracking branch, and live remote were equal; the index and
+worktree were clean; ancestry and committed manifest independently matched.
+The repair branch is `fix/stage-18e-i-sanitized-success-receipt`.
+
+No task in this repair launched the real credential host, opened the real vault
+or stored credential, read clipboard content, opened or changed the real marker
+or metadata, contacted Anthropic or another provider, executed an AI task, or
+activated production. Tests use synthetic secrets and disposable roots only.
+
+## Historical outcome and exact defect
+
+Credential validation succeeded, but the full ANT-02 evidence envelope was not
+retained; the authorization is consumed and cannot be reused.
+
+At original-candidate lines 77–115 of
+`apps/credential-setup/src/main/anthropic-validation.ts`, the application
+independently validated the complete `AnthropicLiveCanaryResult`. Line 115 then
+returned only `{"outcome":"valid","resultCode":"VALIDATION_OK"}`. Lines
+316–317 returned that reduction from the validation port. Metadata could store
+only the reduced outcome/code and ordinary credential/version facts. The actual
+duration and token observations disappeared before any durable evidence boundary.
+
+Packet limits are not result observations, and the marker proves only
+pre-dispatch consumption. Synthetic regression proves that different duration
+and usage envelopes produced identical historical metadata. The lost values
+cannot be invented, copied from fixtures, or safely inferred. The historical
+result remains `BLOCKED_EVIDENCE` and the consumed request will never be rerun.
+
+## Repair
+
+ADR 0036 defines one exact flat 38-field sanitized success receipt and a
+non-self-referential canonical digest convention. The full independently
+validated provider envelope now survives until the receipt store validates and
+commits it. Only the terminally committed receipt can return reduced Valid with
+an exact receipt ID and SHA-256.
+
+The durable transition is:
+
+```text
+candidate-bound authorization verified
+  -> marker atomically consumed
+  -> SecretRef resolved in one callback
+  -> one fixed provider dispatch attempt
+  -> complete success envelope produced and independently validated
+  -> sanitized pending receipt returned and SecretMaterial callback released
+  -> canonical sanitized receipt body create-only committed
+  -> exact terminal commit sidecar create-only committed
+  -> reduced Valid plus receipt pointer
+  -> current-version metadata/UI commit
+```
+
+Provider success followed by any receipt failure becomes
+`evidence-incomplete` / `EVIDENCE_RECEIPT_UNAVAILABLE`; it is not an invalid
+credential, carries no `ANT-02` claim, preserves prior definitive knowledge, and
+cannot retry. Legacy reduced Valid is explicitly `historical-missing`. Metadata
+and committed-receipt disagreement projects nondefinitively as a receipt
+mismatch. A receipt that precedes a failed metadata write remains independently
+projectable by exact ID and candidate.
+
+The isolated projection CLI reads only two pre-named bounded files. It performs
+no enumeration, marker/metadata/vault mutation, credential resolution, Electron
+launch, network request, task execution, or retry.
+
+## External baseline reviews and dispositions
+
+Both reviews cover only the original candidate. Their PASS does not transfer to
+changed bytes.
+
+Fable reviewed original HEAD/tree/aggregate above and returned PASS with zero
+must-fix findings. Its report is 22,286 bytes with SHA-256
+`2f6711550ff10986a1c2188e1bfd6a9e932c3107a7bd6b1a4335578e40539ea7`.
+
+| Fable advisory | Repair disposition |
+| --- | --- |
+| F1: consumed strip should require a new separately bound authorization | Implemented in visible overview and initial screen-reader announcement |
+| F2: expired and invalid collapsed into generic disabled copy | Implemented distinct visible and announced expired/invalid states |
+| F3: in-flight copy should say consumed and no retry | Implemented in focused heading, help copy, and live-region announcement using “one dispatch attempt” |
+| F4: programmatically focused headings need visible focus | Implemented `:focus` outline, offset, and forced-colours support for headings |
+| F5: hardcoded `en-GB` timestamp format lacked an app contract | Replaced with an explicit credential timestamp contract using the reviewed document-language locale, operator OS time zone, and bounded date/time styles |
+
+Opus reviewed the same original subject and returned PASS with zero must-fix
+findings. Its complete input is 11,675 bytes with SHA-256
+`c9d4eb8c9c9262f0860df6677ecd0ca3ba9c5d4555a97d9dcd5787f4a07bd372`.
+The two receipt source files it observed untracked were created by this active
+repair and have been preserved and reconciled.
+
+| Opus advisory | Repair disposition |
+| --- | --- |
+| A1: `application/json` prefix admitted JSONP/JSON-seq | Implemented exact base media-type equality after splitting parameters; focused refusal tests cover JSONP, JSON-seq, text JSON, and problem+json |
+| A2: callback context did not pin all fixed fields | Implemented exact runtime checks for access form, classification, operation ID, and singleton approval evidence reference, with independent substitution tests |
+| A3: marker parent durability and `lstat`→`open` window | Strengthened without weakening `wx`: pin real path/directory identity, compare opened-handle/path identity before and after write, POSIX parent sync, Windows exact-file re-open/sync. Residual: Node cannot prove Windows parent-directory fsync or provide portable `openat`; no such claim is made |
+| A4: pre-dispatch filesystem preparation is not individually deadline-bounded | Investigated and deliberately not wrapped in a timeout: Node filesystem promises are non-cancellable and a race would create a detached late mutation. Existing post-prepare expiry/abort checks prevent dispatch. Residual availability delay is documented |
+| A5: “Exactly one request” overclaimed observation before `req.end()` | Replaced relevant text with precise “one dispatch attempt; no retry” wording |
+| A6: TypeScript `Omit<..., "transport">` was compile-time only | Added an exact ordinary-object runtime composition boundary refusing `transport`, every unknown/symbol key, proxy, accessor, and abnormal prototype; live-canary transport validation remains independent |
+
+Both baseline reviews correctly made no `ANT-02` claim because no complete
+success receipt existed. Targeted re-review prompts must bind the final repaired
+manifest-only candidate and include every disposition above.
+
+## Independent repair review
+
+The first read-only GPT-5.6 Sol Max review of the changed repair bytes returned
+four must-fix findings and two advisories. No finding caused access to real
+application or provider state.
+
+| Review finding | Repair disposition |
+| --- | --- |
+| R1: receipt commit could outlive the host/UI effect timeout while the secret callback remained retained | Split provider-effect completion from receipt settlement. Exact success returns only a sanitized pending receipt; the resolver releases `SecretMaterial`; the satisfied effect timer is cleared; only then does main await receipt settlement before any terminal response. Close drains the settlement and cannot attach late Valid metadata. |
+| R2: the receipt accepted impossible duration/timestamp combinations | Require a nonnegative host interval strictly below 20 seconds and `durationMs <= completedAt - startedAt`; focused boundary tests cover zero span, duration greater than span, the accepted upper interior, and the exact deadline. |
+| R3: receipt projection checked the digest but not slot/current candidate | New live Valid requires Anthropic slot/provider plus the exact current HEAD/tree/manifest binding. Actual-store restart tests cover a changed candidate and cross-slot committed metadata; metadata parsing independently rejects a committed receipt on non-Anthropic slots. |
+| R4: a reopened persistent evidence-incomplete result fell through to generic inconclusive wording | Added the durable `Receipt not saved` projection in both Normal and Developer modes, stating provider success, missing audit receipt, consumed one-shot authorization, and no retry. |
+| RA1: named-path identity was not checked again after receipt reads | Added a post-read `lstat` identity comparison against the already-open handle and an injected replacement-race regression. |
+| RA2: the Windows parent-directory consequence was understated | Documentation now states that sudden power loss may lose the new marker directory entry, making restart observe no marker; absolute crash-resistant no-retry is not claimed without a separately reviewed native or operational durable-ledger control. |
+| R5: the synthetic Electron smoke still asserted superseded timeout and settlement wording | Updated the isolated smoke assertions to the 15-second request profile, 20-second host effect deadline, post-secret audit-receipt settlement, and one-dispatch-attempt copy; the real Electron smoke passes on disposable state. |
+| R6: Developer projection could combine a later failed-attempt result code/state with an earlier committed receipt pointer | Select one applicable validation record first, then derive result code, decision fingerprint, receipt state, receipt ID, and receipt SHA only from that same record; focused preservation coverage pins the tuple. |
+| RA3: timer-clearing and deadline-loser receipt-I/O invariants lacked direct lifecycle tests | Added one test holding post-secret settlement beyond the expired wall-clock deadline and proving eventual Valid without close, plus one proving a late deadline-losing provider effect invokes no receipt settlement or store commit. |
+| RA4: receipt mismatch was described too specifically as a receipt that was not saved | Both renderer projections now distinguish `mismatch` as `Receipt not verifiable`, say the saved receipt could not be verified for this build, remain disconnected, and preserve consumed/no-retry wording; persisted Normal and Developer restart regressions cover it. |
+
+The same independent reviewer must re-review these changed bytes after the
+focused/full gates. Its final verdict remains a publication gate and is not
+preclaimed here.
+
+## Verification design
+
+Focused regression coverage includes exact schema/digest, two different valid
+duration/usage envelopes producing different receipts, mutation of every
+promoting field, the historical reduced-metadata collision, fake/non-success
+receipt refusal, marker-before-dispatch and receipt-before-Valid ordering,
+receipt and directory-durability failure, metadata failure after receipt,
+restart/mismatch reconciliation, create-only conflict, corrupt/truncated/
+oversized receipts, symlink/junction/non-file attacks, proxies/accessors/
+prototype/duplicate keys, leakage scans, read-only projection, and unchanged
+sibling marker/metadata/vault state.
+
+Host lifecycle regressions retain duplicate-process/IPC, late rotation/removal/
+disable/close/deadline, no automatic retry, authorization-absent production
+disablement, and no task execution coverage. Full verification, independent
+GPT-5.6 Sol Max review, final source/manifest identities, coverage, packed and
+synthetic Electron results, and exact-head CI are publication gates and are not
+preclaimed by this source checkpoint.
+
+## Publication binding
+
+The repair manifest namespace is
+`ai-dev-os.stage-18e-i.sanitized-success-receipt.git-blob-subject.v1`. Its fixed
+base is the original reviewed candidate
+`b438ed13b7213640e6a637d173bfefcf697ca9b8`; its path is
+`docs/release-evidence/stage-18e-i-sanitized-success-receipt-subject-manifest.json`.
+The source/evidence commit must not contain that path. One manifest-only child
+will add it, after which the build writer may emit the exact repaired candidate
+binding. Dirty, parent-drifted, wrong-base, noncanonical, or non-manifest-only
+states emit no binding or fail closed.
+
+## Preserved project truth
+
+- `AM-02`: proven;
+- `INT-01`: proven;
+- `ANT-02`: incomplete;
+- `PLN-02`: incomplete;
+- `developmentAccepted=false`;
+- `productionAdmitted=false`;
+- Stage 20A: ineligible.
+
+This repair makes a future success retainable. It does not repair the historical
+evidence, authorize a new attempt, or advance any acceptance row.

@@ -4,13 +4,62 @@ import type { CredentialMutationResult, CredentialSlotView, CredentialSlotsResul
 import type { PolicyRequest } from "@ai-dev-os/policy";
 import { SecretBrokerError, type SecretAccessContext, type SecretMaterial, type SecretRef } from "@ai-dev-os/secrets";
 import { CREDENTIAL_RESOLVER_BINDING_KEYS, CredentialHostService } from "../src/main/host-service.js";
+import { parseCredentialMetadata, type CredentialMetadataSnapshot } from "../src/main/metadata-store.js";
 import { CredentialEntrySession } from "../src/main/session-machine.js";
 import { createDeterministicCredentialValidationPort, type CredentialValidationPort } from "../src/main/validation.js";
-import { createTestCredentialHost } from "../src/testing/test-host.js";
+import { createTestCredentialHost, TEST_SUCCESS_RECEIPT_CANDIDATE_BINDING } from "../src/testing/test-host.js";
+import { createMemoryAnthropicValidationSuccessReceiptStore, type AnthropicValidationSuccessReceiptStore } from "../src/main/anthropic-validation-receipt-store.js";
+import type { AnthropicValidationSuccessReceipt } from "../src/main/anthropic-validation-receipt.js";
 
 const SYNTHETIC = "SYNTHETIC_CREDENTIAL_VALUE_FOR_BOUNDED_TESTS";
 const base = Object.freeze({ schemaVersion: 1 as const, requestId: "1".repeat(32), sessionToken: "2".repeat(64) });
 const existingRotation = Object.freeze({ entryMode: "rotate" as const, nickname: null, ownership: null, authorizedBy: null });
+
+function syntheticSuccessReceipt(
+  changes: Partial<AnthropicValidationSuccessReceipt> = {},
+): AnthropicValidationSuccessReceipt {
+  return Object.freeze({
+    schemaVersion: 1,
+    receiptVersion: "ai-dev-os.stage-18e-i.anthropic-success-receipt.v1",
+    digestConvention: "sha256-canonical-json-with-trailing-lf.v1",
+    operationVersion: "ai-dev-os.stage-18e-i.anthropic-validation.v1",
+    operationId: `credential-validate.${"1".repeat(32)}`,
+    slotId: "anthropic",
+    providerInstanceId: "anthropic-default",
+    candidateHead: TEST_SUCCESS_RECEIPT_CANDIDATE_BINDING.head,
+    candidateTree: TEST_SUCCESS_RECEIPT_CANDIDATE_BINDING.tree,
+    candidateManifestAggregate: TEST_SUCCESS_RECEIPT_CANDIDATE_BINDING.manifestAggregate,
+    authorizationPacketSha256: "a".repeat(64),
+    authorizationReference: "synthetic-host-receipt",
+    markerNamespaceSha256: "3".repeat(64),
+    authorizationRetentionMode: "standard-commercial-api",
+    attemptLimit: 1,
+    retryPolicy: "none",
+    authorizationState: "consumed-before-dispatch",
+    resultSchemaVersion: 1,
+    requestFingerprint: "0982d0a5d19ff6bf01bc87a40b96da6a33e84bccd294846ea7ecf1ccd2d7a13a",
+    endpoint: "https://api.anthropic.com/v1/messages",
+    apiVersion: "2023-06-01",
+    modelId: "claude-haiku-4-5-20251001",
+    retentionMode: "standard-30-day",
+    statusCategory: "success",
+    transportKind: "direct-anthropic-https",
+    durationMs: 100,
+    inputTokens: 10,
+    outputTokens: 1,
+    modelSubstitutionRejected: true,
+    fixedRequestBody: true,
+    repositorySourcePresent: false,
+    credentialRetained: false,
+    responseBodyRetained: false,
+    policyDecisionFingerprint: "4".repeat(64),
+    dispatchCount: 1,
+    startedAt: "2026-08-20T10:00:00.000Z",
+    completedAt: "2026-08-20T10:00:00.100Z",
+    terminalState: "validated-success",
+    ...changes,
+  });
+}
 
 async function slots(service: CredentialHostService, requestId = "1".repeat(32)): Promise<CredentialSlotsResult> {
   const result = await service.describe({ ...base, requestId, operation: "describe" });
@@ -290,6 +339,308 @@ describe("exact vault composition", () => {
 });
 
 describe("policy-gated validation", () => {
+  it("records an actual committed receipt pointer before Valid and rejects it after a changed-candidate restart", async () => {
+    const control = createTestCredentialHost();
+    await save(control.createService());
+    const receiptStore = createMemoryAnthropicValidationSuccessReceiptStore();
+    const reference = await receiptStore.commit(syntheticSuccessReceipt());
+    const validation: CredentialValidationPort = Object.freeze({
+      requiresSuccessReceipt: true as const,
+      async validate() { return Object.freeze({ outcome: "valid" as const, resultCode: "VALIDATION_OK" as const, successReceiptId: reference.receiptId, successReceiptSha256: reference.receiptSha256 }); },
+    });
+    const service = control.createService({ validation, successReceiptStore: receiptStore });
+    const current = await slots(service);
+    const result = await service.validate({ ...base, operation: "validate", ...identity(current), acknowledgedDisclosure: true });
+    expect(result).toMatchObject({ ok: true, kind: "validated", outcome: "valid", definitive: true, resultRecording: "recorded" });
+    expect(control.metadata.snapshot().slots.anthropic?.validation).toMatchObject({ outcome: "valid", receiptState: "committed", successReceiptId: reference.receiptId, successReceiptSha256: reference.receiptSha256 });
+    expect((await slots(service, "6".repeat(32))).slots[0]).toMatchObject({ validation: { outcome: "valid", receiptState: "committed" }, developer: { successReceiptState: "committed", successReceiptId: reference.receiptId, successReceiptSha256: reference.receiptSha256 } });
+    const changedCandidate = control.createService({
+      validationEnabled: false,
+      successReceiptStore: receiptStore,
+      successReceiptCandidateBinding: Object.freeze({
+        ...TEST_SUCCESS_RECEIPT_CANDIDATE_BINDING,
+        head: "9".repeat(40),
+      }),
+    });
+    expect((await slots(changedCandidate, "7".repeat(32))).slots[0]).toMatchObject({ validation: { outcome: "evidence-incomplete", definitive: false, receiptState: "mismatch" }, developer: { resultCode: "EVIDENCE_RECEIPT_MISMATCH", successReceiptState: "mismatch" } });
+    await changedCandidate.close();
+    await service.close();
+  });
+
+  it("rejects an actual Anthropic receipt substituted into an OpenAI slot on restart", async () => {
+    const control = createTestCredentialHost();
+    const saver = control.createService();
+    await slots(saver);
+    const saved = await saver.save({ ...base, operation: "save", slotId: "openai", secret: SYNTHETIC, nickname: "Synthetic OpenAI", ownership: "owned", authorizedBy: "", clearClipboard: false });
+    expect(saved).toMatchObject({ ok: true, kind: "saved", slot: { slotId: "openai" } });
+    if (!saved.ok || saved.kind !== "saved" || saved.slot.revision === null || saved.slot.recordToken === null) throw new Error("expected-openai-save");
+    const receiptStore = createMemoryAnthropicValidationSuccessReceiptStore();
+    const reference = await receiptStore.commit(syntheticSuccessReceipt());
+    const storedValidation = Object.freeze({
+      outcome: "valid" as const,
+      checkedAt: "2026-08-20T10:00:01.000Z",
+      recordRevision: saved.slot.revision,
+      recordToken: saved.slot.recordToken,
+      definitive: true,
+      resultCode: "VALIDATION_OK",
+      policyDecisionFingerprint: "8".repeat(64),
+      receiptState: "committed" as const,
+      successReceiptId: reference.receiptId,
+      successReceiptSha256: reference.receiptSha256,
+    });
+    const currentMetadata = control.metadata.snapshot();
+    const openaiMetadata = currentMetadata.slots.openai;
+    if (openaiMetadata === null) throw new Error("expected-openai-metadata");
+    const substituted: CredentialMetadataSnapshot = Object.freeze({
+      ...currentMetadata,
+      slots: Object.freeze({
+        ...currentMetadata.slots,
+        openai: Object.freeze({
+          ...openaiMetadata,
+          validation: storedValidation,
+          lastValidationAttempt: storedValidation,
+        }),
+      }),
+    });
+    expect(() => parseCredentialMetadata(substituted)).toThrowError(expect.objectContaining({ code: "METADATA_UNAVAILABLE" }));
+    const substitutedMetadata = Object.freeze({
+      async read() { return substituted; },
+      async write() { throw new Error("not-writable"); },
+      async update() { throw new Error("not-writable"); },
+    });
+    const restarted = new CredentialHostService({
+      manager: control.manager,
+      resolvers: control.resolvers,
+      metadata: substitutedMetadata,
+      validation: createDeterministicCredentialValidationPort(),
+      successReceiptStore: receiptStore,
+      successReceiptCandidateBinding: TEST_SUCCESS_RECEIPT_CANDIDATE_BINDING,
+      validationEnabled: false,
+      clock: control.clock,
+      clipboard: { async clear() { return true; } },
+    });
+    const projected = (await slots(restarted, "8".repeat(32))).slots.find((slot) => slot.slotId === "openai");
+    expect(projected).toMatchObject({ validation: { outcome: "evidence-incomplete", definitive: false, receiptState: "mismatch" }, developer: { resultCode: "EVIDENCE_RECEIPT_MISMATCH", successReceiptState: "mismatch" } });
+    await restarted.close();
+    await saver.close();
+  });
+
+  it("turns missing receipt evidence into a finite consumed-attempt outcome and preserves prior definitive knowledge", async () => {
+    const control = createTestCredentialHost();
+    await save(control.createService());
+    const receiptStore = createMemoryAnthropicValidationSuccessReceiptStore();
+    const committed = await receiptStore.commit(syntheticSuccessReceipt());
+    const initialValidation: CredentialValidationPort = Object.freeze({
+      requiresSuccessReceipt: true as const,
+      async validate() {
+        return Object.freeze({
+          outcome: "valid" as const,
+          resultCode: "VALIDATION_OK" as const,
+          successReceiptId: committed.receiptId,
+          successReceiptSha256: committed.receiptSha256,
+        });
+      },
+    });
+    const initial = control.createService({ validation: initialValidation, successReceiptStore: receiptStore });
+    await initial.validate({ ...base, operation: "validate", ...identity(await slots(initial)), acknowledgedDisclosure: true });
+    const incompletePort: CredentialValidationPort = Object.freeze({
+      requiresSuccessReceipt: true as const,
+      async validate() { return Object.freeze({ outcome: "valid" as const, resultCode: "VALIDATION_OK" as const }); },
+    });
+    const service = control.createService({ validation: incompletePort, successReceiptStore: receiptStore });
+    const result = await service.validate({ ...base, requestId: "7".repeat(32), operation: "validate", ...identity(await slots(service, "8".repeat(32))), acknowledgedDisclosure: true });
+    expect(result).toMatchObject({ outcome: "evidence-incomplete", definitive: false, providerDispatched: true, resultRecording: "prior-definitive-preserved" });
+    const after = await slots(service, "9".repeat(32));
+    expect(after.slots[0]?.validation).toMatchObject({ outcome: "valid", definitive: true, receiptState: "committed" });
+    expect(after.slots[0]?.lastValidationAttempt).toMatchObject({ outcome: "evidence-incomplete", definitive: false, receiptState: "write-failed" });
+    expect(after.slots[0]?.developer).toMatchObject({
+      resultCode: "EVIDENCE_RECEIPT_UNAVAILABLE",
+      successReceiptState: "write-failed",
+      successReceiptId: null,
+      successReceiptSha256: null,
+    });
+    await service.close();
+  });
+
+  it("awaits post-secret receipt settlement past the provider deadline and lets close drain it without late Valid metadata", async () => {
+    const control = createTestCredentialHost();
+    await save(control.createService());
+    const backing = createMemoryAnthropicValidationSuccessReceiptStore();
+    let releaseCommit!: () => void;
+    const commitGate = new Promise<void>((resolve) => { releaseCommit = resolve; });
+    let markCommitStarted!: () => void;
+    const commitStarted = new Promise<void>((resolve) => { markCommitStarted = resolve; });
+    let commits = 0;
+    let resolverReleased = false;
+    const receiptStore: AnthropicValidationSuccessReceiptStore = Object.freeze({
+      async commit(value) {
+        expect(resolverReleased).toBe(true);
+        markCommitStarted();
+        await commitGate;
+        commits += 1;
+        return await backing.commit(value);
+      },
+      readCommitted: backing.readCommitted,
+    });
+    const original = control.resolvers.anthropic;
+    const binding = Object.freeze({
+      ...original,
+      async resolve<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>) {
+        const resolved = await original.resolve(input, callback);
+        resolverReleased = true;
+        return resolved;
+      },
+    });
+    const validation: CredentialValidationPort = Object.freeze({
+      requiresSuccessReceipt: true as const,
+      async validate(input) {
+        await input.secret.useText((value) => {
+          expect(value).toBe(SYNTHETIC);
+        });
+        return syntheticSuccessReceipt();
+      },
+      async settleAfterSecretRelease(effectResult) {
+        const reference = await receiptStore.commit(effectResult);
+        return Object.freeze({ outcome: "valid" as const, resultCode: "VALIDATION_OK" as const, successReceiptId: reference.receiptId, successReceiptSha256: reference.receiptSha256 });
+      },
+    });
+    const service = new CredentialHostService({
+      manager: control.manager,
+      resolvers: Object.freeze({ ...control.resolvers, anthropic: binding }),
+      metadata: control.metadata,
+      validation,
+      successReceiptStore: receiptStore,
+      successReceiptCandidateBinding: TEST_SUCCESS_RECEIPT_CANDIDATE_BINDING,
+      validationEnabled: true,
+      validationTimeoutMs: 50,
+      clock: control.clock,
+      clipboard: { async clear() { return true; } },
+    });
+    const current = await slots(service);
+    let responseSettled = false;
+    const pending = service.validate({ ...base, operation: "validate", ...identity(current), acknowledgedDisclosure: true })
+      .then((value) => { responseSettled = true; return value; });
+    await commitStarted;
+    await waitTimeout(75);
+    expect(responseSettled).toBe(false);
+    expect(commits).toBe(0);
+    expect(control.metadata.snapshot().slots.anthropic?.validation).toBeNull();
+
+    let closeSettled = false;
+    const closing = service.close().then(() => { closeSettled = true; });
+    await waitImmediate();
+    expect(closeSettled).toBe(false);
+    releaseCommit();
+    const result = await pending;
+    await closing;
+    expect(result).toMatchObject({ ok: true, kind: "validated", outcome: "unreachable", definitive: false, providerDispatched: true });
+    expect(commits).toBe(1);
+    expect(backing.commits).toBe(1);
+    expect(control.metadata.snapshot().slots.anthropic?.validation).toBeNull();
+    const commitsAtResponse = commits;
+    await waitTimeout(10);
+    expect(commits).toBe(commitsAtResponse);
+  });
+
+  it("clears the provider deadline after the effect settles and commits Valid after receipt settlement crosses that deadline", async () => {
+    const control = createTestCredentialHost();
+    await save(control.createService());
+    const backing = createMemoryAnthropicValidationSuccessReceiptStore();
+    let releaseCommit!: () => void;
+    const commitGate = new Promise<void>((resolve) => { releaseCommit = resolve; });
+    let markCommitStarted!: () => void;
+    const commitStarted = new Promise<void>((resolve) => { markCommitStarted = resolve; });
+    let resolverReleased = false;
+    let reference: Awaited<ReturnType<AnthropicValidationSuccessReceiptStore["commit"]>> | undefined;
+    const receiptStore: AnthropicValidationSuccessReceiptStore = Object.freeze({
+      async commit(value) {
+        expect(resolverReleased).toBe(true);
+        markCommitStarted();
+        await commitGate;
+        reference = await backing.commit(value);
+        return reference;
+      },
+      readCommitted: backing.readCommitted,
+    });
+    const original = control.resolvers.anthropic;
+    const binding = Object.freeze({
+      ...original,
+      async resolve<T>(input: { readonly ref: SecretRef; readonly context: SecretAccessContext; readonly policyRequest: PolicyRequest }, callback: (secret: SecretMaterial, decisionFingerprint: string) => T | Promise<T>) {
+        const resolved = await original.resolve(input, callback);
+        resolverReleased = true;
+        return resolved;
+      },
+    });
+    const validation: CredentialValidationPort = Object.freeze({
+      requiresSuccessReceipt: true as const,
+      async validate(input) {
+        await input.secret.useText((value) => {
+          expect(value).toBe(SYNTHETIC);
+        });
+        return syntheticSuccessReceipt();
+      },
+      async settleAfterSecretRelease(effectResult) {
+        const committed = await receiptStore.commit(effectResult);
+        return Object.freeze({ outcome: "valid" as const, resultCode: "VALIDATION_OK" as const, successReceiptId: committed.receiptId, successReceiptSha256: committed.receiptSha256 });
+      },
+    });
+    const service = new CredentialHostService({
+      manager: control.manager,
+      resolvers: Object.freeze({ ...control.resolvers, anthropic: binding }),
+      metadata: control.metadata,
+      validation,
+      successReceiptStore: receiptStore,
+      successReceiptCandidateBinding: TEST_SUCCESS_RECEIPT_CANDIDATE_BINDING,
+      validationEnabled: true,
+      validationTimeoutMs: 50,
+      clock: control.clock,
+      clipboard: { async clear() { return true; } },
+    });
+    const current = await slots(service);
+    let responseSettled = false;
+    const pending = service.validate({ ...base, requestId: "a".repeat(32), operation: "validate", ...identity(current), acknowledgedDisclosure: true })
+      .then((value) => { responseSettled = true; return value; });
+    await commitStarted;
+    await waitTimeout(75);
+    expect(responseSettled).toBe(false);
+    expect(backing.commits).toBe(0);
+    expect(control.metadata.snapshot().slots.anthropic?.validation).toBeNull();
+
+    releaseCommit();
+    const result = await pending;
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "validated",
+      outcome: "valid",
+      definitive: true,
+      providerDispatched: true,
+      deadlineExpired: false,
+      workSettled: true,
+      resultRecording: "recorded",
+    });
+    expect(reference).toBeDefined();
+    expect(backing.commits).toBe(1);
+    expect(control.metadata.snapshot().slots.anthropic?.validation).toMatchObject({
+      outcome: "valid",
+      definitive: true,
+      receiptState: "committed",
+      successReceiptId: reference?.receiptId,
+      successReceiptSha256: reference?.receiptSha256,
+    });
+    const projected = await slots(service, "b".repeat(32));
+    expect(projected.slots[0]?.developer).toMatchObject({
+      successReceiptState: "committed",
+      successReceiptId: reference?.receiptId,
+      successReceiptSha256: reference?.receiptSha256,
+    });
+    await service.close();
+  });
+
+  it("refuses a receipt-requiring port when no verifier store is composed", () => {
+    const control = createTestCredentialHost();
+    expect(() => control.createService({ validation: Object.freeze({ requiresSuccessReceipt: true as const, async validate() { return { outcome: "valid" as const, resultCode: "VALIDATION_OK" as const }; } }) })).toThrowError(expect.objectContaining({ code: "REFUSED" }));
+  });
+
   it("dispatches exactly once only after explicit disclosure and records a finite result", async () => {
     const control = createTestCredentialHost();
     await save(control.createService());
@@ -722,6 +1073,77 @@ describe("policy-gated validation", () => {
     expect(transport.dispatches()).toBe(1);
   });
 
+  it("never begins post-secret receipt settlement when the provider effect loses the deadline", async () => {
+    const control = createTestCredentialHost();
+    await save(control.createService());
+    const receiptStore = createMemoryAnthropicValidationSuccessReceiptStore();
+    let releaseEffect!: () => void;
+    const effectGate = new Promise<void>((resolve) => { releaseEffect = resolve; });
+    let markEffectStarted!: () => void;
+    const effectStarted = new Promise<void>((resolve) => { markEffectStarted = resolve; });
+    let markEffectFinished!: () => void;
+    const effectFinished = new Promise<void>((resolve) => { markEffectFinished = resolve; });
+    let settlements = 0;
+    const validation: CredentialValidationPort = Object.freeze({
+      requiresSuccessReceipt: true as const,
+      async validate(input) {
+        markEffectStarted();
+        await effectGate;
+        await input.secret.useText((value) => {
+          expect(value).toBe(SYNTHETIC);
+        });
+        markEffectFinished();
+        return syntheticSuccessReceipt();
+      },
+      async settleAfterSecretRelease() {
+        settlements += 1;
+        throw new Error("receipt settlement must not start for a deadline loser");
+      },
+    });
+    const service = new CredentialHostService({
+      manager: control.manager,
+      resolvers: control.resolvers,
+      metadata: control.metadata,
+      validation,
+      successReceiptStore: receiptStore,
+      successReceiptCandidateBinding: TEST_SUCCESS_RECEIPT_CANDIDATE_BINDING,
+      validationEnabled: true,
+      validationTimeoutMs: 5,
+      clock: control.clock,
+      clipboard: { async clear() { return true; } },
+    });
+    const current = await slots(service);
+    vi.useFakeTimers();
+    let result: CredentialValidatedResult;
+    try {
+      const pending = service.validate({ ...base, requestId: "c".repeat(32), operation: "validate", ...identity(current), acknowledgedDisclosure: true });
+      await effectStarted;
+      await vi.advanceTimersByTimeAsync(5);
+      result = await pending as CredentialValidatedResult;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(result).toMatchObject({
+      ok: true,
+      kind: "validated",
+      outcome: "unreachable",
+      definitive: false,
+      providerDispatched: true,
+      deadlineExpired: true,
+      workSettled: false,
+    });
+    expect(settlements).toBe(0);
+    expect(receiptStore.commits).toBe(0);
+
+    releaseEffect();
+    await effectFinished;
+    await waitImmediate();
+    expect(settlements).toBe(0);
+    expect(receiptStore.commits).toBe(0);
+    expect(control.metadata.snapshot().slots.anthropic?.validation).toMatchObject({ outcome: "unreachable", definitive: false });
+    await service.close();
+  });
+
   it("uses one absolute deadline across delayed secret resolution and never dispatches after expiry", async () => {
     const control = createTestCredentialHost();
     await save(control.createService());
@@ -849,12 +1271,24 @@ describe("policy-gated validation", () => {
   it("reports one dispatched result with unconfirmed local recording when the atomic metadata commit fails", async () => {
     const control = createTestCredentialHost();
     await save(control.createService());
-    const validation = createDeterministicCredentialValidationPort({ outcome: "valid" });
+    const receiptId = "c".repeat(64);
+    const receiptSha256 = "d".repeat(64);
+    let dispatches = 0;
+    let projections = 0;
+    const validation: CredentialValidationPort = Object.freeze({
+      requiresSuccessReceipt: true as const,
+      async validate() { dispatches += 1; return Object.freeze({ outcome: "valid" as const, resultCode: "VALIDATION_OK" as const, successReceiptId: receiptId, successReceiptSha256: receiptSha256 }); },
+    });
+    const successReceiptStore: AnthropicValidationSuccessReceiptStore = Object.freeze({
+      async commit() { throw new Error("already-committed-by-validation-port"); },
+      async readCommitted() { projections += 1; return Object.freeze({ receipt: syntheticSuccessReceipt({ authorizationPacketSha256: receiptId }), reference: Object.freeze({ receiptId, receiptSha256 }), canonicalDocument: "{}\n" }); },
+    });
     const service = new CredentialHostService({
       manager: control.manager,
       resolvers: control.resolvers,
       metadata: { read: () => control.metadata.read(), async write() { throw new Error("metadata-failure"); }, async update() { throw new Error("metadata-failure"); } },
       validation,
+      successReceiptStore,
       validationEnabled: true,
       clock: control.clock,
       clipboard: { async clear() { return true; } },
@@ -862,8 +1296,10 @@ describe("policy-gated validation", () => {
     const current = await slots(service);
     const result = await service.validate({ ...base, operation: "validate", ...identity(current), acknowledgedDisclosure: true });
     expect(result).toMatchObject({ ok: true, kind: "validated", outcome: "valid", providerDispatched: true, applicability: "current", resultRecording: "unknown", activityRecording: "unknown", discarded: false });
-    expect(validation.dispatches()).toBe(1);
+    expect(dispatches).toBe(1);
     expect(control.metadata.snapshot().slots.anthropic?.validation).toBeNull();
+    await successReceiptStore.readCommitted(receiptId, { receiptSha256 });
+    expect(projections).toBe(1);
     await service.close();
   });
 

@@ -51,6 +51,7 @@ import {
   type StoredValidation,
 } from "./metadata-store.js";
 import { parseCredentialValidationResult, validationDefinitive, type CredentialValidationPort, type CredentialValidationResult } from "./validation.js";
+import type { AnthropicValidationSuccessReceiptStore } from "./anthropic-validation-receipt-store.js";
 
 const PROVIDER_FACTS: Readonly<Record<AppVaultSlotId, Readonly<{ productName: string; providerHost: string }>>> = Object.freeze({
   anthropic: Object.freeze({ productName: "Claude", providerHost: "api.anthropic.com" }),
@@ -129,6 +130,12 @@ export interface CredentialHostServiceOptions {
   readonly resolvers: Readonly<Record<AppVaultSlotId, CredentialResolverBinding>>;
   readonly metadata: CredentialMetadataStore;
   readonly validation: CredentialValidationPort;
+  readonly successReceiptStore?: AnthropicValidationSuccessReceiptStore;
+  readonly successReceiptCandidateBinding?: Readonly<{
+    head: string;
+    tree: string;
+    manifestAggregate: string;
+  }> | null;
   readonly validationEnabled: boolean;
   readonly validationTimeoutMs?: number;
   readonly clock: SecretClock;
@@ -189,6 +196,7 @@ function validationActivityCopy(outcome: CredentialValidationOutcome): Readonly<
   if (outcome === "valid") return Object.freeze({ tone: "ok", sentence: "accepted it" });
   if (outcome === "invalid") return Object.freeze({ tone: "danger", sentence: "did not accept it" });
   if (outcome === "unauthorized") return Object.freeze({ tone: "warn", sentence: "accepted it with limited permission" });
+  if (outcome === "evidence-incomplete") return Object.freeze({ tone: "warn", sentence: "accepted it, but the audit receipt was not saved" });
   return Object.freeze({ tone: "warn", sentence: "did not judge it" });
 }
 
@@ -200,9 +208,14 @@ function authorizationStateError(state: CredentialValidationAuthorizationState):
 }
 
 const AMBIGUOUS_VALIDATION_RESULT: CredentialValidationResult = Object.freeze({ outcome: "ambiguous", resultCode: "RESULT_AMBIGUOUS" });
+const EVIDENCE_INCOMPLETE_VALIDATION_RESULT: CredentialValidationResult = Object.freeze({ outcome: "evidence-incomplete", resultCode: "EVIDENCE_RECEIPT_UNAVAILABLE" });
 
-function finiteValidationResult(value: unknown): CredentialValidationResult {
-  try { return parseCredentialValidationResult(value); }
+function finiteValidationResult(value: unknown, requiresSuccessReceipt: boolean): CredentialValidationResult {
+  try {
+    const result = parseCredentialValidationResult(value);
+    if (requiresSuccessReceipt && result.outcome === "valid" && (result.successReceiptId === undefined || result.successReceiptSha256 === undefined)) return EVIDENCE_INCOMPLETE_VALIDATION_RESULT;
+    return result;
+  }
   catch { return AMBIGUOUS_VALIDATION_RESULT; }
 }
 
@@ -220,9 +233,16 @@ function clearStoredValidationForToken(slot: CredentialSlotMetadata | null, toke
     : Object.freeze({ ...slot, validation, lastValidationAttempt });
 }
 
-function validationForView(stored: StoredValidation | null) {
+function validationForView(stored: StoredValidation | null, receiptMismatch = false) {
   if (stored === null) return null;
-  return Object.freeze({ outcome: stored.outcome, checkedAt: stored.checkedAt, recordRevision: stored.recordRevision, recordToken: stored.recordToken, definitive: stored.definitive });
+  return Object.freeze({
+    outcome: receiptMismatch ? "evidence-incomplete" as const : stored.outcome,
+    checkedAt: stored.checkedAt,
+    recordRevision: stored.recordRevision,
+    recordToken: stored.recordToken,
+    definitive: receiptMismatch ? false : stored.definitive,
+    receiptState: receiptMismatch ? "mismatch" as const : stored.receiptState,
+  });
 }
 
 function activity(random: CredentialHostRandomPort, clock: SecretClock, tone: CredentialActivitySentence["tone"], text: string): CredentialActivitySentence {
@@ -263,6 +283,12 @@ export class CredentialHostService {
   readonly #resolvers: Readonly<Record<AppVaultSlotId, CredentialResolverBinding>>;
   readonly #metadata: CredentialMetadataStore;
   readonly #validation: CredentialValidationPort;
+  readonly #successReceiptStore: AnthropicValidationSuccessReceiptStore | null;
+  readonly #successReceiptCandidateBinding: Readonly<{
+    head: string;
+    tree: string;
+    manifestAggregate: string;
+  }> | null;
   readonly #validationEnabled: boolean;
   readonly #validationTimeoutMs: number;
   readonly #clock: SecretClock;
@@ -282,6 +308,22 @@ export class CredentialHostService {
     this.#resolvers = options.resolvers;
     this.#metadata = options.metadata;
     this.#validation = options.validation;
+    this.#successReceiptStore = options.successReceiptStore ?? null;
+    const receiptCandidate = options.successReceiptCandidateBinding ?? null;
+    if (
+      receiptCandidate !== null &&
+      (!/^[a-f0-9]{40}$/u.test(receiptCandidate.head) ||
+        !/^[a-f0-9]{40}$/u.test(receiptCandidate.tree) ||
+        !/^[a-f0-9]{64}$/u.test(receiptCandidate.manifestAggregate))
+    ) throw new CredentialHostError("REFUSED");
+    this.#successReceiptCandidateBinding = receiptCandidate === null
+      ? null
+      : Object.freeze({
+        head: receiptCandidate.head,
+        tree: receiptCandidate.tree,
+        manifestAggregate: receiptCandidate.manifestAggregate,
+      });
+    if (this.#validation.requiresSuccessReceipt === true && this.#successReceiptStore === null) throw new CredentialHostError("REFUSED");
     this.#validationEnabled = options.validationEnabled;
     this.#validationTimeoutMs = options.validationTimeoutMs ?? 20_000;
     if (!Number.isSafeInteger(this.#validationTimeoutMs) || this.#validationTimeoutMs < 1 || this.#validationTimeoutMs > 20_000) throw new CredentialHostError("REFUSED");
@@ -354,6 +396,35 @@ export class CredentialHostService {
       const token = recordToken(descriptor.slotId, summary);
       const applicableValidation = applicableStoredValidation(stored?.validation ?? null, token);
       const applicableLastAttempt = applicableStoredValidation(stored?.lastValidationAttempt ?? null, token);
+      const receiptMismatch = async (slotId: AppVaultSlotId, validation: StoredValidation | null): Promise<boolean> => {
+        if (validation?.receiptState !== "committed") return false;
+        const candidate = this.#successReceiptCandidateBinding;
+        if (
+          slotId !== "anthropic" || this.#successReceiptStore === null || candidate === null ||
+          validation.successReceiptId === null || validation.successReceiptSha256 === null
+        ) return true;
+        try {
+          const projection = await this.#successReceiptStore.readCommitted(validation.successReceiptId, {
+            receiptSha256: validation.successReceiptSha256,
+            candidateHead: candidate.head,
+            candidateTree: candidate.tree,
+            candidateManifestAggregate: candidate.manifestAggregate,
+          });
+          return projection.receipt.slotId !== slotId ||
+            projection.receipt.providerInstanceId !== appVaultSlot(slotId).providerInstanceId ||
+            projection.receipt.candidateHead !== candidate.head ||
+            projection.receipt.candidateTree !== candidate.tree ||
+            projection.receipt.candidateManifestAggregate !== candidate.manifestAggregate;
+        } catch { return true; }
+      };
+      const validationReceiptMismatch = await receiptMismatch(descriptor.slotId, applicableValidation);
+      const lastReceiptMismatch = applicableLastAttempt === applicableValidation
+        ? validationReceiptMismatch
+        : await receiptMismatch(descriptor.slotId, applicableLastAttempt);
+      const developerValidation = applicableLastAttempt ?? applicableValidation;
+      const developerReceiptMismatch = applicableLastAttempt !== null
+        ? lastReceiptMismatch
+        : validationReceiptMismatch;
       const binding = this.#resolvers[descriptor.slotId].describeContainerBinding();
       const reference = appVaultReferenceForSlot(descriptor.slotId);
       const developer: CredentialDeveloperFacts = Object.freeze({
@@ -364,8 +435,15 @@ export class CredentialHostService {
         documentRevision: summary.revision,
         recordToken: token,
         operationPhase: this.#validating.has(credentialId ?? "") ? "validation-in-flight" : "idle",
-        resultCode: applicableLastAttempt?.resultCode ?? applicableValidation?.resultCode ?? null,
-        policyDecisionFingerprint: applicableLastAttempt?.policyDecisionFingerprint ?? applicableValidation?.policyDecisionFingerprint ?? null,
+        resultCode: developerReceiptMismatch
+          ? "EVIDENCE_RECEIPT_MISMATCH"
+          : developerValidation?.resultCode ?? null,
+        policyDecisionFingerprint: developerValidation?.policyDecisionFingerprint ?? null,
+        successReceiptState: developerReceiptMismatch
+          ? "mismatch"
+          : developerValidation?.receiptState ?? null,
+        successReceiptId: developerValidation?.successReceiptId ?? null,
+        successReceiptSha256: developerValidation?.successReceiptSha256 ?? null,
       });
       const facts = PROVIDER_FACTS[descriptor.slotId];
       slots.push(Object.freeze({
@@ -385,8 +463,8 @@ export class CredentialHostService {
         rotatedAt: summary.rotatedAt,
         revokedAt: summary.revokedAt,
         recordToken: token,
-        validation: validationForView(applicableValidation),
-        lastValidationAttempt: validationForView(applicableLastAttempt),
+        validation: validationForView(applicableValidation, validationReceiptMismatch),
+        lastValidationAttempt: validationForView(applicableLastAttempt, lastReceiptMismatch),
         developer,
       }));
     }
@@ -722,6 +800,7 @@ export class CredentialHostService {
       const authoritativeRecordRevision = bound.summary.revision;
       let result: CredentialValidationResult;
       let completedResult: CredentialValidationResult | null = null;
+      let effectSettledBeforeDeadline = false;
       let policyFingerprint = "";
       let providerDispatched = false;
       let authorizationAttempt: unknown;
@@ -774,13 +853,21 @@ export class CredentialHostService {
                   policyDecisionFingerprint: fingerprint,
                   authorizationAttempt,
                   observeProviderDispatch: () => { providerDispatched = true; },
+                  operationId,
+                  validationStartedAt,
                 });
               }).then(
-                (value) => finiteValidationResult(value),
+                (value) => value,
                 () => unreachable,
               );
-              completedResult = await dispatched;
-              return completedResult;
+              const effectValue = await dispatched;
+              if (this.#validation.settleAfterSecretRelease === undefined) {
+                completedResult = finiteValidationResult(
+                  effectValue,
+                  this.#validation.requiresSuccessReceipt === true,
+                );
+              }
+              return effectValue;
             });
             workSettled = false;
             const hostReservation = new Promise<void>((resolve) => { releaseHostReservation = resolve; });
@@ -796,6 +883,27 @@ export class CredentialHostService {
             if (resolved.kind === "settled" && (expired || Date.now() >= absoluteDeadlineAt)) {
               expire();
               result = unreachable;
+            } else if (resolved.kind === "settled") {
+              effectSettledBeforeDeadline = true;
+              if (validationTimer !== undefined) {
+                clearTimeout(validationTimer);
+                validationTimer = undefined;
+              }
+              let settledValue: unknown = resolved.resolution.value;
+              if (this.#validation.settleAfterSecretRelease !== undefined) {
+                try {
+                  settledValue = await this.#validation.settleAfterSecretRelease(settledValue);
+                } catch {
+                  settledValue = this.#validation.requiresSuccessReceipt === true
+                    ? EVIDENCE_INCOMPLETE_VALIDATION_RESULT
+                    : AMBIGUOUS_VALIDATION_RESULT;
+                }
+              }
+              completedResult = finiteValidationResult(
+                settledValue,
+                this.#validation.requiresSuccessReceipt === true,
+              );
+              result = completedResult;
             } else {
               result = resolved.resolution.value;
             }
@@ -818,6 +926,7 @@ export class CredentialHostService {
 
       const recordingAllowed = (): boolean => {
         if (this.#closed) return false;
+        if (effectSettledBeforeDeadline && !abort.signal.aborted) return true;
         if (!abort.signal.aborted && Date.now() < absoluteDeadlineAt) return true;
         return !validationDefinitive(result.outcome);
       };
@@ -854,7 +963,21 @@ export class CredentialHostService {
             const currentSlot = currentMetadata.slots[payload.slotId];
             if (currentSlot?.credentialId !== payload.credentialId) throw new CredentialHostError("VAULT_REVISION_CONFLICT");
             const definitive = validationDefinitive(result.outcome);
-            const nextValidation: StoredValidation = Object.freeze({ outcome: result.outcome, checkedAt, recordRevision: authoritativeRecordRevision, recordToken: payload.recordToken, definitive, resultCode: result.resultCode, policyDecisionFingerprint: policyFingerprint });
+            const receiptState: StoredValidation["receiptState"] = result.outcome === "valid"
+              ? result.successReceiptId !== undefined && result.successReceiptSha256 !== undefined ? "committed" : "historical-missing"
+              : result.outcome === "evidence-incomplete" ? "write-failed" : "not-applicable";
+            const nextValidation: StoredValidation = Object.freeze({
+              outcome: result.outcome,
+              checkedAt,
+              recordRevision: authoritativeRecordRevision,
+              recordToken: payload.recordToken,
+              definitive,
+              resultCode: result.resultCode,
+              policyDecisionFingerprint: policyFingerprint,
+              receiptState,
+              successReceiptId: result.successReceiptId ?? null,
+              successReceiptSha256: result.successReceiptSha256 ?? null,
+            });
             if (!definitive && currentSlot!.validation?.definitive === true) {
               attemptedResultRecording = "prior-definitive-preserved";
               const stored = Object.freeze({ ...currentSlot!, lastValidationAttempt: nextValidation });
@@ -880,21 +1003,21 @@ export class CredentialHostService {
       const activityText = deadlineExpired
         ? workSettled
           ? providerDispatched
-            ? `Validation deadline expired for ${appVaultSlot(payload.slotId).displayName} after one provider request settled beyond the absolute limit. Its late outcome was ignored; no retry.`
+            ? `Validation deadline expired for ${appVaultSlot(payload.slotId).displayName} after one provider dispatch attempt settled beyond the absolute limit. Its late outcome was ignored; no retry.`
             : `Validation deadline expired for ${appVaultSlot(payload.slotId).displayName} before provider dispatch. No provider request was sent or may start late.`
           : providerDispatched
-            ? `Validation deadline expired for ${appVaultSlot(payload.slotId).displayName} after one provider request. Cancellation was requested; no retry; any late outcome is ignored.`
+            ? `Validation deadline expired for ${appVaultSlot(payload.slotId).displayName} after one provider dispatch attempt. Cancellation was requested; no retry; any late outcome is ignored.`
             : `Validation deadline expired for ${appVaultSlot(payload.slotId).displayName} while credential access was closing. No provider request was sent or may start late.`
         : applicability === "discarded"
         ? `Discarded the ${appVaultSlot(payload.slotId).displayName} validation result because the checked credential version changed before it could be applied.`
         : applicability === "unknown"
           ? providerDispatched
-            ? `Validation finished for the checked ${appVaultSlot(payload.slotId).displayName} credential version, but current-version attribution is unconfirmed. Exactly one request; no retry.`
+            ? `Validation finished for the checked ${appVaultSlot(payload.slotId).displayName} credential version, but current-version attribution is unconfirmed. One dispatch attempt; no retry.`
             : `Validation ended for ${appVaultSlot(payload.slotId).displayName} before provider dispatch; current-version attribution is unconfirmed. No provider request was sent; nothing was retried.`
           : providerDispatched && !resultRecordComplete
-            ? `Validation finished for ${appVaultSlot(payload.slotId).displayName}, but local result recording is unconfirmed. Exactly one request; no retry.`
+            ? `Validation finished for ${appVaultSlot(payload.slotId).displayName}, but local result recording is unconfirmed. One dispatch attempt; no retry.`
             : providerDispatched
-              ? `Validation finished for the checked ${appVaultSlot(payload.slotId).displayName} credential version: provider ${copy.sentence}. Exactly one request; no retry.`
+              ? `Validation finished for the checked ${appVaultSlot(payload.slotId).displayName} credential version: provider ${copy.sentence}. One dispatch attempt; no retry.`
               : `Validation ended for ${appVaultSlot(payload.slotId).displayName} before provider dispatch. No provider request was sent; nothing was retried.`;
       const primaryActivity = activityFromReservedFacts(primaryActivityId, checkedAt, workSettled && applicability === "current" && providerDispatched && resultRecordComplete ? copy.tone : "warn", activityText);
       try {

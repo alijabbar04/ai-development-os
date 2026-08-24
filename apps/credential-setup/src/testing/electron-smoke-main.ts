@@ -1120,8 +1120,8 @@ async function runValidationPresentationRegressions(): Promise<void> {
           const text = dialog?.textContent ?? "";
           const ids = (dialog?.getAttribute("aria-describedby") ?? "").split(/\\s+/u).filter(Boolean);
           return {
-            title: document.querySelector("dialog h2")?.textContent?.trim() === "Make the one authorised Anthropic validation request?",
-            oneRequest: text.includes("exactly one Anthropic API request"),
+            title: document.querySelector("dialog h2")?.textContent?.trim() === "Start the one authorised Anthropic validation attempt?",
+            oneDispatch: text.includes("One dispatch attempt; no retry"),
             model: text.includes("Anthropic, claude-haiku-4-5-20251001"),
             fixedPhrase: text.includes("Reply with exactly OK."),
             noUserData: text.includes("No user, project, repository, or task data is sent"),
@@ -1131,7 +1131,7 @@ async function runValidationPresentationRegressions(): Promise<void> {
             credentialHidden: text.includes("will not be displayed"),
             cancelSemantics: text.includes("Cancel makes no network request and does not consume"),
             confirmSemantics: text.includes("Confirm consumes the one-shot authorization immediately before credential resolution and possible dispatch"),
-            boundedTime: text.includes("15 seconds") && text.includes("five seconds"),
+            boundedTime: text.includes("15 seconds") && text.includes("20-second host effect deadline") && text.includes("audit-receipt settlement is awaited"),
             confirmLabel: [...document.querySelectorAll("dialog button")].some((node) => node.textContent?.trim() === "Confirm and validate"),
             described: ids.length === 2 && ids.every((id) => document.getElementById(id) !== null),
           };
@@ -1184,6 +1184,7 @@ async function runValidationPresentationRegressions(): Promise<void> {
     { outcome: "unauthorized" as const, title: "Permission limited", fact: "accepted the credential but reported limited permission" },
     { outcome: "ambiguous" as const, title: "Check unclear", fact: "did not clearly accept or reject the credential" },
     { outcome: "unreachable" as const, title: "Provider unreachable", fact: "could not be reached or did not complete the check" },
+    { outcome: "evidence-incomplete" as const, title: "Audit receipt not saved", fact: "audit receipt could not be saved" },
   ];
   const preservedOutcomes: Array<Record<string, unknown>> = [];
   for (const candidate of finiteOutcomes) {
@@ -1198,7 +1199,7 @@ async function runValidationPresentationRegressions(): Promise<void> {
       preservedOutcomes.push({ ...candidate, dispatches: completedRefreshFailure.validation.dispatches(), ...presentation });
     } finally { await closeSurface(completedRefreshFailure); }
   }
-  record("finite-validation-outcomes-survive-refresh-failure", preservedOutcomes.length === 5 && preservedOutcomes.every((item) => item["dispatches"] === 1 && String(item["primary"]).includes(String(item["title"])) && String(item["primary"]).includes(String(item["fact"])) && /at \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}/u.test(String(item["primary"])) && !/(?:just now|\d+ (?:minute|hour|day)s? ago)/u.test(String(item["primary"])) && String(item["warning"]).includes("Current details could not be refreshed") && item["allLocked"] === true && (item["reasons"] as unknown[]).every((reason) => String(reason).toLowerCase().includes("reopen"))), preservedOutcomes);
+  record("finite-validation-outcomes-survive-refresh-failure", preservedOutcomes.length === 6 && preservedOutcomes.every((item) => item["dispatches"] === 1 && String(item["primary"]).includes(String(item["title"])) && String(item["primary"]).includes(String(item["fact"])) && /at \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}/u.test(String(item["primary"])) && !/(?:just now|\d+ (?:minute|hour|day)s? ago)/u.test(String(item["primary"])) && String(item["warning"]).includes("Current details could not be refreshed") && item["allLocked"] === true && (item["reasons"] as unknown[]).every((reason) => String(reason).toLowerCase().includes("reopen"))), preservedOutcomes);
 
   const terminalValidationRefusals: Array<Record<string, unknown>> = [];
   for (const code of ["REFUSED", "SCHEMA_REJECTED"] as const) {
@@ -1229,7 +1230,7 @@ async function runValidationAuthorizationRegression(): Promise<void> {
       const text = dialog?.textContent ?? "";
       const ids = (dialog?.getAttribute("aria-describedby") ?? "").split(/\\s+/u).filter(Boolean);
       return {
-        oneRequest: text.includes("exactly one Anthropic API request"),
+        oneDispatch: text.includes("One dispatch attempt; no retry"),
         exactModel: text.includes("Anthropic, claude-haiku-4-5-20251001"),
         fixedPhrase: text.includes("Reply with exactly OK."),
         noProjectData: text.includes("No user, project, repository, or task data is sent"),
@@ -1239,7 +1240,7 @@ async function runValidationAuthorizationRegression(): Promise<void> {
         noCredentialDisplay: text.includes("will not be displayed"),
         cancelNoConsume: text.includes("Cancel makes no network request and does not consume"),
         confirmConsumes: text.includes("Confirm consumes the one-shot authorization immediately before credential resolution and possible dispatch"),
-        boundedTime: text.includes("15 seconds") && text.includes("five seconds"),
+        boundedTime: text.includes("15 seconds") && text.includes("20-second host effect deadline") && text.includes("audit-receipt settlement is awaited"),
         confirmLabel: [...document.querySelectorAll("dialog button")].some((node) => node.textContent?.trim() === "Confirm and validate"),
         described: ids.length === 2 && ids.every((id) => document.getElementById(id) !== null),
       };

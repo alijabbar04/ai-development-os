@@ -18,6 +18,15 @@ function populated() {
 }
 
 describe("bounded nonsecret metadata store", () => {
+  it("migrates the historical reduced Valid record as explicitly missing receipt evidence", () => {
+    const upgraded = populated();
+    expect(upgraded.slots.anthropic?.validation).toMatchObject({ outcome: "valid", resultCode: "VALIDATION_OK", receiptState: "historical-missing", successReceiptId: null, successReceiptSha256: null });
+    expect(upgraded.slots.anthropic?.lastValidationAttempt).toMatchObject({ receiptState: "historical-missing" });
+    expect(JSON.stringify(upgraded.slots.anthropic?.validation)).not.toContain("durationMs");
+    expect(JSON.stringify(upgraded.slots.anthropic?.validation)).not.toContain("inputTokens");
+    expect(JSON.stringify(upgraded.slots.anthropic?.validation)).not.toContain("outputTokens");
+  });
+
   it("serializes explicit in-memory writes through the same strict parser", async () => {
     const store = createMemoryCredentialMetadataStore();
     await store.write(populated());

@@ -64,6 +64,8 @@ describe("browser component contract", () => {
     expect(css).toContain("[hidden] { display: none !important; }");
     expect(css).toContain("@media (max-width: 980px)");
     expect(css).toContain("@media (max-width: 820px)");
+    expect(css).toContain('h3[data-busy-focus="true"]:focus');
+    expect(css).toContain('h1[tabindex="-1"]:focus');
   });
 
   it("provides visible and programmatic reasons for disabled credential actions", () => {
@@ -157,7 +159,7 @@ describe("browser component contract", () => {
   it("blocks the rendered surface and makes Escape inert during validation and removal", () => {
     const validation = source.indexOf("validationSubmitting = true");
     const validationRender = source.indexOf("render();", validation);
-    const validationAwait = source.indexOf("await finite(api.validate", validation);
+    const validationAwait = source.indexOf("await awaitValidationSettlement(api.validate", validation);
     const removal = source.indexOf("removalSubmitting = true");
     const removalRender = source.indexOf("render();", removal);
     const removalAwait = source.indexOf("await finite(api.remove", removal);
@@ -178,7 +180,7 @@ describe("browser component contract", () => {
     expect(source).toContain('authorization?.state === "available"');
     expect(source).toContain('authorization.slotId === "anthropic"');
     expect(source).toContain('if (validationAuthorizationFor(slot) !== null)');
-    expect(source).toContain("Confirming makes exactly one Anthropic API request using the saved credential.");
+    expect(source).toContain("Confirming starts one validation attempt using the saved credential. One dispatch attempt; no retry.");
     expect(source).toContain('Provider and model: Anthropic, ${authorization.modelId}.');
     expect(source).toContain('only the fixed synthetic phrase “Reply with exactly OK.”');
     expect(source).toContain("Maximum output: four tokens.");
@@ -187,10 +189,36 @@ describe("browser component contract", () => {
     expect(source).toContain("will not be displayed");
     expect(source).toContain("Cancel makes no network request and does not consume the one-shot authorization.");
     expect(source).toContain("Confirm consumes the one-shot authorization immediately before credential resolution and possible dispatch.");
-    expect(source).toContain("15 seconds, followed by at most five seconds");
+    expect(source).toContain("provider effect is limited to 15 seconds within a 20-second host effect deadline");
+    expect(source).toContain("local audit-receipt settlement is awaited before completion");
     expect(source).toContain('button("Confirm and validate"');
-    expect(source).toContain("22_000");
+    expect(source).toContain("awaitValidationSettlement(api.validate");
+    expect(source).not.toContain("22_000");
     expect(source).not.toContain("One attempt, up to 10 seconds");
+    expect(source).toContain("The one-shot authorization has been consumed. One dispatch attempt, no retry");
+    expect(source).toContain("one-shot authorization is consumed. One dispatch attempt, no retry");
+  });
+
+  it("distinguishes consumed, expired, and invalid authorization and explains receipt-write success ambiguity", () => {
+    expect(source).toContain("a new separately bound authorization is required for any further attempt");
+    expect(source).toContain("Anthropic validation authorization expired — a new separately bound authorization is required");
+    expect(source).toContain("Anthropic validation authorization invalid — no provider request is available");
+    expect(source).toContain("Provider validation succeeded at ${observed}, but its audit receipt could not be saved");
+    expect(source).toContain("The one-shot attempt was consumed, no retry will occur");
+    const persistedReceiptFailure = source.indexOf('if (latest.outcome === "evidence-incomplete")');
+    const genericNondefinitive = source.indexOf("if (!latest.definitive)", persistedReceiptFailure);
+    expect(persistedReceiptFailure).toBeGreaterThan(0);
+    expect(genericNondefinitive).toBeGreaterThan(persistedReceiptFailure);
+    expect(source).toContain('label: "Receipt not saved"');
+    expect(source).toContain('latest.receiptState === "mismatch"');
+    expect(source).toContain('label: "Receipt not verifiable"');
+    expect(source).toContain("the saved audit receipt could not be verified for this build");
+    expect(source).toContain("The one-shot attempt was consumed and cannot be retried");
+    expect(source).not.toContain('Intl.DateTimeFormat("en-GB"');
+    expect(source).toContain("const CREDENTIAL_TIMESTAMP_FORMAT_CONTRACT = Object.freeze");
+    expect(source).toContain("locale: document.documentElement.lang");
+    expect(source).toContain("CREDENTIAL_TIMESTAMP_FORMAT_CONTRACT.locale");
+    expect(source).toContain('dateStyle: "medium", timeStyle: "short"');
   });
 
   it("focuses the protected field and blocks the rendered surface before an entry mutation awaits", () => {

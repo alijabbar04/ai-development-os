@@ -32,7 +32,7 @@ const COPY: Readonly<Record<CredentialErrorCode, CredentialErrorCopy>> = Object.
   DECRYPT_FAILED: { title: "This credential could not be read", body: "Review the refreshed status before trying again. Re-entry is offered only if secure storage marks the saved copy unreadable." },
   METADATA_UNAVAILABLE: { title: "Credential details are unavailable", body: "The local details read or update did not complete. Earlier saved details may still be intact. Close and reopen to inspect them before deciding whether any repair is needed." },
   VALIDATION_DISABLED: { title: "Live validation is off in this build", body: "Saving remains local. A provider request is unavailable until a separately enabled build is reviewed." },
-  VALIDATION_DISCLOSURE_MISSING: { title: "Validation was not approved", body: "Review the one-request disclosure and choose Confirm and validate explicitly." },
+  VALIDATION_DISCLOSURE_MISSING: { title: "Validation was not approved", body: "Review the one-dispatch-attempt disclosure and choose Confirm and validate explicitly." },
   VALIDATION_POLICY_DENIED: { title: "Validation wasn't allowed by policy", body: "Nothing was sent to the provider. The refusal was recorded in Activity." },
   VALIDATION_CANCELLED: { title: "Validation was cancelled", body: "The credential was not judged and no retry was attempted." },
   VALIDATION_AUTHORIZATION_UNAVAILABLE: { title: "Validation authorization is unavailable", body: "No provider request was made. A reviewed, candidate-bound one-shot authorization must be loaded first." },

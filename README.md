@@ -39,7 +39,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Stages 0 – 16 | **Complete**, one tag per stage |
 | Stage 17W (Windows secure execution) | **Gated** — integrated candidate present, **not merged** to `main`, **not tagged**, production unavailable |
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
-| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D and the production-disabled exact-reference Windows credential broker are published exact-head green, and `INT-01` is proven. `AM-02` is now **proven**: the protocol-v2 inactive-window contract is published, its first-party hosted packed-consumer gate passed, and one separately authorized read-only installed-state read produced a supported authorized-profile snapshot without UI or credential extraction. The first owned-reference Anthropic canary ended with an unphased `TRANSPORT_FAILURE`; after deterministic classification repair, one separately authorized no-retry canary received a provider response but failed closed with `TRANSPORT_FAILURE` at `response-received`, and the diagnostic envelope now classifies finite failures into eighteen categories. Neither attempt is a successful transport proof, so **`ANT-02` is the sole remaining development blocker**. The published, source-head-green fixed-subject audit checkpoint records exact operator authorization for its manifest and 16 evidence instances without authorizing their outcomes: 12 frozen proven rows pass, while `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01` remain failed criteria of that frozen Phase A subject, which predates this candidate. `PLN-02` is production-track and `PRD-01` correctly remains a production gate; no separately authorized later subject has promoted `PLN-02`. Production remains blocked on Stage 17W. |
+| Stage 18 | **Development acceptance incomplete** — 18A/18B/18C/18D and the production-disabled exact-reference Windows credential broker are published exact-head green, and `INT-01` is proven. `AM-02` is now **proven**: the protocol-v2 inactive-window contract is published, its first-party hosted packed-consumer gate passed, and one separately authorized read-only installed-state read produced a supported authorized-profile snapshot without UI or credential extraction. The first owned-reference Anthropic canary ended with an unphased `TRANSPORT_FAILURE`; after deterministic classification repair, one separately authorized no-retry canary received a provider response but failed closed with `TRANSPORT_FAILURE` at `response-received`, and the diagnostic envelope now classifies finite failures into eighteen categories. A later Stage 18E-I candidate-bound one-shot genuinely succeeded, but the full result envelope was reduced before durable evidence persistence; its authorization remains consumed and the missing duration/token observations cannot be reconstructed. It therefore does not prove `ANT-02`, which is still the sole remaining development blocker. ADR 0036 makes a future separately authorized success retainable without authorizing one. The published, source-head-green fixed-subject audit checkpoint records exact operator authorization for its manifest and 16 evidence instances without authorizing their outcomes: 12 frozen proven rows pass, while `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01` remain failed criteria of that frozen Phase A subject, which predates this candidate. `PLN-02` is production-track and `PRD-01` correctly remains a production gate; no separately authorized later subject has promoted `PLN-02`. Production remains blocked on Stage 17W. |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
@@ -73,15 +73,21 @@ Three things are stated plainly because they are easy to assume the other way:
   snapshot still refuses to allocate downstream. The historical
   owned-reference canary ended ambiguously; one later, separately authorized
   repaired canary observed a response and failed closed at
-  `response-received`. Both attempts are consumed without retry and no
-  successful live proof exists, so `ANT-02` and development acceptance remain
-  incomplete and `ANT-02` is the only development blocker left. The admission
+  `response-received`. Both attempts are consumed without retry. A subsequent
+  Stage 18E-I one-shot validation genuinely succeeded, but its complete
+  evidence envelope was not retained before reduction to Valid; that distinct
+  authorization is also consumed and cannot be reused. The lost duration and
+  token observations cannot be reconstructed, so no successful live proof
+  exists. `ANT-02` and development acceptance remain incomplete and `ANT-02`
+  is the only development blocker left. The admission
   schema has no admitted variant and production stays blocked on Stage 17W.
   Stage 18E-I adds a production-disabled, exact-candidate-bound one-shot
   Anthropic validation path over the saved application-vault `SecretRef`.
   It ships no authorization packet or marker and makes no request by default;
-  synthetic transport cannot promote its exact live-success validator. This is
-  preparation for a later separately authorized attempt, not `ANT-02` evidence.
+  synthetic transport cannot promote its exact live-success validator. ADR 0036
+  adds a sanitized receipt that must commit before a future Valid reduction.
+  This is preparation for a new separately authorized attempt, not `ANT-02`
+  evidence.
 
 ## Documents
 
@@ -222,7 +228,7 @@ most valuable.
 - [`@ai-dev-os/evaluation`](packages/evaluation/README.md) validates exact bounded deterministic evidence against externally trusted subject-bound criterion-manifest, evidence-instance, and waiver-digest allowlists, preserves non-authoritative model disagreement, produces authority-free completeness findings, and journals command-equivalent evaluation runs through the persistence port.
 - [`@ai-dev-os/integrator`](packages/integrator/README.md) binds an accepted evaluation admission to exact commits, trees, ordered parents, paths, validation and authority; journals a serialized fenced effect intent and exact receipt; refuses ambiguous retry; and exposes a real sanitized Git implementation only through its disposable-fixture testing subpath. Production Git effects remain literally disabled.
 
-Provider/model IDs remain opaque configuration. The router can choose any configured eligible GPT or Claude inference target without name heuristics or a built-in commercial preference. Claude Code and Codex adapters implement the separate coding-agent contract and cannot be used as inference thinkers. The first-party Anthropic inference adapter remains production-disabled; two separately authorized isolated testing-canary attempts are consumed without retry, and the repaired attempt observed a response but did not produce the exact successful proof. Usage/reset facts come only from normalized authorized observations, never guessed provider policy. The exact-pinned Account Manager reader emits `claude-code` observations, but the repaired AI Development OS consumer checkpoint is unpublished and no post-repair installed-state read has run.
+Provider/model IDs remain opaque configuration. The router can choose any configured eligible GPT or Claude inference target without name heuristics or a built-in commercial preference. Claude Code and Codex adapters implement the separate coding-agent contract and cannot be used as inference thinkers. The first-party Anthropic inference adapter remains production-disabled; two earlier separately authorized testing-canary attempts are consumed without retry, and a later candidate-bound one-shot succeeded but lost its full evidence envelope before persistence. That authorization is also consumed; no attempt is repeated and `ANT-02` is not promoted. Usage/reset facts come only from normalized authorized observations, never guessed provider policy. The exact-pinned Account Manager reader emits `claude-code` observations, but no new installed-state read is authorized by this repair.
 
 The project is pre-1.0. Live provider calls are explicit opt-in operations with policy and scoped-secret boundaries. Autonomous repository execution remains disabled in production until a genuinely enforcing isolation backend exists.
 

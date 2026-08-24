@@ -28,6 +28,8 @@ import { createDirectAnthropicLiveCanaryTransportForTesting } from
   "../src/testing/live-canary.js";
 import { createAnthropicLiveCanaryWithDirectTransportForTesting } from
   "../src/testing/live-canary.js";
+import { createProductionDisabledAnthropicValidation } from
+  "../src/validation/index.js";
 
 const REF: SecretRef = Object.freeze({
   schemaVersion: 1,
@@ -170,6 +172,7 @@ function transport(
   options: {
     readonly body?: Uint8Array;
     readonly status?: number;
+    readonly contentType?: string | null;
     readonly inspect?: (request: AnthropicLiveCanaryTransportRequest) => void;
   } = {},
 ): AnthropicLiveCanaryTransport {
@@ -181,7 +184,7 @@ function transport(
       options.inspect?.(request);
       return {
         status: options.status ?? 200,
-        contentType: "application/json; charset=utf-8",
+        contentType: options.contentType === undefined ? "application/json; charset=utf-8" : options.contentType,
         body: options.body ?? responseBody(),
       };
     },
@@ -232,6 +235,29 @@ function canary(options: CanaryFixtureOptions) {
 }
 
 describe("explicit opt-in Anthropic live canary", () => {
+  it("requires the exact application/json media type while allowing normal parameters", async () => {
+    await expect(canary({ transport: transport([], { contentType: " Application/JSON ; charset=utf-8" }) }).run(ANTHROPIC_LIVE_CANARY_OPT_IN)).resolves.toMatchObject({ statusCategory: "success" });
+    for (const contentType of ["application/jsonp", "application/json-seq", "text/application/json", "application/problem+json"]) {
+      const body = responseBody();
+      await expect(canary({ transport: transport([], { contentType, body }) }).run(ANTHROPIC_LIVE_CANARY_OPT_IN), contentType).rejects.toMatchObject({ code: "TRANSPORT_FAILURE", failurePhase: "response-received" });
+      expect([...body].every((byte) => byte === 0)).toBe(true);
+    }
+  });
+
+  it("refuses runtime transport, unknown keys, proxies, and accessors at the production-disabled composition boundary", () => {
+    const configured = canaryOptions({});
+    const { transport: _testingTransport, ...production } = configured;
+    expect(() => createProductionDisabledAnthropicValidation({ ...production, transport: configured.transport } as never)).toThrowError(expect.objectContaining({ code: "INVALID_CONFIGURATION" }));
+    expect(() => createProductionDisabledAnthropicValidation({ ...production, unknown: true } as never)).toThrowError(expect.objectContaining({ code: "INVALID_CONFIGURATION" }));
+    expect(() => createProductionDisabledAnthropicValidation(new Proxy(production, {}) as never)).toThrowError(expect.objectContaining({ code: "INVALID_CONFIGURATION" }));
+    const accessor = { ...production } as Record<string, unknown>;
+    let reads = 0;
+    Object.defineProperty(accessor, "broker", { enumerable: true, get() { reads += 1; return production.broker; } });
+    expect(() => createProductionDisabledAnthropicValidation(accessor as never)).toThrowError(expect.objectContaining({ code: "INVALID_CONFIGURATION" }));
+    expect(reads).toBe(0);
+    expect(() => createProductionDisabledAnthropicValidation(production)).not.toThrow();
+  });
+
   it("publishes one exact finite failure-phase vocabulary", () => {
     expect(ANTHROPIC_LIVE_CANARY_FAILURE_PHASES).toEqual([
       "pre-dispatch",

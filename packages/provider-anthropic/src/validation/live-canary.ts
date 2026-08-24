@@ -1333,7 +1333,7 @@ function parseResponse(
     if (
       envelope.status !== 200 ||
       envelope.contentType === null ||
-      !envelope.contentType.toLowerCase().startsWith("application/json") ||
+      envelope.contentType.split(";", 1)[0]?.trim().toLowerCase() !== "application/json" ||
       bodyLength < 2 ||
       bodyLength > ANTHROPIC_LIVE_CANARY_MAX_RESPONSE_BYTES
     ) {

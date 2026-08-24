@@ -11,6 +11,10 @@ import {
   loadStage18eICandidateBinding,
 } from "./anthropic-validation-authorization.js";
 import { createAnthropicCredentialValidationPort } from "./anthropic-validation.js";
+import {
+  anthropicValidationReceiptRoot,
+  createFileAnthropicValidationSuccessReceiptStore,
+} from "./anthropic-validation-receipt-store.js";
 
 function fixedMetadataRoot(appDataPath: string, appName: string): string {
   const root = resolve(appDataPath);
@@ -71,11 +75,23 @@ export async function createProductionCredentialHost(electron: Readonly<{
       candidateBinding,
       now: clock.now,
     });
+    const receiptStore = createFileAnthropicValidationSuccessReceiptStore({
+      root: anthropicValidationReceiptRoot(
+        electron.app.getPath("appData"),
+        electron.app.getName(),
+      ),
+    });
     return new CredentialHostService({
       manager,
       resolvers: Object.freeze(mutable),
       metadata: createFileCredentialMetadataStore(metadataRoot),
-      validation: createAnthropicCredentialValidationPort({ gate: authorizationGate, now: clock.now }),
+      validation: createAnthropicCredentialValidationPort({ gate: authorizationGate, receiptStore, now: clock.now }),
+      successReceiptStore: receiptStore,
+      successReceiptCandidateBinding: candidateBinding === null ? null : Object.freeze({
+        head: candidateBinding.head,
+        tree: candidateBinding.tree,
+        manifestAggregate: candidateBinding.manifestAggregate,
+      }),
       validationEnabled: true,
       validationTimeoutMs: 20_000,
       clock,
