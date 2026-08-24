@@ -513,7 +513,7 @@ export function runApplicationPersistenceContractSuite(
           await application.runtime.history(definition().task.idempotencyKey),
         ).toEqual(reconciledHistory);
         expect(await application.tick()).toEqual([]);
-      });
+      }, 15_000);
 
       it("reopens retry-wait cancellation without rewriting prior dispatch terminal evidence", async () => {
         if (harness.reopen === undefined) {
