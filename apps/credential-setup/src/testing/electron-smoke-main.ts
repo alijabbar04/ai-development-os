@@ -853,6 +853,7 @@ async function runInFlightActionRegression(): Promise<void> {
     await waitFor(surface.window, `document.querySelector("dialog") !== null`);
     await page(surface.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Confirm and validate")?.click()`);
     await surface.waitForGate("validate");
+    await waitFor(surface.window, `document.querySelector('dialog[open] [data-busy-focus="true"]') === document.activeElement && document.querySelectorAll(".detail-card .button-row button").length === 4 && [...document.querySelectorAll("dialog button, .detail-card .button-row button")].every((node) => node.hasAttribute("disabled"))`);
     await press(surface.window, "Escape");
     await press(surface.window, "Escape");
     await press(surface.window, "Escape");
