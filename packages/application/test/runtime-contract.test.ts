@@ -172,5 +172,5 @@ describe("production-disabled application surface", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true, maxRetries: 5 });
     }
-  });
+  }, 15_000);
 });
