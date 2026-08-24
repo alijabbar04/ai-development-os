@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -101,6 +101,16 @@ describe("isolated read-only receipt projection command", () => {
   it("rejects missing explicit binding, changed candidate binding, and extra arguments", async () => {
     const source = await readFile(script, "utf8");
     expect(source).not.toMatch(/readdir|opendir|clipboard|safeStorage|electron|fetch|https\.request|http\.request/u);
+    const isolatedRoot = await mkdtemp(join(tmpdir(), "ai-dev-os-receipt-cli-unbuilt-"));
+    roots.push(isolatedRoot);
+    const isolatedScripts = join(isolatedRoot, "scripts");
+    await mkdir(isolatedScripts);
+    const isolatedScript = join(isolatedScripts, "project-anthropic-validation-receipt.mjs");
+    await writeFile(isolatedScript, source, "utf8");
+    await expect(execFile(process.execPath, [isolatedScript], {
+      cwd: isolatedRoot,
+      windowsHide: true,
+    })).rejects.toMatchObject({ stderr: "RECEIPT_PROJECTION_ARGUMENTS_INVALID\n" });
     await expect(execFile(process.execPath, [script], { cwd: packageRoot, windowsHide: true })).rejects.toMatchObject({ stderr: "RECEIPT_PROJECTION_ARGUMENTS_INVALID\n" });
     await expect(execFile(process.execPath, [script, "--root", packageRoot, "--receipt-id", "5".repeat(64), "--candidate-head", "2".repeat(40), "--candidate-tree", "3".repeat(40), "--manifest-aggregate", "4".repeat(64), "--extra", "no"], { cwd: packageRoot, windowsHide: true })).rejects.toMatchObject({ stderr: "RECEIPT_PROJECTION_ARGUMENTS_INVALID\n" });
   });

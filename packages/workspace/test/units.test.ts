@@ -379,6 +379,7 @@ describe("git runner", () => {
 
   it("locates git and rejects a configured path that does not exist", async () => {
     expect(resolveGitExecutable()).toMatch(/git(\.exe)?$/i);
+    expect(resolveGitExecutable({ explicitPath: process.execPath })).toBe(process.execPath);
     expect(() => resolveGitExecutable({ explicitPath: "C:/definitely/not/git.exe" })).toThrow(
       WorkspaceError,
     );
@@ -878,6 +879,25 @@ describe("access helpers", () => {
 
     const stat = await access.stat("tracked.txt");
     expect(stat?.kind).toBe("file");
+    expect((await access.stat("src"))?.kind).toBe("directory");
+    await expect(access.read("missing-read.txt")).rejects.toMatchObject({ code: "UNSAFE_PATH" });
+
+    const boundedAccess = createWorkspaceAccess({
+      worktreeDir: workspace.worktreeDir,
+      grant,
+      lease: createExecutionLease({ leaseId: "bounded", grant, clock: { now: () => new Date() } }),
+      maxDirectoryEntries: 0,
+    });
+    await expect(boundedAccess.list("src")).rejects.toMatchObject({ code: "QUOTA_EXCEEDED" });
+
+    const absentRootAccess = createWorkspaceAccess({
+      worktreeDir: join(base, "absent-worktree"),
+      grant,
+      lease: createExecutionLease({ leaseId: "absent", grant, clock: { now: () => new Date() } }),
+    });
+    await expect(absentRootAccess.stat("tracked.txt")).rejects.toMatchObject({
+      code: "WORKSPACE_NOT_READY",
+    });
 
     // A directory cannot be created where a file already sits, a write into a
     // missing parent fails, and metadata for a missing path is an error

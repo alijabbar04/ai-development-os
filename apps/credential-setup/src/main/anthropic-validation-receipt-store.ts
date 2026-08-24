@@ -194,7 +194,6 @@ export function createFileAnthropicValidationSuccessReceiptStore(options: Readon
       const observed = await lstat(root);
       if (!observed.isDirectory() || observed.isSymbolicLink()) failure("RECEIPT_UNAVAILABLE");
       const resolved = await realpath(root);
-      if (!samePath(resolved, root)) failure("RECEIPT_UNAVAILABLE");
       return Object.freeze({ identity: observed, realPath: resolved });
     } catch (error) {
       if (error instanceof AnthropicValidationReceiptError) throw error;

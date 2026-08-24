@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -170,6 +170,33 @@ describe("Stage 18E-I candidate-bound Anthropic authorization", () => {
     const restarted = await createAnthropicValidationAuthorizationGate({ root: targetRoot, candidateBinding: candidate, now: () => new Date(ISSUED) });
     expect(restarted.authorization().state).toBe("consumed");
     await expect(restarted.consume(inputs)).rejects.toMatchObject({ code: "AUTHORIZATION_CONSUMED" });
+  });
+
+  it("accepts a stable Windows lexical alias while pinning its canonical marker-directory identity", async () => {
+    if (process.platform !== "win32") return;
+    const targetRoot = await root();
+    const canonicalRoot = await realpath(targetRoot);
+    if (canonicalRoot.toLowerCase() === targetRoot.toLowerCase()) return;
+
+    await writePacket(targetRoot);
+    const gate = await createAnthropicValidationAuthorizationGate({
+      root: targetRoot,
+      candidateBinding: candidate,
+      now: () => new Date(ISSUED),
+    });
+    const inputs = {
+      slotId: "anthropic" as const,
+      providerInstanceId: "anthropic-default" as const,
+      secretRefFingerprint: secretRefFingerprint(appVaultReferenceForSlot("anthropic")),
+    };
+    const consumed = await gate.consume(inputs);
+    expect(gate.claim(consumed)).toEqual(packet());
+    const restarted = await createAnthropicValidationAuthorizationGate({
+      root: targetRoot,
+      candidateBinding: candidate,
+      now: () => new Date(ISSUED),
+    });
+    expect(restarted.authorization().state).toBe("consumed");
   });
 
   it("treats a crash-left empty or non-file marker as consumed rather than restoring eligibility", async () => {

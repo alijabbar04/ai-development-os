@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -216,6 +216,23 @@ describe("crash-safe exact receipt store and projection", () => {
     expect(projected.canonicalDocument).toBe(serializeAnthropicValidationSuccessReceipt(receipt()));
     expect((await readdir(root)).sort()).toEqual([`${reference.receiptId}.commit.json`, `${reference.receiptId}.receipt.json`]);
     await expect(store.commit(receipt())).rejects.toMatchObject({ code: "RECEIPT_CONFLICT" });
+  });
+
+  it("accepts a stable Windows lexical alias while pinning its canonical receipt-root identity", async () => {
+    if (process.platform !== "win32") return;
+    const root = await mkdtemp(join(tmpdir(), "ai-dev-os-success-receipt-alias-"));
+    roots.push(root);
+    const canonicalRoot = await realpath(root);
+    if (canonicalRoot.toLowerCase() === root.toLowerCase()) return;
+
+    const store = createFileAnthropicValidationSuccessReceiptStore({ root });
+    const reference = await store.commit(receipt());
+    await expect(store.readCommitted(reference.receiptId, {
+      receiptSha256: reference.receiptSha256,
+      candidateHead: "2".repeat(40),
+      candidateTree: "3".repeat(40),
+      candidateManifestAggregate: "4".repeat(64),
+    })).resolves.toMatchObject({ reference, receipt: receipt() });
   });
 
   it("fails closed on directory durability failure and leaves no terminally projectable receipt", async () => {

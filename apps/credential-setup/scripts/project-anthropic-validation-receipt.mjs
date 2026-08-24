@@ -1,7 +1,4 @@
 import { isAbsolute } from "node:path";
-import {
-  createFileAnthropicValidationSuccessReceiptStore,
-} from "../dist/main/anthropic-validation-receipt-store.js";
 
 const VALUE_FLAGS = Object.freeze([
   "--root",
@@ -45,6 +42,9 @@ if (
   fail("RECEIPT_PROJECTION_ARGUMENTS_INVALID");
 } else {
   try {
+    const {
+      createFileAnthropicValidationSuccessReceiptStore,
+    } = await import("../dist/main/anthropic-validation-receipt-store.js");
     const store = createFileAnthropicValidationSuccessReceiptStore({ root: input.root });
     const projection = await store.readCommitted(input.receiptId, {
       candidateHead: input.candidateHead,

@@ -132,6 +132,7 @@ application or provider state.
 | R6: Developer projection could combine a later failed-attempt result code/state with an earlier committed receipt pointer | Select one applicable validation record first, then derive result code, decision fingerprint, receipt state, receipt ID, and receipt SHA only from that same record; focused preservation coverage pins the tuple. |
 | RA3: timer-clearing and deadline-loser receipt-I/O invariants lacked direct lifecycle tests | Added one test holding post-secret settlement beyond the expired wall-clock deadline and proving eventual Valid without close, plus one proving a late deadline-losing provider effect invokes no receipt settlement or store commit. |
 | RA4: receipt mismatch was described too specifically as a receipt that was not saved | Both renderer projections now distinguish `mismatch` as `Receipt not verifiable`, say the saved receipt could not be verified for this build, remain disconnected, and preserve consumed/no-retry wording; persisted Normal and Developer restart regressions cover it. |
+| R7: first exact-head run `32728872456` exposed three publication-gate failures | The run is retained as failed product evidence and is not classified as infrastructure. **Ubuntu check:** local pre-existing build output had masked the projection CLI's static dependency on an absent clean-checkout `dist`; host test/coverage prehooks now compile host TypeScript without invoking the candidate-binding writer, argument validation precedes the dynamic store import, and a disposable missing-module regression pins the ordering. **Windows check:** the hosted runner's valid `RUNNER~1` lexical temp path was rejected because its canonical long `realpath` differed; the first canonical path is now accepted as the binding while final-component non-link checks, filesystem identity, repeated canonical-path comparisons, opened/named-file identity, and all replacement/junction refusals remain. Hosted-Windows lexical-alias regressions cover receipt commit/read and marker consume/restart. **Coverage:** `packages/workspace` measured 89.97% statements against the unchanged 90% threshold (the baseline run measured 90.32%); the threshold is not lowered. Deterministic tests now cover explicit executable selection, directory classification, missing-file refusal, bounded-list refusal, and unresolved-root refusal to remove runner-sensitive margin. Fresh local coverage passes with 114/114 tests and 90.66% statements; credential-host coverage passes with 290/290 tests, all six production-launch regressions, and 90.78% statements. All three dispositions still require fresh exact-head CI verification. |
 
 The same independent reviewer must re-review these changed bytes after the
 focused/full gates. Its final verdict remains a publication gate and is not
@@ -147,7 +148,9 @@ receipt and directory-durability failure, metadata failure after receipt,
 restart/mismatch reconciliation, create-only conflict, corrupt/truncated/
 oversized receipts, symlink/junction/non-file attacks, proxies/accessors/
 prototype/duplicate keys, leakage scans, read-only projection, and unchanged
-sibling marker/metadata/vault state.
+sibling marker/metadata/vault state. Hosted Windows additionally exercises a
+lexical 8.3 alias whose canonical path differs while proving that the bound
+identity and restart-visible consumption remain stable.
 
 Host lifecycle regressions retain duplicate-process/IPC, late rotation/removal/
 disable/close/deadline, no automatic retry, authorization-absent production

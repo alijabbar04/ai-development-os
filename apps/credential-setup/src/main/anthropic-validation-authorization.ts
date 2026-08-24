@@ -668,10 +668,6 @@ export async function createAnthropicValidationAuthorizationGate(options: Readon
           fail("AUTHORIZATION_INVALID");
         }
         const markerDirectoryRealPath = await realpath(markerDirectory);
-        if (!sameResolvedPath(markerDirectoryRealPath, markerDirectory)) {
-          state = "invalid";
-          fail("AUTHORIZATION_INVALID");
-        }
         preparedMarkerDirectoryIdentity = markerDirectoryStat;
         preparedMarkerDirectoryRealPath = markerDirectoryRealPath;
       } catch (error) {
@@ -723,7 +719,6 @@ export async function createAnthropicValidationAuthorizationGate(options: Readon
         const openedMarker = await handle.stat();
         if (
           !markerDirectoryStat.isDirectory() || markerDirectoryStat.isSymbolicLink() ||
-          !sameResolvedPath(markerDirectoryRealPath, markerDirectory) ||
           !sameResolvedPath(markerDirectoryRealPath, preparedMarkerDirectoryRealPath) ||
           !sameFileIdentity(markerDirectoryStat, preparedMarkerDirectoryIdentity) ||
           !observedMarker.isFile() || observedMarker.isSymbolicLink() ||
