@@ -175,6 +175,16 @@ describe("browser component contract", () => {
     expect(source).toContain("authoritativeStateFresh = false");
   });
 
+  it("restores the busy heading after an unavoidable in-flight dialog close", () => {
+    const helper = source.indexOf("function reopenBusyDialog");
+    const reopen = source.indexOf("dialog.showModal();", helper);
+    const refocus = source.indexOf("dialog.querySelector<HTMLElement>('[data-busy-focus=\"true\"]')?.focus();", reopen);
+    expect(helper).toBeGreaterThan(0);
+    expect(reopen).toBeGreaterThan(helper);
+    expect(refocus).toBeGreaterThan(reopen);
+    expect(source.match(/reopenBusyDialog\(shell\.dialog\);/gu)).toHaveLength(3);
+  });
+
   it("exposes only the authorized Anthropic action and discloses the exact one-shot request before confirmation", () => {
     expect(source).toContain('slot.slotId === "anthropic"');
     expect(source).toContain('authorization?.state === "available"');

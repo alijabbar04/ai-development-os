@@ -951,6 +951,14 @@ function dialogShell(title: string): { dialog: HTMLDialogElement; body: HTMLElem
   return { dialog, body, foot };
 }
 
+function reopenBusyDialog(dialog: HTMLDialogElement): void {
+  queueMicrotask(() => {
+    if (!dialog.isConnected || dialog.open) return;
+    dialog.showModal();
+    dialog.querySelector<HTMLElement>('[data-busy-focus="true"]')?.focus();
+  });
+}
+
 function destroyDialog(dialog: HTMLDialogElement, password: HTMLInputElement | null = null): void {
   if (finalizingDialogs.has(dialog)) return;
   finalizingDialogs.add(dialog);
@@ -1141,7 +1149,7 @@ function openEntry(slot: SlotView, operation: "save" | "rotate" | "reenter"): vo
   function finalizeEntry(kind: "cancel" | "complete"): void {
     if (entryFinalized) return;
     if (kind === "cancel" && submitting) {
-      queueMicrotask(() => { if (shell.dialog.isConnected && !shell.dialog.open) shell.dialog.showModal(); });
+      reopenBusyDialog(shell.dialog);
       return;
     }
     entryFinalized = true;
@@ -1486,7 +1494,7 @@ function openValidation(slot: SlotView): void {
   shell.dialog.addEventListener("cancel", (event) => { event.preventDefault(); if (!validationSubmitting) destroyDialog(shell.dialog); });
   shell.dialog.addEventListener("close", () => {
     if (finalizingDialogs.has(shell.dialog)) return;
-    if (validationSubmitting) queueMicrotask(() => { if (shell.dialog.isConnected && !shell.dialog.open) shell.dialog.showModal(); });
+    if (validationSubmitting) reopenBusyDialog(shell.dialog);
     else destroyDialog(shell.dialog);
   });
   async function run(): Promise<void> {
@@ -1554,7 +1562,7 @@ function openRemoval(slot: SlotView): void {
   shell.dialog.addEventListener("cancel", (event) => { event.preventDefault(); if (!removalSubmitting) destroyDialog(shell.dialog); });
   shell.dialog.addEventListener("close", () => {
     if (finalizingDialogs.has(shell.dialog)) return;
-    if (removalSubmitting) queueMicrotask(() => { if (shell.dialog.isConnected && !shell.dialog.open) shell.dialog.showModal(); });
+    if (removalSubmitting) reopenBusyDialog(shell.dialog);
     else destroyDialog(shell.dialog);
   });
   async function run(): Promise<void> {
