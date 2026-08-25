@@ -877,6 +877,8 @@ async function runInFlightActionRegression(): Promise<void> {
         escapePreventedCount: tracker?.preventedCount ?? null,
         escapeUnpreventedCount: tracker?.unpreventedCount ?? null,
         escapeCloseCount: tracker?.closeCount ?? null,
+        escapeForcedCloseCount: tracker?.forcedCloseCount ?? null,
+        escapeFocusDisplacedCount: tracker?.focusDisplacedCount ?? null,
         escapeOpenLost: tracker?.openLost ?? null,
         escapeDialogReplaced: tracker?.dialogReplaced ?? null,
         escapeControlsUnlocked: tracker?.controlsUnlocked ?? null
@@ -896,13 +898,19 @@ async function runInFlightActionRegression(): Promise<void> {
     await page(surface.window, `(() => {
       const dialog = document.querySelector("dialog[open]");
       if (dialog === null) return false;
-      const tracker = { dialog, cancelCount: 0, preventedCount: 0, unpreventedCount: 0, closeCount: 0, openLost: false, dialogReplaced: false, controlsUnlocked: false, observer: null };
+      const tracker = { dialog, cancelCount: 0, preventedCount: 0, unpreventedCount: 0, closeCount: 0, forcedCloseCount: 0, focusDisplacedCount: 0, openLost: false, dialogReplaced: false, controlsUnlocked: false, observer: null };
       dialog.addEventListener("cancel", (event) => {
         tracker.cancelCount += 1;
         if (event.defaultPrevented) tracker.preventedCount += 1;
         else tracker.unpreventedCount += 1;
       });
-      dialog.addEventListener("close", () => { tracker.closeCount += 1; tracker.openLost = true; });
+      dialog.addEventListener("close", () => {
+        tracker.closeCount += 1;
+        tracker.openLost = true;
+        const fallbackFocus = document.querySelector("h1[tabindex='-1']");
+        fallbackFocus?.focus();
+        if (document.activeElement === fallbackFocus) tracker.focusDisplacedCount += 1;
+      });
       const observe = () => {
         if (!dialog.isConnected || !dialog.open) tracker.openLost = true;
         if (document.querySelector("dialog") !== dialog) tracker.dialogReplaced = true;
@@ -924,9 +932,22 @@ async function runInFlightActionRegression(): Promise<void> {
       await press(surface.window, "Escape");
       escapeObservations.push(await waitForValidationInFlightLock((candidate) => validationEscapeLockHeld(candidate, escapeCount)));
     }
+    const escapeCloseCount = Number(escapeObservations.at(-1)?.["escapeCloseCount"]);
+    const forcedCloseStarted = await page<boolean>(surface.window, `(() => {
+      const tracker = globalThis["__aiDevOsValidationEscapeTracker"];
+      if (tracker === undefined || tracker.dialog.open !== true) return false;
+      tracker.forcedCloseCount += 1;
+      tracker.dialog.close();
+      return true;
+    })()`);
+    const validationForcedCloseRecovered = (candidate: Record<string, unknown>): boolean => {
+      const closeCount = Number(candidate["escapeCloseCount"]);
+      return validationInFlightUiLocked(candidate) && candidate["escapeTrackerPresent"] === true && candidate["sameDialog"] === true && Number(candidate["escapeCancelCount"]) === 3 && Number(candidate["escapePreventedCount"]) + Number(candidate["escapeUnpreventedCount"]) === 3 && Number(candidate["escapeUnpreventedCount"]) === escapeCloseCount && Number(candidate["escapeForcedCloseCount"]) === 1 && closeCount === escapeCloseCount + 1 && Number(candidate["escapeFocusDisplacedCount"]) === closeCount && candidate["escapeOpenLost"] === true && candidate["escapeDialogReplaced"] === false && candidate["escapeControlsUnlocked"] === false;
+    };
+    const forcedCloseObservation = await waitForValidationInFlightLock(validationForcedCloseRecovered);
     await page(surface.window, `(() => { const tracker = globalThis["__aiDevOsValidationEscapeTracker"]; tracker?.observer?.disconnect(); delete globalThis["__aiDevOsValidationEscapeTracker"]; })()`);
     const escapeResistanceHeld = escapeObservations.every((candidate, index) => validationEscapeLockHeld(candidate, index + 1));
-    record("validation-in-flight-ui-lock", validationInFlightUiLocked(beforeEscape) && escapeResistanceHeld, { beforeEscape, escapeObservations });
+    record("validation-in-flight-ui-lock", validationInFlightUiLocked(beforeEscape) && escapeResistanceHeld && forcedCloseStarted && validationForcedCloseRecovered(forcedCloseObservation), { beforeEscape, escapeObservations, forcedCloseStarted, forcedCloseObservation });
     surface.releaseGate("validate");
     await waitFor(surface.window, `document.querySelector("dialog") === null && (document.querySelector(".badge")?.textContent ?? "").startsWith("Validated") && document.activeElement?.tagName === "H1"`);
     const normalValidationLanguage = await page<Record<string, unknown>>(surface.window, `(() => {

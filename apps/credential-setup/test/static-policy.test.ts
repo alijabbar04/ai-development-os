@@ -207,14 +207,20 @@ describe("Electron and dependency static policy", () => {
   it("snapshots cancel prevention synchronously before matching defensive dialog closes", () => {
     const smoke = read("src/testing/electron-smoke-main.ts");
     const synchronousCancelSnapshot = 'if (event.defaultPrevented) tracker.preventedCount += 1;';
-    const closeLatch = 'dialog.addEventListener("close", () => { tracker.closeCount += 1; tracker.openLost = true; });';
+    const closeLatch = 'dialog.addEventListener("close", () => {';
+    const focusDisplacement = 'if (document.activeElement === fallbackFocus) tracker.focusDisplacedCount += 1;';
+    const forcedClose = 'tracker.forcedCloseCount += 1;';
     expect(smoke).toContain(synchronousCancelSnapshot);
     expect(smoke).toContain(closeLatch);
     expectOrdered(smoke, synchronousCancelSnapshot, closeLatch);
-    expectOrdered(smoke, closeLatch, "tracker.observer = new MutationObserver(observe)");
+    expectOrdered(smoke, closeLatch, focusDisplacement);
+    expectOrdered(smoke, focusDisplacement, "tracker.observer = new MutationObserver(observe)");
+    expectOrdered(smoke, "tracker.observer = new MutationObserver(observe)", forcedClose);
+    expectOrdered(smoke, forcedClose, "tracker.dialog.close();");
     expect(smoke).not.toContain('queueMicrotask(() => { if (event.defaultPrevented)');
     expect(smoke).toContain('Number(candidate["escapePreventedCount"]) + Number(candidate["escapeUnpreventedCount"]) === escapeCount');
     expect(smoke).toContain('Number(candidate["escapeUnpreventedCount"]) === closeCount');
+    expect(smoke).toContain('Number(candidate["escapeFocusDisplacedCount"]) === closeCount');
   });
 
   it("settles the exact forced-colour surface before the keyboard focus transition", () => {
