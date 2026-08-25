@@ -1542,7 +1542,6 @@ async function runMediaMode(): Promise<void> {
       if (!debuggerPort.isAttached()) debuggerPort.attach("1.3");
       await debuggerPort.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "forced-colors", value: "active" }] });
       await waitFor(surface.window, `document.activeElement?.tagName === "H1"`);
-      await press(surface.window, "Tab");
       const readForcedColoursOverview = async (): Promise<Record<string, unknown>> => await page<Record<string, unknown>>(surface.window, `(() => {
         const system = (name) => { const probe = document.createElement("span"); probe.style.cssText = "position:fixed;left:-9999px;color:" + name + ";forced-color-adjust:none"; document.body.append(probe); const value = getComputedStyle(probe).color; probe.remove(); return value; };
         const badgeStyles = [...document.querySelectorAll(".badge")].map((node) => ({ tone: node.getAttribute("data-tone"), color: getComputedStyle(node).color, border: getComputedStyle(node).borderColor }));
@@ -1552,17 +1551,29 @@ async function runMediaMode(): Promise<void> {
         const secondary = getComputedStyle(document.querySelector(".provider-body"));
         return { system: { canvasText: system("CanvasText"), grayText: system("GrayText"), highlight: system("Highlight"), highlightText: system("HighlightText") }, matches: matchMedia("(forced-colors: active)").matches, badgeStyles, rail: { color: rail.color, outline: rail.outlineStyle }, secondary: secondary.color, focusTag: focused?.tagName ?? null, focusOutline: focusStyle?.outlineStyle ?? null, horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
       })()`);
-      const forcedColoursOverviewReady = (candidate: Record<string, unknown>): boolean => {
+      const forcedColoursSurfaceReady = (candidate: Record<string, unknown>): boolean => {
         const system = candidate["system"] !== null && typeof candidate["system"] === "object" ? candidate["system"] as Record<string, unknown> : {};
         const badgeStyles = Array.isArray(candidate["badgeStyles"]) ? candidate["badgeStyles"] as Array<Record<string, unknown>> : [];
         const rail = candidate["rail"] !== null && typeof candidate["rail"] === "object" ? candidate["rail"] as Record<string, unknown> : {};
-        return candidate["matches"] === true && candidate["focusTag"] === "BUTTON" && candidate["focusOutline"] !== "none" && candidate["horizontalOverflow"] === false && badgeStyles.length === 4 && badgeStyles.every((item) => item["color"] === system["canvasText"] && item["border"] === system["canvasText"]) && rail["color"] === system["canvasText"] && rail["outline"] !== "none" && candidate["secondary"] === system["grayText"];
+        return candidate["matches"] === true && candidate["horizontalOverflow"] === false && badgeStyles.length === 4 && badgeStyles.every((item) => item["color"] === system["canvasText"] && item["border"] === system["canvasText"]) && rail["color"] === system["canvasText"] && rail["outline"] !== "none" && candidate["secondary"] === system["grayText"];
       };
-      const forcedColoursOverviewDeadline = Date.now() + 5_000;
-      let overview = await readForcedColoursOverview();
-      while (!forcedColoursOverviewReady(overview) && Date.now() < forcedColoursOverviewDeadline) {
+      const forcedColoursHeadingReady = (candidate: Record<string, unknown>): boolean => forcedColoursSurfaceReady(candidate) && candidate["focusTag"] === "H1" && candidate["focusOutline"] !== "none";
+      const forcedColoursOverviewReady = (candidate: Record<string, unknown>): boolean => forcedColoursSurfaceReady(candidate) && candidate["focusTag"] === "BUTTON" && candidate["focusOutline"] !== "none";
+      const forcedColoursSurfaceDeadline = Date.now() + 5_000;
+      let beforeKeyboard = await readForcedColoursOverview();
+      while (!forcedColoursHeadingReady(beforeKeyboard) && Date.now() < forcedColoursSurfaceDeadline) {
         await delay(25);
+        beforeKeyboard = await readForcedColoursOverview();
+      }
+      const forcedColoursOverviewDeadline = Date.now() + 5_000;
+      const forcedColoursFocusPath: Record<string, unknown>[] = [beforeKeyboard];
+      let keyboardAttempts = 0;
+      let overview = beforeKeyboard;
+      while (!forcedColoursOverviewReady(overview) && keyboardAttempts < 3 && Date.now() < forcedColoursOverviewDeadline) {
+        await press(surface.window, "Tab");
+        keyboardAttempts += 1;
         overview = await readForcedColoursOverview();
+        forcedColoursFocusPath.push(overview);
       }
       await page(surface.window, `document.querySelector("#mode-toggle")?.click()`);
       await waitFor(surface.window, `document.querySelector('dialog input[value="normal"]') !== null`);
@@ -1577,7 +1588,7 @@ async function runMediaMode(): Promise<void> {
       await page(surface.window, `document.querySelector('dialog input[type="checkbox"]')?.click()`);
       const removalAfter = await page<Record<string, unknown>>(surface.window, `(() => { const check = document.querySelector('dialog input[type="checkbox"]'); const remove = [...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Remove from this PC"); remove?.focus(); const removeStyle = getComputedStyle(remove); return { checked: check?.checked ?? null, checkAdjustment: getComputedStyle(check).forcedColorAdjust, enabled: !(remove?.hasAttribute("disabled") ?? true), color: removeStyle.color, background: removeStyle.backgroundColor, border: removeStyle.borderColor, outline: removeStyle.outlineStyle }; })()`);
       const system = overview["system"] as Record<string, unknown>;
-      record("forced-colours", forcedColoursOverviewReady(overview), overview);
+      record("forced-colours", forcedColoursHeadingReady(beforeKeyboard) && forcedColoursOverviewReady(overview), { keyboardAttempts, focusPath: forcedColoursFocusPath });
       record("forced-colours-controls", choice["checked"] === true && choice["cardBorder"] === system["highlight"] && choice["cardOutline"] !== "none" && choice["radioAdjustment"] === "auto" && (controlsBefore["subtle"] as Record<string, unknown>)["color"] === system["canvasText"] && (controlsBefore["subtle"] as Record<string, unknown>)["border"] === system["canvasText"] && (controlsBefore["danger"] as Record<string, unknown>)["color"] === system["canvasText"] && removalBefore["checked"] === false && removalBefore["checkAdjustment"] === "auto" && removalBefore["disabled"] === true && removalBefore["color"] === system["grayText"] && removalAfter["checked"] === true && removalAfter["checkAdjustment"] === "auto" && removalAfter["enabled"] === true && removalAfter["color"] === system["highlightText"] && removalAfter["border"] === system["highlight"] && removalAfter["outline"] !== "none", { system, choice, controlsBefore, removalBefore, removalAfter });
       await page(surface.window, `[...document.querySelectorAll("dialog button")].find((node) => node.textContent?.trim() === "Keep credential")?.click()`);
       await waitFor(surface.window, `document.querySelector("dialog") === null`);

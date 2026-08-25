@@ -217,6 +217,18 @@ describe("Electron and dependency static policy", () => {
     expect(smoke).toContain('Number(candidate["escapeUnpreventedCount"]) === closeCount');
   });
 
+  it("settles the exact forced-colour surface before the keyboard focus transition", () => {
+    const smoke = read("src/testing/electron-smoke-main.ts");
+    const surfaceWait = smoke.indexOf("while (!forcedColoursHeadingReady(beforeKeyboard)");
+    const overviewWait = smoke.indexOf("while (!forcedColoursOverviewReady(overview) && keyboardAttempts < 3", surfaceWait);
+    const keyboardTransition = smoke.indexOf('await press(surface.window, "Tab")', overviewWait);
+    expect(surfaceWait).toBeGreaterThanOrEqual(0);
+    expect(overviewWait).toBeGreaterThan(surfaceWait);
+    expect(keyboardTransition).toBeGreaterThan(overviewWait);
+    expect(smoke).toContain("forcedColoursHeadingReady(beforeKeyboard) && forcedColoursOverviewReady(overview)");
+    expect(smoke).toContain("focusPath: forcedColoursFocusPath");
+  });
+
   it("runs non-copying secret/metadata containment before any composed label check", () => {
     const safety = read("src/main/metadata-safety.ts");
     expectOrdered(safety, "export function assertCredentialMetadataSeparatedFromSecret", "const candidates:");
