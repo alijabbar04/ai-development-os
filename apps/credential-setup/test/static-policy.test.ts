@@ -223,6 +223,16 @@ describe("Electron and dependency static policy", () => {
     expect(smoke).toContain('Number(candidate["escapeFocusDisplacedCount"]) === closeCount');
   });
 
+  it("waits for the complete committed warning state before sampling it", () => {
+    const smoke = read("src/testing/electron-smoke-main.ts");
+    const source = smoke.indexOf("const warningStateSource =");
+    const completeWait = smoke.indexOf('state.notice.includes("could not be cleared") && state.validateEnabled === true && state.storageCount === 3 && state.storageLocked === true', source);
+    const sample = smoke.indexOf("const state = await page<Record<string, unknown>>(warningAndCommittedValidation.window, warningStateSource);", completeWait);
+    expect(source).toBeGreaterThanOrEqual(0);
+    expect(completeWait).toBeGreaterThan(source);
+    expect(sample).toBeGreaterThan(completeWait);
+  });
+
   it("settles the exact forced-colour surface before the keyboard focus transition", () => {
     const smoke = read("src/testing/electron-smoke-main.ts");
     const surfaceWait = smoke.indexOf("while (!forcedColoursHeadingReady(beforeKeyboard)");
