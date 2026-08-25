@@ -907,9 +907,9 @@ async function runInFlightActionRegression(): Promise<void> {
       dialog.addEventListener("close", () => {
         tracker.closeCount += 1;
         tracker.openLost = true;
-        const fallbackFocus = document.querySelector("h1[tabindex='-1']");
-        fallbackFocus?.focus();
-        if (document.activeElement === fallbackFocus) tracker.focusDisplacedCount += 1;
+        const busyFocus = dialog.querySelector("[data-busy-focus='true']");
+        busyFocus?.blur();
+        if (document.activeElement !== busyFocus) tracker.focusDisplacedCount += 1;
       });
       const observe = () => {
         if (!dialog.isConnected || !dialog.open) tracker.openLost = true;

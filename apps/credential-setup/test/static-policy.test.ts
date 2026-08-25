@@ -208,7 +208,7 @@ describe("Electron and dependency static policy", () => {
     const smoke = read("src/testing/electron-smoke-main.ts");
     const synchronousCancelSnapshot = 'if (event.defaultPrevented) tracker.preventedCount += 1;';
     const closeLatch = 'dialog.addEventListener("close", () => {';
-    const focusDisplacement = 'if (document.activeElement === fallbackFocus) tracker.focusDisplacedCount += 1;';
+    const focusDisplacement = 'if (document.activeElement !== busyFocus) tracker.focusDisplacedCount += 1;';
     const forcedClose = 'tracker.forcedCloseCount += 1;';
     expect(smoke).toContain(synchronousCancelSnapshot);
     expect(smoke).toContain(closeLatch);
