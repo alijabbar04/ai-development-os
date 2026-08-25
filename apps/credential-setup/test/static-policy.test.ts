@@ -204,6 +204,13 @@ describe("Electron and dependency static policy", () => {
     expect(smoke).not.toMatch(/stderr\.trim|failedAssertions|synthetic-canary-redacted|synthetic-replacement-redacted/u);
   });
 
+  it("latches an in-flight validation dialog close from the close event rather than deferred observation", () => {
+    const smoke = read("src/testing/electron-smoke-main.ts");
+    const closeLatch = 'dialog.addEventListener("close", () => { tracker.closeCount += 1; tracker.openLost = true; });';
+    expect(smoke).toContain(closeLatch);
+    expectOrdered(smoke, closeLatch, "tracker.observer = new MutationObserver(observe)");
+  });
+
   it("runs non-copying secret/metadata containment before any composed label check", () => {
     const safety = read("src/main/metadata-safety.ts");
     expectOrdered(safety, "export function assertCredentialMetadataSeparatedFromSecret", "const candidates:");

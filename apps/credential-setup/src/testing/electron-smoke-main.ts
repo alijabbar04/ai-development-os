@@ -898,7 +898,7 @@ async function runInFlightActionRegression(): Promise<void> {
       if (dialog === null) return false;
       const tracker = { dialog, cancelCount: 0, preventedCount: 0, unpreventedCount: 0, closeCount: 0, openLost: false, dialogReplaced: false, controlsUnlocked: false, observer: null };
       dialog.addEventListener("cancel", (event) => { tracker.cancelCount += 1; queueMicrotask(() => { if (event.defaultPrevented) tracker.preventedCount += 1; else tracker.unpreventedCount += 1; }); });
-      dialog.addEventListener("close", () => { tracker.closeCount += 1; });
+      dialog.addEventListener("close", () => { tracker.closeCount += 1; tracker.openLost = true; });
       const observe = () => {
         if (!dialog.isConnected || !dialog.open) tracker.openLost = true;
         if (document.querySelector("dialog") !== dialog) tracker.dialogReplaced = true;
