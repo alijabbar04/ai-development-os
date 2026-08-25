@@ -955,7 +955,10 @@ function reopenBusyDialog(dialog: HTMLDialogElement): void {
   queueMicrotask(() => {
     if (!dialog.isConnected || dialog.open) return;
     dialog.showModal();
-    dialog.querySelector<HTMLElement>('[data-busy-focus="true"]')?.focus();
+    requestAnimationFrame(() => {
+      if (!dialog.isConnected || !dialog.open) return;
+      dialog.querySelector<HTMLElement>('[data-busy-focus="true"]')?.focus();
+    });
   });
 }
 

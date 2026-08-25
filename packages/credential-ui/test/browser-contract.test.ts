@@ -178,10 +178,14 @@ describe("browser component contract", () => {
   it("restores the busy heading after an unavoidable in-flight dialog close", () => {
     const helper = source.indexOf("function reopenBusyDialog");
     const reopen = source.indexOf("dialog.showModal();", helper);
-    const refocus = source.indexOf("dialog.querySelector<HTMLElement>('[data-busy-focus=\"true\"]')?.focus();", reopen);
+    const schedule = source.indexOf("requestAnimationFrame(() => {", reopen);
+    const recheck = source.indexOf("if (!dialog.isConnected || !dialog.open) return;", schedule);
+    const refocus = source.indexOf("dialog.querySelector<HTMLElement>('[data-busy-focus=\"true\"]')?.focus();", recheck);
     expect(helper).toBeGreaterThan(0);
     expect(reopen).toBeGreaterThan(helper);
-    expect(refocus).toBeGreaterThan(reopen);
+    expect(schedule).toBeGreaterThan(reopen);
+    expect(recheck).toBeGreaterThan(schedule);
+    expect(refocus).toBeGreaterThan(recheck);
     expect(source.match(/reopenBusyDialog\(shell\.dialog\);/gu)).toHaveLength(3);
   });
 
