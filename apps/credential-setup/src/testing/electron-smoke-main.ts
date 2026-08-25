@@ -897,7 +897,11 @@ async function runInFlightActionRegression(): Promise<void> {
       const dialog = document.querySelector("dialog[open]");
       if (dialog === null) return false;
       const tracker = { dialog, cancelCount: 0, preventedCount: 0, unpreventedCount: 0, closeCount: 0, openLost: false, dialogReplaced: false, controlsUnlocked: false, observer: null };
-      dialog.addEventListener("cancel", (event) => { tracker.cancelCount += 1; queueMicrotask(() => { if (event.defaultPrevented) tracker.preventedCount += 1; else tracker.unpreventedCount += 1; }); });
+      dialog.addEventListener("cancel", (event) => {
+        tracker.cancelCount += 1;
+        if (event.defaultPrevented) tracker.preventedCount += 1;
+        else tracker.unpreventedCount += 1;
+      });
       dialog.addEventListener("close", () => { tracker.closeCount += 1; tracker.openLost = true; });
       const observe = () => {
         if (!dialog.isConnected || !dialog.open) tracker.openLost = true;
@@ -911,13 +915,17 @@ async function runInFlightActionRegression(): Promise<void> {
       globalThis["__aiDevOsValidationEscapeTracker"] = tracker;
       return true;
     })()`);
+    const validationEscapeLockHeld = (candidate: Record<string, unknown>, escapeCount: number): boolean => {
+      const closeCount = Number(candidate["escapeCloseCount"]);
+      return validationInFlightUiLocked(candidate) && candidate["escapeTrackerPresent"] === true && candidate["sameDialog"] === true && Number(candidate["escapeCancelCount"]) === escapeCount && Number(candidate["escapePreventedCount"]) + Number(candidate["escapeUnpreventedCount"]) === escapeCount && Number.isInteger(closeCount) && closeCount >= 0 && closeCount <= escapeCount && Number(candidate["escapeUnpreventedCount"]) === closeCount && candidate["escapeOpenLost"] === (closeCount > 0) && candidate["escapeDialogReplaced"] === false && candidate["escapeControlsUnlocked"] === false;
+    };
     const escapeObservations: Record<string, unknown>[] = [];
     for (let escapeCount = 1; escapeCount <= 3; escapeCount += 1) {
       await press(surface.window, "Escape");
-      escapeObservations.push(await waitForValidationInFlightLock((candidate) => validationInFlightUiLocked(candidate) && candidate["escapeTrackerPresent"] === true && candidate["sameDialog"] === true && Number(candidate["escapeCancelCount"]) === escapeCount && Number(candidate["escapePreventedCount"]) + Number(candidate["escapeUnpreventedCount"]) === escapeCount && Number(candidate["escapeUnpreventedCount"]) === Number(candidate["escapeCloseCount"]) && candidate["escapeOpenLost"] === (Number(candidate["escapeCloseCount"]) > 0) && candidate["escapeDialogReplaced"] === false && candidate["escapeControlsUnlocked"] === false));
+      escapeObservations.push(await waitForValidationInFlightLock((candidate) => validationEscapeLockHeld(candidate, escapeCount)));
     }
     await page(surface.window, `(() => { const tracker = globalThis["__aiDevOsValidationEscapeTracker"]; tracker?.observer?.disconnect(); delete globalThis["__aiDevOsValidationEscapeTracker"]; })()`);
-    const escapeResistanceHeld = escapeObservations.every((candidate, index) => validationInFlightUiLocked(candidate) && candidate["escapeTrackerPresent"] === true && candidate["sameDialog"] === true && Number(candidate["escapeCancelCount"]) === index + 1 && Number(candidate["escapePreventedCount"]) + Number(candidate["escapeUnpreventedCount"]) === index + 1 && Number(candidate["escapeUnpreventedCount"]) === Number(candidate["escapeCloseCount"]) && candidate["escapeOpenLost"] === (Number(candidate["escapeCloseCount"]) > 0) && candidate["escapeDialogReplaced"] === false && candidate["escapeControlsUnlocked"] === false);
+    const escapeResistanceHeld = escapeObservations.every((candidate, index) => validationEscapeLockHeld(candidate, index + 1));
     record("validation-in-flight-ui-lock", validationInFlightUiLocked(beforeEscape) && escapeResistanceHeld, { beforeEscape, escapeObservations });
     surface.releaseGate("validate");
     await waitFor(surface.window, `document.querySelector("dialog") === null && (document.querySelector(".badge")?.textContent ?? "").startsWith("Validated") && document.activeElement?.tagName === "H1"`);

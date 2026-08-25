@@ -204,11 +204,17 @@ describe("Electron and dependency static policy", () => {
     expect(smoke).not.toMatch(/stderr\.trim|failedAssertions|synthetic-canary-redacted|synthetic-replacement-redacted/u);
   });
 
-  it("latches an in-flight validation dialog close from the close event rather than deferred observation", () => {
+  it("snapshots cancel prevention synchronously before matching defensive dialog closes", () => {
     const smoke = read("src/testing/electron-smoke-main.ts");
+    const synchronousCancelSnapshot = 'if (event.defaultPrevented) tracker.preventedCount += 1;';
     const closeLatch = 'dialog.addEventListener("close", () => { tracker.closeCount += 1; tracker.openLost = true; });';
+    expect(smoke).toContain(synchronousCancelSnapshot);
     expect(smoke).toContain(closeLatch);
+    expectOrdered(smoke, synchronousCancelSnapshot, closeLatch);
     expectOrdered(smoke, closeLatch, "tracker.observer = new MutationObserver(observe)");
+    expect(smoke).not.toContain('queueMicrotask(() => { if (event.defaultPrevented)');
+    expect(smoke).toContain('Number(candidate["escapePreventedCount"]) + Number(candidate["escapeUnpreventedCount"]) === escapeCount');
+    expect(smoke).toContain('Number(candidate["escapeUnpreventedCount"]) === closeCount');
   });
 
   it("runs non-copying secret/metadata containment before any composed label check", () => {
