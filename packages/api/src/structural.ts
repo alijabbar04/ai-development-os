@@ -57,6 +57,13 @@ export function readSafeArray(value: unknown, path: string, maximum: number): re
   if (keys.length !== value.length + 1 || keys.some((key) => typeof key !== "string")) {
     apiFail(path, "sparse_array", "must be dense and contain no custom fields.");
   }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (descriptor === undefined || !("value" in descriptor) || descriptor.enumerable !== true) {
+      apiFail(`${path}[${index}]`, "accessor_item", "must be an enumerable data element.");
+    }
+  }
   return value;
 }
 
@@ -65,11 +72,22 @@ export function ensureExactAndPresent(
   keys: readonly string[],
   path: string,
 ): void {
-  validation.ensureExactKeys(record, keys, path);
+  ensureAllowedKeys(record, keys, path);
   for (const key of keys) {
     if (!Object.hasOwn(record, key)) {
       apiFail(`${path}.${key}`, "missing_field", "is required.");
     }
+  }
+}
+
+export function ensureAllowedKeys(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+  path: string,
+): void {
+  const allowed = new Set(keys);
+  if (Object.keys(record).some((key) => !allowed.has(key))) {
+    apiFail(path, "unexpected_fields", "contains unexpected fields.");
   }
 }
 
@@ -116,6 +134,10 @@ export function assertProjectionFieldName(name: string, path: string): void {
 
 export function isSourceFingerprintField(name: string): boolean {
   return name.toLowerCase() === "sourcefingerprint";
+}
+
+export function isProfileIdField(name: string): boolean {
+  return name.toLowerCase().endsWith("profileid");
 }
 
 export function isPathField(name: string): boolean {

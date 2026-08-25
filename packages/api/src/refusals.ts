@@ -28,7 +28,7 @@ const RAW_REFUSAL_COPY = {
   ROOT_UNREADABLE: { sentence: "That folder cannot be read.", nextStepId: "choose-another-folder" },
   ROOT_NOT_CONTAINED: { sentence: "That folder is outside the locations this app may use.", nextStepId: "review-approved-roots" },
   BRIEF_SUPERSEDED: { sentence: "The brief moved on while you were writing — review the current version.", nextStepId: "reload-brief" },
-  BLOCKING_UNANSWERED: { sentence: "Questions still need an answer before work can be planned.", nextStepId: "focus-blocking-question" },
+  BLOCKING_UNANSWERED: { sentence: "Two questions still need an answer before work can be planned.", nextStepId: "focus-blocking-question" },
   SET_SUPERSEDED: { sentence: "These questions were replaced by a newer set.", nextStepId: "show-current-question-set" },
   PLAN_SEALED: { sentence: "The plan is already sealed — changes go through a revision.", nextStepId: "propose-plan-change" },
   REVISION_STALE: { sentence: "The plan changed since you opened it — review the latest revision.", nextStepId: "reload-plan" },
@@ -46,7 +46,7 @@ const RAW_REFUSAL_COPY = {
   HANDOVER_NOT_READY: { sentence: "Waiting for the previous session's context to be prepared.", nextStepId: "wait-for-handover" },
   NO_OPEN_QUESTION: { sentence: "The agent is no longer waiting for an answer.", nextStepId: "refresh-view" },
   SESSION_NOT_AWAITING: { sentence: "This session is not waiting for input.", nextStepId: "none" },
-  TEXT_TOO_LONG: { sentence: "Keep the note under 2,000 characters.", nextStepId: "focus-source-field" },
+  TEXT_TOO_LONG: { sentence: "Keep the note under 2 000 characters.", nextStepId: "focus-source-field" },
   TASK_NOT_OPEN: { sentence: "This task is not waiting or blocked, so a note cannot be delivered.", nextStepId: "none" },
   BOUND_VIOLATION: { sentence: "That note could not be delivered as written.", nextStepId: "review-input-bound" },
   BLOCKER_CLEARED: { sentence: "This is no longer blocked.", nextStepId: "refresh-view" },
@@ -57,7 +57,7 @@ const RAW_REFUSAL_COPY = {
   HANDOVER_ALREADY_CONSUMED: { sentence: "That context was already used by an earlier attempt; this attempt continues from the same records.", nextStepId: "none" },
   SESSION_NOT_RUNNING: { sentence: "This session is not running.", nextStepId: "none" },
   TERMINATION_UNCONFIRMED: { sentence: "This session did not confirm it stopped — acknowledge it before continuing.", nextStepId: "acknowledge-termination" },
-  BINDING_MISMATCH: { sentence: "Cannot continue that conversation because its configuration changed — starting fresh.", nextStepId: "start-fresh-session" },
+  BINDING_MISMATCH: { sentence: "Cannot continue that conversation (configuration changed) — starting fresh.", nextStepId: "start-fresh-session" },
   NOT_RESUMABLE: { sentence: "This session cannot be resumed.", nextStepId: "start-fresh-session" },
   SESSION_TERMINAL: { sentence: "This session has already ended.", nextStepId: "none" },
   UNPROVEN_TERMINATION: { sentence: "This session must be acknowledged as stopped before it can be archived.", nextStepId: "acknowledge-termination" },
@@ -92,25 +92,38 @@ export const REFUSAL_COPY = Object.freeze(RAW_REFUSAL_COPY);
 export const REFUSAL_CODES = Object.freeze(Object.keys(REFUSAL_COPY) as RefusalCode[]);
 export type RefusalCode = keyof typeof RAW_REFUSAL_COPY;
 
-export const APPROVAL_CONSUMPTION_STATES = Object.freeze([
-  "requested", "deferred-reminder", "approved", "partially-used",
-  "consumed", "rejected", "expired", "voided",
+export const APPROVAL_STATES = Object.freeze([
+  "requested", "approved", "consumed", "partially_consumed",
+  "revoked", "rejected", "expired", "voided",
 ] as const);
-export type ApprovalConsumptionState = (typeof APPROVAL_CONSUMPTION_STATES)[number];
+export type ApprovalState = (typeof APPROVAL_STATES)[number];
 
 export type RefusalDetails =
   | null
   | Readonly<{ condition: 1 | 2 | 3 | 4 | 5 | 6 }>
-  | Readonly<{ approvalClassId: string }>
-  | Readonly<{ boundId: string }>
+  | Readonly<{ class: string }>
+  | Readonly<{ bound: string }>
   | Readonly<{ ruleIds: readonly string[] }>
-  | Readonly<{ reasonId: string }>
-  | Readonly<{ approvalState: ApprovalConsumptionState }>;
+  | Readonly<{ reason: string }>
+  | Readonly<{ state: ApprovalState }>;
 
-export interface ApiRefusal {
-  readonly code: RefusalCode;
-  readonly details: RefusalDetails;
-}
+type UnparameterizedRefusalCode = Exclude<RefusalCode,
+  | "SEAL_CONDITION_FAILED"
+  | "APPROVAL_REQUIRED"
+  | "EXPANSION_BOUND_EXCEEDED"
+  | "NOT_ELIGIBLE"
+  | "OPTION_PRECONDITION_UNMET"
+  | "APPROVAL_NOT_CONSUMABLE"
+>;
+
+export type ApiRefusal =
+  | Readonly<{ code: UnparameterizedRefusalCode; details: null }>
+  | Readonly<{ code: "SEAL_CONDITION_FAILED"; details: Readonly<{ condition: 1 | 2 | 3 | 4 | 5 | 6 }> }>
+  | Readonly<{ code: "APPROVAL_REQUIRED"; details: Readonly<{ class: string }> }>
+  | Readonly<{ code: "EXPANSION_BOUND_EXCEEDED"; details: Readonly<{ bound: string }> }>
+  | Readonly<{ code: "NOT_ELIGIBLE"; details: Readonly<{ ruleIds: readonly string[] }> }>
+  | Readonly<{ code: "OPTION_PRECONDITION_UNMET"; details: Readonly<{ reason: string }> }>
+  | Readonly<{ code: "APPROVAL_NOT_CONSUMABLE"; details: Readonly<{ state: ApprovalState }> }>;
 
 export interface RefusalPresentation {
   readonly code: RefusalCode;
@@ -138,11 +151,11 @@ function parseParameterizedDetails(code: RefusalCode, value: unknown, path: stri
       return frozenDetails("condition", condition);
     }
     case "APPROVAL_REQUIRED":
-      ensureExactAndPresent(details, ["approvalClassId"], path);
-      return frozenDetails("approvalClassId", ensureIdentifier(details["approvalClassId"], `${path}.approvalClassId`, 64));
+      ensureExactAndPresent(details, ["class"], path);
+      return frozenDetails("class", ensureIdentifier(details["class"], `${path}.class`, 64));
     case "EXPANSION_BOUND_EXCEEDED":
-      ensureExactAndPresent(details, ["boundId"], path);
-      return frozenDetails("boundId", ensureIdentifier(details["boundId"], `${path}.boundId`, 64));
+      ensureExactAndPresent(details, ["bound"], path);
+      return frozenDetails("bound", ensureIdentifier(details["bound"], `${path}.bound`, 64));
     case "NOT_ELIGIBLE": {
       ensureExactAndPresent(details, ["ruleIds"], path);
       const items = readSafeArray(details["ruleIds"], `${path}.ruleIds`, API_LIMITS.maxRuleIds);
@@ -152,11 +165,11 @@ function parseParameterizedDetails(code: RefusalCode, value: unknown, path: stri
       return frozenDetails("ruleIds", Object.freeze([...ruleIds].sort()));
     }
     case "OPTION_PRECONDITION_UNMET":
-      ensureExactAndPresent(details, ["reasonId"], path);
-      return frozenDetails("reasonId", ensureIdentifier(details["reasonId"], `${path}.reasonId`, 64));
+      ensureExactAndPresent(details, ["reason"], path);
+      return frozenDetails("reason", ensureIdentifier(details["reason"], `${path}.reason`, 64));
     case "APPROVAL_NOT_CONSUMABLE":
-      ensureExactAndPresent(details, ["approvalState"], path);
-      return frozenDetails("approvalState", validation.ensureEnum(details["approvalState"], `${path}.approvalState`, APPROVAL_CONSUMPTION_STATES));
+      ensureExactAndPresent(details, ["state"], path);
+      return frozenDetails("state", validation.ensureEnum(details["state"], `${path}.state`, APPROVAL_STATES));
     default:
       apiFail(path, "unexpected_details", "details are not defined for this refusal code.");
   }
@@ -173,7 +186,7 @@ export function parseApiRefusal(value: unknown, path = "refusal"): ApiRefusal {
     if (record["details"] !== null) apiFail(`${path}.details`, "details_must_be_null", "must be null for this refusal code.");
     details = null;
   }
-  return Object.freeze({ code, details });
+  return Object.freeze({ code, details }) as ApiRefusal;
 }
 
 export function projectRefusal(refusal: ApiRefusal): RefusalPresentation {

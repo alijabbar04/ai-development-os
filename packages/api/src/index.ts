@@ -22,14 +22,14 @@ export {
 } from "./envelopes.js";
 
 export {
-  APPROVAL_CONSUMPTION_STATES,
+  APPROVAL_STATES,
   REFUSAL_CODES,
   REFUSAL_COPY,
   formatUnknownRefusalCode,
   parseApiRefusal,
   projectRefusal,
   type ApiRefusal,
-  type ApprovalConsumptionState,
+  type ApprovalState,
   type RefusalCode,
   type RefusalCopy,
   type RefusalDetails,

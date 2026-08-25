@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { defineProjectionSchema, serializeProjection, type ProjectionRule } from "../src/index.js";
+import {
+  defineProjectionSchema,
+  serializeProjection,
+  type ProjectionRule,
+  type ProjectionSchema,
+} from "../src/index.js";
 
 const NORMAL_SCHEMA = defineProjectionSchema("health", {
   active: { kind: "boolean" },
@@ -55,6 +60,18 @@ describe("projection allowlist serializer", () => {
     expect(() => serializeProjection(NORMAL_SCHEMA, missing, {
       audience: "normal", profileScope: "profile:owned-main",
     })).toThrow(/required/u);
+
+    const credentialShapedKey = ["sk", "ant", "api03", "B".repeat(30)].join("-");
+    try {
+      serializeProjection(NORMAL_SCHEMA, { ...normalInput(), [credentialShapedKey]: true }, {
+        audience: "normal", profileScope: "profile:owned-main",
+      });
+      throw new Error("Expected the unknown field to be refused.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toMatch(/unexpected fields/u);
+      expect((error as Error).message).not.toContain(credentialShapedKey);
+    }
   });
 
   it("enforces integer, count, basis-point, timestamp, enum, identifier, and array bounds", () => {
@@ -98,14 +115,24 @@ describe("projection allowlist serializer", () => {
   it("rejects absolute-path and credential canaries before scalar projection", () => {
     const stateOnly = defineProjectionSchema("state", { state: { kind: "enum", values: ["ready"] } });
     expect(() => serializeProjection(stateOnly, { state: "C:\\private\\file" }, { audience: "normal" })).toThrow(/absolute path/u);
+    const identifierOnly = defineProjectionSchema("identifier", { value: { kind: "identifier" } });
+    expect(serializeProjection(identifierOnly, { value: "status.ready" }, { audience: "normal" })).toEqual({ value: "status.ready" });
     const credentialCanary = ["sk", "ant", "api03", "A".repeat(30)].join("-");
-    expect(() => serializeProjection(stateOnly, { state: credentialCanary }, { audience: "normal" })).toThrow(/credential-shaped/u);
+    expect(() => serializeProjection(identifierOnly, { value: credentialCanary }, { audience: "normal" })).toThrow(/credential-shaped/u);
+    const schemaCredentialCanary = ["sk", "ant", "api03", "a".repeat(30)].join("-");
+    expect(() => defineProjectionSchema("unsafe", {
+      value: { kind: "enum", values: [schemaCredentialCanary] },
+    })).toThrow(/credential-shaped/u);
+    expect(() => defineProjectionSchema(schemaCredentialCanary, {
+      value: { kind: "boolean" },
+    })).toThrow(/credential-shaped/u);
   });
 
   it("refuses owner identity, credential fields, implicit paths, and model-text schema kinds", () => {
     expect(() => defineProjectionSchema("bad", { borrowedOwnerIdentity: { kind: "identifier" } })).toThrow(/owner-identity/u);
     expect(() => defineProjectionSchema("bad", { apiKey: { kind: "identifier" } })).toThrow(/credential/u);
     expect(() => defineProjectionSchema("bad", { workspacePath: { kind: "identifier" } })).toThrow(/developer-path/u);
+    expect(() => defineProjectionSchema("bad", { profileId: { kind: "identifier" } })).toThrow(/profile-id/u);
     expect(() => defineProjectionSchema("bad", { sourceFingerprint: { kind: "identifier" } })).toThrow(/source-fingerprint/u);
     expect(() => defineProjectionSchema("bad", { narrative: { kind: "string" } as unknown as ProjectionRule })).toThrow(/must be one of/u);
   });
@@ -151,6 +178,20 @@ describe("projection allowlist serializer", () => {
     expect(() => serializeProjection(NORMAL_SCHEMA, { ...normalInput(), tags: new Proxy(["alpha"], {}) }, {
       audience: "normal", profileScope: "profile:owned-main",
     })).toThrow(/proxy/u);
+
+    let arrayAccessorInvoked = false;
+    const accessorArray = ["alpha"];
+    Object.defineProperty(accessorArray, "0", {
+      enumerable: true,
+      get: () => {
+        arrayAccessorInvoked = true;
+        return "alpha";
+      },
+    });
+    expect(() => serializeProjection(NORMAL_SCHEMA, { ...normalInput(), tags: accessorArray }, {
+      audience: "normal", profileScope: "profile:owned-main",
+    })).toThrow(/data element/u);
+    expect(arrayAccessorInvoked).toBe(false);
   });
 
   it("bounds hostile schemas, nesting, options, and field sets", () => {
@@ -162,6 +203,23 @@ describe("projection allowlist serializer", () => {
     expect(() => defineProjectionSchema("bad", { value: { kind: "enum", values: ["same", "same"] } })).toThrow(/duplicate/u);
     expect(() => defineProjectionSchema("bad", { values: { kind: "array", maximumItems: 101, item: { kind: "boolean" } } })).toThrow(/safe integer/u);
     expect(() => defineProjectionSchema("bad", new Proxy({ active: { kind: "boolean" } }, {}))).toThrow(/proxy/u);
+    expect(() => serializeProjection(new Proxy(NORMAL_SCHEMA, {}), normalInput(), {
+      audience: "normal", profileScope: "profile:owned-main",
+    })).toThrow(/proxy/u);
+
+    let schemaAccessorInvoked = false;
+    const accessorSchema = { fields: NORMAL_SCHEMA.fields } as { fields: ProjectionSchema["fields"]; name?: string };
+    Object.defineProperty(accessorSchema, "name", {
+      enumerable: true,
+      get: () => {
+        schemaAccessorInvoked = true;
+        return "health";
+      },
+    });
+    expect(() => serializeProjection(accessorSchema as ProjectionSchema, normalInput(), {
+      audience: "normal", profileScope: "profile:owned-main",
+    })).toThrow(/data fields/u);
+    expect(schemaAccessorInvoked).toBe(false);
     expect(() => serializeProjection(NORMAL_SCHEMA, normalInput(), { audience: "other" as "normal" })).toThrow(/must be one of/u);
     expect(() => serializeProjection(NORMAL_SCHEMA, normalInput(), { audience: "normal", profileScope: "profile:owned-main", extra: true } as never)).toThrow(/unexpected fields/u);
 
@@ -172,5 +230,17 @@ describe("projection allowlist serializer", () => {
     const fields: Record<string, ProjectionRule> = {};
     for (let index = 0; index < 65; index += 1) fields[`field${index}`] = { kind: "boolean" };
     expect(() => defineProjectionSchema("wide", fields)).toThrow(/between 1 and/u);
+
+    const denseInnerFields: Record<string, ProjectionRule> = {};
+    for (let index = 0; index < 64; index += 1) denseInnerFields[`field${index}`] = { kind: "boolean" };
+    const denseOuterFields: Record<string, ProjectionRule> = {};
+    for (let index = 0; index < 33; index += 1) {
+      denseOuterFields[`section${index}`] = { kind: "object", fields: denseInnerFields };
+    }
+    expect(() => defineProjectionSchema("tooLarge", denseOuterFields)).toThrow(/schema node limit/u);
+
+    const cyclicRule = { kind: "nullable" } as { kind: "nullable"; value?: ProjectionRule };
+    cyclicRule.value = cyclicRule as ProjectionRule;
+    expect(() => defineProjectionSchema("cyclic", { value: cyclicRule as ProjectionRule })).toThrow(/cyclic/u);
   });
 });

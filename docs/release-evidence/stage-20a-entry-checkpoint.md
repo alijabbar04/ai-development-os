@@ -172,4 +172,3 @@ spawn, and a separately bound operator decision authorizes C0-C2.
 This record does not validate or contact Anthropic, read the vault or Account
 Manager, start an agent, execute a task, open a listener, complete `PLN-02`,
 admit production, begin Stage 20B, or transfer any review verdict to new bytes.
-

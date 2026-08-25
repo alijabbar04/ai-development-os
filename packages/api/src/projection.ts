@@ -4,11 +4,13 @@ import {
   apiFail,
   assertProjectionFieldName,
   assertSafeString,
+  ensureAllowedKeys,
   ensureExactAndPresent,
   ensureIdentifier,
   ensureRuleId,
   isAbsolutePath,
   isPathField,
+  isProfileIdField,
   isSourceFingerprintField,
   readSafeArray,
   readSafeRecord,
@@ -49,97 +51,154 @@ interface SerializationState {
   readonly profileScope: string | null;
 }
 
+interface SchemaState {
+  nodes: number;
+  readonly active: WeakSet<object>;
+}
+
 const RULE_KINDS = Object.freeze([
   "boolean", "integer", "count", "basis-points", "identifier", "rule-id",
   "profile-id", "timestamp", "enum", "nullable", "array", "object",
   "developer-path", "source-fingerprint",
 ] as const);
 
-function safeFields(value: unknown, path: string, depth: number): Readonly<Record<string, ProjectionRule>> {
-  if (depth > API_LIMITS.maxProjectionDepth) apiFail(path, "schema_too_deep", "exceeds the projection schema depth limit.");
-  const record = readSafeRecord(value, path);
-  const names = Object.keys(record).sort();
-  if (names.length === 0 || names.length > API_LIMITS.maxProjectionFields) {
-    apiFail(path, "bad_field_count", `must contain between 1 and ${API_LIMITS.maxProjectionFields} fields.`);
+function countSchemaNode(path: string, state: SchemaState): void {
+  state.nodes += 1;
+  if (state.nodes > API_LIMITS.maxProjectionNodes) {
+    apiFail(path, "schema_too_large", "exceeds the projection schema node limit.");
   }
-  const output: Record<string, ProjectionRule> = Object.create(null) as Record<string, ProjectionRule>;
-  for (const name of names) {
-    assertProjectionFieldName(name, `${path}.${name}`);
-    const rule = copyRule(record[name], `${path}.${name}`, depth + 1);
-    if (isSourceFingerprintField(name) && rule.kind !== "source-fingerprint") {
-      apiFail(`${path}.${name}`, "fingerprint_rule_required", "must use the source-fingerprint rule.");
-    }
-    if (isPathField(name) && rule.kind !== "developer-path") {
-      apiFail(`${path}.${name}`, "path_rule_required", "must use the developer-path rule.");
-    }
-    output[name] = rule;
-  }
-  return Object.freeze(output);
 }
 
-function copyRule(value: unknown, path: string, depth: number): ProjectionRule {
+function enterSchemaObject(value: object, path: string, state: SchemaState): void {
+  if (state.active.has(value)) apiFail(path, "cyclic_schema", "cannot contain a cyclic reference.");
+  state.active.add(value);
+}
+
+function safeFields(
+  value: unknown,
+  path: string,
+  depth: number,
+  state: SchemaState,
+): Readonly<Record<string, ProjectionRule>> {
+  if (depth > API_LIMITS.maxProjectionDepth) apiFail(path, "schema_too_deep", "exceeds the projection schema depth limit.");
+  countSchemaNode(path, state);
+  const record = readSafeRecord(value, path);
+  enterSchemaObject(value as object, path, state);
+  try {
+    const names = Object.keys(record).sort();
+    if (names.length === 0 || names.length > API_LIMITS.maxProjectionFields) {
+      apiFail(path, "bad_field_count", `must contain between 1 and ${API_LIMITS.maxProjectionFields} fields.`);
+    }
+    const output: Record<string, ProjectionRule> = Object.create(null) as Record<string, ProjectionRule>;
+    for (const [index, name] of names.entries()) {
+      assertProjectionFieldName(name, `${path}.field[${index}]`);
+      const rule = copyRule(record[name], `${path}.${name}`, depth + 1, state);
+      if (isSourceFingerprintField(name) && rule.kind !== "source-fingerprint") {
+        apiFail(`${path}.${name}`, "fingerprint_rule_required", "must use the source-fingerprint rule.");
+      }
+      if (isPathField(name) && rule.kind !== "developer-path") {
+        apiFail(`${path}.${name}`, "path_rule_required", "must use the developer-path rule.");
+      }
+      if (isProfileIdField(name) && rule.kind !== "profile-id") {
+        apiFail(`${path}.${name}`, "profile_rule_required", "must use the profile-id rule.");
+      }
+      output[name] = rule;
+    }
+    return Object.freeze(output);
+  } finally {
+    state.active.delete(value as object);
+  }
+}
+
+function copyRule(value: unknown, path: string, depth: number, state: SchemaState): ProjectionRule {
   if (depth > API_LIMITS.maxProjectionDepth) {
     apiFail(path, "schema_too_deep", "exceeds the projection schema depth limit.");
   }
+  countSchemaNode(path, state);
   const record = readSafeRecord(value, path);
-  const kind = validation.ensureEnum(record["kind"], `${path}.kind`, RULE_KINDS);
-  switch (kind) {
-    case "boolean":
-    case "basis-points":
-    case "identifier":
-    case "rule-id":
-    case "profile-id":
-    case "timestamp":
-    case "developer-path":
-    case "source-fingerprint":
-      ensureExactAndPresent(record, ["kind"], path);
-      return Object.freeze({ kind });
-    case "integer": {
-      ensureExactAndPresent(record, ["kind", "minimum", "maximum"], path);
-      const minimum = validation.ensureSafeInteger(record["minimum"], `${path}.minimum`, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
-      const maximum = validation.ensureSafeInteger(record["maximum"], `${path}.maximum`, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
-      if (minimum > maximum) apiFail(path, "inverted_integer_range", "minimum cannot exceed maximum.");
-      return Object.freeze({ kind, minimum, maximum });
+  enterSchemaObject(value as object, path, state);
+  try {
+    const kind = validation.ensureEnum(record["kind"], `${path}.kind`, RULE_KINDS);
+    switch (kind) {
+      case "boolean":
+      case "basis-points":
+      case "identifier":
+      case "rule-id":
+      case "profile-id":
+      case "timestamp":
+      case "developer-path":
+      case "source-fingerprint":
+        ensureExactAndPresent(record, ["kind"], path);
+        return Object.freeze({ kind });
+      case "integer": {
+        ensureExactAndPresent(record, ["kind", "minimum", "maximum"], path);
+        const minimum = validation.ensureSafeInteger(record["minimum"], `${path}.minimum`, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+        const maximum = validation.ensureSafeInteger(record["maximum"], `${path}.maximum`, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+        if (minimum > maximum) apiFail(path, "inverted_integer_range", "minimum cannot exceed maximum.");
+        return Object.freeze({ kind, minimum, maximum });
+      }
+      case "count": {
+        ensureExactAndPresent(record, ["kind", "maximum"], path);
+        const maximum = validation.ensureSafeInteger(record["maximum"], `${path}.maximum`, 0, Number.MAX_SAFE_INTEGER);
+        return Object.freeze({ kind, maximum });
+      }
+      case "enum": {
+        ensureExactAndPresent(record, ["kind", "values"], path);
+        const source = readSafeArray(record["values"], `${path}.values`, 64);
+        if (source.length === 0) apiFail(`${path}.values`, "empty_enum", "must contain at least one value.");
+        const values = source.map((item, index) => {
+          const itemPath = `${path}.values[${index}]`;
+          const candidate = validation.ensureString(item, itemPath, {
+            maxLength: 64,
+            pattern: /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/u,
+            patternName: "finite product token",
+          });
+          assertSafeString(candidate, itemPath);
+          return candidate;
+        });
+        if (new Set(values).size !== values.length) apiFail(`${path}.values`, "duplicate_enum", "cannot contain duplicate values.");
+        return Object.freeze({ kind, values: Object.freeze([...values].sort()) });
+      }
+      case "nullable":
+        ensureExactAndPresent(record, ["kind", "value"], path);
+        return Object.freeze({ kind, value: copyRule(record["value"], `${path}.value`, depth + 1, state) });
+      case "array": {
+        ensureExactAndPresent(record, ["kind", "maximumItems", "item"], path);
+        const maximumItems = validation.ensureSafeInteger(record["maximumItems"], `${path}.maximumItems`, 0, API_LIMITS.maxProjectionArrayItems);
+        return Object.freeze({ kind, maximumItems, item: copyRule(record["item"], `${path}.item`, depth + 1, state) });
+      }
+      case "object":
+        ensureExactAndPresent(record, ["kind", "fields"], path);
+        return Object.freeze({ kind, fields: safeFields(record["fields"], `${path}.fields`, depth + 1, state) });
     }
-    case "count": {
-      ensureExactAndPresent(record, ["kind", "maximum"], path);
-      const maximum = validation.ensureSafeInteger(record["maximum"], `${path}.maximum`, 0, Number.MAX_SAFE_INTEGER);
-      return Object.freeze({ kind, maximum });
-    }
-    case "enum": {
-      ensureExactAndPresent(record, ["kind", "values"], path);
-      const source = readSafeArray(record["values"], `${path}.values`, 64);
-      if (source.length === 0) apiFail(`${path}.values`, "empty_enum", "must contain at least one value.");
-      const values = source.map((item, index) => validation.ensureString(item, `${path}.values[${index}]`, {
-        maxLength: 64,
-        pattern: /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/u,
-        patternName: "finite product token",
-      }));
-      if (new Set(values).size !== values.length) apiFail(`${path}.values`, "duplicate_enum", "cannot contain duplicate values.");
-      return Object.freeze({ kind, values: Object.freeze([...values].sort()) });
-    }
-    case "nullable":
-      ensureExactAndPresent(record, ["kind", "value"], path);
-      return Object.freeze({ kind, value: copyRule(record["value"], `${path}.value`, depth + 1) });
-    case "array": {
-      ensureExactAndPresent(record, ["kind", "maximumItems", "item"], path);
-      const maximumItems = validation.ensureSafeInteger(record["maximumItems"], `${path}.maximumItems`, 0, API_LIMITS.maxProjectionArrayItems);
-      return Object.freeze({ kind, maximumItems, item: copyRule(record["item"], `${path}.item`, depth + 1) });
-    }
-    case "object":
-      ensureExactAndPresent(record, ["kind", "fields"], path);
-      return Object.freeze({ kind, fields: safeFields(record["fields"], `${path}.fields`, depth + 1) });
+  } finally {
+    state.active.delete(value as object);
   }
 }
 
-export function defineProjectionSchema(name: unknown, fields: unknown): ProjectionSchema {
+function compileProjectionSchema(name: unknown, fields: unknown): ProjectionSchema {
+  const state: SchemaState = { nodes: 0, active: new WeakSet<object>() };
   const parsedName = ensureIdentifier(name, "schema.name", 64);
-  return Object.freeze({ name: parsedName, fields: safeFields(fields, "schema.fields", 0) });
+  assertSafeString(parsedName, "schema.name");
+  return Object.freeze({
+    name: parsedName,
+    fields: safeFields(fields, "schema.fields", 0, state),
+  });
+}
+
+export function defineProjectionSchema(name: unknown, fields: unknown): ProjectionSchema {
+  return compileProjectionSchema(name, fields);
+}
+
+function parseProjectionSchema(value: unknown): ProjectionSchema {
+  const record = readSafeRecord(value, "schema");
+  ensureExactAndPresent(record, ["name", "fields"], "schema");
+  return compileProjectionSchema(record["name"], record["fields"]);
 }
 
 function parseOptions(value: unknown): Readonly<{ audience: ProjectionAudience; profileScope: string | null }> {
   const record = readSafeRecord(value, "options");
-  validation.ensureExactKeys(record, ["audience", "profileScope"], "options");
+  ensureAllowedKeys(record, ["audience", "profileScope"], "options");
   if (!Object.hasOwn(record, "audience")) apiFail("options.audience", "missing_field", "is required.");
   const audience = validation.ensureEnum(record["audience"], "options.audience", ["normal", "developer"] as const);
   let profileScope: string | null = null;
@@ -261,7 +320,7 @@ export function serializeProjection(
   value: unknown,
   options: ProjectionSerializationOptions,
 ): JsonObject {
-  const safeSchema = defineProjectionSchema(schema.name, schema.fields);
+  const safeSchema = parseProjectionSchema(schema);
   const parsedOptions = parseOptions(options);
   const record = readSafeRecord(value, `projection.${safeSchema.name}`);
   const state: SerializationState = {

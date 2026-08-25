@@ -147,4 +147,3 @@ production gate, and creates no runtime capability. It does not start C3-C5 or
 Stage 20B, implement a listener/client/desktop/project spine, activate
 production, authorize a provider operation, access a secret, or support any
 non-Windows product platform.
-

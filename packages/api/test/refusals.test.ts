@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  APPROVAL_CONSUMPTION_STATES,
+  APPROVAL_STATES,
   REFUSAL_CODES,
   REFUSAL_COPY,
   formatUnknownRefusalCode,
@@ -12,11 +12,11 @@ import {
 function detailsFor(code: RefusalCode): unknown {
   switch (code) {
     case "SEAL_CONDITION_FAILED": return { condition: 1 };
-    case "APPROVAL_REQUIRED": return { approvalClassId: "approval.paid-usage" };
-    case "EXPANSION_BOUND_EXCEEDED": return { boundId: "revision.scope" };
+    case "APPROVAL_REQUIRED": return { class: "approval.paid-usage" };
+    case "EXPANSION_BOUND_EXCEEDED": return { bound: "revision.scope" };
     case "NOT_ELIGIBLE": return { ruleIds: ["AL-5"] };
-    case "OPTION_PRECONDITION_UNMET": return { reasonId: "evidence.pending" };
-    case "APPROVAL_NOT_CONSUMABLE": return { approvalState: "expired" };
+    case "OPTION_PRECONDITION_UNMET": return { reason: "evidence.pending" };
+    case "APPROVAL_NOT_CONSUMABLE": return { state: "expired" };
     default: return null;
   }
 }
@@ -40,20 +40,24 @@ describe("finite refusal taxonomy", () => {
     expect(parseApiRefusal({ code: "SEAL_CONDITION_FAILED", details: { condition } }).details).toEqual({ condition });
   });
 
-  it.each(APPROVAL_CONSUMPTION_STATES)("accepts finite approval state %s", (approvalState) => {
-    expect(parseApiRefusal({ code: "APPROVAL_NOT_CONSUMABLE", details: { approvalState } }).details).toEqual({ approvalState });
+  it.each(APPROVAL_STATES)("accepts finite approval state %s", (approvalState) => {
+    expect(parseApiRefusal({ code: "APPROVAL_NOT_CONSUMABLE", details: { state: approvalState } }).details).toEqual({ state: approvalState });
   });
 
   it("strictly validates all parameterized details", () => {
-    expect(parseApiRefusal({ code: "APPROVAL_REQUIRED", details: { approvalClassId: "approval.external-message" } }).details).toEqual({ approvalClassId: "approval.external-message" });
-    expect(parseApiRefusal({ code: "EXPANSION_BOUND_EXCEEDED", details: { boundId: "revision.tasks" } }).details).toEqual({ boundId: "revision.tasks" });
-    expect(parseApiRefusal({ code: "OPTION_PRECONDITION_UNMET", details: { reasonId: "quote.pending" } }).details).toEqual({ reasonId: "quote.pending" });
+    expect(APPROVAL_STATES).toEqual([
+      "requested", "approved", "consumed", "partially_consumed",
+      "revoked", "rejected", "expired", "voided",
+    ]);
+    expect(parseApiRefusal({ code: "APPROVAL_REQUIRED", details: { class: "approval.external-message" } }).details).toEqual({ class: "approval.external-message" });
+    expect(parseApiRefusal({ code: "EXPANSION_BOUND_EXCEEDED", details: { bound: "revision.tasks" } }).details).toEqual({ bound: "revision.tasks" });
+    expect(parseApiRefusal({ code: "OPTION_PRECONDITION_UNMET", details: { reason: "quote.pending" } }).details).toEqual({ reason: "quote.pending" });
     expect(parseApiRefusal({ code: "NOT_ELIGIBLE", details: { ruleIds: ["RULE-B", "RULE-A"] } }).details).toEqual({ ruleIds: ["RULE-A", "RULE-B"] });
 
     expect(() => parseApiRefusal({ code: "SEAL_CONDITION_FAILED", details: { condition: 7 } })).toThrow(/safe integer/u);
     expect(() => parseApiRefusal({ code: "NOT_ELIGIBLE", details: { ruleIds: [] } })).toThrow(/at least one/u);
     expect(() => parseApiRefusal({ code: "NOT_ELIGIBLE", details: { ruleIds: ["AL-5", "AL-5"] } })).toThrow(/duplicate/u);
-    expect(() => parseApiRefusal({ code: "APPROVAL_NOT_CONSUMABLE", details: { approvalState: "other" } })).toThrow(/must be one of/u);
+    expect(() => parseApiRefusal({ code: "APPROVAL_NOT_CONSUMABLE", details: { state: "other" } })).toThrow(/must be one of/u);
   });
 
   it("rejects unknown, missing, extra, and misplaced details", () => {
@@ -62,7 +66,7 @@ describe("finite refusal taxonomy", () => {
     expect(() => parseApiRefusal({ code: "RATE_LIMITED", details: null, prose: "untrusted" })).toThrow(/unexpected fields/u);
     expect(() => parseApiRefusal({ code: "RATE_LIMITED", details: {} })).toThrow(/must be null/u);
     expect(() => parseApiRefusal({ code: "APPROVAL_REQUIRED", details: null })).toThrow(/plain data object/u);
-    expect(() => parseApiRefusal({ code: "APPROVAL_REQUIRED", details: { approvalClassId: "approval.paid", extra: true } })).toThrow(/unexpected fields/u);
+    expect(() => parseApiRefusal({ code: "APPROVAL_REQUIRED", details: { class: "approval.paid", extra: true } })).toThrow(/unexpected fields/u);
   });
 
   it("bounds unknown-code display without accepting it as a known refusal", () => {

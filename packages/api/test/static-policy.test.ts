@@ -30,7 +30,7 @@ const ALLOWED_PRODUCTION_IMPORTS = new Set(["@ai-dev-os/domain", "node:util"]);
 
 function forbiddenImports(source: string): readonly string[] {
   return importSpecifiers(source).filter((specifier) =>
-    !specifier.startsWith("./") && !ALLOWED_PRODUCTION_IMPORTS.has(specifier));
+    !specifier.startsWith(".") && !ALLOWED_PRODUCTION_IMPORTS.has(specifier));
 }
 
 function workspaceManifest(packageName: string): string {
@@ -65,9 +65,12 @@ function runtimeDependencyClosure(rootManifest: string): readonly string[] {
 }
 
 describe("Stage 20A API static import and authority policy", () => {
-  it("allows only domain validation and pure proxy introspection in all production sources", () => {
-    const sources = sourceFiles(resolve(packageRoot, "src"));
-    expect(sources.length).toBeGreaterThan(0);
+  it("allows only domain validation and pure proxy introspection across the runtime source closure", () => {
+    const sources = [
+      ...sourceFiles(resolve(packageRoot, "src")),
+      ...sourceFiles(resolve(repositoryRoot, "packages", "domain", "src")),
+    ];
+    expect(sources.length).toBeGreaterThan(sourceFiles(resolve(packageRoot, "src")).length);
     for (const path of sources) expect(forbiddenImports(read(path)), path).toEqual([]);
   });
 

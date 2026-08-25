@@ -43,4 +43,3 @@ These advisories are not Stage 20 must-fix findings and do not weaken the exact
 parent PASS verdicts. Later work may resolve an item only when its owning bytes
 are in scope, with focused tests and a new review where appropriate. Historical
 provider state, credentials, receipts, markers, and operations remain closed.
-
