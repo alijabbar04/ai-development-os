@@ -141,13 +141,20 @@ continuously visible and revocable, with a one-click pause/kill mechanism.
 Repository text, web content, tool output, model output, plugins, and inbound
 messages are untrusted input. None can grant, expand, or persist authority.
 
-## Typed command and communication boundary: Stages 20 and 22
+## Typed control and communication boundary: Stages 20 and 22
 
-Stage 20 must establish one typed loopback command/notification boundary before
-any external messaging adapter exists. It owns schema validation, authentication,
+ADR 0038 divides Stage 20 into a read-only Stage 20A and a later effectful Stage
+20B. Stage 20A begins with route-free contracts and later adds only loopback
+queries and allowlisted projections. Stage 20B later owns commands,
 idempotency, replay protection, approval binding, recipient/channel identity,
-notification redaction, and durable emergency-stop state. Free-form inbound
+notification redaction, and durable emergency-stop authority. Free-form inbound
 text is always untrusted task input, never direct authority.
+
+The control plane is a local child process owned by the future desktop shell,
+not a Windows Service or machine daemon. Normal and Developer modes have
+identical authority. AI Powerhouse is the single Normal-mode coordinator;
+bounded Developer-mode direct-to-task communication cannot widen authority.
+Transcripts never become the system of record.
 
 Stage 22 adds adapters in this order:
 
@@ -171,7 +178,7 @@ Stage 20 boundary or convert a chat identity into execution authority.
 | --- | --- |
 | 17W | Windows secure-execution proof and release gate; production remains unavailable until it passes. |
 | 18 | Development scope accepted: durable orchestration, usage-aware authorized-profile routing, supported Account Manager observations, and the bounded Anthropic transport proof; production remains gated. |
-| 20 | Stage 20A is eligible but not started: typed local command/notification, approvals, replay protection, and emergency-stop boundary. |
+| 20 | Stage 20A C0-C2 candidate: exact entry, read-only architecture, and pure route-free contracts. C3-C5 and later Stage 20B commands/approvals/emergency-stop authority remain unstarted. |
 | 21 | Windows Normal/Developer desktop experience and future Fable 5 review gates. |
 | 22 | Discord, then Telegram, with WhatsApp deferred to a separate assessment. |
 | 23–24W | Windows packaging, operations, hardening, and release readiness. |

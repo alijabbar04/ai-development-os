@@ -910,17 +910,32 @@ Tests and gate:
 - A run cannot reach normal completion while a required or expected-quality coverage entry lacks valid evidence or an authorized waiver. Delight and deferred candidates remain visible without blocking unless explicitly promoted through a scope decision.
 - No model verdict can mark deterministic validation as passed or authorize a merge.
 
-## Stage 20: Typed loopback command and notification boundary
+## Stage 20: Typed local control boundary
 
-Status: Stage 20A eligible after Stage 18 development acceptance; not started.
+Status: Stage 20A C0-C2 implemented on the production-disabled API-foundation
+candidate; C3-C5 and Stage 20B are not started.
 
 Packages: `@ai-dev-os/api`, `@ai-dev-os/client`
 
-Deliverables:
+ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stage
+20B. Stage 20A exposes no command or mutation. Its ordered checkpoints are:
 
-- Fastify `/v1` command/query API, OpenAPI document, generated TypeScript
-  client, finite error envelope, and one typed command/notification contract
-  shared by local and later external adapters.
+1. **C0-C2:** exact Stage 18 entry verification, architecture ratification, and
+   pure route-free API contracts. The explicit route count is zero.
+2. **C3:** connection descriptor, identity nonce, single-instance, adopt-existing,
+   and local-child lifecycle contracts.
+3. **C4:** the first loopback-only Fastify listener, after dependency audit and
+   followed by an independent security review.
+4. **C5:** the first UI-facing read projections, followed by an independent
+   leakage review.
+
+Stage 20B later owns commands, idempotency, replay protection, approval binding,
+pause/kill, and durable emergency-stop authority. None exists in C0-C2.
+
+Later deliverables:
+
+- A loopback-only Fastify `/v1` query API and frozen TypeScript client in Stage
+  20A; commands and their shared notification contract only in Stage 20B.
 - Loopback session authentication, strict origins, request limits, idempotency,
   replay protection, recipient/channel identity, approval binding, and redacted
   notifications.
@@ -938,11 +953,19 @@ Deliverables:
 
 Tests and gate:
 
+- C2 proves exact envelopes, the full finite refusal taxonomy, deterministic
+  allowlist projection, hostile/leakage refusal, zero routes and commands, and a
+  direct/transitive forbidden-import boundary with guard-removal controls.
 - API and command-boundary tests cover authentication, origin, schema,
   idempotency, duplicate delivery, replay, approval digest binding, emergency
   stop, rate limits, reconnect, cursor replay, and daemon restart.
 - Fuzz tests cover JSON limits, event versions, hostile free-form content,
   recipient substitution, notification redaction, and out-of-order commands.
+
+The control plane is a local child process owned by the future desktop shell,
+never a Windows Service, scheduled task, machine daemon, or auto-start entry.
+Machine lifecycle and packaging remain Stage 23 work. Every Stage 20 component
+remains production-disabled, and no real agent/provider dispatch is permitted.
 
 ## Stage 21: Windows desktop application and setup wizard
 

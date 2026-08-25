@@ -41,6 +41,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
 | Stage 18 | **Development scope accepted; production remains gated** — `AM-02` and `INT-01` remain proven. On 2026-08-25 one fresh, separately authorized Stage 18E-I Anthropic validation used the exact externally reviewed candidate, a new one-shot marker and the existing owned application-vault `SecretRef`. One provider dispatch attempt was made; there was no retry or fallback. The create-only 38-field receipt and terminal sidecar committed, and the exact named projection proved HTTP 200, the pinned model, exactly one text block containing exactly `OK`, 774 ms duration, 12 input tokens and 4 output tokens without retaining the credential or response body. `ANT-02` is therefore **proven** and `developmentAccepted=true` is derived. The earlier missing-envelope success remains `BLOCKED_EVIDENCE`. `PLN-02` remains incomplete, `productionAdmitted=false`, Stage 17W remains the production gate, and Stage 20A is eligible but not started. |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
+| Stage 20 | **Stage 20A C0-C2 candidate** — entry is re-derived from the exact Stage 18 seal, ADR 0038 splits read-only 20A from later effectful 20B, and `@ai-dev-os/api` supplies pure route-free contracts. C3-C5 and every listener, command, client, project-spine, and desktop surface remain unstarted; production remains disabled. |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
 
@@ -74,7 +75,9 @@ Three things are stated plainly because they are easy to assume the other way:
   `BLOCKED_EVIDENCE` success whose missing fields were not reconstructed.
   `PLN-02` remains incomplete, the admission schema still has no admitted
   variant, `productionAdmitted=false`, and Stage 17W remains the production
-  gate. Stage 20A is eligible but no Stage 20A work started here.
+  gate. Stage 20A C0-C2 is now isolated on its own production-disabled feature
+  branch; no route, listener, command, client, project spine, or desktop is
+  introduced by that checkpoint.
 
 ## Documents
 

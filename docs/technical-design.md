@@ -720,6 +720,19 @@ Configurable areas include providers, model catalogs, logical role and planning-
 
 The API is versioned under `/v1` and publishes OpenAPI schemas. Commands support idempotency keys. Queries are side-effect free.
 
+ADR 0038 sequences this design as a read-only Stage 20A followed by an
+effectful Stage 20B. C2 is a framework-independent contract package with an
+explicit zero-route registry. C3 later owns local-child lifecycle and descriptor
+contracts; C4 is the first loopback-only Fastify listener and requires an
+independent security review; C5 is the first UI-facing projection and requires
+an independent leakage review. Commands, approvals, pause/kill, and durable
+emergency-stop authority belong to Stage 20B, not Stage 20A.
+
+The future control plane is a child process owned by Electron main, never a
+Windows Service, scheduled task, machine daemon, or auto-start entry. Every
+Stage 20 component remains production-disabled and cannot dispatch a real agent
+or provider before production admission.
+
 Representative endpoints:
 
 ```text
