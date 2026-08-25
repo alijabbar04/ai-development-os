@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "evidenceVersion": "ai-dev-os.stage-18.ant-02-development-acceptance-closure.v1",
+  "recordedAt": "2026-08-25T10:32:33.794Z",
+  "reviewedCandidate": {
+    "branch": "fix/stage-18e-i-sanitized-success-receipt",
+    "head": "f90a779fce8c14cb6c4c3166ed89b0af5355b660",
+    "tree": "f4a0035c03150970f700435af64cd2bd4e0968e4",
+    "sourceParent": "bd26bc1cf8238c23406fc5e0a63fed046c988136",
+    "sourceTree": "9ef3a12c3434d3a838da02706413c9573f235aa5",
+    "manifestPath": "docs/release-evidence/stage-18e-i-sanitized-success-receipt-subject-manifest.json",
+    "manifestBytes": 14304,
+    "manifestSha256": "f296c931bd9fa924126c9ff39a518f1a3d438b28ba76dd33580e0743c8a1b57d",
+    "manifestAggregate": "0cb4729cc4211dca11ef1f166ccd4340ad82db4ba50310c6b5e97244fcbd1d66",
+    "sourceBlobs": 45,
+    "baseToFinalPaths": 46,
+    "hostedCiRun": 32818821252,
+    "hostedCiAttempt": 1,
+    "hostedCiJobsPassed": 7
+  },
+  "externalReviewBaselines": {
+    "fable": {
+      "verdict": "PASS",
+      "mustFixFindings": 0,
+      "bytes": 19718,
+      "sha256": "46b5750d227815c08d6b41acd7dbf46941eebed286cb0a8658bd50b94bdcc585"
+    },
+    "opus": {
+      "verdict": "PASS",
+      "mustFixFindings": 0,
+      "bytes": 30135,
+      "sha256": "505fb7028c54e09c3d543052bf3e45a16128078d93928fd085b8a9cff1340f7a"
+    },
+    "scope": "Exact-candidate baseline evidence only; neither PASS transfers to this closure candidate."
+  },
+  "authorization": {
+    "reference": "stage18-ant02-20260825T102700848Z",
+    "issuedAt": "2026-08-25T10:27:00.848Z",
+    "expiresAt": "2026-08-25T11:27:00.848Z",
+    "packetBytes": 2034,
+    "packetSha256": "4a83dbdf2bbbae2767d15872fc744f1bbfc155326b1f1e2a34077619d17c0d72",
+    "markerNamespaceSha256": "93a926d5775a953e724c93f88e5bbe82587dd3c64e8620a0d63757e8d191f467",
+    "attemptLimit": 1,
+    "retryPolicy": "none",
+    "state": "consumed-before-dispatch"
+  },
+  "request": {
+    "provider": "Anthropic",
+    "endpoint": "https://api.anthropic.com/v1/messages",
+    "apiVersion": "2023-06-01",
+    "model": "claude-haiku-4-5-20251001",
+    "maximumOutputTokens": 4,
+    "bytes": 116,
+    "sha256": "0982d0a5d19ff6bf01bc87a40b96da6a33e84bccd294846ea7ecf1ccd2d7a13a",
+    "retention": "standard-commercial-api"
+  },
+  "operation": {
+    "hostLaunchCount": 1,
+    "confirmInvokedAt": "2026-08-25T10:29:08.068Z",
+    "credentialSlotPresent": true,
+    "credentialSlotEnabled": true,
+    "credentialOwnership": "owned",
+    "credentialResolutionCount": 1,
+    "credentialDisclosedOutsideAuthorizedProviderAuthentication": false,
+    "dispatchCount": 1,
+    "retryCount": 0,
+    "fallbackCount": 0,
+    "responseReceived": true,
+    "httpStatus": 200,
+    "acceptedModelEcho": "claude-haiku-4-5-20251001",
+    "acceptedContent": {
+      "blockCount": 1,
+      "type": "text",
+      "text": "OK"
+    },
+    "resultCode": "VALIDATION_OK",
+    "outcome": "valid",
+    "providerDurationMs": 774,
+    "inputTokens": 12,
+    "outputTokens": 4,
+    "productionEnabled": false,
+    "hostClosedNormally": true,
+    "finalReviewedHostProcessCount": 0
+  },
+  "receipt": {
+    "relativePath": "docs/release-evidence/stage-18-ant-02-fresh-validation-receipt.json",
+    "receiptId": "4a83dbdf2bbbae2767d15872fc744f1bbfc155326b1f1e2a34077619d17c0d72",
+    "bytes": 1707,
+    "sha256": "9f5083f92b5616fd9b34d28d9dd75b333514c9e74b9bc15914d4c27ae4ffe0b4",
+    "checkoutLineEnding": "LF pinned by the single-path text eol=lf repository attribute",
+    "fieldCount": 38,
+    "bodyState": "committed",
+    "terminalSidecarState": "committed",
+    "namedProjectionCount": 1,
+    "projectionStartedAt": "2026-08-25T10:30:39.574Z",
+    "projectionCompletedAt": "2026-08-25T10:30:39.711Z",
+    "projectionSha256": "9f5083f92b5616fd9b34d28d9dd75b333514c9e74b9bc15914d4c27ae4ffe0b4",
+    "committedValidator": "parseCanonicalAnthropicValidationSuccessReceipt",
+    "validatorVerdict": "ANT02_PROVEN"
+  },
+  "acceptance": {
+    "AM-02": "proven",
+    "INT-01": "proven",
+    "ANT-02": "proven",
+    "PLN-02": "incomplete",
+    "developmentAccepted": true,
+    "productionAdmitted": false,
+    "stage20AEligible": true,
+    "stage20AStarted": false
+  },
+  "publication": {
+    "branch": "feat/stage-18-development-acceptance-closure",
+    "sourceBase": "f90a779fce8c14cb6c4c3166ed89b0af5355b660",
+    "reviewedBindingPolicy": "The immutable Stage 18E-I manifest remains verified at f90a779fce8c14cb6c4c3166ed89b0af5355b660. An ancestry-preserving closure descendant must retain the exact manifest blob but emits no live-validation candidate binding; only the exact reviewed head can emit that binding.",
+    "requiredGate": "Commit, non-force push, clean local/upstream/tracking/live-remote equality, and exact-head hosted CI success.",
+    "recordingBoundary": "The final exact-head run identity is necessarily post-commit and is reported in the external completion handover; embedding that run in its own commit would change the reviewed HEAD."
+  },
+  "nonClaims": [
+    "The earlier BLOCKED_EVIDENCE success is not promoted, reconstructed, or reused.",
+    "PLN-02 is not promoted.",
+    "Production is not admitted or enabled.",
+    "Stage 20A is eligible but was not started.",
+    "No task execution, alternate provider, fallback model, second dispatch, retry, credential export, or credential display occurred."
+  ]
+}

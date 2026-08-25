@@ -4,6 +4,9 @@ import { spawnSync } from "node:child_process";
 export const STAGE_18E_I_MANIFEST_PATH = "docs/release-evidence/stage-18e-i-sanitized-success-receipt-subject-manifest.json";
 export const STAGE_18E_I_MANIFEST_ALGORITHM = "ai-dev-os.stage-18e-i.sanitized-success-receipt.git-blob-subject.v1";
 export const STAGE_18E_I_BASE_COMMIT = "b438ed13b7213640e6a637d173bfefcf697ca9b8";
+export const STAGE_18E_I_PUBLISHED_COMMIT = "f90a779fce8c14cb6c4c3166ed89b0af5355b660";
+export const STAGE_18E_I_PUBLISHED_TREE = "f4a0035c03150970f700435af64cd2bd4e0968e4";
+export const STAGE_18E_I_PUBLISHED_MANIFEST_SHA256 = "f296c931bd9fa924126c9ff39a518f1a3d438b28ba76dd33580e0743c8a1b57d";
 const HASH = /^[0-9a-f]{64}$/u;
 const OID = /^[0-9a-f]{40,64}$/u;
 const COMMIT = /^[0-9a-f]{40}$/u;
@@ -206,4 +209,100 @@ export function readCommittedSubjectManifest(repositoryRoot, revision) {
   try { manifest = JSON.parse(raw); }
   catch { fail("SUBJECT_MANIFEST_JSON_REFUSED"); }
   return Object.freeze({ raw, manifest });
+}
+
+export function isStage18eIPublishedLineage(repositoryRoot, revision = "HEAD") {
+  const head = resolveCommit(repositoryRoot, revision);
+  const result = spawnSync("git", [
+    "merge-base", "--is-ancestor", STAGE_18E_I_PUBLISHED_COMMIT, head,
+  ], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (result.error !== undefined || (result.status !== 0 && result.status !== 1)) {
+    fail("SUBJECT_GIT_FAILED", "merge-base --is-ancestor published HEAD");
+  }
+  return result.status === 0;
+}
+
+export function hasCommittedStage18eIManifest(repositoryRoot, revision = "HEAD") {
+  const head = resolveCommit(repositoryRoot, revision);
+  const bytes = runGit(repositoryRoot, [
+    "ls-tree", "-z", "--full-tree", head, "--", STAGE_18E_I_MANIFEST_PATH,
+  ], { binary: true });
+  if (bytes.byteLength === 0) return false;
+  let decoded;
+  try { decoded = UTF8.decode(bytes); }
+  catch { fail("SUBJECT_TREE_ENTRY_UTF8_REFUSED"); }
+  const records = decoded.split("\0");
+  if (records.length !== 2 || records[1] !== "") fail("SUBJECT_TREE_ENTRY_REFUSED");
+  const separator = records[0].indexOf("\t");
+  if (separator < 0 || records[0].slice(separator + 1) !== STAGE_18E_I_MANIFEST_PATH) {
+    fail("SUBJECT_TREE_ENTRY_REFUSED");
+  }
+  const metadata = records[0].slice(0, separator).split(" ");
+  if (metadata.length !== 3 || metadata[1] !== "blob" || !OID.test(metadata[2])) {
+    fail("SUBJECT_TREE_ENTRY_REFUSED");
+  }
+  return true;
+}
+
+export function verifyStage18eIPublishedAnchor(repositoryRoot) {
+  const head = resolveCommit(repositoryRoot, STAGE_18E_I_PUBLISHED_COMMIT);
+  if (head !== STAGE_18E_I_PUBLISHED_COMMIT) fail("SUBJECT_PUBLISHED_COMMIT_DRIFT");
+  const tree = String(runGit(repositoryRoot, ["rev-parse", "--verify", `${head}^{tree}`])).trim();
+  if (tree !== STAGE_18E_I_PUBLISHED_TREE) fail("SUBJECT_PUBLISHED_TREE_DRIFT");
+  const { raw, manifest } = readCommittedSubjectManifest(repositoryRoot, head);
+  if (
+    typeof manifest !== "object" || manifest === null ||
+    typeof manifest.baseCommit !== "string" || typeof manifest.sourceCommit !== "string"
+  ) fail("SUBJECT_MANIFEST_SHAPE_REFUSED");
+  assertStage18eIManifestBase(manifest);
+  const parents = String(runGit(repositoryRoot, ["rev-list", "--parents", "-n", "1", head])).trim().split(/\s+/u);
+  if (parents.length !== 2 || parents[1] !== manifest.sourceCommit) fail("SUBJECT_MANIFEST_PARENT_DRIFT");
+  const changes = parseNameStatusZ(runGit(repositoryRoot, [
+    "diff", "--name-status", "-z", "--no-renames", parents[1], head,
+  ], { binary: true }));
+  if (
+    changes.length !== 1 || changes[0]?.status !== "A" ||
+    changes[0]?.path !== STAGE_18E_I_MANIFEST_PATH
+  ) fail("SUBJECT_MANIFEST_COMMIT_NOT_MANIFEST_ONLY");
+  const expected = collectSubjectManifest(repositoryRoot, STAGE_18E_I_BASE_COMMIT, parents[1]);
+  assertManifestEquivalent(manifest, expected);
+  if (raw !== serializeSubjectManifest(expected)) fail("SUBJECT_MANIFEST_SERIALIZATION_DRIFT");
+  const manifestSha256 = createHash("sha256").update(raw, "utf8").digest("hex");
+  if (manifestSha256 !== STAGE_18E_I_PUBLISHED_MANIFEST_SHA256) {
+    fail("SUBJECT_PUBLISHED_MANIFEST_DIGEST_DRIFT");
+  }
+  return Object.freeze({
+    head,
+    tree,
+    raw,
+    manifest: expected,
+    manifestSha256,
+    sourceCommit: expected.sourceCommit,
+    sourceTree: expected.sourceTree,
+    fileCount: expected.inventory.blobPathCount,
+    aggregateSha256: expected.aggregateSha256,
+  });
+}
+
+export function assertStage18eIPublishedAnchorPreserved(repositoryRoot, revision = "HEAD") {
+  const published = verifyStage18eIPublishedAnchor(repositoryRoot);
+  const head = resolveCommit(repositoryRoot, revision);
+  if (!isStage18eIPublishedLineage(repositoryRoot, head)) fail("SUBJECT_PUBLISHED_ANCESTRY_REFUSED");
+  if (!hasCommittedStage18eIManifest(repositoryRoot, head)) fail("SUBJECT_PUBLISHED_MANIFEST_MISSING");
+  const publishedManifestOid = String(runGit(repositoryRoot, [
+    "rev-parse", "--verify", `${published.head}:${STAGE_18E_I_MANIFEST_PATH}`,
+  ])).trim();
+  const currentManifestOid = String(runGit(repositoryRoot, [
+    "rev-parse", "--verify", `${head}:${STAGE_18E_I_MANIFEST_PATH}`,
+  ])).trim();
+  if (currentManifestOid !== publishedManifestOid) fail("SUBJECT_PUBLISHED_MANIFEST_CHANGED");
+  return Object.freeze({
+    ...published,
+    currentHead: head,
+    status: head === published.head ? "exact-published-head" : "published-anchor-descendant",
+  });
 }

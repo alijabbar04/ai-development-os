@@ -691,30 +691,25 @@ Tests and gate:
 
 ## Stage 18: Durable orchestration and usage-aware authorized-profile routing
 
-Status: In progress, production-disabled. Stage 18A, 18B, 18C, 18D, and the
-exact-reference Windows credential broker are published and exact-head green.
-Stage 19B has proven the external-mutation crash/idempotency row `INT-01`. The
-owned credential was provisioned through the reviewed one-target helper. The
-first separately approved canary returned an unphased `TRANSPORT_FAILURE` and
-was not retried. Deterministic diagnosis proved that provider/response
-failures thrown inside the secret callback were collapsed by the broker's
-finite consumer-error boundary. ADR 0030 adds conservative `pre-dispatch`,
-`possibly-dispatched`, `response-received`, and `post-response` failure phases
-and moves finite provider failures outside the material callback after disposal;
-it does not identify the historical result. After publication and exact-head
-CI, one newly authorized repaired canary observed a provider response but
-failed closed with `TRANSPORT_FAILURE` at `response-received`; its distinct
-marker is consumed and it was not retried. This is not a successful live proof.
-ADR 0031 then added the eighteen-category diagnostic envelope, which sharpens
-how a future finite failure is classified without altering the fixed request or
-enabling any dispatch. Reader protocol v2 and scheduler schema v3 preserve
-legitimate inactive windows as null-capacity, non-allocatable evidence; that
-contract is published, its first-party hosted packed-consumer gate is green,
-and one separately authorized installed-state read then succeeded on
-2026-08-16 through the maintained reader against the real store, so `AM-02` is
-proven. `ANT-02` therefore remains the only incomplete development row and
-`developmentAccepted` remains false. Production admission remains blocked on
-Stage 17W and no Stage 18 checkpoint changes that gate. Query-native,
+Status: Development scope accepted, production-disabled. Stage 18A, 18B, 18C,
+18D, and the exact-reference Windows credential broker remain published and
+exact-head green. Stage 19B proves `INT-01`, and the maintained read-only Account
+Manager route proves `AM-02`. On 2026-08-25 one fresh, separately authorized
+Stage 18E-I operation used the exact externally reviewed candidate, the existing
+owned application-vault `SecretRef`, a new marker namespace and the fixed
+116-byte request. One provider dispatch attempt was made; no retry or fallback
+occurred. Its create-only canonical 38-field receipt and terminal sidecar
+committed, and the one exact named projection proved HTTP 200, the pinned model,
+exactly one text block containing exactly `OK`, 774 ms duration, 12 input tokens
+and 4 output tokens. The committed validator therefore promotes `ANT-02` to
+proven and the matrix derives `developmentAccepted=true`.
+
+Earlier attempts remain frozen at their recorded outcomes: the ambiguous and
+response-rejected attempts were not retried, and the distinct earlier success
+whose full envelope was reduced remains `BLOCKED_EVIDENCE` with no reconstructed
+fields. `PLN-02` remains incomplete. Production admission stays blocked on
+Stage 17W, `productionAdmitted=false`, and no Stage 18 evidence enables provider
+or task execution. Stage 20A is eligible but was not started. Query-native,
 high-throughput team scheduling remains a deployment-scale nonclaim rather than
 a Stage 18 development-acceptance item.
 
@@ -726,15 +721,17 @@ criterion manifest, all 16 candidate evidence digests, and zero waivers.
 The packet authorizes only eligibility for deterministic evaluation. Twelve
 frozen proven rows pass; `ANT-02`, `AM-02`, `PLN-02`, and `PRD-01` retain failed
 criterion outcomes, so the official result remains rejected. That frozen
-outcome is historical and is not restated by later work: `AM-02` was proven
-after the Phase A subject was taken, so on the current candidate `ANT-02` is
-the only development blocker, while `PRD-01` remains the correct fail-closed
-production gate. The audit cannot consume its own result. Phase A
+outcome is historical and is not restated by later work: `AM-02` and `ANT-02`
+were proven after the Phase A subject was taken, so the current candidate has
+no incomplete development-blocking row, while `PRD-01` remains the correct
+fail-closed production gate. The audit cannot consume its own result. Phase A
 is now separately committed, published, reviewed within its stated same-family
 limitations, and source-head hosted-green, but no separately authorized later
 subject consumes that result as evidence. `PLN-02` therefore remains
-incomplete. ADR 0029 records the fixed-subject two-phase boundary. Development
-acceptance and production admission remain false.
+incomplete. ADR 0029 records the fixed-subject two-phase boundary. That frozen
+subject's development-acceptance result remains false as taken; the current
+matrix is a later subject and now derives development acceptance from separately
+proven `AM-02` and `ANT-02`. Production admission remains false.
 
 The 2026-08-14 published production-disabled Windows credential checkpoint adds
 `@ai-dev-os/secrets-windows`: one exact keychain/text reference, a SHA-256-derived
@@ -745,8 +742,9 @@ and fresh-random-target `not-found` through both operations. Exact-head hosted
 run `31770099051` passed all five jobs. The later operator-only key write and
 two bounded, separately authorized canary attempts add no enumeration, general
 mutation, application registration, or production authority. The repaired
-attempt observed a response but did not satisfy the exact result contract, so
-`ANT-02` remains incomplete.
+attempt observed a response but did not satisfy the exact result contract. It
+remains consumed and insufficient; the later Stage 18E-I receipt proof described
+below, not this Windows checkpoint, is what promotes `ANT-02`.
 
 ADR 0033 establishes a complementary **Stage 18E** application-owned vault over
 the existing `encrypted-file` reference while leaving the ADR 0028 Credential
@@ -771,7 +769,7 @@ succeeded, but the complete validated envelope was reduced before durable
 evidence persistence. Credential validation succeeded, but the full ANT-02
 evidence envelope was not retained; the authorization is consumed and cannot be
 reused. Exact duration and token observations cannot be reconstructed, so
-`ANT-02` remains incomplete.
+`ANT-02` remained incomplete at that checkpoint.
 
 ADR 0036 defines the **Stage 18E-I sanitized success-receipt repair**. It keeps
 the fixed request, retention, direct transport, SecretRef scope, one-shot marker,
@@ -784,6 +782,15 @@ credential-invalid claim or retry. Legacy reduced Valid remains locally usable
 but explicitly `historical-missing`; an isolated exact-ID projection boundary
 does not open the vault or contact the provider. This repair enables evidence
 retention only and does not itself prove `ANT-02`.
+
+ADR 0037 records the later fresh operation enabled by that repair. The exact
+candidate-bound body and sidecar committed before reduced Valid metadata, and
+the isolated exact-ID projection passed the committed 38-field validator. The
+receipt proves the fixed request, exact model and `OK` response shape, bounded
+duration/usage, and no credential or response-body retention. One provider
+dispatch attempt was made; no retry or fallback occurred. That forward evidence proves `ANT-02`; it does not
+reinterpret the earlier `BLOCKED_EVIDENCE` attempt, promote `PLN-02`, or admit
+production.
 
 Stage 18E foundation recovery is explicit rather than startup-driven: one
 revision-consistent snapshot describes source-state- and digest-bound restore,
@@ -885,8 +892,9 @@ test-only disposable real-Git port. The full named B3 adversarial repository
 fixture matrix below is implemented against actual disposable Git trees.
 Stage 19B implementation acceptance and `INT-01` are proven by definitive local
 gates, independent read-only source review, non-forced source and evidence
-publication, and exact-final-head hosted CI. This does not imply Stage 18
-development acceptance while `ANT-02` and `AM-02` remain incomplete.
+publication, and exact-final-head hosted CI. The later separately evidenced
+`AM-02` and `ANT-02` proofs now allow the Stage 18 matrix to derive development
+acceptance; Stage 19B itself never supplied either proof.
 
 Deliverables:
 
@@ -904,7 +912,7 @@ Tests and gate:
 
 ## Stage 20: Typed loopback command and notification boundary
 
-Status: Planned.
+Status: Stage 20A eligible after Stage 18 development acceptance; not started.
 
 Packages: `@ai-dev-os/api`, `@ai-dev-os/client`
 

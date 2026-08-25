@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -71,6 +71,42 @@ function receipt(changes: Partial<AnthropicValidationSuccessReceipt> = {}): Anth
 }
 
 describe("sanitized Anthropic success receipt contract", () => {
+  it("accepts the exact tracked ANT-02 receipt with the committed validator", async () => {
+    const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+    const bytes = await readFile(join(
+      repositoryRoot,
+      "docs",
+      "release-evidence",
+      "stage-18-ant-02-fresh-validation-receipt.json",
+    ));
+    expect(bytes.byteLength).toBe(1_707);
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(
+      "9f5083f92b5616fd9b34d28d9dd75b333514c9e74b9bc15914d4c27ae4ffe0b4",
+    );
+    const parsed = parseCanonicalAnthropicValidationSuccessReceipt(bytes);
+    expect(Object.keys(parsed.receipt)).toHaveLength(38);
+    expect(parsed).toMatchObject({
+      sha256: "9f5083f92b5616fd9b34d28d9dd75b333514c9e74b9bc15914d4c27ae4ffe0b4",
+      receipt: {
+        candidateHead: "f90a779fce8c14cb6c4c3166ed89b0af5355b660",
+        candidateTree: "f4a0035c03150970f700435af64cd2bd4e0968e4",
+        candidateManifestAggregate: "0cb4729cc4211dca11ef1f166ccd4340ad82db4ba50310c6b5e97244fcbd1d66",
+        authorizationPacketSha256: "4a83dbdf2bbbae2767d15872fc744f1bbfc155326b1f1e2a34077619d17c0d72",
+        markerNamespaceSha256: "93a926d5775a953e724c93f88e5bbe82587dd3c64e8620a0d63757e8d191f467",
+        requestFingerprint: "0982d0a5d19ff6bf01bc87a40b96da6a33e84bccd294846ea7ecf1ccd2d7a13a",
+        dispatchCount: 1,
+        retryPolicy: "none",
+        durationMs: 774,
+        inputTokens: 12,
+        outputTokens: 4,
+        statusCategory: "success",
+        terminalState: "validated-success",
+        credentialRetained: false,
+        responseBodyRetained: false,
+      },
+    });
+  });
+
   it("round-trips the exact flat field set and computes the digest independently", () => {
     const value = receipt();
     const parsed = parseAnthropicValidationSuccessReceipt(value);

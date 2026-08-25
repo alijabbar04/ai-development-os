@@ -111,6 +111,16 @@ metadata was byte-identical before and after, and no credential, profile
 enumeration, UI, or browser state was touched. That is the live-route proof,
 so `AM-02` is proven.
 
+The separate Anthropic development route is also now proven. On 2026-08-25 one
+fresh Stage 18E-I authorization used the existing owned application-vault
+`SecretRef`, one new marker and the fixed synthetic request. The committed
+sanitized receipt proves the pinned model and exact `OK` response, bounded
+duration and usage, and no credential or response-body retention. One provider
+dispatch attempt was made; no retry or fallback occurred. `ANT-02` is therefore proven and
+`developmentAccepted=true`. This changes sequencing, not runtime authority:
+`PLN-02` remains incomplete, `productionAdmitted=false`, Stage 20A is eligible
+but not started, and Stage 17W remains the production gate.
+
 ## Future Windows computer and internet authority
 
 The product will present three permission profiles. These are future policy
@@ -160,8 +170,8 @@ Stage 20 boundary or convert a chat identity into execution authority.
 | Stage | Product-direction ownership |
 | --- | --- |
 | 17W | Windows secure-execution proof and release gate; production remains unavailable until it passes. |
-| 18 | Durable orchestration, usage-aware authorized-profile routing, and Account Manager investigation/adapter. |
-| 20 | Typed local command/notification, approvals, replay protection, and emergency-stop boundary. |
+| 18 | Development scope accepted: durable orchestration, usage-aware authorized-profile routing, supported Account Manager observations, and the bounded Anthropic transport proof; production remains gated. |
+| 20 | Stage 20A is eligible but not started: typed local command/notification, approvals, replay protection, and emergency-stop boundary. |
 | 21 | Windows Normal/Developer desktop experience and future Fable 5 review gates. |
 | 22 | Discord, then Telegram, with WhatsApp deferred to a separate assessment. |
 | 23–24W | Windows packaging, operations, hardening, and release readiness. |

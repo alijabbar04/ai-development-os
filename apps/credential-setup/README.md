@@ -63,6 +63,18 @@ retained; the authorization is consumed and cannot be reused. The missing
 duration and token observations are not reconstructed, and the historical local
 Valid state is explicitly labelled `historical-missing` for evidence purposes.
 
+A distinct fresh operation on 2026-08-25 used the exact externally reviewed
+receipt-capable candidate, a new authorization packet and marker namespace, and
+the existing enabled owned Anthropic application-vault `SecretRef`. One provider
+dispatch attempt was made; no retry or fallback occurred. The canonical body
+and terminal sidecar committed before Valid reduction, and the exact named
+projection ran once. Its 1,707-byte, 38-field receipt has SHA-256
+`9f5083f92b5616fd9b34d28d9dd75b333514c9e74b9bc15914d4c27ae4ffe0b4`
+and proves the fixed request, accepted pinned model and exact `OK` response,
+774 ms duration, 12 input tokens, 4 output tokens, and no credential or response
+body retention. This forward evidence proves `ANT-02`; it does not reinterpret
+the historical `BLOCKED_EVIDENCE` attempt.
+
 For a future separately authorized attempt, main now preserves the complete
 independently validated envelope until a flat, exact 38-field sanitized receipt
 is committed beneath the fixed `success-receipts-v1` application-data root. The
@@ -128,9 +140,9 @@ running process.
   have no rename action while a credential is present; after removal, the existing
   identity-bound re-entry path accepts corrected entry metadata. A standalone
   rename control remains deferred to Stage 21.
-- AM-02 and INT-01 remain proven; ANT-02 and PLN-02 remain incomplete;
-  `developmentAccepted=false`, `productionAdmitted=false`, and Stage 20A remains
-  ineligible.
+- AM-02, INT-01, and ANT-02 are proven; PLN-02 remains incomplete;
+  `developmentAccepted=true`, `productionAdmitted=false`, and Stage 20A is
+  eligible but was not started.
 
 ## Screenshot evidence
 

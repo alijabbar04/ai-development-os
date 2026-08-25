@@ -1,11 +1,17 @@
 import { spawn } from "node:child_process";
-import { access, cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { productionHostEnvironment, terminateProductionHostTree } from "./launch-production-host.mjs";
+import {
+  assertStage18eIPublishedAnchorPreserved,
+  hasCommittedStage18eIManifest,
+  isStage18eIPublishedLineage,
+  resolveCommit,
+} from "../../../scripts/stage-18e-i-subject-manifest-lib.mjs";
 
 const require = createRequire(import.meta.url);
 const electronExecutable = require("electron");
@@ -81,13 +87,16 @@ const requiredAppFiles = [
   "README.md",
   "package.json",
 ];
-let publishedCandidate = false;
-try {
-  await access(join(repository, "docs", "release-evidence", "stage-18e-i-sanitized-success-receipt-subject-manifest.json"));
-  publishedCandidate = true;
-} catch { publishedCandidate = false; }
-if (publishedCandidate) requiredAppFiles.push("dist/main/stage-18e-i-candidate-binding.json");
-else if (appFiles.includes("dist/main/stage-18e-i-candidate-binding.json")) throw new Error("Unpublished packed host included a candidate binding.");
+let exactPublishedCandidate = false;
+const head = resolveCommit(repository, "HEAD");
+const publishedLineage = isStage18eIPublishedLineage(repository, head);
+const manifestPresent = hasCommittedStage18eIManifest(repository, head);
+if (publishedLineage || manifestPresent) {
+  const published = assertStage18eIPublishedAnchorPreserved(repository, head);
+  exactPublishedCandidate = head === published.head;
+}
+if (exactPublishedCandidate) requiredAppFiles.push("dist/main/stage-18e-i-candidate-binding.json");
+else if (appFiles.includes("dist/main/stage-18e-i-candidate-binding.json")) throw new Error("Non-reviewed packed host included a candidate binding.");
 for (const path of requiredAppFiles) if (!appFiles.includes(path)) throw new Error(`Packed host omitted ${path}.`);
 if (appFiles.some((path) => path.startsWith("src/") || path.startsWith("test/") || path.startsWith("scripts/") || path.startsWith("dist/testing/") || path.includes("coverage"))) throw new Error("Packed host included development or test material.");
 const rendererFiles = appFiles.filter((path) => path.startsWith("dist/renderer/credential/")).sort();

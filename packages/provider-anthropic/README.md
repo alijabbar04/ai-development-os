@@ -141,6 +141,16 @@ attempt genuinely succeeded, but the application reduced the complete envelope
 before durable evidence persistence. Credential validation succeeded, but the
 full ANT-02 evidence envelope was not retained; the authorization is consumed
 and cannot be reused. Because its exact duration and token observations cannot be
-reconstructed, `ANT-02` remains incomplete. ADR 0036 repairs persistence only
+reconstructed, `ANT-02` remained incomplete at that boundary. ADR 0036 repairs persistence only
 for a future separately authorized attempt and does not alter the fixed provider
 request or enable general inference.
+
+That future boundary was exercised once on 2026-08-25 by the exact externally
+reviewed Stage 18E-I candidate. A fresh marker was consumed before one
+application-vault SecretRef resolution. One provider dispatch attempt was made;
+no retry or fallback occurred. The strict parser accepted HTTP 200, the exact pinned model and one
+text block exactly `OK`, after which the canonical 38-field receipt and terminal
+sidecar committed. Its one named projection passed the committed validator, so
+this distinct forward evidence proves `ANT-02`. The earlier missing-envelope
+success remains `BLOCKED_EVIDENCE`; the provider remains production-disabled
+and no general inference authority is enabled.

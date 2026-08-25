@@ -16,10 +16,10 @@ const scriptsDirectory = resolve(
   "scripts",
   "packed-consumer",
 );
-// Read every reviewed text CRLF-normalized: this repository has no
-// .gitattributes, so Windows checkouts (including the hosted runners)
-// materialize committed LF blobs as CRLF, and multi-line literal assertions
-// must not depend on the checkout's ending style.
+// Read every reviewed text CRLF-normalized: the repository's sole attribute
+// rule pins only the canonical ANT-02 receipt evidence to LF. These verifier
+// paths remain subject to Windows checkout conversion, so multi-line literal
+// assertions must not depend on their checkout ending style.
 const verifierText = readFileSync(
   resolve(scriptsDirectory, "verify-packed-consumer.mjs"),
   "utf8",

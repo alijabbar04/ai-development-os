@@ -288,12 +288,33 @@ describe("Electron and dependency static policy", () => {
     expect(wrapper).toContain(exactBridge);
   });
 
-  it("refuses to emit a published candidate binding from a dirty worktree", () => {
+  it("emits a candidate binding only for the clean exact reviewed head", () => {
     const writer = read("scripts/write-stage-18e-i-candidate-binding.mjs");
     expect(writer).toContain('["status", "--porcelain=v1", "--untracked-files=all"]');
-    expectOrdered(writer, "CANDIDATE_BINDING_WORKTREE_NOT_CLEAN", "readCommittedSubjectManifest(repositoryRoot, head)");
-    expect(writer).toContain("assertStage18eIManifestBase(manifest)");
-    expect(writer).toContain("collectSubjectManifest(repositoryRoot, STAGE_18E_I_BASE_COMMIT, parents[1])");
-    expect(writer).not.toContain("collectSubjectManifest(repositoryRoot, manifest.baseCommit");
+    expectOrdered(writer, "CANDIDATE_BINDING_WORKTREE_NOT_CLEAN", "assertStage18eIPublishedAnchorPreserved(repositoryRoot, head)");
+    expect(writer).toContain("head !== published.head");
+    expect(writer).toContain('status: "published-anchor-descendant-disabled"');
+    expect(writer).toContain("await rm(target, { force: true })");
+    expect(writer).toContain("tree: published.tree");
+    expect(writer).toContain("!publishedLineage && !manifestPresent");
+    expect(writer).not.toContain("process.exit");
+
+    const conditionalVerifier = read("../../scripts/verify-stage-18e-i-if-published.mjs");
+    expect(conditionalVerifier).toContain("publishedLineage || manifestPresent");
+    expect(conditionalVerifier).toContain("assertStage18eIPublishedAnchorPreserved(root, head)");
+
+    const packedVerifier = read("scripts/verify-packed-host.mjs");
+    expect(packedVerifier).toContain("publishedLineage || manifestPresent");
+    expect(packedVerifier).toContain("assertStage18eIPublishedAnchorPreserved(repository, head)");
+    expect(packedVerifier).toContain("exactPublishedCandidate = head === published.head");
+    expect(packedVerifier).toContain("Non-reviewed packed host included a candidate binding.");
+  });
+
+  it("pins only the canonical ANT-02 receipt evidence to LF checkout bytes", () => {
+    const attributes = read("../../.gitattributes").replaceAll("\r\n", "\n");
+    expect(attributes).toBe(
+      "docs/release-evidence/stage-18-ant-02-fresh-validation-receipt.json text eol=lf\n",
+    );
+    expect(attributes).not.toMatch(/\bfilter=|\bdiff=|\bmerge=/u);
   });
 });

@@ -470,8 +470,8 @@ not retried. After the classification repair was published and exact-head
 hosted-green, one later separately authorized attempt observed a provider
 response but failed closed with `TRANSPORT_FAILURE` at `response-received`.
 That attempt was also not retried. Neither result proves the exact successful
-transport contract, so `ANT-02` remains incomplete and the general provider
-stays production-disabled.
+transport contract, so `ANT-02` remained incomplete at that checkpoint and the
+general provider stayed production-disabled.
 
 Deterministic analysis then found a classification defect rather than evidence
 about that historical request: transport and response parsing ran inside the
@@ -513,6 +513,21 @@ cannot restore the one-shot authorization. Reopen verification pins the receipt
 to the Anthropic slot and exact current candidate. An isolated pre-named
 projection tool reads no vault, marker, metadata, clipboard, provider, or task
 state.
+
+On 2026-08-25 ADR 0037 exercised that boundary once under a fresh, exact
+candidate-bound authorization. The marker was consumed before one SecretRef
+resolution. One provider dispatch attempt was made; no retry or fallback
+occurred. The strict response parser accepted HTTP
+200, the pinned model echo and one text block exactly `OK`; the 38-field body
+and terminal sidecar then committed before `valid` / `VALIDATION_OK` reduction.
+The exact-ID projection ran once and the committed validator accepted the
+1,707-byte canonical receipt at SHA-256
+`9f5083f92b5616fd9b34d28d9dd75b333514c9e74b9bc15914d4c27ae4ffe0b4`.
+That receipt proves `ANT-02` and allows the matrix to derive
+`developmentAccepted=true`. It retains no credential or response body, grants
+no new runtime authority, leaves `PLN-02` incomplete and
+`productionAdmitted=false`, and does not alter the earlier
+`BLOCKED_EVIDENCE` record.
 
 The subsequent Windows credential checkpoint supplies the missing persistent
 resolution infrastructure without enabling that canary. One exact schema-v1
