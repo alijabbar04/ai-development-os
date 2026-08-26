@@ -142,9 +142,21 @@ describe("projection allowlist serializer", () => {
   it("refuses owner identity, credential fields, implicit paths, and model-text schema kinds", () => {
     expect(() => defineProjectionSchema("bad", { borrowedOwnerIdentity: { kind: "identifier" } })).toThrow(/owner-identity/u);
     expect(() => defineProjectionSchema("bad", { ownerId: { kind: "identifier" } })).toThrow(/owner-identity/u);
-    expect(() => defineProjectionSchema("bad", { apiKey: { kind: "identifier" } })).toThrow(/credential/u);
-    expect(() => defineProjectionSchema("bad", { accessToken: { kind: "identifier" } })).toThrow(/credential/u);
-    expect(() => defineProjectionSchema("bad", { authorizationToken: { kind: "identifier" } })).toThrow(/credential/u);
+    for (const fieldName of [
+      "apiKey", "accessToken", "authorizationToken", "refreshToken", "sessionToken",
+      "idToken", "privateKey", "clientSecret", "sessionCookie", "sessionId",
+      "signingKey", "recoveryCode", "totp",
+    ]) {
+      expect(() => defineProjectionSchema("normalLeak", {
+        [fieldName]: { kind: "identifier" },
+      }), fieldName).toThrow(/credential/u);
+    }
+    const nonCredentialCount = defineProjectionSchema("tokenCount", {
+      inputTokenCount: { kind: "count", maximum: 1_000 },
+    });
+    expect(serializeProjection(nonCredentialCount, { inputTokenCount: 12 }, { audience: "normal" })).toEqual({
+      inputTokenCount: 12,
+    });
     expect(() => defineProjectionSchema("bad", { fingerprint: { kind: "identifier" } })).toThrow(/fingerprint/u);
     expect(() => defineProjectionSchema("bad", { workspacePath: { kind: "identifier" } })).toThrow(/developer-path/u);
     expect(() => defineProjectionSchema("bad", { profileId: { kind: "identifier" } })).toThrow(/profile-id/u);
@@ -247,6 +259,11 @@ describe("projection allowlist serializer", () => {
     expect(() => defineProjectionSchema("bad", { value: { kind: "enum", values: ["same", "same"] } })).toThrow(/duplicate/u);
     expect(() => defineProjectionSchema("bad", { values: { kind: "array", maximumItems: 101, item: { kind: "boolean" } } })).toThrow(/safe integer/u);
     expect(() => defineProjectionSchema("bad", new Proxy({ active: { kind: "boolean" } }, {}))).toThrow(/proxy/u);
+    for (const key of ["__proto__", "constructor", "prototype"]) {
+      const fields = Object.create(null) as Record<string, ProjectionRule>;
+      Object.defineProperty(fields, key, { enumerable: true, value: { kind: "boolean" } });
+      expect(() => defineProjectionSchema("pollution", fields), key).toThrow(/prototype-pollution/u);
+    }
     expect(() => serializeProjection(new Proxy(NORMAL_SCHEMA, {}), normalInput(), {
       audience: "normal", profileScope: "profile:owned-main",
     })).toThrow(/proxy/u);
@@ -266,6 +283,18 @@ describe("projection allowlist serializer", () => {
     expect(schemaAccessorInvoked).toBe(false);
     expect(() => serializeProjection(NORMAL_SCHEMA, normalInput(), { audience: "other" as "normal" })).toThrow(/must be one of/u);
     expect(() => serializeProjection(NORMAL_SCHEMA, normalInput(), { audience: "normal", profileScope: "profile:owned-main", extra: true } as never)).toThrow(/unexpected fields/u);
+
+    const pathSchema = defineProjectionSchema("pathBoundary", {
+      workspacePath: { kind: "developer-path" },
+    });
+    const pathAtLimit = `C:\\${"d\\".repeat(126)}x`;
+    expect(pathAtLimit).toHaveLength(256);
+    expect(serializeProjection(pathSchema, { workspacePath: pathAtLimit }, { audience: "developer" })).toEqual({
+      workspacePath: pathAtLimit,
+    });
+    expect(() => serializeProjection(pathSchema, { workspacePath: `${pathAtLimit}x` }, {
+      audience: "developer",
+    })).toThrow(/projection string limit/u);
 
     let rule: ProjectionRule = { kind: "boolean" };
     for (let index = 0; index < 12; index += 1) rule = { kind: "nullable", value: rule };

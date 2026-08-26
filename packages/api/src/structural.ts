@@ -3,7 +3,7 @@ import { types as utilTypes } from "node:util";
 import { API_LIMITS } from "./constants.js";
 
 const FORBIDDEN_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-const CREDENTIAL_KEY = /(?:credential|secret|api[_-]?key|password|(?:access|authorization|auth)[_-]?token|raw[_-]?body|response[_-]?body)/iu;
+const CREDENTIAL_KEY = /(?:^token(?:value)?$|credential|secret|password|passwd|passphrase|passcode|(?:access|authorization|auth|refresh|session|identity|id|bearer|oauth|csrf|xsrf|api)token|(?:api|private|public|signing|encryption|client|access|auth)key|cookie|sessionid|recoverycode|otp|totp|rawbody|responsebody)/iu;
 const BORROWED_OWNER_KEY = /(?:borrowed.*owner|owner.*(?:id|identity|email|name|account))/iu;
 const FINGERPRINT_KEY = /fingerprint/iu;
 const LONG_HEX_SHAPE = /\b[0-9a-f]{40,}\b/iu;

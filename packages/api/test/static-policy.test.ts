@@ -18,13 +18,28 @@ function sourceFiles(directory: string): readonly string[] {
 }
 
 function importSpecifiers(source: string): readonly string[] {
+  const trivia = String.raw`(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*`;
+  const fromPattern = new RegExp(String.raw`\bfrom${trivia}["']([^"']+)["']`, "gu");
+  const sideEffectPattern = new RegExp(String.raw`\bimport${trivia}["']([^"']+)["']`, "gu");
+  const dynamicPattern = new RegExp(String.raw`\bimport${trivia}\(${trivia}["']([^"']+)["']${trivia}\)`, "gu");
+  const requirePattern = new RegExp(String.raw`\brequire${trivia}\(${trivia}["']([^"']+)["']${trivia}\)`, "gu");
   const matches = [
-    ...source.matchAll(/\bfrom\s+["']([^"']+)["']/gu),
-    ...source.matchAll(/\bimport\s*["']([^"']+)["']/gu),
-    ...source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/gu),
-    ...source.matchAll(/\brequire\s*\(\s*["']([^"']+)["']\s*\)/gu),
+    ...source.matchAll(fromPattern),
+    ...source.matchAll(sideEffectPattern),
+    ...source.matchAll(dynamicPattern),
+    ...source.matchAll(requirePattern),
   ];
-  return matches.map((match) => match[1]).filter((value): value is string => value !== undefined);
+  const specifiers = matches.map((match) => match[1]).filter((value): value is string => value !== undefined);
+
+  const dynamicStarts = [...source.matchAll(new RegExp(String.raw`\bimport${trivia}\(`, "gu"))].length;
+  const requireStarts = [...source.matchAll(new RegExp(String.raw`\brequire${trivia}\(`, "gu"))].length;
+  const dynamicLiterals = [...source.matchAll(dynamicPattern)].length;
+  const requireLiterals = [...source.matchAll(requirePattern)].length;
+  return [
+    ...specifiers,
+    ...Array.from({ length: dynamicStarts - dynamicLiterals }, () => "<dynamic-import>"),
+    ...Array.from({ length: requireStarts - requireLiterals }, () => "<dynamic-require>"),
+  ];
 }
 
 const ALLOWED_PRODUCTION_IMPORTS = new Set(["@ai-dev-os/domain", "node:util"]);
@@ -96,7 +111,7 @@ describe("Stage 20A API static import and authority policy", () => {
     for (const forbidden of [
       "@ai-dev-os/provider", "@ai-dev-os/process-broker", "@ai-dev-os/workspace",
       "@ai-dev-os/integrator", "@ai-dev-os/secrets", "node:http", "node:https", "node:dns",
-      "node:net", "node:tls", "node:dgram", "node:fs", "node:child_process",
+      "node:net", "node:tls", "node:dgram", "node:fs", "node:child_process", "node:worker_threads",
       "better-sqlite3", "electron", "fastify", "node-gyp", "process.env",
       "fetch(", "websocket", "xmlhttprequest", ".listen(", ".bind(", "spawn(",
       "exec(", "execfile(", "usage.refresh", "dynamic import",
@@ -106,7 +121,13 @@ describe("Stage 20A API static import and authority policy", () => {
   it("proves the import guard detects synthetic direct and transitive violations", () => {
     expect(forbiddenImports('import { createServer } from "node:http";')).toEqual(["node:http"]);
     expect(forbiddenImports('import "node:dns";')).toEqual(["node:dns"]);
+    expect(forbiddenImports('import/*comment*/"node:worker_threads";')).toEqual(["node:worker_threads"]);
+    expect(forbiddenImports('import//comment\n"node:dns";')).toEqual(["node:dns"]);
+    expect(forbiddenImports('export/*comment*/{ readFile }from/*comment*/"node:fs";')).toEqual(["node:fs"]);
     expect(forbiddenImports('const provider = await import("@ai-dev-os/provider-codex");')).toEqual(["@ai-dev-os/provider-codex"]);
+    expect(forbiddenImports('const network = await import(/*comment*/"node:net");')).toEqual(["node:net"]);
+    expect(forbiddenImports('const unknown = await import(specifier);')).toEqual(["<dynamic-import>"]);
+    expect(forbiddenImports('const unknown = require(specifier);')).toEqual(["<dynamic-require>"]);
     expect(forbiddenImports('import { validation } from "@ai-dev-os/domain";')).toEqual([]);
     const syntheticTransitiveClosure = [
       'import { validation } from "@ai-dev-os/domain";',
