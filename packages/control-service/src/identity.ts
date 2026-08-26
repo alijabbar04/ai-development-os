@@ -82,18 +82,32 @@ function parseSessionInput(value: unknown): Readonly<{
   return Object.freeze({ serviceVersion, startNonce, bearerToken, issuedAt, expiresAt });
 }
 
-export function createServerBearerSession(value: unknown): ServerBearerSession {
-  const parsed = parseSessionInput(value);
-  const digest = createHash("sha256").update(parsed.bearerToken, "utf8").digest();
+function digestBackedSession(
+  binding: Readonly<{
+    serviceVersion: string;
+    startNonce: string;
+    issuedAt: string;
+    expiresAt: string;
+  }>,
+  digest: Buffer,
+): ServerBearerSession {
+  // This closure is deliberately constructed in a scope that has never
+  // received the plaintext bearer. Its only authentication material is the
+  // fixed-size digest passed by createServerBearerSession.
+  const serviceVersion = binding.serviceVersion;
+  const startNonce = binding.startNonce;
+  const issuedAt = binding.issuedAt;
+  const expiresAt = binding.expiresAt;
+  const expiresAtMs = new Date(expiresAt).valueOf();
   const invalidDigest = Buffer.alloc(digest.byteLength);
   return Object.freeze({
-    serviceVersion: parsed.serviceVersion,
-    startNonce: parsed.startNonce,
-    issuedAt: parsed.issuedAt,
-    expiresAt: parsed.expiresAt,
+    serviceVersion,
+    startNonce,
+    issuedAt,
+    expiresAt,
     stateAt(now: string) {
       const checked = exactTimestamp(now);
-      return new Date(checked).valueOf() >= new Date(parsed.expiresAt).valueOf() ? "expired" : "active";
+      return new Date(checked).valueOf() >= expiresAtMs ? "expired" : "active";
     },
     authenticate(candidate: unknown, now: string) {
       if (this.stateAt(now) === "expired") return "expired";
@@ -104,4 +118,15 @@ export function createServerBearerSession(value: unknown): ServerBearerSession {
       return timingSafeEqual(digest, candidateDigest) && shaped ? "active" : "refused";
     },
   });
+}
+
+export function createServerBearerSession(value: unknown): ServerBearerSession {
+  const parsed = parseSessionInput(value);
+  const digest = createHash("sha256").update(parsed.bearerToken, "utf8").digest();
+  return digestBackedSession(Object.freeze({
+    serviceVersion: parsed.serviceVersion,
+    startNonce: parsed.startNonce,
+    issuedAt: parsed.issuedAt,
+    expiresAt: parsed.expiresAt,
+  }), digest);
 }

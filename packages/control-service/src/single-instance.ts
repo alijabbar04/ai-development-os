@@ -16,7 +16,8 @@ export type SingleInstanceDisposition =
 function matching(lock: InstanceLock, descriptor: ConnectionDescriptor): boolean {
   return lock.processId === descriptor.processId &&
     lock.startNonce === descriptor.startNonce &&
-    lock.serviceVersion === descriptor.serviceVersion;
+    lock.serviceVersion === descriptor.serviceVersion &&
+    lock.issuedAt === descriptor.issuedAt;
 }
 
 export async function establishSingleInstance(options: Readonly<{
@@ -33,6 +34,7 @@ export async function establishSingleInstance(options: Readonly<{
 
   const existingLock = await options.store.readLock();
   const status = await options.liveness.inspect(existingLock.value.processId);
+  if (!PROCESS_LIVENESS.includes(status)) controlFail("LIVENESS_AMBIGUOUS");
   if (status === "ambiguous") controlFail("LIVENESS_AMBIGUOUS");
 
   let descriptor;

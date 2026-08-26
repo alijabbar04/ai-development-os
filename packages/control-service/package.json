@@ -17,9 +17,9 @@
   "scripts": {
     "prebuild": "npm --prefix ../api run build",
     "build": "tsc -p tsconfig.json",
-    "pretest": "npm --prefix ../api run build",
+    "pretest": "npm --prefix ../api run build && npm run build --ignore-scripts",
     "test": "vitest run",
-    "pretest:coverage": "npm --prefix ../api run build",
+    "pretest:coverage": "npm --prefix ../api run build && npm run build --ignore-scripts",
     "test:coverage": "vitest run --coverage",
     "pretypecheck": "npm --prefix ../api run build",
     "typecheck": "tsc -p tsconfig.json --noEmit"

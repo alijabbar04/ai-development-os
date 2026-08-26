@@ -18,4 +18,13 @@ useful POSIX permission request but does not prove a Windows DACL. These
 application-level checks are not a security boundary against a hostile process
 already running as the same user. Exact-name reads, component checks, file
 identity checks, create-only promotion, and ownership-bound cleanup narrow the
-accepted model without making a stronger claim.
+accepted model without making a stronger claim. Cooperating mutations are
+serialized by a create-only, exact-name transient claim so a pathname cannot be
+replaced between an ownership check and unlink. An orphaned or unverifiable
+claim blocks later mutation; Stage 20A does not delete it by age or silently
+recover it.
+
+Adoption sends health and session reads over one TCP connection. The bearer is
+written only after the complete health response matches the descriptor nonce
+and version. A closed channel is never replaced, and one monotonic deadline
+bounds connect, response framing, identity verification, and authentication.

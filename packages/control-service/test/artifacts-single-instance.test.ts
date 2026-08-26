@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse as parsePath } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CONNECTION_DESCRIPTOR_FILE,
@@ -88,6 +88,7 @@ describe("C3 exact-name artifact store", () => {
   });
 
   it("refuses linked roots, UNC/device roots, and alternate-stream syntax", async () => {
+    expect(() => createControlArtifactStore({ root: parsePath(process.cwd()).root })).toThrow();
     expect(() => createControlArtifactStore({ root: "\\\\server\\share\\control" })).toThrow();
     expect(() => createControlArtifactStore({ root: "\\\\?\\C:\\control" })).toThrow();
     if (process.platform === "win32") expect(() => createControlArtifactStore({ root: "C:\\control:stream" })).toThrow();
@@ -101,6 +102,60 @@ describe("C3 exact-name artifact store", () => {
       await expect(createControlArtifactStore({ root: linked }).prepare()).rejects.toMatchObject({ code: "STORAGE_UNSAFE" });
     } catch (error) {
       if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EPERM")) throw error;
+    }
+  });
+
+  it("refuses a linked ancestor before creating a missing child through it", async () => {
+    const parent = await root();
+    const outside = join(parent, "outside");
+    const linked = join(parent, "linked-parent");
+    const missingChild = join(linked, "must-not-be-created");
+    await createControlArtifactStore({ root: outside }).prepare();
+    try {
+      await symlink(outside, linked, process.platform === "win32" ? "junction" : "dir");
+      await expect(createControlArtifactStore({ root: missingChild }).prepare())
+        .rejects.toMatchObject({ code: "STORAGE_UNSAFE" });
+      await expect(readFile(join(outside, "must-not-be-created"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    } catch (error) {
+      if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EPERM")) throw error;
+    }
+  });
+
+  it("serializes cooperating removal and replacement so a new identity is never unlinked", async () => {
+    for (let index = 0; index < 12; index += 1) {
+      const directory = await root();
+      const store = createControlArtifactStore({ root: directory });
+      await store.prepare();
+      const oldLease = await store.writeDescriptor(pair(720 + index, 21).descriptor);
+      const replacement = pair(820 + index, 22).descriptor;
+      const removeOld = async () => {
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          try { await store.removeOwned(oldLease); return; }
+          catch (error) {
+            if (!(error instanceof ControlServiceError && error.code === "ARTIFACT_CONFLICT")) throw error;
+            await new Promise<void>((resolve) => { setTimeout(resolve, 2); });
+          }
+        }
+        throw new Error("removal fixture did not acquire the serialized mutation claim");
+      };
+      const writeReplacement = async () => {
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          try { return await store.writeDescriptor(replacement); }
+          catch (error) {
+            if (!(error instanceof ControlServiceError && error.code === "ARTIFACT_CONFLICT")) throw error;
+            await new Promise<void>((resolve) => { setTimeout(resolve, 2); });
+          }
+        }
+        throw new Error("replacement fixture did not acquire the serialized mutation claim");
+      };
+      const [removed, written] = await Promise.allSettled([
+        removeOld(),
+        writeReplacement(),
+      ]);
+      if (written.status === "rejected") throw written.reason;
+      expect(removed.status).toBe("fulfilled");
+      expect(written.status).toBe("fulfilled");
+      expect((await store.readDescriptor()).value).toEqual(replacement);
     }
   });
 });
@@ -159,6 +214,30 @@ describe("C3 single-instance ownership", () => {
     expect(result.kind).toBe("acquired");
     expect((await store.readLock()).value).toEqual(fresh.lock);
     await expect(store.readDescriptor()).rejects.toMatchObject({ code: "ARTIFACT_MISSING" });
+  });
+
+  it("treats invalid liveness output as ambiguous and requires exact issued-at binding", async () => {
+    const directory = await root();
+    const store = createControlArtifactStore({ root: directory });
+    await store.prepare();
+    const existing = pair(709, 15);
+    await store.writeLock(existing.lock);
+    await store.writeDescriptor(existing.descriptor);
+    await expect(establishSingleInstance({
+      store,
+      requestedLock: pair(710, 16).lock,
+      liveness: { inspect: async () => undefined as never },
+    })).rejects.toMatchObject({ code: "LIVENESS_AMBIGUOUS" });
+    expect((await store.readLock()).value).toEqual(existing.lock);
+    expect((await store.readDescriptor()).value).toEqual(existing.descriptor);
+
+    await store.removeOwned((await store.readDescriptor()).lease);
+    await store.writeDescriptor({ ...existing.descriptor, issuedAt: "2026-08-26T10:00:01.000Z", expiresAt: "2026-08-26T10:15:01.000Z" });
+    await expect(establishSingleInstance({
+      store,
+      requestedLock: pair(710, 16).lock,
+      liveness: { inspect: async () => "live" },
+    })).rejects.toMatchObject({ code: "ARTIFACT_FOREIGN" });
   });
 
   it.each(["live", "dead"] as const)("refuses a %s lock whose matching descriptor is missing", async (status) => {

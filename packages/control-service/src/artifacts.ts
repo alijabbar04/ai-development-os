@@ -15,6 +15,7 @@ import { parseJsonDocument } from "./structural.js";
 
 export const CONNECTION_DESCRIPTOR_FILE = "connection.v1.json" as const;
 export const INSTANCE_LOCK_FILE = "instance.v1.lock" as const;
+const ARTIFACT_MUTATION_FILE = ".mutation.v1.claim" as const;
 export const MAX_ARTIFACT_BYTES = 4_096;
 
 interface FileIdentity {
@@ -66,7 +67,9 @@ function safeAbsoluteRoot(input: string): string {
     const tail = input.slice(parsePath(input).root.length);
     if (tail.includes(":")) controlFail("STORAGE_UNSAFE");
   }
-  return resolve(input);
+  const resolved = resolve(input);
+  if (samePath(resolved, parsePath(resolved).root)) controlFail("STORAGE_UNSAFE");
+  return resolved;
 }
 
 async function syncDirectoryEntry(directory: string, target: string): Promise<void> {
@@ -102,14 +105,28 @@ export function createControlArtifactStore(options: Readonly<{
 
   const inspectComponents = async (): Promise<RootBinding> => {
     try {
-      await mkdir(root, { recursive: true, mode: 0o700 });
       const rootPrefix = parsePath(root).root;
       const remainder = root.slice(rootPrefix.length).split(/[\\/]+/u).filter(Boolean);
       let cursor = rootPrefix;
       for (const component of remainder) {
-        cursor = resolve(cursor, component);
-        const info = await lstat(cursor);
+        const next = resolve(cursor, component);
+        let info: Stats;
+        try {
+          info = await lstat(next);
+        } catch (error) {
+          if (errorCode(error) !== "ENOENT") throw error;
+          // Validate the existing parent before creating exactly one child.
+          // Recursive mkdir would traverse a linked ancestor before we could
+          // refuse it and could therefore create data outside the bound root.
+          const parent = await lstat(cursor);
+          if (!parent.isDirectory() || parent.isSymbolicLink() || !samePath(await realpath(cursor), cursor)) {
+            controlFail("STORAGE_UNSAFE");
+          }
+          await mkdir(next, { recursive: false, mode: 0o700 });
+          info = await lstat(next);
+        }
         if (!info.isDirectory() || info.isSymbolicLink()) controlFail("STORAGE_UNSAFE");
+        cursor = next;
       }
       const observed = await lstat(root);
       const resolved = await realpath(root);
@@ -136,6 +153,63 @@ export function createControlArtifactStore(options: Readonly<{
     } catch (error) {
       if (error instanceof Error && error.name === "ControlServiceError") throw error;
       controlFail("STORAGE_UNSAFE");
+    }
+  };
+
+  const mutationTarget = resolve(root, ARTIFACT_MUTATION_FILE);
+
+  const withMutationClaim = async <T>(operation: () => Promise<T>): Promise<T> => {
+    await assertBound();
+    let claim: Awaited<ReturnType<typeof open>> | null = null;
+    let claimIdentity: FileIdentity | null = null;
+    try {
+      claim = await open(mutationTarget, "wx", 0o600);
+    } catch (error) {
+      if (["EEXIST", "EACCES", "EPERM", "EBUSY"].includes(errorCode(error) ?? "")) {
+        controlFail("ARTIFACT_CONFLICT");
+      }
+      controlFail("STORAGE_UNSAFE");
+    }
+    try {
+      await claim.writeFile(`${process.pid}\n`, "utf8");
+      await claim.sync();
+      const opened = await claim.stat();
+      const named = await lstat(mutationTarget);
+      if (!opened.isFile() || opened.isSymbolicLink() || !sameIdentity(identity(opened), named)) {
+        controlFail("STORAGE_UNSAFE");
+      }
+      claimIdentity = identity(opened);
+      return await operation();
+    } catch (error) {
+      if (error instanceof Error && error.name === "ControlServiceError") throw error;
+      controlFail("STORAGE_UNSAFE");
+    } finally {
+      if (claim !== null && claimIdentity !== null) {
+        try {
+          const opened = await claim.stat();
+          const named = await lstat(mutationTarget);
+          if (!sameIdentity(claimIdentity, opened) || !sameIdentity(claimIdentity, named)) {
+            controlFail("STORAGE_UNSAFE");
+          }
+          await unlink(mutationTarget);
+          await claim.close();
+          claim = null;
+          await assertBound();
+        } catch (error) {
+          try { await claim?.close(); } catch { /* retain an unverifiable claim path */ }
+          if (error instanceof Error && error.name === "ControlServiceError") throw error;
+          controlFail("STORAGE_UNSAFE");
+        }
+      } else {
+        if (claim !== null) {
+          try {
+            const opened = await claim.stat();
+            const named = await lstat(mutationTarget);
+            if (sameNodeIdentity(identity(opened), named)) await unlink(mutationTarget);
+          } catch { /* retain anything whose identity cannot be proved */ }
+        }
+        try { await claim?.close(); } catch { /* no verified named claim remains */ }
+      }
     }
   };
 
@@ -227,24 +301,27 @@ export function createControlArtifactStore(options: Readonly<{
     async prepare() { binding = await inspectComponents(); },
     async writeDescriptor(value: unknown) {
       const parsed = parseConnectionDescriptor(value);
-      return await promoteCreateOnly("descriptor", parsed, serializeConnectionDescriptor(parsed));
+      return await withMutationClaim(async () =>
+        await promoteCreateOnly("descriptor", parsed, serializeConnectionDescriptor(parsed)));
     },
     async writeLock(value: unknown) {
       const parsed = parseInstanceLock(value);
-      return await promoteCreateOnly("lock", parsed, serializeInstanceLock(parsed));
+      return await withMutationClaim(async () =>
+        await promoteCreateOnly("lock", parsed, serializeInstanceLock(parsed)));
     },
     async readDescriptor() { return await readExact("descriptor", parseConnectionDescriptor); },
     async readLock() { return await readExact("lock", parseInstanceLock); },
     async removeOwned(lease: ArtifactLease) {
-      await assertBound();
-      const current = lease.kind === "descriptor" ? await this.readDescriptor() : await this.readLock();
-      if (
-        current.lease.processId !== lease.processId || current.lease.startNonce !== lease.startNonce ||
-        current.lease.identity.dev !== lease.identity.dev || current.lease.identity.ino !== lease.identity.ino ||
-        current.lease.identity.size !== lease.identity.size
-      ) controlFail("ARTIFACT_FOREIGN");
-      await unlink(targetFor(lease.kind));
-      await assertBound();
+      await withMutationClaim(async () => {
+        const current = lease.kind === "descriptor" ? await this.readDescriptor() : await this.readLock();
+        if (
+          current.lease.processId !== lease.processId || current.lease.startNonce !== lease.startNonce ||
+          current.lease.identity.dev !== lease.identity.dev || current.lease.identity.ino !== lease.identity.ino ||
+          current.lease.identity.size !== lease.identity.size
+        ) controlFail("ARTIFACT_FOREIGN");
+        await unlink(targetFor(lease.kind));
+        await assertBound();
+      });
     },
   });
 }

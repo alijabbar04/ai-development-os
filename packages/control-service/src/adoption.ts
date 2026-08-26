@@ -1,4 +1,5 @@
-import { request as httpRequest } from "node:http";
+import { Socket } from "node:net";
+import { performance } from "node:perf_hooks";
 import { parseSuccessEnvelope, type SuccessEnvelope } from "@ai-dev-os/api";
 import { canonicalizeJson, type JsonValue } from "@ai-dev-os/domain";
 import type { ControlArtifactStore } from "./artifacts.js";
@@ -9,6 +10,7 @@ import { exactString, readExactRecord } from "./structural.js";
 
 export const ADOPTION_RESPONSE_LIMIT = 8_192;
 export const ADOPTION_TIMEOUT_MS = 1_000;
+const ADOPTION_HEADER_LIMIT = 4_096;
 
 export interface AdoptionTransportResponse {
   readonly statusCode: number;
@@ -23,6 +25,7 @@ export interface AdoptionTransport {
     bearerToken?: string;
     timeoutMs: number;
   }>): Promise<AdoptionTransportResponse>;
+  close?(): void;
 }
 
 function exactJsonMediaType(value: string): boolean {
@@ -30,6 +33,54 @@ function exactJsonMediaType(value: string): boolean {
 }
 
 export function createLoopbackAdoptionTransport(): AdoptionTransport {
+  // Both HTTP exchanges are serialized over this one socket. The second
+  // request is not written until the caller validates the first response.
+  // If the peer closes, get() refuses instead of reconnecting to the port.
+  let socket: Socket | null = null;
+  let boundPort: number | null = null;
+  let pending = false;
+  let closed = false;
+
+  const parseBufferedResponse = (bytes: Buffer): AdoptionTransportResponse | null => {
+    const split = bytes.indexOf("\r\n\r\n");
+    if (split < 0) {
+      if (bytes.byteLength > ADOPTION_HEADER_LIMIT) controlFail("ADOPTION_REFUSED");
+      return null;
+    }
+    if (split > ADOPTION_HEADER_LIMIT) controlFail("ADOPTION_REFUSED");
+    const headerText = bytes.subarray(0, split).toString("latin1");
+    if (!/^[\x20-\x7e\r\n]*$/u.test(headerText)) controlFail("ADOPTION_REFUSED");
+    const lines = headerText.split("\r\n");
+    const status = /^(?:HTTP\/1\.1) ([1-5][0-9]{2})(?: [\x20-\x7e]{0,64})?$/u.exec(lines.shift() ?? "");
+    if (status === null || lines.length > 32) controlFail("ADOPTION_REFUSED");
+    const headers: Record<string, string> = Object.create(null) as Record<string, string>;
+    for (const line of lines) {
+      const colon = line.indexOf(":");
+      if (colon < 1 || /^[ \t]/u.test(line)) controlFail("ADOPTION_REFUSED");
+      const name = line.slice(0, colon).toLowerCase();
+      const value = line.slice(colon + 1).trim();
+      if (!/^[a-z0-9!#$%&'*+.^_`|~-]{1,64}$/u.test(name) || value.length > 1_024 || Object.hasOwn(headers, name)) {
+        controlFail("ADOPTION_REFUSED");
+      }
+      headers[name] = value;
+    }
+    if (Object.hasOwn(headers, "transfer-encoding")) controlFail("ADOPTION_REFUSED");
+    const contentLength = headers["content-length"];
+    if (contentLength === undefined || !/^(?:0|[1-9][0-9]{0,4})$/u.test(contentLength)) {
+      controlFail("ADOPTION_REFUSED");
+    }
+    const length = Number(contentLength);
+    if (length > ADOPTION_RESPONSE_LIMIT) controlFail("ADOPTION_REFUSED");
+    const expected = split + 4 + length;
+    if (bytes.byteLength < expected) return null;
+    if (bytes.byteLength !== expected) controlFail("ADOPTION_REFUSED");
+    return Object.freeze({
+      statusCode: Number(status[1] ?? 0),
+      contentType: headers["content-type"] ?? "",
+      body: Buffer.from(bytes.subarray(split + 4)),
+    });
+  };
+
   return Object.freeze({
     async get(input: Readonly<{
       port: number;
@@ -37,38 +88,84 @@ export function createLoopbackAdoptionTransport(): AdoptionTransport {
       bearerToken?: string;
       timeoutMs: number;
     }>) {
+      if (closed || pending || (boundPort !== null && boundPort !== input.port)) controlFail("ADOPTION_REFUSED");
+      if (!Number.isSafeInteger(input.port) || input.port < 1 || input.port > 65_535) controlFail("ADOPTION_REFUSED");
+      pending = true;
       return await new Promise<AdoptionTransportResponse>((resolve, reject) => {
-        const headers: Record<string, string> = { accept: "application/json" };
-        if (input.bearerToken !== undefined) headers["authorization"] = `Bearer ${input.bearerToken}`;
-        const request = httpRequest({
-          method: "GET",
-          host: CONTROL_HOST,
-          port: input.port,
-          path: input.path,
-          headers,
-          timeout: input.timeoutMs,
-          agent: false,
-        }, (response) => {
-          const chunks: Buffer[] = [];
-          let length = 0;
-          response.on("data", (chunk: Buffer) => {
-            length += chunk.byteLength;
-            if (length > ADOPTION_RESPONSE_LIMIT) {
-              request.destroy(new ControlServiceError("ADOPTION_REFUSED"));
-              return;
-            }
-            chunks.push(chunk);
-          });
-          response.on("end", () => resolve(Object.freeze({
-            statusCode: response.statusCode ?? 0,
-            contentType: typeof response.headers["content-type"] === "string" ? response.headers["content-type"] : "",
-            body: Buffer.concat(chunks),
-          })));
-        });
-        request.once("timeout", () => request.destroy(new ControlServiceError("ADOPTION_TIMEOUT")));
-        request.once("error", reject);
-        request.end();
+        let settled = false;
+        let bytes = Buffer.alloc(0);
+        const active = socket ?? new Socket();
+        const cleanup = (): void => {
+          clearTimeout(timer);
+          active.off("data", onData);
+          active.off("error", onSocketFailure);
+          active.off("close", onSocketFailure);
+          pending = false;
+        };
+        const fail = (error: ControlServiceError): void => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          closed = true;
+          active.destroy();
+          reject(error);
+        };
+        const onSocketFailure = (): void => { fail(new ControlServiceError("ADOPTION_REFUSED")); };
+        const onData = (chunk: Buffer): void => {
+          if (settled) return;
+          if (bytes.byteLength + chunk.byteLength > ADOPTION_HEADER_LIMIT + 4 + ADOPTION_RESPONSE_LIMIT) {
+            fail(new ControlServiceError("ADOPTION_REFUSED"));
+            return;
+          }
+          bytes = Buffer.concat([bytes, chunk]);
+          try {
+            const response = parseBufferedResponse(bytes);
+            if (response === null) return;
+            settled = true;
+            cleanup();
+            resolve(response);
+          } catch {
+            fail(new ControlServiceError("ADOPTION_REFUSED"));
+          }
+        };
+        const timer = setTimeout(() => fail(new ControlServiceError("ADOPTION_TIMEOUT")), input.timeoutMs);
+        active.on("data", onData);
+        active.once("error", onSocketFailure);
+        active.once("close", onSocketFailure);
+        const writeRequest = (): void => {
+          if (active.destroyed || !active.writable) {
+            fail(new ControlServiceError("ADOPTION_REFUSED"));
+            return;
+          }
+          const authorization = input.bearerToken === undefined
+            ? ""
+            : `Authorization: Bearer ${input.bearerToken}\r\n`;
+          active.write([
+            `GET ${input.path} HTTP/1.1`,
+            `Host: ${CONTROL_HOST}:${input.port}`,
+            "Accept: application/json",
+            "Connection: keep-alive",
+            authorization.trimEnd(),
+            "",
+            "",
+          ].filter((line, index) => index !== 4 || line.length > 0).join("\r\n"));
+        };
+        if (socket === null) {
+          socket = active;
+          boundPort = input.port;
+          const markClosed = (): void => { closed = true; };
+          active.on("error", markClosed);
+          active.on("close", markClosed);
+          active.once("connect", writeRequest);
+          active.connect({ host: CONTROL_HOST, port: input.port });
+        } else {
+          writeRequest();
+        }
       });
+    },
+    close() {
+      closed = true;
+      socket?.destroy();
     },
   });
 }
@@ -116,21 +213,30 @@ export async function adoptExistingControlService(options: Readonly<{
   const transport = options.transport ?? createLoopbackAdoptionTransport();
   const timeoutMs = options.timeoutMs ?? ADOPTION_TIMEOUT_MS;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 10 || timeoutMs > 5_000) controlFail("ADOPTION_REFUSED");
+  const deadline = performance.now() + timeoutMs;
+  const remaining = (): number => {
+    const value = Math.ceil(deadline - performance.now());
+    if (value <= 0) controlFail("ADOPTION_TIMEOUT");
+    return value;
+  };
   try {
     const probe = parseResponse(await transport.get({
       port: descriptor.port,
       path: "/v1/health",
-      timeoutMs,
+      timeoutMs: remaining(),
     }), healthPayload);
     const payload = probe.payload as Record<string, JsonValue>;
     if (payload["startNonce"] !== descriptor.startNonce || payload["serviceVersion"] !== descriptor.serviceVersion) {
       controlFail("ADOPTION_REFUSED");
     }
+    // Yield only after the full health response has been parsed; the next
+    // write still uses the same private socket and the same total deadline.
+    await new Promise<void>((resolve) => { setImmediate(resolve); });
     const session = parseResponse(await transport.get({
       port: descriptor.port,
       path: "/v1/session",
       bearerToken: descriptor.bearerToken,
-      timeoutMs,
+      timeoutMs: remaining(),
     }), sessionPayload);
     const sessionRecord = session.payload as Record<string, JsonValue>;
     if (sessionRecord["startNonce"] !== descriptor.startNonce || sessionRecord["serviceVersion"] !== descriptor.serviceVersion) {
@@ -139,6 +245,8 @@ export async function adoptExistingControlService(options: Readonly<{
     return descriptor;
   } catch (error) {
     if (error instanceof ControlServiceError) throw error;
-    controlFail("ADOPTION_REFUSED");
+    throw new ControlServiceError("ADOPTION_REFUSED");
+  } finally {
+    transport.close?.();
   }
 }

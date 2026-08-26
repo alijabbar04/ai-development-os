@@ -1,4 +1,10 @@
-import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
+import {
+  createServer as createHttpServer,
+  type RequestListener,
+  type Server as HttpServer,
+  type ServerResponse,
+} from "node:http";
+import type { Duplex } from "node:stream";
 import fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import type { RandomBytesPort, ServerBearerSession } from "./identity.js";
 import {
@@ -86,12 +92,22 @@ function headerValues(request: FastifyRequest, name: string): readonly string[] 
   return output;
 }
 
-function createFixedHttpServer(handler: Parameters<typeof createHttpServer>[1]): HttpServer {
+function createFixedHttpServer(
+  handler: RequestListener,
+  refuseResponse: (response: ServerResponse) => void,
+  refuseSocket: (socket: Duplex) => void,
+): HttpServer {
   const server = createHttpServer({
     maxHeaderSize: CONTROL_LIMITS.maxHeaderBytes,
-    requireHostHeader: true,
+    // Fastify receives a missing Host and emits our finite HOST_REFUSED
+    // envelope instead of Node's otherwise bare parser-owned 400.
+    requireHostHeader: false,
     joinDuplicateHeaders: false,
   }, handler);
+  server.on("checkContinue", (_request, response) => { refuseResponse(response); });
+  server.on("checkExpectation", (_request, response) => { refuseResponse(response); });
+  server.on("connect", (_request, socket) => { refuseSocket(socket); });
+  server.on("upgrade", (_request, socket) => { refuseSocket(socket); });
   server.requestTimeout = 1_000;
   server.headersTimeout = 1_000;
   server.keepAliveTimeout = 1_000;
@@ -120,6 +136,38 @@ function composeListener(options: Readonly<{
     sequence += 1;
     return sequence;
   };
+  const protocolPayload = (): string => assertResponseBound(serializeTransportRefusal(
+    "REQUEST_LIMIT_REFUSED",
+    nextSequence(),
+    options.clock(),
+  ));
+  const protocolHeaders = (payload: string): Readonly<Record<string, string>> => Object.freeze({
+    "cache-control": "no-store",
+    "connection": "close",
+    "content-length": String(Buffer.byteLength(payload, "utf8")),
+    "content-type": "application/json; charset=utf-8",
+    "x-content-type-options": "nosniff",
+  });
+  const refuseProtocolResponse = (response: ServerResponse): void => {
+    const payload = protocolPayload();
+    response.writeHead(400, protocolHeaders(payload));
+    response.end(payload);
+  };
+  const refuseProtocolSocket = (socket: Duplex): void => {
+    if (!socket.writable) return;
+    const payload = protocolPayload();
+    const headers = protocolHeaders(payload);
+    socket.end([
+      "HTTP/1.1 400 Bad Request",
+      `Content-Type: ${headers["content-type"] ?? "application/json; charset=utf-8"}`,
+      `Cache-Control: ${headers["cache-control"] ?? "no-store"}`,
+      `X-Content-Type-Options: ${headers["x-content-type-options"] ?? "nosniff"}`,
+      "Connection: close",
+      `Content-Length: ${headers["content-length"] ?? "0"}`,
+      "",
+      payload,
+    ].join("\r\n"));
+  };
   const app = fastify({
     logger: false,
     exposeHeadRoutes: false,
@@ -129,7 +177,11 @@ function composeListener(options: Readonly<{
     onConstructorPoisoning: "error",
     requestIdHeader: false,
     forceCloseConnections: "idle",
-    serverFactory: createFixedHttpServer,
+    serverFactory: (handler) => createFixedHttpServer(
+      handler,
+      refuseProtocolResponse,
+      refuseProtocolSocket,
+    ),
     clientErrorHandler: (_error, socket) => {
       if (!socket.writable) return;
       const payload = assertResponseBound(serializeTransportRefusal(
@@ -414,10 +466,17 @@ export async function startControlServiceInternal(options: InternalControlServic
       lifecycle: () => lifecycle.snapshot(),
       async close() {
         if (closed) return;
-        lifecycle.transition("begin-drain");
-        await listener.app.close();
-        await cleanupLease(options.store, descriptorLease);
-        await cleanupLease(options.store, lockLease);
+        if (lifecycle.snapshot().state === "ready") lifecycle.transition("begin-drain");
+        let failure: unknown = null;
+        try { await listener.app.close(); }
+        catch (error) { failure = error; }
+        if (failure === null) {
+          for (const lease of [descriptorLease, lockLease]) {
+            try { await cleanupLease(options.store, lease); }
+            catch (error) { failure = error; break; }
+          }
+        }
+        if (failure !== null) throw failure;
         lifecycle.transition("close");
         closed = true;
       },

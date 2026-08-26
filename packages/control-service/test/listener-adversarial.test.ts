@@ -113,6 +113,23 @@ describe("C4 authentication, origin, method, and malformed-request boundary", ()
     expect(parserResponse).toContain("400 Bad Request");
     expect(parserResponse).toContain("REQUEST_LIMIT_REFUSED");
   });
+
+  it("owns missing-Host, Expect, and CONNECT protocol refusals", async () => {
+    const handle = await start();
+    const documents = [
+      "GET /v1/health HTTP/1.1\r\nConnection: close\r\n\r\n",
+      `GET /v1/health HTTP/1.1\r\nHost: 127.0.0.1:${handle.descriptor.port}\r\nExpect: 100-continue\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`,
+      `GET /v1/health HTTP/1.1\r\nHost: 127.0.0.1:${handle.descriptor.port}\r\nExpect: unsupported\r\nConnection: close\r\n\r\n`,
+      `CONNECT /v1/session HTTP/1.1\r\nHost: 127.0.0.1:${handle.descriptor.port}\r\nConnection: close\r\n\r\n`,
+    ];
+    for (const document of documents) {
+      const response = await rawHttp(handle.descriptor.port, document);
+      expect(response).toContain("HTTP/1.1");
+      expect(response).toContain('"kind":"transport-refusal"');
+      expect(response).toMatch(/"code":"(?:HOST_REFUSED|REQUEST_LIMIT_REFUSED)"/u);
+      expect(response).not.toMatch(/Fastify|node_modules|at .+\.(?:ts|js):\d+/u);
+    }
+  });
 });
 
 describe("C4 concurrency, rate, deadline, response, and teardown limits", () => {

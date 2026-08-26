@@ -23,13 +23,18 @@ Per-launch nonce and bearer values are separately generated from cryptographic
 random bytes and use incompatible exact shapes. The connection descriptor is
 the only plaintext bearer handoff. The server retains its digest and compares
 fixed-length digests in constant time. Adoption probes the unauthenticated
-health nonce first and sends the bearer only after an exact identity match.
+health nonce first and sends the bearer only after an exact identity match on
+the same still-open TCP channel. It never reconnects for the authenticated
+read, and one monotonic deadline bounds the complete adoption sequence.
 
 Descriptor and lock artifacts have fixed names and exact schemas. Storage uses
 no directory enumeration, rejects linked roots/artifacts, promotes create-only
 files, rechecks opened/named identities, and removes only an exact artifact it
 previously identified and whose PID/nonce still match. Lock age is never proof
-of staleness; ambiguous or live-foreign ownership refuses.
+of staleness; ambiguous, invalid, or live-foreign ownership refuses. A
+create-only transient mutation claim serializes cooperating artifact writers
+and removers across the ownership-check/unlink interval. An orphaned claim is
+an availability failure and is not removed by age.
 
 ## Honest platform boundary
 
@@ -39,7 +44,8 @@ hostile process running as the same user, nor can Node alone prove PID creation
 identity across every reuse race. Dead-PID cleanup therefore requires an
 injected affirmative liveness result plus two matching exact artifacts;
 ambiguous evidence refuses. The subsequent nonce probe is required before an
-existing live owner is adopted.
+existing live owner is adopted. Windows deletion durability is not claimed:
+Node does not expose a proof that a parent-directory entry was durably flushed.
 
 ## Consequences
 

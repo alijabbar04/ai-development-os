@@ -10,6 +10,7 @@ import {
   createControlArtifactStore,
   parseConnectionDescriptor,
   startControlService,
+  type ControlArtifactStore,
   type ControlServiceHandle,
 } from "../src/index.js";
 import { startControlServiceForTest } from "./testing.js";
@@ -88,6 +89,36 @@ describe("C4 loopback listener lifecycle", () => {
     await expect(store.readDescriptor()).rejects.toMatchObject({ code: "ARTIFACT_MISSING" });
     await expect(store.readLock()).rejects.toMatchObject({ code: "ARTIFACT_MISSING" });
     await expect(httpGet(handle.descriptor, "/v1/health", { token: null })).rejects.toBeDefined();
+    handles.splice(handles.indexOf(handle), 1);
+  });
+
+  it("can retry exact artifact cleanup after a transient shutdown failure", async () => {
+    const storageRoot = await root();
+    const base = createControlArtifactStore({ root: storageRoot });
+    let failOnce = true;
+    const store: ControlArtifactStore = Object.freeze({
+      prepare: async () => { await base.prepare(); },
+      writeDescriptor: async (value) => await base.writeDescriptor(value),
+      writeLock: async (value) => await base.writeLock(value),
+      readDescriptor: async () => await base.readDescriptor(),
+      readLock: async () => await base.readLock(),
+      async removeOwned(lease) {
+        if (failOnce) {
+          failOnce = false;
+          throw Object.assign(new Error("transient cleanup fixture"), { code: "EBUSY" });
+        }
+        await base.removeOwned(lease);
+      },
+    });
+    const handle = await start({ storageRoot, store });
+    await expect(handle.close()).rejects.toMatchObject({ code: "EBUSY" });
+    expect(handle.lifecycle().state).toBe("draining");
+    expect((await base.readDescriptor()).value.startNonce).toBe(handle.descriptor.startNonce);
+    expect((await base.readLock()).value.startNonce).toBe(handle.descriptor.startNonce);
+    await expect(handle.close()).resolves.toBeUndefined();
+    expect(handle.lifecycle().state).toBe("closed");
+    await expect(base.readDescriptor()).rejects.toMatchObject({ code: "ARTIFACT_MISSING" });
+    await expect(base.readLock()).rejects.toMatchObject({ code: "ARTIFACT_MISSING" });
     handles.splice(handles.indexOf(handle), 1);
   });
 

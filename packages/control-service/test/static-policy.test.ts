@@ -44,8 +44,11 @@ describe("C3 static security boundary", () => {
   it("pins Fastify exactly with no optional listener plugins", async () => {
     const manifest = JSON.parse(await readFile(join(PACKAGE_ROOT, "package.json"), "utf8")) as {
       dependencies: Record<string, string>;
+      scripts: Record<string, string>;
     };
     expect(manifest.dependencies["fastify"]).toBe("5.12.1");
     expect(Object.keys(manifest.dependencies).sort()).toEqual(["@ai-dev-os/api", "@ai-dev-os/domain", "fastify"]);
+    expect(manifest.scripts["pretest"]).toContain("npm run build --ignore-scripts");
+    expect(manifest.scripts["pretest:coverage"]).toContain("npm run build --ignore-scripts");
   });
 });
