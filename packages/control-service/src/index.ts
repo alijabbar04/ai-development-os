@@ -4,4 +4,11 @@ export * from "./contracts.js";
 export * from "./errors.js";
 export * from "./identity.js";
 export * from "./lifecycle.js";
+export {
+  startControlService,
+  type ControlServiceHandle,
+  type StartControlServiceOptions,
+} from "./listener.js";
+export * from "./routes.js";
 export * from "./single-instance.js";
+export * from "./transport.js";
