@@ -8,10 +8,10 @@
 ## Outcome and evidence boundary
 
 C0 entry verification, C1 architecture ratification, and the C2 pure,
-route-free `@ai-dev-os/api` contract package are implemented. The source
-candidate immediately before this evidence file is commit
-`c81a48903b8814c2575afb518eb8c1bc4882689d`, tree
-`e485d65fd3e730f71bcaae9a1a359e85946b1457`.
+route-free `@ai-dev-os/api` contract package are implemented. The repaired
+source candidate immediately before this evidence update is commit
+`2b320481b2fb947b356aa6f13b0094662d2d04e0`, tree
+`d98da01cdcd2ad04da4cacca71bd2a665301b458`.
 
 This document does not preclaim facts that can exist only after its own bytes
 are committed. Its final evidence commit necessarily assigns a new HEAD and
@@ -184,16 +184,18 @@ packages/api/tsconfig.json
 packages/api/vitest.config.ts
 ```
 
-The three pre-evidence commits were:
+The five commits before this final evidence update were:
 
 1. `82b6b3b` — `docs: ratify Stage 20A entry and architecture`;
-2. `fcb127a` — `feat(api): add route-free Stage 20A contracts`; and
-3. `c81a489` — `fix(api): harden projection and refusal contracts`.
+2. `fcb127a` — `feat(api): add route-free Stage 20A contracts`;
+3. `c81a489` — `fix(api): harden projection and refusal contracts`;
+4. `77ba379` — `docs: record Stage 20A API foundation evidence`; and
+5. `2b32048` — `fix(api): close Stage 20A review findings`.
 
 ## Local assurance
 
-All final source gates below ran on source commit `c81a489...`, tree
-`e485d65...`. Adding this Markdown evidence file changes no executable,
+All final source gates below ran on repaired source commit `2b32048...`, tree
+`d98da01...`. Updating this Markdown evidence file changes no executable,
 configuration, package, lockfile, test, threshold, or workflow byte.
 
 ### API package
@@ -202,16 +204,20 @@ configuration, package, lockfile, test, threshold, or workflow byte.
 | --- | --- |
 | Typecheck | exit 0 |
 | Build | exit 0 |
-| Tests | 5 files, 46/46 tests passed |
-| Coverage | statements 312/324 (96.29%); branches 187/200 (93.5%); functions 45/45 (100%); lines 290/295 (98.3%) |
+| Tests | 5 files, 48/48 tests passed |
+| Coverage | statements 326/337 (96.73%); branches 200/212 (94.33%); functions 46/46 (100%); lines 303/308 (98.37%) |
 | Coverage floors | 90% statements, 80% branches, 98% functions, 90% lines; unchanged and satisfied |
 | Refusal parity | acceptance pack 70; source 70; missing 0; extra 0 |
 | Stable repetition | deterministic repeated serialization tests passed |
 
-The load-bearing projection mutation removed the runtime safe-string check
-from identifier-rule serialization. The focused projection suite then failed
-because a credential-shaped identifier was admitted. The exact guard was
-restored, the mutation marker was absent, and the complete final gates passed.
+Three load-bearing mutation controls were observed. Removing the runtime
+safe-string check from identifier-rule serialization made the focused
+projection suite fail because a credential-shaped identifier was admitted.
+After the review repair, removing the Normal-mode mechanism-string guard made
+the focused projection suite fail, and changing the test-owned `RATE_LIMITED`
+next-step sentence to invented prose made the refusal parity suite fail. Every
+guard and exact mapping was restored, no mutation marker remained, and the
+complete final gates passed.
 
 ### Repository and maintained consumers
 
@@ -236,35 +242,72 @@ totals and the literal root exits instead of inventing an aggregate.
 `@ai-dev-os/domain@0.1.0`, with no problem. `npm audit
 --audit-level=high` exited 0 and reported `found 0 vulnerabilities`.
 
-The final dry pack contains 30 entries, is 24,670 bytes packed and 124,947
+The final dry pack contains 30 entries, is 25,530 bytes packed and 127,832
 bytes unpacked, and has SHA-1 shasum
-`7e4f91633c9a699e65b94f694d24807a4b3eb174` and integrity
-`sha512-NATefRTYmw6CuZm/jfDhITc02v9PoU1s6bwJgpu2RwJ/5qsEx8El34jhI2z7FX0bDHP5mrBpOaQKhiiw8NBrHA==`.
+`181cc5832d6c1512a50b44285ce2131abf57f521` and integrity
+`sha512-HIGkIV0AvvgADw+TB4nhuzgBBq16n2a57VJdKY9UrXjx+zNGBL5qyZsMMTGrRBNYZete9yQ8VjhH/D/Q1gKEYw==`.
 It contains only the package README, package metadata, and built JavaScript,
 source maps, and declarations.
 
 ### Static hygiene
 
-- `git diff --check f8ab3c5..c81a489`: exit 0.
+- `git diff --check f8ab3c5..2b32048`: exit 0.
 - All three changed JSON files parsed successfully.
-- All eight changed pre-evidence Markdown files passed the local-link check;
-  zero missing targets.
-- The 24 changed pre-evidence paths had zero private-key, Anthropic/OpenAI,
-  GitHub, Slack, AWS, or credential-bearing-URL shape matches.
-- The same 24 paths had zero merge-conflict or mutation-marker matches.
+- All nine changed Markdown files passed the local-link check; zero missing
+  targets.
+- The 25 changed paths had one expected synthetic private-key-header match at
+  `packages/api/test/projection.test.ts:134`; it is the deliberate leakage
+  canary, contains no key body or credential, and must be rejected at runtime.
+  There were zero other private-key, Anthropic/OpenAI, GitHub, Slack, AWS,
+  Google, JWT, or credential-bearing-URL shape matches.
+- The same 25 paths had zero merge-conflict or mutation-marker matches.
 - Coverage and builds left the Git worktree clean.
 
-The evidence file itself must pass the same diff, Markdown/local-link,
+This final evidence update must pass the same diff, Markdown/local-link,
 secret-shape, marker, and clean-index checks before its commit.
 
 ## Independent review and hosted publication
 
-No review verdict or hosted result is claimed in advance. The final evidence
-commit must be frozen and then submitted to one fresh independent read-only
-review covering entry derivation, ADR and operator decisions, envelope/refusal
-strictness, projection/leakage resistance, import isolation, zero-route and
-zero-command guarantees, tests, and evidence truthfulness. Every must-fix must
-be resolved on a new candidate and re-reviewed.
+The first frozen evidence candidate was commit
+`77ba3791b7456cc6f88b39339f8ea58738035b96`, tree
+`d43d9734f6b8ac67a9f68b949f1936bf7c25b8fe`. A fresh independent read-only
+GPT-5.6 Sol review at max reasoning returned FAIL with six must-fix findings.
+That verdict applies only to that candidate. Source commit `2b32048...`
+resolves all six as follows:
+
+1. The governing ADR and product/entry records now preserve the
+   mode-independent contextual direct-to-task contract, RD-10's fixed 30-second
+   control-plane and 20-second UI startup deadlines and actions, RD-08's global
+   `dispatch.pauseAll`, and the separate future C12 project-scoped stop model.
+2. Normal-mode projection leakage checks now include the reconciled R2 secret
+   shapes, mechanism fields and strings, opaque handles, hashes, basis points,
+   rate-limit markers, owner identifiers, and generic fingerprints. Developer
+   `sourceFingerprint` remains explicit and accepts only a lowercase 64-hex
+   digest.
+3. Timestamp ordering now compares parsed numeric instants, including extended
+   years, instead of relying on lexical ISO ordering.
+4. Projection node accounting includes the root, with exact 2,048-node
+   acceptance and 2,049-node refusal tests.
+5. The static import policy now rejects side-effect imports and scans the full
+   textual production closure of API plus domain; both direct and synthetic
+   transitive positive controls prove the guard.
+6. Refusal parity now compares production output with a test-owned literal
+   70-entry catalogue containing exact code, sentence, and `nextStepId`
+   mappings, so production cannot define its own oracle.
+
+The review recorded one non-blocking advisory: six parameterized copy shapes
+remain intentionally generic and should preserve their accepted wording when
+UI contracts land. It also independently noted that the checked-in LCOV output
+corroborates the reported coverage configuration and metrics. Neither point
+expands this C0-C2 scope.
+
+No exact repaired-candidate PASS or hosted result is claimed in advance. This
+evidence update must be committed and then sent back to the same independent
+reviewer for an exact-head read-only re-review covering the six dispositions,
+entry derivation, ADR and operator decisions, envelope/refusal strictness,
+projection/leakage resistance, import isolation, zero-route and zero-command
+guarantees, tests, and evidence truthfulness. Every must-fix must be resolved
+on a new candidate and re-reviewed.
 
 After review PASS, the feature branch may be non-force-pushed. Hosted CI must
 complete successfully at that exact evidence HEAD. A rerun is permitted only
