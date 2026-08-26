@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCES = [
   "adoption.ts", "artifacts.ts", "contracts.ts", "errors.ts", "identity.ts",
-  "index.ts", "lifecycle.ts", "listener.ts", "routes.ts", "single-instance.ts",
-  "structural.ts", "transport.ts",
+  "index.ts", "lifecycle.ts", "listener.ts", "presentation.ts", "projections.ts",
+  "routes.ts", "single-instance.ts", "structural.ts", "transport.ts",
 ];
 
 describe("C3 static security boundary", () => {

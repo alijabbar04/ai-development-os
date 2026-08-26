@@ -30,6 +30,12 @@ absolute-path and source-fingerprint fields. Normal projections refuse those
 fields, credential shapes, borrowed-owner identity, and profile data outside the
 declared profile scope.
 
+C5 adds two narrow schema rules without adding a route or runtime effect here:
+`product-copy` accepts only an exact schema-owned finite sentence set that has
+already passed the Normal leakage checks, while `policy-rule-id` accepts only an
+exact lowercase dotted policy-ID set and remains subject to the Normal
+mechanism guard. The control service uses policy IDs only in Developer schemas.
+
 ## Boundaries
 
 The only runtime dependencies are the repository-owned `@ai-dev-os/domain`

@@ -20,6 +20,17 @@ import { ControlServiceError, controlFail, errorCode } from "./errors.js";
 import { createControlLifecycle, type ControlLifecycle, type LifecycleSnapshot, type StartupMode } from "./lifecycle.js";
 import { establishSingleInstance, type ProcessLivenessPort } from "./single-instance.js";
 import {
+  createControlProjectionRuntime,
+  serializeProjectionUnavailable,
+  type ControlProjectionRuntime,
+} from "./projections.js";
+import {
+  CONTROL_PRESENTATION_MODES,
+  controlAuthorityForPresentationMode,
+  type ControlPresentationMode,
+} from "./routes.js";
+import { readExactRecord } from "./structural.js";
+import {
   CONTROL_ALLOWED_ORIGINS,
   CONTROL_LIMITS,
   assertResponseBound,
@@ -40,6 +51,8 @@ export interface ControlServiceHandle {
 
 export interface StartControlServiceOptions {
   readonly storageRoot: string;
+  readonly presentationMode: ControlPresentationMode;
+  readonly projectionDataset: unknown;
 }
 
 export interface InternalControlServiceOptions {
@@ -49,6 +62,8 @@ export interface InternalControlServiceOptions {
   readonly processId: number;
   readonly liveness: ProcessLivenessPort;
   readonly testingPort: number;
+  readonly presentationMode: ControlPresentationMode;
+  readonly projectionDataset: unknown;
   readonly beforeSessionRead?: (signal: AbortSignal) => Promise<void>;
 }
 
@@ -125,6 +140,9 @@ interface ListenerComposition {
 function composeListener(options: Readonly<{
   session: ServerBearerSession;
   clock: () => string;
+  processId: number;
+  presentationMode: ControlPresentationMode;
+  projections: ControlProjectionRuntime;
   beforeSessionRead?: (signal: AbortSignal) => Promise<void>;
 }>): ListenerComposition {
   let sequence = 0;
@@ -216,6 +234,26 @@ function composeListener(options: Readonly<{
     reply.code(200).type("application/json; charset=utf-8")
       .send(assertResponseBound(serializeSuccess(payload, nextSequence(), options.clock())));
   };
+  const sendProjection = (reply: FastifyReply, project: (
+    sequence: number,
+    serverNow: string,
+  ) => string | null): void => {
+    const sequence = nextSequence();
+    const serverNow = options.clock();
+    let payload: string | null;
+    try { payload = project(sequence, serverNow); }
+    catch { payload = null; }
+    reply.code(payload === null ? 503 : 200).type("application/json; charset=utf-8").send(assertResponseBound(
+      payload ?? serializeProjectionUnavailable(sequence, serverNow),
+    ));
+  };
+  const projectionContext = (sequence: number, serverNow: string) => Object.freeze({
+    audience: options.presentationMode,
+    sequence,
+    serverNow,
+    processId: options.processId,
+    startNonce: options.session.startNonce,
+  });
   const release = (request: FastifyRequest): void => {
     if (tracked.delete(request.raw)) activeRequests -= 1;
   };
@@ -347,6 +385,62 @@ function composeListener(options: Readonly<{
   });
   app.route({
     method: "GET",
+    url: "/v1/projections/health",
+    exposeHeadRoute: false,
+    handlerTimeout: CONTROL_LIMITS.requestDeadlineMs,
+    handler(request, reply) {
+      try { parseBoundedQuery(request.raw.url ?? "", []); }
+      catch { sendRefusal(reply, "QUERY_REFUSED"); return; }
+      sendProjection(reply, (sequence, serverNow) => options.projections.health(
+        projectionContext(sequence, serverNow),
+      ));
+    },
+  });
+  app.route({
+    method: "GET",
+    url: "/v1/projections/usage.policyConstants",
+    exposeHeadRoute: false,
+    handlerTimeout: CONTROL_LIMITS.requestDeadlineMs,
+    handler(request, reply) {
+      try { parseBoundedQuery(request.raw.url ?? "", []); }
+      catch { sendRefusal(reply, "QUERY_REFUSED"); return; }
+      sendProjection(reply, (sequence, serverNow) => options.projections.usagePolicyConstants(
+        projectionContext(sequence, serverNow),
+      ));
+    },
+  });
+  app.route({
+    method: "GET",
+    url: "/v1/projections/usage.profiles",
+    exposeHeadRoute: false,
+    handlerTimeout: CONTROL_LIMITS.requestDeadlineMs,
+    handler(request, reply) {
+      let query: Readonly<Record<string, string>>;
+      try { query = parseBoundedQuery(request.raw.url ?? "", ["profileId"]); }
+      catch { sendRefusal(reply, "QUERY_REFUSED"); return; }
+      sendProjection(reply, (sequence, serverNow) => options.projections.usageProfile(
+        query["profileId"] ?? "",
+        projectionContext(sequence, serverNow),
+      ));
+    },
+  });
+  app.route({
+    method: "GET",
+    url: "/v1/projections/routing.latest",
+    exposeHeadRoute: false,
+    handlerTimeout: CONTROL_LIMITS.requestDeadlineMs,
+    handler(request, reply) {
+      let query: Readonly<Record<string, string>>;
+      try { query = parseBoundedQuery(request.raw.url ?? "", ["taskId"]); }
+      catch { sendRefusal(reply, "QUERY_REFUSED"); return; }
+      sendProjection(reply, (sequence, serverNow) => options.projections.storedRoutingDecision(
+        query["taskId"] ?? "",
+        projectionContext(sequence, serverNow),
+      ));
+    },
+  });
+  app.route({
+    method: "GET",
     url: "/v1/session",
     exposeHeadRoute: false,
     handlerTimeout: CONTROL_LIMITS.requestDeadlineMs,
@@ -397,6 +491,8 @@ export async function startControlServiceInternal(options: InternalControlServic
   if (!Number.isSafeInteger(options.testingPort) || options.testingPort < 0 || options.testingPort > 65_535) {
     controlFail("BIND_REFUSED");
   }
+  controlAuthorityForPresentationMode(options.presentationMode);
+  const projections = createControlProjectionRuntime(options.projectionDataset);
   await options.store.prepare();
   const identity = createLaunchIdentity({
     now: options.clock(),
@@ -434,6 +530,9 @@ export async function startControlServiceInternal(options: InternalControlServic
   const listener = composeListener({
     session,
     clock: options.clock,
+    processId: options.processId,
+    presentationMode: options.presentationMode,
+    projections,
     ...(options.beforeSessionRead === undefined ? {} : { beforeSessionRead: options.beforeSessionRead }),
   });
   let descriptorLease: ArtifactLease | null = null;
@@ -491,12 +590,20 @@ export async function startControlServiceInternal(options: InternalControlServic
 }
 
 export async function startControlService(options: StartControlServiceOptions): Promise<ControlServiceHandle> {
-  const store = createControlArtifactStore({ root: options.storageRoot });
+  const parsed = readExactRecord(options, ["storageRoot", "presentationMode", "projectionDataset"]);
+  if (typeof parsed["storageRoot"] !== "string") controlFail("INVALID_INPUT");
+  const presentationMode = parsed["presentationMode"];
+  if (typeof presentationMode !== "string" || !CONTROL_PRESENTATION_MODES.includes(presentationMode as ControlPresentationMode)) {
+    controlFail("INVALID_INPUT");
+  }
+  const store = createControlArtifactStore({ root: parsed["storageRoot"] });
   return await startControlServiceInternal({
     store,
     clock: () => new Date().toISOString(),
     processId: process.pid,
     liveness: systemLiveness(),
     testingPort: 0,
+    presentationMode: presentationMode as ControlPresentationMode,
+    projectionDataset: parsed["projectionDataset"],
   });
 }

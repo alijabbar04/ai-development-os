@@ -8,12 +8,16 @@ import {
   parseBoundedQuery,
 } from "../src/index.js";
 
-describe("C4 route and command inventory", () => {
-  it("enumerates exactly two reads and zero commands", () => {
-    expect(CONTROL_ROUTE_COUNT).toBe(2);
+describe("C4-C5 route and command inventory", () => {
+  it("enumerates exactly six reads and zero commands", () => {
+    expect(CONTROL_ROUTE_COUNT).toBe(6);
     expect(CONTROL_ROUTE_REGISTRY).toEqual([
       { method: "GET", path: "/v1/health", authenticated: false, checkpoint: "C4" },
       { method: "GET", path: "/v1/session", authenticated: true, checkpoint: "C4" },
+      { method: "GET", path: "/v1/projections/health", authenticated: true, checkpoint: "C5" },
+      { method: "GET", path: "/v1/projections/usage.policyConstants", authenticated: true, checkpoint: "C5" },
+      { method: "GET", path: "/v1/projections/usage.profiles", authenticated: true, checkpoint: "C5" },
+      { method: "GET", path: "/v1/projections/routing.latest", authenticated: true, checkpoint: "C5" },
     ]);
     expect(CONTROL_ROUTE_REGISTRY.every((route) => route.method === "GET")).toBe(true);
     expect(CONTROL_COMMAND_COUNT).toBe(0);
@@ -23,7 +27,7 @@ describe("C4 route and command inventory", () => {
 
   it("keeps Normal and Developer authority byte-identical", () => {
     expect(controlAuthorityForPresentationMode("normal")).toBe(controlAuthorityForPresentationMode("developer"));
-    expect(controlAuthorityForPresentationMode("normal")).toMatchObject({ productionEnabled: false, routeCount: 2, commandCount: 0 });
+    expect(controlAuthorityForPresentationMode("normal")).toMatchObject({ productionEnabled: false, routeCount: 6, commandCount: 0 });
     expect(() => controlAuthorityForPresentationMode("admin" as "normal")).toThrow(/Unsupported/u);
   });
 

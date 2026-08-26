@@ -26,6 +26,33 @@ export function readExactRecord(value: unknown, fields: readonly string[]): Reco
   }
 }
 
+export function readExactArray(value: unknown, maximum: number): readonly unknown[] {
+  try {
+    if (
+      typeof value !== "object" || value === null || utilTypes.isProxy(value) ||
+      !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype ||
+      !Number.isSafeInteger(maximum) || maximum < 0 || value.length > maximum
+    ) controlFail("INVALID_INPUT");
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== value.length + 1 || keys.some((key) => typeof key !== "string")) {
+      controlFail("INVALID_INPUT");
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const output: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (descriptor === undefined || !("value" in descriptor) || descriptor.enumerable !== true) {
+        controlFail("INVALID_INPUT");
+      }
+      output.push(descriptor.value);
+    }
+    return Object.freeze(output);
+  } catch (error) {
+    if (error instanceof Error && error.name === "ControlServiceError") throw error;
+    controlFail("INVALID_INPUT");
+  }
+}
+
 export function exactString(value: unknown, pattern: RegExp, maximum = 256): string {
   if (typeof value !== "string" || value.length === 0 || value.length > maximum || !pattern.test(value)) {
     controlFail("INVALID_INPUT");

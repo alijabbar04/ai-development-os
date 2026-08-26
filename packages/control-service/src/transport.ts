@@ -136,7 +136,7 @@ export function parseBoundedQuery(rawUrl: string, expectedKeys: readonly string[
       key.length === 0 || value.length === 0 ||
       Buffer.byteLength(key, "utf8") > CONTROL_LIMITS.maxQueryComponentBytes ||
       Buffer.byteLength(value, "utf8") > CONTROL_LIMITS.maxQueryComponentBytes ||
-      !/^[A-Za-z0-9._-]+$/u.test(value)
+      !/^[A-Za-z0-9._:-]+$/u.test(value)
     ) controlFail("INVALID_INPUT");
     output[key] = value;
   }

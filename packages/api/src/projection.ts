@@ -29,6 +29,8 @@ export type ProjectionRule =
   | Readonly<{ kind: "profile-id" }>
   | Readonly<{ kind: "timestamp" }>
   | Readonly<{ kind: "enum"; values: readonly string[] }>
+  | Readonly<{ kind: "product-copy"; values: readonly string[] }>
+  | Readonly<{ kind: "policy-rule-id"; values: readonly string[] }>
   | Readonly<{ kind: "nullable"; value: ProjectionRule }>
   | Readonly<{ kind: "array"; maximumItems: number; item: ProjectionRule }>
   | Readonly<{ kind: "object"; fields: Readonly<Record<string, ProjectionRule>> }>
@@ -59,7 +61,8 @@ interface SchemaState {
 
 const RULE_KINDS = Object.freeze([
   "boolean", "integer", "count", "basis-points", "identifier", "rule-id",
-  "profile-id", "timestamp", "enum", "nullable", "array", "object",
+  "profile-id", "timestamp", "enum", "product-copy", "policy-rule-id",
+  "nullable", "array", "object",
   "developer-path", "source-fingerprint",
 ] as const);
 
@@ -160,6 +163,40 @@ function copyRule(value: unknown, path: string, depth: number, state: SchemaStat
         if (new Set(values).size !== values.length) apiFail(`${path}.values`, "duplicate_enum", "cannot contain duplicate values.");
         return Object.freeze({ kind, values: Object.freeze([...values].sort()) });
       }
+      case "product-copy": {
+        ensureExactAndPresent(record, ["kind", "values"], path);
+        const source = readSafeArray(record["values"], `${path}.values`, 64);
+        if (source.length === 0) apiFail(`${path}.values`, "empty_product_copy", "must contain at least one value.");
+        const values = source.map((item, index) => {
+          const itemPath = `${path}.values[${index}]`;
+          const candidate = validation.ensureString(item, itemPath, {
+            minLength: 1,
+            maxLength: API_LIMITS.maxProjectionStringLength,
+          });
+          assertSafeString(candidate, itemPath);
+          assertNormalSafeString(candidate, itemPath);
+          if (isAbsolutePath(candidate)) apiFail(itemPath, "product_copy_path", "cannot contain an absolute path.");
+          return candidate;
+        });
+        if (new Set(values).size !== values.length) apiFail(`${path}.values`, "duplicate_product_copy", "cannot contain duplicate values.");
+        return Object.freeze({ kind, values: Object.freeze([...values].sort()) });
+      }
+      case "policy-rule-id": {
+        ensureExactAndPresent(record, ["kind", "values"], path);
+        const source = readSafeArray(record["values"], `${path}.values`, API_LIMITS.maxRuleIds);
+        if (source.length === 0) apiFail(`${path}.values`, "empty_policy_rules", "must contain at least one value.");
+        const values = source.map((item, index) => validation.ensureString(
+          item,
+          `${path}.values[${index}]`,
+          {
+            maxLength: 64,
+            pattern: /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u,
+            patternName: "lowercase policy rule identifier",
+          },
+        ));
+        if (new Set(values).size !== values.length) apiFail(`${path}.values`, "duplicate_policy_rule", "cannot contain duplicate values.");
+        return Object.freeze({ kind, values: Object.freeze([...values].sort()) });
+      }
       case "nullable":
         ensureExactAndPresent(record, ["kind", "value"], path);
         return Object.freeze({ kind, value: copyRule(record["value"], `${path}.value`, depth + 1, state) });
@@ -232,7 +269,9 @@ function serializeRule(
   if (typeof value === "string") {
     assertSafeString(value, path, { allowDigest: rule.kind === "source-fingerprint" });
     if (state.audience === "normal") {
-      assertNormalSafeString(value, path);
+      if (rule.kind !== "product-copy") {
+        assertNormalSafeString(value, path);
+      }
       if (isAbsolutePath(value)) apiFail(path, "normal_path_leak", "cannot expose an absolute path in Normal mode.");
     }
   }
@@ -259,6 +298,9 @@ function serializeRule(
     case "timestamp":
       return validation.ensureTimestamp(value, path);
     case "enum":
+      return validation.ensureEnum(value, path, rule.values);
+    case "product-copy":
+    case "policy-rule-id":
       return validation.ensureEnum(value, path, rule.values);
     case "nullable":
       return value === null ? null : serializeRule(rule.value, value, fieldName, path, depth + 1, state);

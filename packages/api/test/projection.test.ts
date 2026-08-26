@@ -179,6 +179,48 @@ describe("projection allowlist serializer", () => {
     }
   });
 
+  it("permits schema-owned product copy while keeping lowercase policy ids Developer-only", () => {
+    const schema = defineProjectionSchema("c5Presentation", {
+      sentence: {
+        kind: "product-copy",
+        values: ["Usage evidence must be current.", "Both usage windows must be active."],
+      },
+      ruleIds: {
+        kind: "array",
+        maximumItems: 2,
+        item: {
+          kind: "policy-rule-id",
+          values: ["usage.stale.refused", "usage.window.inactive"],
+        },
+      },
+    });
+    expect(serializeProjection(schema, {
+      sentence: "Usage evidence must be current.",
+      ruleIds: ["usage.stale.refused"],
+    }, { audience: "developer" })).toEqual({
+      ruleIds: ["usage.stale.refused"],
+      sentence: "Usage evidence must be current.",
+    });
+    expect(() => serializeProjection(schema, {
+      sentence: "Usage evidence must be current.",
+      ruleIds: ["usage.stale.refused"],
+    }, { audience: "normal" })).toThrow(/mechanism/u);
+    expect(() => serializeProjection(schema, {
+      sentence: "Model supplied wording",
+      ruleIds: ["usage.stale.refused"],
+    }, { audience: "developer" })).toThrow(/must be one of/u);
+    expect(() => serializeProjection(schema, {
+      sentence: "Usage evidence must be current.",
+      ruleIds: ["usage.future.refused"],
+    }, { audience: "developer" })).toThrow(/must be one of/u);
+    expect(() => defineProjectionSchema("badCopy", {
+      sentence: { kind: "product-copy", values: ["route.provider.available"] },
+    })).toThrow(/mechanism/u);
+    expect(() => defineProjectionSchema("badPolicy", {
+      ruleId: { kind: "policy-rule-id", values: ["RULE-UPPER"] },
+    })).toThrow(/lowercase policy/u);
+  });
+
   it("counts the root object inside the exact 2 048-node projection bound", () => {
     const schema = defineProjectionSchema("nodeBound", {
       values: {

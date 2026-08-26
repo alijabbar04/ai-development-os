@@ -13,9 +13,16 @@ const C4_ROUTES: readonly ControlRouteDefinition[] = [
   Object.freeze({ method: "GET", path: "/v1/session", authenticated: true, checkpoint: "C4" }),
 ];
 
-export const CONTROL_ROUTE_REGISTRY: readonly ControlRouteDefinition[] = Object.freeze(C4_ROUTES);
+const C5_ROUTES: readonly ControlRouteDefinition[] = [
+  Object.freeze({ method: "GET", path: "/v1/projections/health", authenticated: true, checkpoint: "C5" }),
+  Object.freeze({ method: "GET", path: "/v1/projections/usage.policyConstants", authenticated: true, checkpoint: "C5" }),
+  Object.freeze({ method: "GET", path: "/v1/projections/usage.profiles", authenticated: true, checkpoint: "C5" }),
+  Object.freeze({ method: "GET", path: "/v1/projections/routing.latest", authenticated: true, checkpoint: "C5" }),
+];
+
+export const CONTROL_ROUTE_REGISTRY: readonly ControlRouteDefinition[] = Object.freeze([...C4_ROUTES, ...C5_ROUTES]);
 export const CONTROL_COMMAND_REGISTRY: readonly never[] = Object.freeze([]);
-export const CONTROL_ROUTE_COUNT = 2 as const;
+export const CONTROL_ROUTE_COUNT = 6 as const;
 export const CONTROL_COMMAND_COUNT = 0 as const;
 
 export interface ControlAuthority {

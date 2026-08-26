@@ -36,6 +36,47 @@ create-only transient mutation claim serializes cooperating artifact writers
 and removers across the ownership-check/unlink interval. An orphaned claim is
 an availability failure and is not removed by age.
 
+C5 extends the host to an exact six-route, zero-command inventory. Four
+authenticated projection reads use the C2 projection envelope: `health`,
+`usage.policyConstants`, one named `usage.profiles` record, and one named
+stored `routing.latest` decision. Normal and Developer presentation are fixed
+at composition and have byte-identical route and command authority; no request
+field or query named `mode` is accepted.
+
+The Stage 20A projection source is a strictly parsed bounded in-memory dataset,
+not an effectful adapter or callback. It is validated before filesystem or
+listener setup and has no dependency on Account Manager, a vault, credentials,
+providers, scheduler commands, tasks, workspaces, repositories, or Git. A
+missing named record fails closed with the finite C2 `SERVICE_NOT_READY`
+refusal. Source exceptions and validation detail are not projected.
+
+Separate Normal and Developer schemas make diagnostic fields structurally
+absent rather than cosmetically hidden. Normal has product-owned finite copy
+and no mechanism identifiers. Developer may add only the reviewed PID/nonce
+reference, sweep timing, profile/window/reservation/task/decision identifiers,
+source classification, schema/failure fields, and exact policy rule IDs.
+Neither presentation can expose `sourceFingerprint`, generic fingerprints,
+borrowed-owner identity, credentials, authorization headers, paths, hashes,
+model-authored prose, raw errors, or a different profile's reservation.
+
+The usage projection preserves four window states without turning inactive or
+unavailable into zero. Eligibility is source-served and independently checked
+against the ten exact freshness rules. Ambiguous authorization, unknown
+revocation, stale/unavailable evidence, invalid reset evidence, and expired
+windows stay ineligible. Caps are derived only from served `serverNow` using
+the explicit `en-GB` / `Europe/London` weekday `[09:00,17:00)` contract:
+5,000 basis points for the borrowed five-hour window during that interval and
+7,000 basis points weekly at all times. The stored-routing projection contains
+only the already selected alias/agent, finite reasons, rules, and timestamps;
+Stage 20A does not implement C16 outcomes or forecasts.
+
+Health truthfully reports `dispatchPaused: false` and
+`estopAvailability: not-implemented`. A fresh startup cannot claim a recovered
+session, and unresolved stopped work remains unresolved. The six deferred
+parameterized C2 refusals receive condition-specific finite product copy at the
+C5 presentation boundary without changing their codes, details, or next-step
+semantics.
+
 ## Honest platform boundary
 
 Node's `0o600` mode request does not prove a Windows DACL. JavaScript-level
@@ -50,6 +91,8 @@ Node does not expose a proof that a parent-directory entry was durably flushed.
 ## Consequences
 
 - C4 is frozen and independently security-reviewed before C5 bytes are added.
+- The repaired frozen C4 candidate passed its fresh independent re-review with
+  zero must-fix findings before C5 began; that verdict does not transfer to C5.
 - C5 accepts only injected deterministic records and C2 allowlist projection
   schemas; it does not read real installed state.
 - Stage 20B owns all commands and mutation. Stage 21 owns desktop composition.

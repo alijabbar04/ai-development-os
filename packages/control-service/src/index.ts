@@ -4,6 +4,8 @@ export * from "./contracts.js";
 export * from "./errors.js";
 export * from "./identity.js";
 export * from "./lifecycle.js";
+export * from "./presentation.js";
+export * from "./projections.js";
 export {
   startControlService,
   type ControlServiceHandle,

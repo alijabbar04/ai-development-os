@@ -12,6 +12,25 @@ if (typeof storageRoot !== "string" || storageRoot.length === 0 || typeof proces
     processId: process.pid,
     liveness: Object.freeze({ inspect: async () => "live" }),
     testingPort: 0,
+    presentationMode: "normal",
+    projectionDataset: {
+      health: {
+        startupMode: "fresh",
+        stoppedByRestart: 0,
+        recoveredSessions: 0,
+        unresolvedRuns: 0,
+        unconfirmedSessions: 0,
+        sweepCompletedAt: "2026-08-26T10:00:00.000Z",
+        providerHealth: [],
+        probes: [],
+        sweepTimings: [],
+        computedAt: "2026-08-26T10:00:00.000Z",
+        confidence: "current",
+        staleReason: null,
+      },
+      usageProfiles: [],
+      routingDecisions: [],
+    },
   });
   let closing = false;
   const closeForSignal = async () => {

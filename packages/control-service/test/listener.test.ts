@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,7 +13,7 @@ import {
   type ControlArtifactStore,
   type ControlServiceHandle,
 } from "../src/index.js";
-import { startControlServiceForTest } from "./testing.js";
+import { projectionDataset, startControlServiceForTest } from "./testing.js";
 import { httpGet } from "./http-helpers.js";
 
 const NOW = "2026-08-26T10:00:00.000Z";
@@ -178,14 +178,42 @@ describe("C4 loopback listener lifecycle", () => {
 
   it("keeps the public start surface ephemeral and production-disabled", async () => {
     const storageRoot = await root();
-    const first = await startControlService({ storageRoot });
+    const first = await startControlService({
+      storageRoot,
+      presentationMode: "normal",
+      projectionDataset: projectionDataset(NOW),
+    });
     handles.push(first);
     expect(first.descriptor.host).toBe("127.0.0.1");
     expect(first.descriptor.port).toBeGreaterThan(0);
     expect(first.lifecycle().productionEnabled).toBe(false);
-    const adopted = await startControlService({ storageRoot });
+    const adopted = await startControlService({
+      storageRoot,
+      presentationMode: "normal",
+      projectionDataset: projectionDataset(NOW),
+    });
     handles.push(adopted);
     expect(adopted.startupMode).toBe("adopted");
     expect(adopted.descriptor).toEqual(first.descriptor);
+  });
+
+  it("refuses unknown public composition fields and invalid datasets before storage mutation", async () => {
+    const storageRoot = await root();
+    await expect(startControlService({
+      storageRoot,
+      presentationMode: "normal",
+      projectionDataset: projectionDataset(NOW),
+      transport: "caller-controlled",
+    } as never)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(await readdir(storageRoot)).toEqual([]);
+
+    const invalid = projectionDataset(NOW);
+    invalid["unexpected"] = true;
+    await expect(startControlService({
+      storageRoot,
+      presentationMode: "normal",
+      projectionDataset: invalid,
+    })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(await readdir(storageRoot)).toEqual([]);
   });
 });
