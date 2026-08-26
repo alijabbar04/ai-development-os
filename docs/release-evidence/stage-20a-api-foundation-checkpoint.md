@@ -10,8 +10,8 @@
 C0 entry verification, C1 architecture ratification, and the C2 pure,
 route-free `@ai-dev-os/api` contract package are implemented. The repaired
 source candidate immediately before this evidence update is commit
-`2b320481b2fb947b356aa6f13b0094662d2d04e0`, tree
-`d98da01cdcd2ad04da4cacca71bd2a665301b458`.
+`e88a4038bee02367cbcec0cfc06ac61c9732e786`, tree
+`e356a19ef1b097fa82f80029aeb9c7a7e6c9b8ad`.
 
 This document does not preclaim facts that can exist only after its own bytes
 are committed. Its final evidence commit necessarily assigns a new HEAD and
@@ -42,7 +42,8 @@ the following for the exact evidence commit:
 | Sealed repository | `C:\Users\mrali\Projects\ai-dev-os-18e` |
 | Sealed branch | `feat/stage-18-development-acceptance-closure` |
 | Sealed hosted CI | run `32846367459`, attempt 1, seven of seven jobs successful |
-| Acceptance matrix | 24,147 bytes; SHA-256 `db7dbb47e6a90f85ca90798a28953b029a6da6a1c9fb170980158467d812b30f` |
+| Acceptance matrix checkout | CRLF rendition; 24,147 bytes; SHA-256 `db7dbb47e6a90f85ca90798a28953b029a6da6a1c9fb170980158467d812b30f` |
+| Acceptance matrix Git blob | SHA-1 `09ca763d6b8c13a5d5c458dc92e7305965611285`; 23,927 bytes |
 
 The sealed repository was clean, and its HEAD, configured upstream,
 remote-tracking ref, and live remote matched exactly. The matrix was derived
@@ -184,18 +185,20 @@ packages/api/tsconfig.json
 packages/api/vitest.config.ts
 ```
 
-The five commits before this final evidence update were:
+The seven commits before this final evidence update were:
 
 1. `82b6b3b` — `docs: ratify Stage 20A entry and architecture`;
 2. `fcb127a` — `feat(api): add route-free Stage 20A contracts`;
 3. `c81a489` — `fix(api): harden projection and refusal contracts`;
-4. `77ba379` — `docs: record Stage 20A API foundation evidence`; and
-5. `2b32048` — `fix(api): close Stage 20A review findings`.
+4. `77ba379` — `docs: record Stage 20A API foundation evidence`;
+5. `2b32048` — `fix(api): close Stage 20A review findings`;
+6. `5c9d9ec` — `docs: record Stage 20A review repairs`; and
+7. `e88a403` — `fix(api): close final contract review gaps`.
 
 ## Local assurance
 
-All final source gates below ran on repaired source commit `2b32048...`, tree
-`d98da01...`. Updating this Markdown evidence file changes no executable,
+All final source gates below ran on repaired source commit `e88a403...`, tree
+`e356a19...`. Updating this Markdown evidence file changes no executable,
 configuration, package, lockfile, test, threshold, or workflow byte.
 
 ### API package
@@ -205,19 +208,21 @@ configuration, package, lockfile, test, threshold, or workflow byte.
 | Typecheck | exit 0 |
 | Build | exit 0 |
 | Tests | 5 files, 48/48 tests passed |
-| Coverage | statements 326/337 (96.73%); branches 200/212 (94.33%); functions 46/46 (100%); lines 303/308 (98.37%) |
+| Coverage | statements 328/337 (97.32%); branches 202/212 (95.28%); functions 46/46 (100%); lines 305/308 (99.02%) |
 | Coverage floors | 90% statements, 80% branches, 98% functions, 90% lines; unchanged and satisfied |
 | Refusal parity | acceptance pack 70; source 70; missing 0; extra 0 |
 | Stable repetition | deterministic repeated serialization tests passed |
 
-Three load-bearing mutation controls were observed. Removing the runtime
+Five load-bearing mutation controls were observed. Removing the runtime
 safe-string check from identifier-rule serialization made the focused
 projection suite fail because a credential-shaped identifier was admitted.
 After the review repair, removing the Normal-mode mechanism-string guard made
 the focused projection suite fail, and changing the test-owned `RATE_LIMITED`
-next-step sentence to invented prose made the refusal parity suite fail. Every
-guard and exact mapping was restored, no mutation marker remained, and the
-complete final gates passed.
+next-step sentence to invented prose made the refusal parity suite fail.
+Removing `refresh` from the credential-field matcher made the focused
+projection suite fail, and removing block-comment trivia handling from the
+static import policy made its focused suite fail. Every guard and exact mapping
+was restored, no mutation marker remained, and the complete final gates passed.
 
 ### Repository and maintained consumers
 
@@ -242,16 +247,17 @@ totals and the literal root exits instead of inventing an aggregate.
 `@ai-dev-os/domain@0.1.0`, with no problem. `npm audit
 --audit-level=high` exited 0 and reported `found 0 vulnerabilities`.
 
-The final dry pack contains 30 entries, is 25,530 bytes packed and 127,832
+The final dry pack contains 30 entries, is 25,635 bytes packed and 128,008
 bytes unpacked, and has SHA-1 shasum
-`181cc5832d6c1512a50b44285ce2131abf57f521` and integrity
-`sha512-HIGkIV0AvvgADw+TB4nhuzgBBq16n2a57VJdKY9UrXjx+zNGBL5qyZsMMTGrRBNYZete9yQ8VjhH/D/Q1gKEYw==`.
+`58cd3fa54f73730bd05ef80fb95c8cf56fa3fd41` and integrity
+`sha512-gKaTPjnYAsPUCS/WPwTwxCCulfwjN2qfmm89jc83z3wkWj1Yk+opJx/NkpZBb7OG4140uNc8gtDcvi/flAELXA==`.
 It contains only the package README, package metadata, and built JavaScript,
 source maps, and declarations.
 
 ### Static hygiene
 
-- `git diff --check f8ab3c5..2b32048`: exit 0.
+- `git diff --check f8ab3c5 --` across the base-to-working-tree candidate:
+  exit 0.
 - All three changed JSON files parsed successfully.
 - All nine changed Markdown files passed the local-link check; zero missing
   targets.
@@ -277,7 +283,8 @@ resolves all six as follows:
 
 1. The governing ADR and product/entry records now preserve the
    mode-independent contextual direct-to-task contract, RD-10's fixed 30-second
-   control-plane and 20-second UI startup deadlines and actions, RD-08's global
+   visible-application and 20-second service-ready startup deadlines and
+   actions, RD-08's global
    `dispatch.pauseAll`, and the separate future C12 project-scoped stop model.
 2. Normal-mode projection leakage checks now include the reconciled R2 secret
    shapes, mechanism fields and strings, opaque handles, hashes, basis points,
@@ -295,11 +302,41 @@ resolves all six as follows:
    70-entry catalogue containing exact code, sentence, and `nextStepId`
    mappings, so production cannot define its own oracle.
 
-The review recorded one non-blocking advisory: six parameterized copy shapes
-remain intentionally generic and should preserve their accepted wording when
-UI contracts land. It also independently noted that the checked-in LCOV output
-corroborates the reported coverage configuration and metrics. Neither point
-expands this C0-C2 scope.
+The evidence update at commit
+`5c9d9ecda3b53bb9395bc3dee74c21a730479d62`, tree
+`d78c0efa990f022cf3c5587cfc9ebc8c19fc2c26`, was returned to the same
+reviewer. Its exact-candidate re-review also returned FAIL, this time with
+three must-fix findings. Source commit `e88a403...` and this evidence update
+resolve them as follows:
+
+1. Normal-mode credential-field rejection now covers refresh, session, ID,
+   bearer, OAuth, CSRF/XSRF and API tokens; private, signing, encryption,
+   client, access and authentication keys; cookies, session identifiers,
+   recovery codes, OTP/TOTP fields, and passphrases. Focused tests enumerate
+   the review probes while retaining `inputTokenCount` as permitted
+   non-credential data.
+2. The static import policy now consumes JavaScript line and block comments as
+   trivia around static, side-effect, export-from, dynamic-import and `require`
+   syntax. It rejects the exact `import/*comment*/"node:worker_threads";`
+   bypass, comment-separated variants, and non-literal dynamic imports and
+   requires, with focused positive controls.
+3. This checkpoint now states the actual 30-second visible-application and
+   20-second service-ready deadlines. It also records that an ignored local
+   LCOV artifact was available to the reviewer and corroborated the metrics;
+   LCOV is not present in the candidate tree or claimed as checkpoint evidence.
+
+The reviewer retained one scope-timed advisory: six parameterized refusal-copy
+shapes remain intentionally generic and should receive condition-specific UI
+wording in C5 without changing their accepted C2 contract meanwhile. Two other
+advisories were implemented here with focused tests: prototype-pollution keys
+are explicitly refused, and the 256-character developer-path boundary is
+accepted while 257 characters are refused. The remaining evidence-format
+advisory is addressed by labelling the matrix SHA-256 as the CRLF checkout
+rendition and recording its 23,927-byte Git SHA-1 blob identity above.
+
+The ignored local LCOV artifact corroborates the reported coverage
+configuration and metrics. It is not in the candidate tree, is not committed,
+and is not part of this checkpoint's immutable evidence.
 
 No exact repaired-candidate PASS or hosted result is claimed in advance. This
 evidence update must be committed and then sent back to the same independent
