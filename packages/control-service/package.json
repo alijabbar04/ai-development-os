@@ -1,0 +1,31 @@
+{
+  "name": "@ai-dev-os/control-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production-disabled loopback read control service for AI Development OS.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../api run build",
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../api run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm --prefix ../api run build",
+    "test:coverage": "vitest run --coverage",
+    "pretypecheck": "npm --prefix ../api run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-dev-os/api": "0.1.0",
+    "@ai-dev-os/domain": "0.1.0"
+  }
+}
