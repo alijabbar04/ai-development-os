@@ -2,6 +2,7 @@ import { canonicalizeJson, type JsonObject, type JsonValue, validation } from "@
 import { API_LIMITS } from "./constants.js";
 import {
   apiFail,
+  assertNormalSafeString,
   assertProjectionFieldName,
   assertSafeString,
   ensureAllowedKeys,
@@ -229,8 +230,11 @@ function serializeRule(
 ): JsonValue {
   countNode(path, state, depth);
   if (typeof value === "string") {
-    assertSafeString(value, path);
-    if (state.audience === "normal" && isAbsolutePath(value)) apiFail(path, "normal_path_leak", "cannot expose an absolute path in Normal mode.");
+    assertSafeString(value, path, { allowDigest: rule.kind === "source-fingerprint" });
+    if (state.audience === "normal") {
+      assertNormalSafeString(value, path);
+      if (isAbsolutePath(value)) apiFail(path, "normal_path_leak", "cannot expose an absolute path in Normal mode.");
+    }
   }
   switch (rule.kind) {
     case "boolean":
@@ -324,7 +328,7 @@ export function serializeProjection(
   const parsedOptions = parseOptions(options);
   const record = readSafeRecord(value, `projection.${safeSchema.name}`);
   const state: SerializationState = {
-    nodes: 0,
+    nodes: 1,
     active: new WeakSet<object>(),
     audience: parsedOptions.audience,
     profileScope: parsedOptions.profileScope,

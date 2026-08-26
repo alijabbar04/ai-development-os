@@ -103,14 +103,34 @@ The five explicit reconciliations are:
 5. The operator will read the relevant licence documents before Stage 23
    packaging decisions.
 
+The explicit third reconciliation adopts RD-08's resume choice: the future
+global emergency-stop resume offers "also return to Contained permissions",
+defaulted on only when the mode at engagement was not Contained, and records
+the choice separately. It does not authorize a stop or resume command here.
+
 The product is **AI Development OS** and the coordinator persona is **AI
 Powerhouse**. Windows is the only product platform. Normal mode has one
-coordinator; Developer mode may later allow bounded direct-to-task
-communication without more authority. The control plane is a local child
-process, never a Windows Service. Fastify is accepted only for the later C4
-listener and remains subject to the dependency audit. Production dispatch,
-automatic purchases, Linux/macOS integration, UI automation as agent
+coordinator; the bounded direct-to-task input is mode-independent and exists
+only for a waiting or blocked session or its approval question, never as free-
+standing agent chat. Developer mode adds visibility without more authority, and
+the locally persisted mode is never sent as task input. The control plane is a
+local child process, never a Windows Service. Fastify is accepted only for the
+later C4 listener and remains subject to the dependency audit. Production
+dispatch, automatic purchases, Linux/macOS integration, UI automation as agent
 integration, and transcript-as-record designs remain excluded.
+
+RD-10 fixes the future visible/application and service-ready deadlines at 30
+and 20 seconds, respectively, with no options before the applicable deadline;
+the deadline surface is Relaunch, Quit, or stale-cache-only Open read-only with
+no dispatch, bounded adoption retry (10 minutes and 20 attempts), a disabled-
+with-reason emergency-stop control, and a 1024 by 720 minimum window. RD-08 and
+RD-21 keep global `dispatch.pauseAll`, scoped
+`ProjectStop {projectId, engagedAt, effects, resumedAt}`, and global emergency
+stop separate. A project stop refuses only its project, global stop remains
+engageable, and resume starts nothing automatically. The separately chosen
+E-3 checkbox returns to Contained permissions by default only when applicable
+and records that choice. These are durable future C12/C19 deltas, not C0-C2
+runtime capabilities.
 
 ## Start-state and CLI observation
 

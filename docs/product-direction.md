@@ -153,8 +153,27 @@ text is always untrusted task input, never direct authority.
 The control plane is a local child process owned by the future desktop shell,
 not a Windows Service or machine daemon. Normal and Developer modes have
 identical authority. AI Powerhouse is the single Normal-mode coordinator;
-bounded Developer-mode direct-to-task communication cannot widen authority.
-Transcripts never become the system of record.
+the bounded direct-to-task input is available in either mode only in the
+context of a waiting or blocked session or its approval question. It is not a
+free-standing agent chat, the locally persisted presentation mode is never sent
+as task input, and Developer diagnostics cannot widen authority. Transcripts
+never become the system of record.
+
+The future startup contract has fixed 30-second visible and 20-second service-
+ready deadlines, with no recovery options before the applicable deadline. At
+the deadline it offers Relaunch, Quit, or Open read-only; read-only requires a
+stale-marked cache, dispatches nothing, retries adoption for at most 10 minutes
+and 20 attempts, and disables emergency stop with a reason while the engine is
+unavailable. The minimum supported window is 1024 by 720.
+
+The future stop model keeps global `dispatch.pauseAll`, a separate scoped
+`ProjectStop {projectId, engagedAt, effects, resumedAt}`, and the global
+emergency stop distinct. A project stop refuses only its project's commands
+with `BLOCKED_BY_PROJECT_STOP` and cannot block global emergency-stop
+engagement. Resuming any stop starts nothing automatically. Global emergency-
+stop resume offers "also return to Contained permissions", defaulted on only
+when applicable, and records the choice separately. These remain Stage 20B/21
+requirements and add no command to Stage 20A.
 
 Stage 22 adds adapters in this order:
 

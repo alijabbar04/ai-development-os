@@ -78,9 +78,13 @@ No local or remote listener is created in C0-C2.
   deferred; portable contract code does not claim platform support.
 - The Stage 21 desktop later consumes a frozen client. It is not built in Stage
   20A C0-C2.
-- Normal and Developer modes have identical authority. Developer mode changes
-  visibility and permits only bounded direct-to-task communication; it cannot
-  widen scope, permissions, profiles, budget, approvals, or recipient identity.
+- Normal and Developer modes have identical authority. The bounded
+  direct-to-task input is mode-independent and contextual: it exists only for
+  a session that is waiting or blocked, or for its approval question. There is
+  no free-standing agent chat. Developer mode may expose diagnostics, but it
+  cannot add verbs or widen scope, permissions, profiles, budget, approvals, or
+  recipient identity. The locally persisted presentation mode is never sent as
+  task or authorization input.
 - Normal mode has one coordinator persona, **AI Powerhouse**, which is a control
   role rather than a persistent privileged agent.
 - Chat transcripts and provider transcript files never become the system of
@@ -101,6 +105,37 @@ No local or remote listener is created in C0-C2.
   decisions.
 - MCP, installers, updates, auto-start, machine registration, external messaging,
   the project spine, and the Stage 21 shell are not introduced by this decision.
+
+### Ratified startup and recovery contract
+
+Fable A-4 is re-homed as a future shell requirement under RD-10. The visible
+application deadline is a fixed 30 seconds and the service-ready deadline is a
+fixed 20 seconds. Recovery options are not shown before the applicable
+deadline. At the deadline the failure surface offers exactly **Relaunch**,
+**Quit**, and **Open read-only**. Read-only is available only over a cached
+projection explicitly marked stale; it dispatches nothing. Adoption retry is
+bounded to at most 10 minutes and 20 attempts. The emergency-stop control is
+disabled with the reason while the engine cannot enforce it. The supported
+minimum window is 1024 by 720. These are future C19/Stage 21 contracts; C0-C2
+does not implement a shell, timer, cache, adoption loop, or control.
+
+### Ratified future stop boundaries
+
+Fable A-6 is re-homed as a future C12/Stage 20B requirement under RD-08 and
+RD-21. `dispatch.pauseAll` is the global pause for new dispatch; running
+sessions continue, and resuming dispatch starts nothing automatically. A
+project stop is separate from both that pause and the global emergency stop.
+It is represented by `ProjectStop {projectId, engagedAt, effects, resumedAt}`.
+While active it refuses only commands belonging to that project with
+`BLOCKED_BY_PROJECT_STOP`, leaves other projects unaffected, and never prevents
+engagement of the global emergency stop.
+
+On resume from a global emergency stop, the future UI offers **also return to
+Contained permissions**, defaulted on and shown only when the permission mode
+at engagement was not Contained. The choice is visibly recorded as its own
+decision, and resume never auto-starts work. The `dispatch.pauseAll`, project-
+stop, emergency-stop, and resume operations remain future Stage 20B commands;
+this ADR records their separation but introduces none of them.
 
 ## Assurance requirements
 

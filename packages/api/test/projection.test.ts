@@ -126,15 +126,59 @@ describe("projection allowlist serializer", () => {
     expect(() => defineProjectionSchema(schemaCredentialCanary, {
       value: { kind: "boolean" },
     })).toThrow(/credential-shaped/u);
+
+    const exactR2SecretCanaries = [
+      "sk-ant-abcdefgh", `sk-${"a".repeat(20)}`, `AKIA${"A".repeat(16)}`,
+      `ghp_${"a".repeat(16)}`, `xoxb-${"a".repeat(10)}`, `AIza${"a".repeat(30)}`,
+      `eyJ${"a".repeat(10)}.${"b".repeat(10)}.${"c".repeat(10)}`,
+      "-----BEGIN PRIVATE KEY-----", `Bearer ${"a".repeat(16)}`,
+      "a".repeat(40), "Q".repeat(48), "password=abcdefgh",
+    ];
+    for (const canary of exactR2SecretCanaries) {
+      expect(() => serializeProjection(identifierOnly, { value: canary }, { audience: "normal" })).toThrow(/credential-shaped/u);
+    }
   });
 
   it("refuses owner identity, credential fields, implicit paths, and model-text schema kinds", () => {
     expect(() => defineProjectionSchema("bad", { borrowedOwnerIdentity: { kind: "identifier" } })).toThrow(/owner-identity/u);
+    expect(() => defineProjectionSchema("bad", { ownerId: { kind: "identifier" } })).toThrow(/owner-identity/u);
     expect(() => defineProjectionSchema("bad", { apiKey: { kind: "identifier" } })).toThrow(/credential/u);
+    expect(() => defineProjectionSchema("bad", { accessToken: { kind: "identifier" } })).toThrow(/credential/u);
+    expect(() => defineProjectionSchema("bad", { authorizationToken: { kind: "identifier" } })).toThrow(/credential/u);
+    expect(() => defineProjectionSchema("bad", { fingerprint: { kind: "identifier" } })).toThrow(/fingerprint/u);
     expect(() => defineProjectionSchema("bad", { workspacePath: { kind: "identifier" } })).toThrow(/developer-path/u);
     expect(() => defineProjectionSchema("bad", { profileId: { kind: "identifier" } })).toThrow(/profile-id/u);
     expect(() => defineProjectionSchema("bad", { sourceFingerprint: { kind: "identifier" } })).toThrow(/source-fingerprint/u);
     expect(() => defineProjectionSchema("bad", { narrative: { kind: "string" } as unknown as ProjectionRule })).toThrow(/must be one of/u);
+  });
+
+  it("refuses accepted mechanism canaries in Normal mode but preserves Developer diagnostics", () => {
+    const schema = defineProjectionSchema("mechanism", { value: { kind: "identifier" } });
+    const canaries = [
+      "usage.borrowed.owner", "route.provider.available", "admission.production.refused",
+      "orchestration.task.bound", "sha256:abc", "att-abc", "lease-abc", "trc-abc",
+      "hnd:abc", "dec:abc", "ctx-abc", "100bps", "basis-points", "error.429",
+    ];
+    for (const canary of canaries) {
+      expect(() => serializeProjection(schema, { value: canary }, { audience: "normal" })).toThrow(/mechanism/u);
+    }
+    for (const canary of canaries.filter((value) => value !== "100bps")) {
+      expect(serializeProjection(schema, { value: canary }, { audience: "developer" })).toEqual({ value: canary });
+    }
+  });
+
+  it("counts the root object inside the exact 2 048-node projection bound", () => {
+    const schema = defineProjectionSchema("nodeBound", {
+      values: {
+        kind: "array", maximumItems: 100,
+        item: { kind: "array", maximumItems: 100, item: { kind: "boolean" } },
+      },
+    });
+    const atLimit = Array.from({ length: 20 }, () => Array.from({ length: 100 }, () => true));
+    atLimit.push(Array.from({ length: 25 }, () => true));
+    expect(serializeProjection(schema, { values: atLimit }, { audience: "normal" })["values"]).toHaveLength(21);
+    atLimit[20]?.push(true);
+    expect(() => serializeProjection(schema, { values: atLimit }, { audience: "normal" })).toThrow(/projection node limit/u);
   });
 
   it("refuses functions, accessors, proxies, abnormal prototypes, symbols, cycles, and custom arrays", () => {

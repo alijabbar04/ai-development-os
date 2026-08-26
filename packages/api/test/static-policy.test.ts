@@ -20,6 +20,7 @@ function sourceFiles(directory: string): readonly string[] {
 function importSpecifiers(source: string): readonly string[] {
   const matches = [
     ...source.matchAll(/\bfrom\s+["']([^"']+)["']/gu),
+    ...source.matchAll(/\bimport\s*["']([^"']+)["']/gu),
     ...source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/gu),
     ...source.matchAll(/\brequire\s*\(\s*["']([^"']+)["']\s*\)/gu),
   ];
@@ -31,6 +32,13 @@ const ALLOWED_PRODUCTION_IMPORTS = new Set(["@ai-dev-os/domain", "node:util"]);
 function forbiddenImports(source: string): readonly string[] {
   return importSpecifiers(source).filter((specifier) =>
     !specifier.startsWith(".") && !ALLOWED_PRODUCTION_IMPORTS.has(specifier));
+}
+
+function productionSources(): readonly string[] {
+  return [
+    ...sourceFiles(resolve(packageRoot, "src")),
+    ...sourceFiles(resolve(repositoryRoot, "packages", "domain", "src")),
+  ];
 }
 
 function workspaceManifest(packageName: string): string {
@@ -66,10 +74,7 @@ function runtimeDependencyClosure(rootManifest: string): readonly string[] {
 
 describe("Stage 20A API static import and authority policy", () => {
   it("allows only domain validation and pure proxy introspection across the runtime source closure", () => {
-    const sources = [
-      ...sourceFiles(resolve(packageRoot, "src")),
-      ...sourceFiles(resolve(repositoryRoot, "packages", "domain", "src")),
-    ];
+    const sources = productionSources();
     expect(sources.length).toBeGreaterThan(sourceFiles(resolve(packageRoot, "src")).length);
     for (const path of sources) expect(forbiddenImports(read(path)), path).toEqual([]);
   });
@@ -87,10 +92,10 @@ describe("Stage 20A API static import and authority policy", () => {
   });
 
   it("contains no provider, process, workspace, Git, secret, Electron, native, network, persistence, or launch authority", () => {
-    const source = sourceFiles(resolve(packageRoot, "src")).map(read).join("\n").toLowerCase();
+    const source = productionSources().map(read).join("\n").toLowerCase();
     for (const forbidden of [
       "@ai-dev-os/provider", "@ai-dev-os/process-broker", "@ai-dev-os/workspace",
-      "@ai-dev-os/integrator", "@ai-dev-os/secrets", "node:http", "node:https",
+      "@ai-dev-os/integrator", "@ai-dev-os/secrets", "node:http", "node:https", "node:dns",
       "node:net", "node:tls", "node:dgram", "node:fs", "node:child_process",
       "better-sqlite3", "electron", "fastify", "node-gyp", "process.env",
       "fetch(", "websocket", "xmlhttprequest", ".listen(", ".bind(", "spawn(",
@@ -100,7 +105,13 @@ describe("Stage 20A API static import and authority policy", () => {
 
   it("proves the import guard detects synthetic direct and transitive violations", () => {
     expect(forbiddenImports('import { createServer } from "node:http";')).toEqual(["node:http"]);
+    expect(forbiddenImports('import "node:dns";')).toEqual(["node:dns"]);
     expect(forbiddenImports('const provider = await import("@ai-dev-os/provider-codex");')).toEqual(["@ai-dev-os/provider-codex"]);
     expect(forbiddenImports('import { validation } from "@ai-dev-os/domain";')).toEqual([]);
+    const syntheticTransitiveClosure = [
+      'import { validation } from "@ai-dev-os/domain";',
+      'import "node:dns";',
+    ];
+    expect(syntheticTransitiveClosure.flatMap(forbiddenImports)).toEqual(["node:dns"]);
   });
 });

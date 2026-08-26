@@ -94,7 +94,9 @@ export function parseProjectionEnvelope<T extends JsonValue>(
   if (record["ok"] !== true || record["kind"] !== "projection") apiFail(path, "wrong_envelope_kind", "must be a projection envelope.");
   const base = parseBase(record, path);
   const computedAt = validation.ensureTimestamp(record["computedAt"], `${path}.computedAt`);
-  if (computedAt > base.serverNow) apiFail(`${path}.computedAt`, "future_projection", "cannot be later than serverNow.");
+  if (new Date(computedAt).valueOf() > new Date(base.serverNow).valueOf()) {
+    apiFail(`${path}.computedAt`, "future_projection", "cannot be later than serverNow.");
+  }
   const confidence = validation.ensureEnum(record["confidence"], `${path}.confidence`, PROJECTION_CONFIDENCE);
   let staleReason: ProjectionStaleReason | null;
   if (confidence === "current") {

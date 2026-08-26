@@ -3,9 +3,26 @@ import { types as utilTypes } from "node:util";
 import { API_LIMITS } from "./constants.js";
 
 const FORBIDDEN_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-const CREDENTIAL_KEY = /(?:credential|secret|api[_-]?key|password|raw[_-]?body|response[_-]?body)/iu;
-const BORROWED_OWNER_KEY = /(?:borrowed.*owner|owner.*(?:identity|email|name|account))/iu;
-const CREDENTIAL_SHAPE = /(?:sk-ant-api\d{2}-|sk-proj-|sk-[A-Za-z0-9_-]{24,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]+PRIVATE KEY-----)/u;
+const CREDENTIAL_KEY = /(?:credential|secret|api[_-]?key|password|(?:access|authorization|auth)[_-]?token|raw[_-]?body|response[_-]?body)/iu;
+const BORROWED_OWNER_KEY = /(?:borrowed.*owner|owner.*(?:id|identity|email|name|account))/iu;
+const FINGERPRINT_KEY = /fingerprint/iu;
+const LONG_HEX_SHAPE = /\b[0-9a-f]{40,}\b/iu;
+const LONG_BASE64_SHAPE = /\b[A-Za-z0-9+/]{48,}={0,2}\b/u;
+const SECRET_SHAPES = Object.freeze([
+  /sk-ant-[A-Za-z0-9_-]{8,}/u,
+  /\bsk-[A-Za-z0-9]{20,}\b/u,
+  /\bAKIA[0-9A-Z]{16}\b/u,
+  /\b(?:ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{16,}\b/u,
+  /\bxox[abpr]-[A-Za-z0-9-]{10,}/u,
+  /\bAIza[0-9A-Za-z_-]{30,}/u,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/u,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/u,
+  /\bBearer\s+[A-Za-z0-9._~+/\-]{16,}=*/u,
+  LONG_HEX_SHAPE,
+  LONG_BASE64_SHAPE,
+  /\b(?:password|passwd|secret|api[_-]?key|token)\s*[:=]\s*['"]?[^\s'"]{8,}/iu,
+]);
+const NORMAL_MECHANISM_SHAPE = /(?:\b(?:usage|route|admission|orchestration)\.[a-z0-9.-]+|sha256:|\b(?:att|lease|trc|ctx)-[a-z0-9._:-]+|\b(?:hnd|dec):[a-z0-9._:-]+|\bbasis[-\s]+points?\b|\b\d+(?:\.\d+)?\s*(?:bp|bps)\b|\b429\b)/iu;
 const WINDOWS_ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|\\\\)/u;
 const POSIX_ABSOLUTE_PATH = /^\/(?!\/)/u;
 
@@ -111,12 +128,25 @@ export function ensureRuleId(value: unknown, path: string): string {
   });
 }
 
-export function assertSafeString(value: string, path: string): void {
+export function assertSafeString(
+  value: string,
+  path: string,
+  options: Readonly<{ allowDigest?: boolean }> = {},
+): void {
   if (value.length > API_LIMITS.maxProjectionStringLength) {
     apiFail(path, "string_too_long", "exceeds the projection string limit.");
   }
-  if (CREDENTIAL_SHAPE.test(value)) {
-    apiFail(path, "credential_shape", "contains a prohibited credential-shaped value.");
+  for (const pattern of SECRET_SHAPES) {
+    if (options.allowDigest === true && (pattern === LONG_HEX_SHAPE || pattern === LONG_BASE64_SHAPE)) continue;
+    if (pattern.test(value)) {
+      apiFail(path, "credential_shape", "contains a prohibited credential-shaped value.");
+    }
+  }
+}
+
+export function assertNormalSafeString(value: string, path: string): void {
+  if (NORMAL_MECHANISM_SHAPE.test(value)) {
+    apiFail(path, "normal_mechanism_leak", "contains a prohibited implementation-mechanism value in Normal mode.");
   }
 }
 
@@ -129,6 +159,9 @@ export function assertProjectionFieldName(name: string, path: string): void {
   }
   if (BORROWED_OWNER_KEY.test(name)) {
     apiFail(path, "owner_identity_field", "is a prohibited owner-identity field.");
+  }
+  if (FINGERPRINT_KEY.test(name) && !isSourceFingerprintField(name)) {
+    apiFail(path, "fingerprint_field", "is a prohibited generic fingerprint field.");
   }
 }
 

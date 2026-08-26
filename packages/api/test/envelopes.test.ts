@@ -111,6 +111,11 @@ describe("Stage 20A API envelopes", () => {
       ...base(), ok: true, kind: "projection", computedAt: "2026-08-25T14:00:00.001Z",
       confidence: "current", staleReason: null, payload: null,
     }, payloadParser)).toThrow(/later than serverNow/u);
+    expect(() => parseProjectionEnvelope({
+      ...base(), serverNow: "9999-12-31T23:59:59.999Z", ok: true, kind: "projection",
+      computedAt: "+010000-01-01T00:00:00.000Z", confidence: "current",
+      staleReason: null, payload: null,
+    }, payloadParser)).toThrow(/later than serverNow/u);
   });
 
   it("validates monotonic sequences without consulting a clock", () => {
