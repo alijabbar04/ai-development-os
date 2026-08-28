@@ -50,6 +50,7 @@ describe("C4 loopback listener lifecycle", () => {
     const storageRoot = await root();
     const handle = await start({ storageRoot });
     expect(handle.startupMode).toBe("fresh");
+    expect(handle.bootstrap).toEqual({ scope: "client-attachment", mode: "fresh" });
     expect(handle.ownsListener).toBe(true);
     expect(handle.descriptor).toMatchObject({ host: "127.0.0.1", processId: process.pid });
     expect(handle.descriptor.port).toBeGreaterThan(0);
@@ -125,13 +126,32 @@ describe("C4 loopback listener lifecycle", () => {
   it("adopts a live matching instance instead of creating a duplicate listener", async () => {
     const storageRoot = await root();
     const first = await start({ storageRoot });
-    const second = await start({ storageRoot, random: (size) => Buffer.alloc(size, 22) });
+    const unusedAdopterDataset = projectionDataset(NOW);
+    (unusedAdopterDataset["health"] as Record<string, unknown>)["startupMode"] = "adopted";
+    const second = await start({
+      storageRoot,
+      random: (size) => Buffer.alloc(size, 22),
+      projectionDataset: unusedAdopterDataset,
+    });
     expect(second.startupMode).toBe("adopted");
+    expect(second.bootstrap).toEqual({ scope: "client-attachment", mode: "adopted" });
     expect(second.ownsListener).toBe(false);
     expect(second.descriptor).toEqual(first.descriptor);
     expect(second.lifecycle()).toMatchObject({ state: "ready", startupMode: "adopted", recovery: "identity-adopted" });
     await second.close();
     expect((await httpGet(first.descriptor, "/v1/health", { token: null })).statusCode).toBe(200);
+    const processHealth = await httpGet(first.descriptor, "/v1/projections/health");
+    expect((processHealth.json as { payload: Record<string, unknown> }).payload).toMatchObject({
+      startup: {
+        scope: "service-process",
+        mode: "fresh",
+        stoppedByRestart: 0,
+        recoveredSessions: 0,
+        unresolvedRuns: 0,
+        unconfirmedSessions: 0,
+        sweepCompletedAt: null,
+      },
+    });
   });
 
   it("cleans the lock after a port conflict before descriptor publication", async () => {
@@ -197,7 +217,7 @@ describe("C4 loopback listener lifecycle", () => {
     expect(adopted.descriptor).toEqual(first.descriptor);
   });
 
-  it("refuses unknown public composition fields and invalid datasets before storage mutation", async () => {
+  it("refuses unknown public composition fields and cleans invalid fresh datasets without residue", async () => {
     const storageRoot = await root();
     await expect(startControlService({
       storageRoot,
@@ -213,6 +233,15 @@ describe("C4 loopback listener lifecycle", () => {
       storageRoot,
       presentationMode: "normal",
       projectionDataset: invalid,
+    })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(await readdir(storageRoot)).toEqual([]);
+
+    const falseStartup = projectionDataset(NOW);
+    (falseStartup["health"] as Record<string, unknown>)["startupMode"] = "adopted";
+    await expect(startControlService({
+      storageRoot,
+      presentationMode: "normal",
+      projectionDataset: falseStartup,
     })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(await readdir(storageRoot)).toEqual([]);
   });

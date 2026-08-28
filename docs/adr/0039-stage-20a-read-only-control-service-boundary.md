@@ -44,11 +44,16 @@ at composition and have byte-identical route and command authority; no request
 field or query named `mode` is accepted.
 
 The Stage 20A projection source is a strictly parsed bounded in-memory dataset,
-not an effectful adapter or callback. It is validated before filesystem or
-listener setup and has no dependency on Account Manager, a vault, credentials,
-providers, scheduler commands, tasks, workspaces, repositories, or Git. A
-missing named record fails closed with the finite C2 `SERVICE_NOT_READY`
-refusal. Source exceptions and validation detail are not projected.
+not an effectful adapter or callback. It contains provider-health, probe, usage,
+and stored-routing evidence but no caller-supplied startup or recovery facts.
+It is composed only after the single-instance decision proves this caller owns
+a fresh listener, and before that listener is created. An adopter consumes the
+authoritative client-attachment result and never composes its unused dataset
+into the existing service. The source has no dependency on Account Manager, a
+vault, credentials, providers, scheduler commands, tasks, workspaces,
+repositories, or Git. A missing named record fails closed with the finite C2
+`SERVICE_NOT_READY` refusal. Source exceptions and validation detail are not
+projected.
 
 Separate Normal and Developer schemas make diagnostic fields structurally
 absent rather than cosmetically hidden. Normal has product-owned finite copy
@@ -61,18 +66,27 @@ model-authored prose, raw errors, or a different profile's reservation.
 
 The usage projection preserves four window states without turning inactive or
 unavailable into zero. Eligibility is source-served and independently checked
-against the ten exact freshness rules. Ambiguous authorization, unknown
+against the ten exact freshness rules and two borrowed-cap rules. It also
+enforces the scheduler's canonical authority/source equivalence, distinct
+window identities, freshness-not-beyond-active-reset invariant, and coherent
+unavailable/failure/confidence state. Ambiguous authorization, unknown
 revocation, stale/unavailable evidence, invalid reset evidence, and expired
 windows stay ineligible. Caps are derived only from served `serverNow` using
 the explicit `en-GB` / `Europe/London` weekday `[09:00,17:00)` contract:
 5,000 basis points for the borrowed five-hour window during that interval and
-7,000 basis points weekly at all times. The stored-routing projection contains
+7,000 basis points weekly at all times. Current usage at a cap refuses;
+current-plus-outstanding reservations equal to a cap remains eligible; a total
+over a cap refuses. The stored-routing projection contains
 only the already selected alias/agent, finite reasons, rules, and timestamps;
 Stage 20A does not implement C16 outcomes or forecasts.
 
 Health truthfully reports `dispatchPaused: false` and
-`estopAvailability: not-implemented`. A fresh startup cannot claim a recovered
-session, and unresolved stopped work remains unresolved. The six deferred
+`estopAvailability: not-implemented`. The health projection's
+`service-process` scope is separate from the returned handle's
+`client-attachment` fresh/adopted bootstrap result. Because Stage 20A performs
+no recovery sweep, process startup is fixed to fresh with zero stopped,
+recovered, unresolved, and unconfirmed counts and no sweep timestamp or timing
+rows. The six deferred
 parameterized C2 refusals receive condition-specific finite product copy at the
 C5 presentation boundary without changing their codes, details, or next-step
 semantics.

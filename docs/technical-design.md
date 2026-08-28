@@ -722,10 +722,12 @@ The API is versioned under `/v1` and publishes OpenAPI schemas. Commands support
 
 ADR 0038 sequences this design as a read-only Stage 20A followed by an
 effectful Stage 20B. C2 is a framework-independent contract package with an
-explicit zero-route registry. C3 later owns local-child lifecycle and descriptor
-contracts; C4 is the first loopback-only Fastify listener and requires an
-independent security review; C5 is the first UI-facing projection and requires
-an independent leakage review. Commands, approvals, pause/kill, and durable
+explicit zero-route registry. The separate production-disabled
+`@ai-dev-os/control-service` package now contains C3 lifecycle/descriptor and
+adoption contracts, the C4 literal-loopback Fastify listener, and the C5
+allowlisted UI projections. C4 passed independent security review; the repaired
+C5 candidate remains subject to independent leakage re-review. Commands,
+approvals, pause/kill, and durable
 emergency-stop authority belong to Stage 20B, not Stage 20A.
 
 The future control plane is a child process owned by Electron main, never a

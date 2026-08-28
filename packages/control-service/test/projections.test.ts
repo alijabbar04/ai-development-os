@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  CONTROL_SERVICE_STARTUP_SCOPE,
+  USAGE_BORROWED_CAP_RULE_IDS,
+  USAGE_ELIGIBILITY_RULE_IDS,
   USAGE_FRESHNESS_RULE_IDS,
   USAGE_POLICY_BORROWED_FIVE_HOUR_CAP_BP,
   USAGE_POLICY_BORROWED_WEEKLY_CAP_BP,
@@ -17,10 +20,21 @@ import {
   USAGE_SNAPSHOT_SCHEMA_VERSION,
   USAGE_TIMEZONE,
   isLondonWorkHours as schedulerLondonWorkHours,
+  parseCanonicalUsageSnapshot,
+  routeTask,
 } from "../../scheduler/src/index.js";
+import {
+  candidate as schedulerCandidate,
+  task as schedulerTask,
+  usageSnapshot as schedulerUsageSnapshot,
+} from "../../scheduler/test/fixtures.js";
 
 const NOW = "2026-08-26T10:00:00.000Z";
 const NONCE = "a".repeat(32);
+const CAP_SENTENCES = Object.freeze({
+  "usage.borrowed.weekly-70-cap": "This borrowed profile has reached its weekly usage limit.",
+  "usage.borrowed.work-hours-five-hour-50-cap": "This borrowed profile has reached its weekday work-hours usage limit.",
+} as const);
 
 function cloneDataset(now = NOW): Record<string, unknown> {
   return structuredClone(projectionDataset(now));
@@ -55,15 +69,12 @@ function payload(text: string): Record<string, unknown> {
 }
 
 function setEligibility(record: Record<string, unknown>, ruleIds: readonly string[]): void {
-  record["eligibility"] = { eligible: false, ruleIds: [...ruleIds].sort() };
+  record["eligibility"] = { eligible: ruleIds.length === 0, ruleIds: [...ruleIds].sort() };
 }
 
 describe("C5 deterministic read projections", () => {
   it("projects truthful health fields and a strictly smaller Normal surface", () => {
     const dataset = cloneDataset();
-    const health = dataset["health"] as Record<string, unknown>;
-    health["stoppedByRestart"] = 2;
-    health["unresolvedRuns"] = 1;
     const runtime = createControlProjectionRuntime(dataset);
     const normalEnvelope = envelope(runtime.health(context("normal", NOW, 7)));
     const normal = normalEnvelope["payload"] as Record<string, unknown>;
@@ -80,38 +91,47 @@ describe("C5 deterministic read projections", () => {
       dispatchPaused: false,
       estopAvailability: "not-implemented",
       startup: {
+        scope: CONTROL_SERVICE_STARTUP_SCOPE,
         mode: "fresh",
-        stoppedByRestart: 2,
+        stoppedByRestart: 0,
         recoveredSessions: 0,
-        unresolvedRuns: 1,
+        unresolvedRuns: 0,
+        unconfirmedSessions: 0,
+        sweepCompletedAt: null,
       },
     });
     expect(normal).not.toHaveProperty("pid");
     expect(normal).not.toHaveProperty("nonceReference");
     expect(normal).not.toHaveProperty("sweepTimings");
-    expect(developer).toMatchObject({ pid: 1_234, nonceReference: `launch:${NONCE}` });
-    expect(developer).toHaveProperty("sweepTimings");
-
-    const falseRecovery = cloneDataset();
-    (falseRecovery["health"] as Record<string, unknown>)["recoveredSessions"] = 1;
-    expect(() => createControlProjectionRuntime(falseRecovery)).toThrow();
+    expect(developer).toMatchObject({
+      pid: 1_234,
+      nonceReference: `launch:${NONCE}`,
+      sweepTimings: [],
+    });
   });
 
-  it("keeps adopted and fresh startup inputs distinct without a false fresh recovery claim", () => {
-    const fresh = cloneDataset();
-    const freshHealth = fresh["health"] as Record<string, unknown>;
-    freshHealth["stoppedByRestart"] = 2;
-    freshHealth["unresolvedRuns"] = 1;
-    const adopted = cloneDataset();
-    const adoptedHealth = adopted["health"] as Record<string, unknown>;
-    adoptedHealth["startupMode"] = "adopted";
-    adoptedHealth["recoveredSessions"] = 3;
-
-    const freshStartup = payload(createControlProjectionRuntime(fresh).health(context()))["startup"];
-    const adoptedStartup = payload(createControlProjectionRuntime(adopted).health(context()))["startup"];
-    expect(freshStartup).toMatchObject({ mode: "fresh", stoppedByRestart: 2, recoveredSessions: 0, unresolvedRuns: 1 });
-    expect(adoptedStartup).toMatchObject({ mode: "adopted", stoppedByRestart: 0, recoveredSessions: 3 });
-    expect(freshStartup).not.toEqual(adoptedStartup);
+  it("refuses unbound startup/recovery claims and credential-shaped probe versions", () => {
+    for (const [field, value] of [
+      ["startupMode", "adopted"],
+      ["stoppedByRestart", 2],
+      ["recoveredSessions", 3],
+      ["unresolvedRuns", 1],
+      ["sweepCompletedAt", NOW],
+      ["sweepTimings", [{ step: "projections", elapsedMs: 4 }]],
+    ] as const) {
+      const dataset = cloneDataset();
+      (dataset["health"] as Record<string, unknown>)[field] = value;
+      expect(() => createControlProjectionRuntime(dataset), field).toThrow();
+    }
+    for (const version of ["v1.0.0-credential", `v1.0.0-${"a".repeat(40)}`]) {
+      const dataset = cloneDataset();
+      const health = dataset["health"] as Record<string, unknown>;
+      const probes = health["probes"] as Record<string, unknown>[];
+      const probe = probes[0];
+      if (probe === undefined) throw new Error("fixture probe missing");
+      probe["version"] = version;
+      expect(() => createControlProjectionRuntime(dataset), version).toThrow();
+    }
   });
 
   it("serves exact policy constants with product sentences in Normal and rule ids only in Developer", () => {
@@ -132,7 +152,7 @@ describe("C5 deterministic read projections", () => {
     expect((normal["ruleCatalogue"] as Record<string, unknown>[]).every((entry) =>
       Object.keys(entry).join(",") === "sentence")).toBe(true);
     expect((developer["ruleCatalogue"] as Record<string, unknown>[]).map((entry) => entry["ruleId"]))
-      .toEqual([...USAGE_FRESHNESS_RULE_IDS]);
+      .toEqual([...USAGE_ELIGIBILITY_RULE_IDS]);
   });
 
   it("serves scoped usage, server-owned caps, and permitted Developer diagnostics", () => {
@@ -206,6 +226,100 @@ describe("C5 deterministic read projections", () => {
     }
   });
 
+  it("matches borrowed-cap current and projected boundaries inside and outside work hours", () => {
+    const evaluate = (
+      serverNow: string,
+      fiveHourUsed: number,
+      weeklyUsed: number,
+      predictedFiveHour: number,
+      predictedWeekly: number,
+      expectedRules: readonly (typeof USAGE_BORROWED_CAP_RULE_IDS)[number][],
+    ): void => {
+      const dataset = cloneDataset(serverNow);
+      const record = usage(dataset);
+      record["ownership"] = "authorized-borrowed";
+      const profileWindows = windows(record);
+      profileWindows["fiveHour"] = {
+        status: "active", usedBp: fiveHourUsed, remainingBp: 10_000 - fiveHourUsed,
+        resetAt: serverNow === NOW ? "2026-08-26T12:00:00.000Z" : "2026-08-29T12:00:00.000Z",
+        windowId: "window-five",
+      };
+      profileWindows["weekly"] = {
+        status: "active", usedBp: weeklyUsed, remainingBp: 10_000 - weeklyUsed,
+        resetAt: serverNow === NOW ? "2026-08-28T08:00:00.000Z" : "2026-09-04T08:00:00.000Z",
+        windowId: "window-weekly",
+      };
+      const profileSnapshot = snapshot(record);
+      profileSnapshot["freshUntil"] = serverNow === NOW
+        ? "2026-08-26T10:05:00.000Z"
+        : "2026-08-29T10:05:00.000Z";
+      const reservations = record["reservations"] as Record<string, unknown>[];
+      const firstReservation = reservations[0];
+      if (firstReservation === undefined) throw new Error("fixture reservation missing");
+      firstReservation["predictedFiveHourBp"] = predictedFiveHour;
+      firstReservation["predictedWeeklyBp"] = predictedWeekly;
+      setEligibility(record, expectedRules);
+      const runtime = createControlProjectionRuntime(dataset);
+      const output = runtime.usageProfile(
+        "profile-owned", context("developer", serverNow),
+      );
+      const normalOutput = runtime.usageProfile("profile-owned", context("normal", serverNow));
+      if (output === null || normalOutput === null) throw new Error("fixture profile missing");
+      const actualRules = (payload(output)["eligibility"] as Record<string, unknown>)["ruleIds"];
+      expect(actualRules).toEqual([...expectedRules].sort());
+      expect((payload(normalOutput)["eligibility"] as Record<string, unknown>)["reasons"]).toEqual(
+        [...expectedRules].sort().map((ruleId) => CAP_SENTENCES[ruleId]),
+      );
+      expect(normalOutput).not.toMatch(/usage\.borrowed|basis[-\s]+points?/iu);
+
+      const deadline = new Date(Date.parse(serverNow) + 2 * 60 * 60_000).toISOString();
+      const schedulerDecision = routeTask({
+        task: schedulerTask({ createdAt: serverNow, deadline }),
+        workloadClass: "general",
+        preference: "balanced",
+        candidates: [schedulerCandidate({
+          profileId: "profile:borrowed",
+          ownership: "authorized-borrowed",
+          healthObservedAt: serverNow,
+          predictedFiveHourBasisPoints: predictedFiveHour,
+          predictedWeeklyBasisPoints: predictedWeekly,
+        })],
+        usageSnapshots: [schedulerUsageSnapshot({
+          snapshotId: "usage:borrowed:parity",
+          profileId: "profile:borrowed",
+          ownership: "authorized-borrowed",
+          observedAt: serverNow,
+          freshUntil: profileSnapshot["freshUntil"] as string,
+          fiveHour: {
+            windowId: "window:five-hour:parity",
+            status: "active",
+            usedBasisPoints: fiveHourUsed,
+            remainingBasisPoints: 10_000 - fiveHourUsed,
+            resetAt: profileWindows["fiveHour"]!["resetAt"] as string,
+          },
+          weekly: {
+            windowId: "window:weekly:parity",
+            status: "active",
+            usedBasisPoints: weeklyUsed,
+            remainingBasisPoints: 10_000 - weeklyUsed,
+            resetAt: profileWindows["weekly"]!["resetAt"] as string,
+          },
+        })],
+        now: new Date(serverNow),
+        maximumSnapshotAgeMs: 60_000,
+      });
+      const schedulerCapRules = (schedulerDecision.considered[0]?.ruleIds ?? [])
+        .filter((ruleId) => (USAGE_BORROWED_CAP_RULE_IDS as readonly string[]).includes(ruleId))
+        .sort();
+      expect(schedulerCapRules).toEqual([...expectedRules].sort());
+    };
+
+    evaluate(NOW, 4_999, 6_999, 1, 1, []);
+    evaluate(NOW, 5_000, 7_000, 0, 0, USAGE_BORROWED_CAP_RULE_IDS);
+    evaluate(NOW, 4_990, 6_990, 11, 11, USAGE_BORROWED_CAP_RULE_IDS);
+    evaluate("2026-08-29T10:00:00.000Z", 5_000, 6_999, 500, 1, []);
+  });
+
   it("makes every committed freshness rule reachable and serves exact product reasons", () => {
     const cases: ReadonlyArray<Readonly<{
       name: string;
@@ -213,7 +327,12 @@ describe("C5 deterministic read projections", () => {
       mutate(record: Record<string, unknown>): void;
     }>> = [
       { name: "schema", expected: ["usage.schema-v3.required"], mutate: (record) => { snapshot(record)["schemaVersion"] = 2; } },
-      { name: "authority", expected: ["usage.authority.required"], mutate: (record) => { snapshot(record)["authoritative"] = false; } },
+      {
+        name: "authority", expected: ["usage.authority.required"], mutate: (record) => {
+          snapshot(record)["sourceClass"] = "provider-cached";
+          snapshot(record)["authoritative"] = false;
+        },
+      },
       { name: "authorization", expected: ["usage.authorization.required"], mutate: (record) => { record["authorization"] = "ambiguous"; } },
       { name: "revocation", expected: ["usage.revocation.refused"], mutate: (record) => { record["revocation"] = "unknown"; } },
       { name: "future", expected: ["usage.future.refused"], mutate: (record) => { snapshot(record)["observedAt"] = "2026-08-26T10:01:00.000Z"; } },
@@ -242,14 +361,18 @@ describe("C5 deterministic read projections", () => {
       {
         name: "invalid reset", expected: ["usage.reset.invalid", "usage.window.expired", "usage.stale.refused"],
         mutate: (record) => {
+          snapshot(record)["freshUntil"] = NOW;
           windows(record)["fiveHour"]!["resetAt"] = NOW;
           record["confidence"] = "stale";
           record["staleReason"] = "source-freshness-expired";
         },
       },
       {
-        name: "expired window", expected: ["usage.window.expired", "usage.stale.refused"], mutate: (record) => {
+        name: "expired window", expected: [
+          "usage.source-freshness.expired", "usage.window.expired", "usage.stale.refused",
+        ], mutate: (record) => {
           snapshot(record)["observedAt"] = "2026-08-26T09:00:00.000Z";
+          snapshot(record)["freshUntil"] = "2026-08-26T09:20:00.000Z";
           windows(record)["fiveHour"]!["resetAt"] = "2026-08-26T09:30:00.000Z";
           record["confidence"] = "stale";
           record["staleReason"] = "source-freshness-expired";
@@ -310,22 +433,119 @@ describe("C5 deterministic read projections", () => {
       };
     }
     snapshot(unavailable)["failureCode"] = "source-unavailable";
-    setEligibility(unavailable, []);
+    snapshot(unavailable)["sourceConfidence"] = "low";
+    unavailable["confidence"] = "stale";
+    unavailable["staleReason"] = "source-unavailable";
+    setEligibility(unavailable, ["usage.authority.required", "usage.stale.refused"]);
     const unavailableText = createControlProjectionRuntime(unavailableDataset).usageProfile("profile-owned", context());
     if (unavailableText === null) throw new Error("fixture profile missing");
-    expect(payload(unavailableText)).toMatchObject({ eligibility: { eligible: false, reasons: [] } });
+    expect(payload(unavailableText)).toMatchObject({
+      eligibility: { eligible: false, reasons: [
+        "Usage must come from an authoritative source.",
+        "Usage evidence must be current.",
+      ] },
+    });
 
     const expiredDataset = cloneDataset();
     const expired = usage(expiredDataset);
     snapshot(expired)["observedAt"] = "2026-08-26T09:00:00.000Z";
+    snapshot(expired)["freshUntil"] = "2026-08-26T09:20:00.000Z";
     windows(expired)["fiveHour"]!["resetAt"] = "2026-08-26T09:30:00.000Z";
     expired["confidence"] = "stale";
     expired["staleReason"] = "source-freshness-expired";
-    setEligibility(expired, ["usage.window.expired", "usage.stale.refused"]);
+    setEligibility(expired, [
+      "usage.source-freshness.expired", "usage.window.expired", "usage.stale.refused",
+    ]);
     const expiredText = createControlProjectionRuntime(expiredDataset).usageProfile("profile-owned", context());
     if (expiredText === null) throw new Error("fixture profile missing");
     expect(JSON.stringify(payload(expiredText))).toContain("2026-08-26T09:30:00.000Z");
     expect(JSON.stringify(payload(expiredText))).not.toContain("(now)");
+  });
+
+  it("refuses canonical usage contradictions at the projection boundary", () => {
+    const mutations: ReadonlyArray<Readonly<{
+      name: string;
+      mutate(record: Record<string, unknown>): void;
+    }>> = [
+      {
+        name: "provider authority false",
+        mutate: (record) => { snapshot(record)["authoritative"] = false; },
+      },
+      {
+        name: "non-provider authority true",
+        mutate: (record) => { snapshot(record)["sourceClass"] = "provider-cached"; },
+      },
+      {
+        name: "duplicate window identity",
+        mutate: (record) => { windows(record)["weekly"]!["windowId"] = "window-five"; },
+      },
+      {
+        name: "freshness beyond active reset",
+        mutate: (record) => { snapshot(record)["freshUntil"] = "2026-08-26T12:00:00.001Z"; },
+      },
+      {
+        name: "unavailable without failure",
+        mutate: (record) => {
+          windows(record)["fiveHour"] = {
+            status: "unavailable", usedBp: null, remainingBp: null,
+            resetAt: null, windowId: "window-five",
+          };
+        },
+      },
+      {
+        name: "failure without unavailable window",
+        mutate: (record) => { snapshot(record)["failureCode"] = "source-unavailable"; },
+      },
+      {
+        name: "unavailable presented as current high-confidence evidence",
+        mutate: (record) => {
+          windows(record)["fiveHour"] = {
+            status: "unavailable", usedBp: null, remainingBp: null,
+            resetAt: null, windowId: "window-five",
+          };
+          snapshot(record)["failureCode"] = "source-unavailable";
+        },
+      },
+      {
+        name: "low source confidence presented as current",
+        mutate: (record) => { snapshot(record)["sourceConfidence"] = "low"; },
+      },
+    ];
+    for (const fixture of mutations) {
+      const dataset = cloneDataset();
+      fixture.mutate(usage(dataset));
+      expect(() => createControlProjectionRuntime(dataset), fixture.name).toThrow();
+    }
+
+    const schedulerMutations: ReadonlyArray<Readonly<{
+      name: string;
+      mutate(record: Record<string, unknown>): void;
+    }>> = [
+      {
+        name: "scheduler authority parity",
+        mutate: (record) => { record["authoritative"] = false; },
+      },
+      {
+        name: "scheduler window identity parity",
+        mutate: (record) => {
+          const fiveHour = record["fiveHour"] as Record<string, unknown>;
+          const weekly = record["weekly"] as Record<string, unknown>;
+          weekly["windowId"] = fiveHour["windowId"];
+        },
+      },
+      {
+        name: "scheduler reset freshness parity",
+        mutate: (record) => {
+          const fiveHour = record["fiveHour"] as Record<string, unknown>;
+          record["freshUntil"] = new Date(Date.parse(fiveHour["resetAt"] as string) + 1).toISOString();
+        },
+      },
+    ];
+    for (const fixture of schedulerMutations) {
+      const canonical = structuredClone(schedulerUsageSnapshot()) as unknown as Record<string, unknown>;
+      fixture.mutate(canonical);
+      expect(() => parseCanonicalUsageSnapshot(canonical as never), fixture.name).toThrow();
+    }
   });
 
   it("uses only serverNow even when the local clock is skewed by an hour", () => {

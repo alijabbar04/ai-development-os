@@ -118,8 +118,9 @@ sanitized receipt proves the pinned model and exact `OK` response, bounded
 duration and usage, and no credential or response-body retention. One provider
 dispatch attempt was made; no retry or fallback occurred. `ANT-02` is therefore proven and
 `developmentAccepted=true`. This changes sequencing, not runtime authority:
-`PLN-02` remains incomplete, `productionAdmitted=false`, Stage 20A is eligible
-but not started, and Stage 17W remains the production gate.
+`PLN-02` remains incomplete, `productionAdmitted=false`, and Stage 17W remains
+the production gate. The subsequent Stage 20A C0-C5 candidate remains read-only
+and does not change those production facts.
 
 ## Future Windows computer and internet authority
 
@@ -144,8 +145,9 @@ messages are untrusted input. None can grant, expand, or persist authority.
 ## Typed control and communication boundary: Stages 20 and 22
 
 ADR 0038 divides Stage 20 into a read-only Stage 20A and a later effectful Stage
-20B. Stage 20A begins with route-free contracts and later adds only loopback
-queries and allowlisted projections. Stage 20B later owns commands,
+20B. Stage 20A keeps route-free contracts in `@ai-dev-os/api` and adds only a
+literal-loopback six-read, zero-command service with allowlisted projections in
+`@ai-dev-os/control-service`. Stage 20B later owns commands,
 idempotency, replay protection, approval binding, recipient/channel identity,
 notification redaction, and durable emergency-stop authority. Free-form inbound
 text is always untrusted task input, never direct authority.
@@ -197,7 +199,7 @@ Stage 20 boundary or convert a chat identity into execution authority.
 | --- | --- |
 | 17W | Windows secure-execution proof and release gate; production remains unavailable until it passes. |
 | 18 | Development scope accepted: durable orchestration, usage-aware authorized-profile routing, supported Account Manager observations, and the bounded Anthropic transport proof; production remains gated. |
-| 20 | Stage 20A C0-C2 candidate: exact entry, read-only architecture, and pure route-free contracts. C3-C5 and later Stage 20B commands/approvals/emergency-stop authority remain unstarted. |
+| 20 | Stage 20A C0-C5 read-only candidate: exact entry, pure route-free API contracts, lifecycle/adoption, a literal-loopback listener, and allowlisted projections. Later Stage 20B commands/approvals/emergency-stop authority remain unstarted. |
 | 21 | Windows Normal/Developer desktop experience and future Fable 5 review gates. |
 | 22 | Discord, then Telegram, with WhatsApp deferred to a separate assessment. |
 | 23–24W | Windows packaging, operations, hardening, and release readiness. |

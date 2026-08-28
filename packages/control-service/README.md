@@ -47,24 +47,36 @@ envelope with one monotonic sequence, server-owned `serverNow`, `computedAt`,
 confidence, and a finite stale reason. A missing named record produces the
 finite C2 `SERVICE_NOT_READY` refusal; raw source errors are never returned.
 
-C5 accepts one strictly parsed, bounded in-memory dataset. It accepts no read
-callbacks and imports no Account Manager, vault, provider, scheduler, task,
-workspace, repository, or Git runtime. Unknown fields, mixed-profile
-reservations, model-text fields, credential/path/fingerprint canaries, and
-unbounded collections refuse before the listener is created.
+C5 accepts one strictly parsed, bounded in-memory dataset for provider health,
+agent probes, usage, and stored routing records. It accepts no startup or
+recovery claims, read callbacks, or Account Manager, vault, provider,
+scheduler, task, workspace, repository, or Git runtime. Unknown fields,
+mixed-profile reservations, model-text fields, credential/path/fingerprint
+canaries, and unbounded collections refuse before a fresh listener is created.
+An adopting caller's unused dataset is never composed into the existing
+listener.
 
 Usage preserves `active`, `inactive`, `stale`, and `unavailable` as distinct
 states. Inactive and unavailable values remain null. Ambiguous authorization,
 unknown revocation, stale evidence, invalid resets, and expired windows fail
-closed. Normal receives product-owned reason sentences; exact policy rule IDs
-and bounded record identities are Developer-only. `sourceFingerprint` and
+closed. Canonical authority/source parity, distinct window identities,
+freshness bounded by active resets, and unavailable/failure/confidence
+consistency are checked before projection. The ten freshness rules and both
+borrowed-cap rules use exact scheduler boundary semantics: a current value at
+the cap refuses, a projection equal to the cap is allowed, and a projection
+over the cap refuses. Normal receives product-owned reason sentences; exact
+policy rule IDs and bounded record identities are Developer-only. `sourceFingerprint` and
 borrowed-owner identity are never projected in either presentation. The
 Europe/London weekday `[09:00,17:00)` calculation uses the explicit `en-GB`
 calendar contract and only the served `serverNow`; the 50% five-hour borrowed
 cap relaxes outside that interval while the 70% weekly cap remains in effect.
 
 The health projection reports e-stop availability as `not-implemented`, never
-as ready. A fresh startup cannot claim recovered sessions, and a stopped run
-may remain unresolved. The routing projection exposes only an injected stored
-selection and finite product-owned reasons; it contains no model, forecast,
-allocation outcome, command, or effect.
+as ready. Its `service-process` startup scope describes the process that owns
+the listener, not a later client's attachment. Stage 20A performs no recovery
+sweep, so this surface is fixed to fresh with zero recovery counts, no sweep
+timestamp, and no timing rows. The returned handle separately reports the
+authoritative `client-attachment` result as fresh or adopted. The routing
+projection exposes only an injected stored selection and finite product-owned
+reasons; it contains no model, forecast, allocation outcome, command, or
+effect.

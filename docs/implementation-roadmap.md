@@ -912,10 +912,11 @@ Tests and gate:
 
 ## Stage 20: Typed local control boundary
 
-Status: Stage 20A C0-C2 implemented on the production-disabled API-foundation
-candidate; C3-C5 and Stage 20B are not started.
+Status: Stage 20A C0-C5 implemented on the production-disabled read-only
+candidate. C4 passed independent security review; the repaired C5 candidate is
+awaiting independent leakage re-review. Stage 20B is not started.
 
-Packages: `@ai-dev-os/api`, `@ai-dev-os/client`
+Packages: `@ai-dev-os/api`, `@ai-dev-os/client`, `@ai-dev-os/control-service`
 
 ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stage
 20B. Stage 20A exposes no command or mutation. Its ordered checkpoints are:
@@ -930,7 +931,7 @@ ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stag
    leakage review.
 
 Stage 20B later owns commands, idempotency, replay protection, approval binding,
-pause/kill, and durable emergency-stop authority. None exists in C0-C2.
+pause/kill, and durable emergency-stop authority. None exists in C0-C5.
 
 Later deliverables:
 

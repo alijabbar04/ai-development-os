@@ -22,12 +22,6 @@ export function projectionDataset(
 ): Record<string, unknown> {
   return {
     health: {
-      startupMode: "fresh",
-      stoppedByRestart: 0,
-      recoveredSessions: 0,
-      unresolvedRuns: 0,
-      unconfirmedSessions: 0,
-      sweepCompletedAt: computedAt,
       providerHealth: [{
         providerId: "anthropic",
         availability: "available",
@@ -35,7 +29,6 @@ export function projectionDataset(
         observedAt: computedAt,
       }],
       probes: [{ agent: "claude-code", version: "v1.0.0", probedAt: computedAt }],
-      sweepTimings: [{ step: "projections", elapsedMs: 4 }],
       computedAt,
       confidence: "current",
       staleReason: null,

@@ -43,6 +43,10 @@ import {
 
 export interface ControlServiceHandle {
   readonly startupMode: StartupMode;
+  readonly bootstrap: Readonly<{
+    readonly scope: "client-attachment";
+    readonly mode: StartupMode;
+  }>;
   readonly descriptor: ConnectionDescriptor;
   readonly ownsListener: boolean;
   lifecycle(): LifecycleSnapshot;
@@ -475,6 +479,7 @@ function adoptedHandle(descriptor: ConnectionDescriptor, lifecycle: ControlLifec
   let closed = false;
   return Object.freeze({
     startupMode: "adopted" as const,
+    bootstrap: Object.freeze({ scope: "client-attachment" as const, mode: "adopted" as const }),
     descriptor,
     ownsListener: false,
     lifecycle: () => lifecycle.snapshot(),
@@ -492,7 +497,6 @@ export async function startControlServiceInternal(options: InternalControlServic
     controlFail("BIND_REFUSED");
   }
   controlAuthorityForPresentationMode(options.presentationMode);
-  const projections = createControlProjectionRuntime(options.projectionDataset);
   await options.store.prepare();
   const identity = createLaunchIdentity({
     now: options.clock(),
@@ -520,30 +524,33 @@ export async function startControlServiceInternal(options: InternalControlServic
 
   lifecycle.transition("begin-fresh");
   const lockLease = disposition.lockLease;
-  const session = createServerBearerSession({
-    serviceVersion: CONTROL_SERVICE_VERSION,
-    startNonce: identity.startNonce,
-    bearerToken: identity.bearerToken,
-    issuedAt: identity.issuedAt,
-    expiresAt: identity.expiresAt,
-  });
-  const listener = composeListener({
-    session,
-    clock: options.clock,
-    processId: options.processId,
-    presentationMode: options.presentationMode,
-    projections,
-    ...(options.beforeSessionRead === undefined ? {} : { beforeSessionRead: options.beforeSessionRead }),
-  });
   let descriptorLease: ArtifactLease | null = null;
+  let listener: ListenerComposition | null = null;
   try {
-    await listener.app.listen({ port: options.testingPort, host: CONTROL_HOST });
-    const address = listener.app.server.address();
+    const projections = createControlProjectionRuntime(options.projectionDataset);
+    const session = createServerBearerSession({
+      serviceVersion: CONTROL_SERVICE_VERSION,
+      startNonce: identity.startNonce,
+      bearerToken: identity.bearerToken,
+      issuedAt: identity.issuedAt,
+      expiresAt: identity.expiresAt,
+    });
+    const activeListener = composeListener({
+      session,
+      clock: options.clock,
+      processId: options.processId,
+      presentationMode: options.presentationMode,
+      projections,
+      ...(options.beforeSessionRead === undefined ? {} : { beforeSessionRead: options.beforeSessionRead }),
+    });
+    listener = activeListener;
+    await activeListener.app.listen({ port: options.testingPort, host: CONTROL_HOST });
+    const address = activeListener.app.server.address();
     if (
       address === null || typeof address === "string" || address.address !== CONTROL_HOST ||
       address.family !== "IPv4" || address.port < 1 || address.port > 65_535
     ) controlFail("BIND_REFUSED");
-    listener.setExpectedPort(address.port);
+    activeListener.setExpectedPort(address.port);
     const descriptor: ConnectionDescriptor = Object.freeze({
       schemaVersion: 1,
       serviceVersion: CONTROL_SERVICE_VERSION,
@@ -560,6 +567,7 @@ export async function startControlServiceInternal(options: InternalControlServic
     let closed = false;
     return Object.freeze({
       startupMode: "fresh" as const,
+      bootstrap: Object.freeze({ scope: "client-attachment" as const, mode: "fresh" as const }),
       descriptor,
       ownsListener: true,
       lifecycle: () => lifecycle.snapshot(),
@@ -567,7 +575,7 @@ export async function startControlServiceInternal(options: InternalControlServic
         if (closed) return;
         if (lifecycle.snapshot().state === "ready") lifecycle.transition("begin-drain");
         let failure: unknown = null;
-        try { await listener.app.close(); }
+        try { await activeListener.app.close(); }
         catch (error) { failure = error; }
         if (failure === null) {
           for (const lease of [descriptorLease, lockLease]) {
@@ -581,7 +589,9 @@ export async function startControlServiceInternal(options: InternalControlServic
       },
     });
   } catch (error) {
-    try { await listener.app.close(); } catch { /* close even a partially initialized listener */ }
+    if (listener !== null) {
+      try { await listener.app.close(); } catch { /* close even a partially initialized listener */ }
+    }
     try { await cleanupLease(options.store, descriptorLease); } catch { /* exact cleanup attempted */ }
     try { await cleanupLease(options.store, lockLease); } catch { /* exact cleanup attempted */ }
     if (error instanceof ControlServiceError) throw error;

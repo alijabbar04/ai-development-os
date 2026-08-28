@@ -44,6 +44,18 @@ export const USAGE_FRESHNESS_RULE_IDS = Object.freeze([
   "usage.window.expired",
 ] as const);
 
+export const USAGE_BORROWED_CAP_RULE_IDS = Object.freeze([
+  "usage.borrowed.weekly-70-cap",
+  "usage.borrowed.work-hours-five-hour-50-cap",
+] as const);
+
+export const USAGE_ELIGIBILITY_RULE_IDS = Object.freeze([
+  ...USAGE_FRESHNESS_RULE_IDS,
+  ...USAGE_BORROWED_CAP_RULE_IDS,
+] as const);
+
+export const CONTROL_SERVICE_STARTUP_SCOPE = "service-process" as const;
+
 const ROUTING_RULE_IDS = Object.freeze([
   "route.borrowed.explicit-task-model-authorization",
   "route.borrowed.fable-forbidden",
@@ -55,7 +67,7 @@ const ROUTING_RULE_IDS = Object.freeze([
   "route.permission-mode.required",
   "route.profile.authorization.required",
   "route.provider.available",
-  ...USAGE_FRESHNESS_RULE_IDS,
+  ...USAGE_ELIGIBILITY_RULE_IDS,
 ] as const);
 
 const POLICY_RULE_SENTENCES = Object.freeze({
@@ -69,7 +81,9 @@ const POLICY_RULE_SENTENCES = Object.freeze({
   "usage.window.inactive": "Both usage windows must be active.",
   "usage.reset.invalid": "Reset times must follow the observation time.",
   "usage.window.expired": "Expired usage windows cannot authorise routing.",
-} as const satisfies Record<(typeof USAGE_FRESHNESS_RULE_IDS)[number], string>);
+  "usage.borrowed.weekly-70-cap": "This borrowed profile has reached its weekly usage limit.",
+  "usage.borrowed.work-hours-five-hour-50-cap": "This borrowed profile has reached its weekday work-hours usage limit.",
+} as const satisfies Record<(typeof USAGE_ELIGIBILITY_RULE_IDS)[number], string>);
 
 const AUTHORISED_FOR = Object.freeze({
   personal: "Personal work",
@@ -132,7 +146,7 @@ const SWEEP_STEPS = Object.freeze([
   "handovers", "worktrees", "outbox", "projections",
 ] as const);
 
-type UsageRuleId = (typeof USAGE_FRESHNESS_RULE_IDS)[number];
+type UsageRuleId = (typeof USAGE_ELIGIBILITY_RULE_IDS)[number];
 type WindowStatus = (typeof WINDOW_STATUSES)[number];
 type Authorization = (typeof AUTHORIZATION)[number];
 type Revocation = (typeof REVOCATION)[number];
@@ -197,12 +211,6 @@ interface UsageProfileRecord extends ProjectionMetadata {
 }
 
 interface HealthRecord extends ProjectionMetadata {
-  readonly startupMode: StartupMode;
-  readonly stoppedByRestart: number;
-  readonly recoveredSessions: number;
-  readonly unresolvedRuns: number;
-  readonly unconfirmedSessions: number;
-  readonly sweepCompletedAt: string | null;
   readonly providerHealth: readonly Readonly<{
     providerId: string;
     availability: ProviderAvailability;
@@ -214,8 +222,18 @@ interface HealthRecord extends ProjectionMetadata {
     version: string;
     probedAt: string;
   }>[];
-  readonly sweepTimings: readonly Readonly<{ step: SweepStep; elapsedMs: number }>[];
 }
+
+const SERVICE_STARTUP = Object.freeze({
+  scope: CONTROL_SERVICE_STARTUP_SCOPE,
+  mode: "fresh" as const satisfies StartupMode,
+  stoppedByRestart: 0,
+  recoveredSessions: 0,
+  unresolvedRuns: 0,
+  unconfirmedSessions: 0,
+  sweepCompletedAt: null,
+  sweepTimings: Object.freeze([] as readonly Readonly<{ step: SweepStep; elapsedMs: number }>[]),
+});
 
 interface RoutingDecisionRecord extends ProjectionMetadata {
   readonly taskId: string;
@@ -257,10 +275,6 @@ function exactIdentifier(value: unknown, maximum = 128): string {
   const identifier = exactString(value, IDENTIFIER, maximum);
   if (IDENTIFIER_LEAK_SHAPES.some((pattern) => pattern.test(identifier))) controlFail("INVALID_INPUT");
   return identifier;
-}
-
-function exactNullableTimestamp(value: unknown): string | null {
-  return value === null ? null : exactTimestamp(value);
 }
 
 function timestampMs(value: string): number {
@@ -320,12 +334,20 @@ function parseSnapshot(value: unknown): UsageSnapshotRecord {
   const failureCode = record["failureCode"] === null
     ? null
     : exactEnum(record["failureCode"], FAILURE_CODES);
+  const sourceClass = exactEnum(record["sourceClass"], SOURCE_CLASSES);
+  const authoritative = exactBoolean(record["authoritative"]);
+  const observedAt = exactTimestamp(record["observedAt"]);
+  const freshUntil = exactTimestamp(record["freshUntil"]);
+  if (
+    authoritative !== (sourceClass === "provider-authoritative") ||
+    timestampMs(freshUntil) < timestampMs(observedAt)
+  ) controlFail("INVALID_INPUT");
   return Object.freeze({
-    sourceClass: exactEnum(record["sourceClass"], SOURCE_CLASSES),
-    authoritative: exactBoolean(record["authoritative"]),
+    sourceClass,
+    authoritative,
     sourceConfidence: exactEnum(record["sourceConfidence"], SOURCE_CONFIDENCE),
-    observedAt: exactTimestamp(record["observedAt"]),
-    freshUntil: exactTimestamp(record["freshUntil"]),
+    observedAt,
+    freshUntil,
     schemaVersion: exactInteger(record["schemaVersion"], 1, 3) as 1 | 2 | 3,
     failureCode,
   });
@@ -346,8 +368,8 @@ function parseReservation(value: unknown): UsageReservationRecord {
 }
 
 function parseUsageRules(value: unknown): readonly UsageRuleId[] {
-  const items = readExactArray(value, USAGE_FRESHNESS_RULE_IDS.length);
-  return uniqueSorted(items.map((item) => exactEnum(item, USAGE_FRESHNESS_RULE_IDS)));
+  const items = readExactArray(value, USAGE_ELIGIBILITY_RULE_IDS.length);
+  return uniqueSorted(items.map((item) => exactEnum(item, USAGE_ELIGIBILITY_RULE_IDS)));
 }
 
 function parseUsageProfile(value: unknown): UsageProfileRecord {
@@ -365,6 +387,31 @@ function parseUsageProfile(value: unknown): UsageProfileRecord {
     new Set(reservationIds).size !== reservationIds.length ||
     reservations.some((item) => item.profileId !== profileId)
   ) controlFail("INVALID_INPUT");
+  const parsedWindows = Object.freeze({
+    fiveHour: parseWindow(windowsRecord["fiveHour"]),
+    weekly: parseWindow(windowsRecord["weekly"]),
+  });
+  const parsedSnapshot = parseSnapshot(record["snapshot"]);
+  const metadata = parseMetadata(record);
+  if (parsedWindows.fiveHour.windowId === parsedWindows.weekly.windowId) {
+    controlFail("INVALID_INPUT");
+  }
+  const activeResets = [parsedWindows.fiveHour, parsedWindows.weekly]
+    .filter((window) => window.status === "active")
+    .map((window) => window.resetAt);
+  if (activeResets.some((resetAt) => resetAt === null || timestampMs(parsedSnapshot.freshUntil) > timestampMs(resetAt))) {
+    controlFail("INVALID_INPUT");
+  }
+  const hasUnavailableWindow = parsedWindows.fiveHour.status === "unavailable" ||
+    parsedWindows.weekly.status === "unavailable";
+  if ((parsedSnapshot.failureCode !== null) !== hasUnavailableWindow) controlFail("INVALID_INPUT");
+  if (
+    (parsedSnapshot.sourceConfidence !== "high" && metadata.confidence !== "stale") ||
+    (hasUnavailableWindow && (
+      parsedSnapshot.sourceConfidence !== "low" || metadata.confidence !== "stale" ||
+      metadata.staleReason !== "source-unavailable"
+    ))
+  ) controlFail("INVALID_INPUT");
   return Object.freeze({
     profileId,
     alias: exactIdentifier(record["alias"], 64),
@@ -374,25 +421,20 @@ function parseUsageProfile(value: unknown): UsageProfileRecord {
     authorisedFor: exactEnum(record["authorisedFor"], Object.freeze(Object.keys(AUTHORISED_FOR)) as readonly (keyof typeof AUTHORISED_FOR)[]),
     authorization: exactEnum(record["authorization"], AUTHORIZATION),
     revocation: exactEnum(record["revocation"], REVOCATION),
-    windows: Object.freeze({
-      fiveHour: parseWindow(windowsRecord["fiveHour"]),
-      weekly: parseWindow(windowsRecord["weekly"]),
-    }),
-    snapshot: parseSnapshot(record["snapshot"]),
+    windows: parsedWindows,
+    snapshot: parsedSnapshot,
     eligibility: Object.freeze({
       eligible: exactBoolean(eligibilityRecord["eligible"]),
       ruleIds: parseUsageRules(eligibilityRecord["ruleIds"]),
     }),
     reservations: Object.freeze(reservations),
-    ...parseMetadata(record),
+    ...metadata,
   });
 }
 
 function parseHealth(value: unknown): HealthRecord {
   const record = readExactRecord(value, [
-    "startupMode", "stoppedByRestart", "recoveredSessions", "unresolvedRuns",
-    "unconfirmedSessions", "sweepCompletedAt", "providerHealth", "probes",
-    "sweepTimings", "computedAt", "confidence", "staleReason",
+    "providerHealth", "probes", "computedAt", "confidence", "staleReason",
   ]);
   const providerHealth = readExactArray(record["providerHealth"], 16).map((item) => {
     const entry = readExactRecord(item, ["providerId", "availability", "health", "observedAt"]);
@@ -405,47 +447,25 @@ function parseHealth(value: unknown): HealthRecord {
   });
   const probes = readExactArray(record["probes"], 16).map((item) => {
     const entry = readExactRecord(item, ["agent", "version", "probedAt"]);
+    const version = exactIdentifier(entry["version"], 64);
+    if (!PROBE_VERSION.test(version)) controlFail("INVALID_INPUT");
     return Object.freeze({
       agent: exactEnum(entry["agent"], AGENTS),
-      version: exactString(entry["version"], PROBE_VERSION, 64),
+      version,
       probedAt: exactTimestamp(entry["probedAt"]),
-    });
-  });
-  const sweepTimings = readExactArray(record["sweepTimings"], SWEEP_STEPS.length).map((item) => {
-    const entry = readExactRecord(item, ["step", "elapsedMs"]);
-    return Object.freeze({
-      step: exactEnum(entry["step"], SWEEP_STEPS),
-      elapsedMs: exactInteger(entry["elapsedMs"], 0, 20_000),
     });
   });
   if (
     new Set(providerHealth.map((item) => item.providerId)).size !== providerHealth.length ||
-    new Set(probes.map((item) => item.agent)).size !== probes.length ||
-    new Set(sweepTimings.map((item) => item.step)).size !== sweepTimings.length
-  ) controlFail("INVALID_INPUT");
-  const startupMode = exactEnum(record["startupMode"], STARTUP_MODES);
-  const stoppedByRestart = exactInteger(record["stoppedByRestart"], 0, 10_000);
-  const recoveredSessions = exactInteger(record["recoveredSessions"], 0, 10_000);
-  const unresolvedRuns = exactInteger(record["unresolvedRuns"], 0, 10_000);
-  if (
-    (startupMode === "fresh" && (recoveredSessions !== 0 || unresolvedRuns > stoppedByRestart)) ||
-    (startupMode === "adopted" && stoppedByRestart !== 0)
+    new Set(probes.map((item) => item.agent)).size !== probes.length
   ) controlFail("INVALID_INPUT");
   const output: HealthRecord = Object.freeze({
-    startupMode,
-    stoppedByRestart,
-    recoveredSessions,
-    unresolvedRuns,
-    unconfirmedSessions: exactInteger(record["unconfirmedSessions"], 0, 10_000),
-    sweepCompletedAt: exactNullableTimestamp(record["sweepCompletedAt"]),
     providerHealth: Object.freeze(providerHealth),
     probes: Object.freeze(probes),
-    sweepTimings: Object.freeze(sweepTimings),
     ...parseMetadata(record),
   });
   const computedMs = timestampMs(output.computedAt);
   if (
-    (output.sweepCompletedAt !== null && timestampMs(output.sweepCompletedAt) > computedMs) ||
     output.providerHealth.some((item) => timestampMs(item.observedAt) > computedMs) ||
     output.probes.some((item) => timestampMs(item.probedAt) > computedMs)
   ) controlFail("INVALID_INPUT");
@@ -537,6 +557,7 @@ const HEALTH_NORMAL_SCHEMA = defineProjectionSchema("controlHealthNormal", {
     kind: "object",
     fields: {
       mode: { kind: "enum", values: STARTUP_MODES },
+      scope: copy([CONTROL_SERVICE_STARTUP_SCOPE]),
       stoppedByRestart: { kind: "count", maximum: 10_000 },
       recoveredSessions: { kind: "count", maximum: 10_000 },
       unresolvedRuns: { kind: "count", maximum: 10_000 },
@@ -610,7 +631,7 @@ const USAGE_NORMAL_SCHEMA = defineProjectionSchema("usageProfileNormal", {
       eligible: { kind: "boolean" },
       reasons: {
         kind: "array",
-        maximumItems: USAGE_FRESHNESS_RULE_IDS.length,
+        maximumItems: USAGE_ELIGIBILITY_RULE_IDS.length,
         item: copy(Object.values(POLICY_RULE_SENTENCES)),
       },
     },
@@ -647,13 +668,13 @@ const USAGE_DEVELOPER_SCHEMA = defineProjectionSchema("usageProfileDeveloper", {
       eligible: { kind: "boolean" },
       reasons: {
         kind: "array",
-        maximumItems: USAGE_FRESHNESS_RULE_IDS.length,
+        maximumItems: USAGE_ELIGIBILITY_RULE_IDS.length,
         item: copy(Object.values(POLICY_RULE_SENTENCES)),
       },
       ruleIds: {
         kind: "array",
-        maximumItems: USAGE_FRESHNESS_RULE_IDS.length,
-        item: rule(USAGE_FRESHNESS_RULE_IDS),
+        maximumItems: USAGE_ELIGIBILITY_RULE_IDS.length,
+        item: rule(USAGE_ELIGIBILITY_RULE_IDS),
       },
     },
   },
@@ -675,7 +696,7 @@ const POLICY_NORMAL_SCHEMA = defineProjectionSchema("usagePolicyConstantsNormal"
   borrowedWeeklyCapBp: { kind: "basis-points" },
   schemaVersion: { kind: "integer", minimum: 3, maximum: 3 },
   ruleCatalogue: {
-    kind: "array", maximumItems: USAGE_FRESHNESS_RULE_IDS.length,
+    kind: "array", maximumItems: USAGE_ELIGIBILITY_RULE_IDS.length,
     item: { kind: "object", fields: { sentence: copy(Object.values(POLICY_RULE_SENTENCES)) } },
   },
 });
@@ -683,11 +704,11 @@ const POLICY_NORMAL_SCHEMA = defineProjectionSchema("usagePolicyConstantsNormal"
 const POLICY_DEVELOPER_SCHEMA = defineProjectionSchema("usagePolicyConstantsDeveloper", {
   ...POLICY_NORMAL_SCHEMA.fields,
   ruleCatalogue: {
-    kind: "array", maximumItems: USAGE_FRESHNESS_RULE_IDS.length,
+    kind: "array", maximumItems: USAGE_ELIGIBILITY_RULE_IDS.length,
     item: {
       kind: "object",
       fields: {
-        ruleId: rule(USAGE_FRESHNESS_RULE_IDS),
+        ruleId: rule(USAGE_ELIGIBILITY_RULE_IDS),
         sentence: copy(Object.values(POLICY_RULE_SENTENCES)),
       },
     },
@@ -808,14 +829,36 @@ function expectedUsageRules(profile: UsageProfileRecord, serverNow: string): rea
     .filter((value): value is string => value !== null);
   if (resets.some((value) => timestampMs(value) <= observedMs)) rules.push("usage.reset.invalid");
   if (resets.some((value) => timestampMs(value) <= nowMs)) rules.push("usage.window.expired");
+  if (
+    profile.ownership === "authorized-borrowed" &&
+    profile.windows.fiveHour.status === "active" && profile.windows.weekly.status === "active"
+  ) {
+    const predicted = profile.reservations.reduce((totals, reservation) => {
+      if (reservation.status !== "reserved" && reservation.status !== "reconciliation-required") return totals;
+      return {
+        fiveHourBp: totals.fiveHourBp + reservation.predictedFiveHourBp,
+        weeklyBp: totals.weeklyBp + reservation.predictedWeeklyBp,
+      };
+    }, { fiveHourBp: 0, weeklyBp: 0 });
+    const weeklyUsed = profile.windows.weekly.usedBp;
+    const fiveHourUsed = profile.windows.fiveHour.usedBp;
+    if (weeklyUsed === null || fiveHourUsed === null) controlFail("INVALID_INPUT");
+    if (
+      weeklyUsed >= USAGE_POLICY_BORROWED_WEEKLY_CAP_BP ||
+      weeklyUsed + predicted.weeklyBp > USAGE_POLICY_BORROWED_WEEKLY_CAP_BP
+    ) rules.push("usage.borrowed.weekly-70-cap");
+    if (
+      isLondonWorkHours(serverNow) && (
+        fiveHourUsed >= USAGE_POLICY_BORROWED_FIVE_HOUR_CAP_BP ||
+        fiveHourUsed + predicted.fiveHourBp > USAGE_POLICY_BORROWED_FIVE_HOUR_CAP_BP
+      )
+    ) rules.push("usage.borrowed.work-hours-five-hour-50-cap");
+  }
   return uniqueSorted(rules);
 }
 
 function assertUsageTruth(profile: UsageProfileRecord, serverNow: string): void {
   const expectedRules = expectedUsageRules(profile, serverNow);
-  if (timestampMs(profile.snapshot.freshUntil) < timestampMs(profile.snapshot.observedAt)) {
-    controlFail("INVALID_INPUT");
-  }
   const staleEvidence = expectedRules.includes("usage.source-freshness.expired") ||
     expectedRules.includes("usage.window.expired") ||
     profile.windows.fiveHour.status === "stale" || profile.windows.weekly.status === "stale";
@@ -835,12 +878,13 @@ function healthPayload(record: HealthRecord, context: Readonly<ControlProjection
     dispatchPaused: false,
     estopAvailability: "not-implemented",
     startup: {
-      mode: record.startupMode,
-      stoppedByRestart: record.stoppedByRestart,
-      recoveredSessions: record.recoveredSessions,
-      unresolvedRuns: record.unresolvedRuns,
-      unconfirmedSessions: record.unconfirmedSessions,
-      sweepCompletedAt: record.sweepCompletedAt,
+      scope: SERVICE_STARTUP.scope,
+      mode: SERVICE_STARTUP.mode,
+      stoppedByRestart: SERVICE_STARTUP.stoppedByRestart,
+      recoveredSessions: SERVICE_STARTUP.recoveredSessions,
+      unresolvedRuns: SERVICE_STARTUP.unresolvedRuns,
+      unconfirmedSessions: SERVICE_STARTUP.unconfirmedSessions,
+      sweepCompletedAt: SERVICE_STARTUP.sweepCompletedAt,
     },
     providerHealth: record.providerHealth,
     probes: record.probes,
@@ -849,7 +893,7 @@ function healthPayload(record: HealthRecord, context: Readonly<ControlProjection
     ...normal,
     pid: context.processId,
     nonceReference: `launch:${context.startNonce}`,
-    sweepTimings: record.sweepTimings,
+    sweepTimings: SERVICE_STARTUP.sweepTimings,
   };
 }
 
@@ -919,7 +963,7 @@ function usagePayload(record: UsageProfileRecord, context: Readonly<ControlProje
 }
 
 function policyPayload(audience: ProjectionAudience): unknown {
-  const catalogue = USAGE_FRESHNESS_RULE_IDS.map((ruleId) => audience === "normal"
+  const catalogue = USAGE_ELIGIBILITY_RULE_IDS.map((ruleId) => audience === "normal"
     ? { sentence: POLICY_RULE_SENTENCES[ruleId] }
     : { ruleId, sentence: POLICY_RULE_SENTENCES[ruleId] });
   return {
