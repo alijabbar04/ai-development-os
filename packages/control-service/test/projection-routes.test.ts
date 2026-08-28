@@ -9,6 +9,18 @@ import { projectionDataset, startControlServiceForTest } from "./testing.js";
 const NOW = "2026-08-26T10:00:00.000Z";
 const roots: string[] = [];
 const handles: ControlServiceHandle[] = [];
+const NORMAL_LEAKAGE_PATTERNS = Object.freeze([
+  /"(?:sourceFingerprint|[^"\n]*fingerprint|borrowedOwner[^"\n]*|owner(?:Id|Identity|Email|Name|Account))"|authorization\s*header/iu,
+  /(?:usage|route|admission|orchestration)\.[a-z0-9.-]+/u,
+  /sha256:|\b(?:att|lease|trc|ctx)-|\b(?:hnd|dec):|basis[-\s]+points?|\b429\b/iu,
+  /sk-ant-|\bAKIA[0-9A-Z]{16}\b|\bBearer\s+|[A-Za-z]:\\|\\\\/u,
+]);
+
+function matchingNormalLeaks(text: string): readonly string[] {
+  return NORMAL_LEAKAGE_PATTERNS
+    .filter((pattern) => pattern.test(text))
+    .map((pattern) => pattern.source);
+}
 
 async function start(mode: "normal" | "developer" = "normal"): Promise<ControlServiceHandle> {
   const storageRoot = await mkdtemp(join(tmpdir(), "ai-dev-os-c5-routes-"));
@@ -116,18 +128,14 @@ describe("C5 authenticated projection routes", () => {
     ]);
     const body = results.map((result) => result.text).join("\n");
     expect(body).not.toContain(handle.descriptor.bearerToken);
-    expect(body).not.toMatch(/"(?:sourceFingerprint|[^"\n]*fingerprint|borrowedOwner[^"\n]*|owner(?:Id|Identity|Email|Name|Account))"|authorization\s*header/iu);
-    expect(body).not.toMatch(/(?:usage|route|admission|orchestration)\.[a-z0-9.-]+/u);
-    expect(body).not.toMatch(/sha256:|\b(?:att|lease|trc|ctx)-|\b(?:hnd|dec):|basis[-\s]+points?|\b429\b/iu);
-    expect(body).not.toMatch(/sk-ant-|\bAKIA[0-9A-Z]{16}\b|\bBearer\s+|[A-Za-z]:\\|\\\\/u);
+    expect(matchingNormalLeaks(body)).toEqual([]);
 
-    const positiveControl = [
-      "sourceFingerprint", "usage.stale.refused", "sha256:abc", "lease-handle",
+    for (const positiveControl of [
+      '"sourceFingerprint"', '"ownerEmail"', "usage.stale.refused", "sha256:abc",
+      "lease-handle", "basis points", `Bearer ${"x".repeat(43)}`,
       ["sk", "ant", "api03", "A".repeat(30)].join("-"), "C:\\private\\path",
-    ].join(" ");
-    expect(positiveControl).toMatch(/sourceFingerprint/u);
-    expect(positiveControl).toMatch(/usage\./u);
-    expect(positiveControl).toMatch(/sk-ant-/u);
-    expect(positiveControl).toMatch(/[A-Za-z]:\\/u);
+    ]) {
+      expect(matchingNormalLeaks(positiveControl), positiveControl).not.toEqual([]);
+    }
   });
 });

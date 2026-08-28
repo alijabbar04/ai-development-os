@@ -9,14 +9,20 @@ const SOURCES = [
   "index.ts", "lifecycle.ts", "listener.ts", "presentation.ts", "projections.ts",
   "routes.ts", "single-instance.ts", "structural.ts", "transport.ts",
 ];
+const FORBIDDEN_IMPORTS = Object.freeze([
+  "@ai-dev-os/application", "@ai-dev-os/scheduler", "@ai-dev-os/process-broker",
+  "@ai-dev-os/workspace", "@ai-dev-os/secrets", "child_process", "node:cluster",
+]);
+const FORBIDDEN_AMBIENT_EFFECT = /process\.env|process\.argv|productionEnabled\s*:\s*true/u;
+
+function firstForbiddenImport(text: string): string | undefined {
+  return FORBIDDEN_IMPORTS.find((forbidden) => text.includes(forbidden));
+}
 
 describe("C3 static security boundary", () => {
   it("contains no provider, credential, repository, command, or process-launch imports", async () => {
     const text = (await Promise.all(SOURCES.map(async (name) => await readFile(join(PACKAGE_ROOT, "src", name), "utf8")))).join("\n");
-    for (const forbidden of [
-      "@ai-dev-os/application", "@ai-dev-os/scheduler", "@ai-dev-os/process-broker",
-      "@ai-dev-os/workspace", "@ai-dev-os/secrets", "child_process", "node:cluster",
-    ]) expect(text).not.toContain(forbidden);
+    expect(firstForbiddenImport(text)).toBeUndefined();
     expect(text).toContain("timingSafeEqual");
     expect(text).toContain('host: CONTROL_HOST');
   });
@@ -25,8 +31,7 @@ describe("C3 static security boundary", () => {
     const manifest = JSON.parse(await readFile(join(PACKAGE_ROOT, "package.json"), "utf8")) as Record<string, unknown>;
     expect(manifest["bin"]).toBeUndefined();
     const text = (await Promise.all(SOURCES.map(async (name) => await readFile(join(PACKAGE_ROOT, "src", name), "utf8")))).join("\n");
-    expect(text).not.toMatch(/process\.env|process\.argv/u);
-    expect(text).not.toMatch(/productionEnabled\s*:\s*true/u);
+    expect(FORBIDDEN_AMBIENT_EFFECT.test(text)).toBe(false);
   });
 
   it("makes wildcard, IPv6-any, environment, CLI, and caller-selected hosts absent", async () => {
@@ -50,5 +55,12 @@ describe("C3 static security boundary", () => {
     expect(Object.keys(manifest.dependencies).sort()).toEqual(["@ai-dev-os/api", "@ai-dev-os/domain", "fastify"]);
     expect(manifest.scripts["pretest"]).toContain("npm run build --ignore-scripts");
     expect(manifest.scripts["pretest:coverage"]).toContain("npm run build --ignore-scripts");
+  });
+
+  it("positive controls prove the static import and ambient-effect guards detect planted violations", () => {
+    expect(firstForbiddenImport('import "@ai-dev-os/scheduler";')).toBe("@ai-dev-os/scheduler");
+    expect(firstForbiddenImport('import { spawn } from "node:child_process";')).toBe("child_process");
+    expect(FORBIDDEN_AMBIENT_EFFECT.test("const host = process.env.CONTROL_HOST;")).toBe(true);
+    expect(FORBIDDEN_AMBIENT_EFFECT.test("const enabled = { productionEnabled: true };")).toBe(true);
   });
 });
