@@ -8,6 +8,7 @@ export * from "./presentation.js";
 export * from "./projections.js";
 export {
   startControlService,
+  type ControlServiceBootstrap,
   type ControlServiceHandle,
   type StartControlServiceOptions,
 } from "./listener.js";

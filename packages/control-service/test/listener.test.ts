@@ -11,6 +11,7 @@ import {
   parseConnectionDescriptor,
   startControlService,
   type ControlArtifactStore,
+  type ControlServiceBootstrap,
   type ControlServiceHandle,
 } from "../src/index.js";
 import { projectionDataset, startControlServiceForTest } from "./testing.js";
@@ -38,6 +39,12 @@ async function start(options: Partial<Parameters<typeof startControlServiceForTe
   return handle;
 }
 
+function startupSentence(input: ControlServiceBootstrap): string {
+  return input.mode === "adopted"
+    ? `Reconnecting to ${input.runningSessions} running sessions`
+    : `${input.stoppedByRestart} sessions were stopped by the restart — checking their work`;
+}
+
 afterEach(async () => {
   for (const handle of handles.splice(0).reverse()) {
     try { await handle.close(); } catch { /* assertions cover owned cleanup failures */ }
@@ -50,7 +57,15 @@ describe("C4 loopback listener lifecycle", () => {
     const storageRoot = await root();
     const handle = await start({ storageRoot });
     expect(handle.startupMode).toBe("fresh");
-    expect(handle.bootstrap).toEqual({ scope: "client-attachment", mode: "fresh" });
+    expect(handle.bootstrap).toEqual({
+      scope: "client-attachment",
+      mode: "fresh",
+      presentationMode: "normal",
+      stoppedByRestart: 0,
+    });
+    expect(startupSentence(handle.bootstrap)).toBe(
+      "0 sessions were stopped by the restart — checking their work",
+    );
     expect(handle.ownsListener).toBe(true);
     expect(handle.descriptor).toMatchObject({ host: "127.0.0.1", processId: process.pid });
     expect(handle.descriptor.port).toBeGreaterThan(0);
@@ -63,9 +78,16 @@ describe("C4 loopback listener lifecycle", () => {
     expect(health.statusCode).toBe(200);
     expect(health.json).toMatchObject({
       schemaVersion: 1, productionEnabled: false, ok: true, kind: "success",
-      payload: { ready: true, serviceVersion: "0.1.0", startNonce: handle.descriptor.startNonce },
+      payload: {
+        ready: true,
+        serviceVersion: "0.1.0",
+        startNonce: handle.descriptor.startNonce,
+        presentationMode: "normal",
+      },
     });
-    expect(Object.keys((health.json as { payload: Record<string, unknown> }).payload).sort()).toEqual(["ready", "serviceVersion", "startNonce"]);
+    expect(Object.keys((health.json as { payload: Record<string, unknown> }).payload).sort()).toEqual([
+      "presentationMode", "ready", "serviceVersion", "startNonce",
+    ]);
     expect(health.text).not.toContain(handle.descriptor.bearerToken);
     expect(health.headers["cache-control"]).toBe("no-store");
     expect(health.headers["access-control-allow-origin"]).toBeUndefined();
@@ -75,7 +97,13 @@ describe("C4 loopback listener lifecycle", () => {
     expect(session.json).toMatchObject({
       sequence: 2,
       productionEnabled: false,
-      payload: { serviceVersion: "0.1.0", startNonce: handle.descriptor.startNonce, state: "active" },
+      payload: {
+        serviceVersion: "0.1.0",
+        startNonce: handle.descriptor.startNonce,
+        presentationMode: "normal",
+        runningSessions: 0,
+        state: "active",
+      },
     });
   });
 
@@ -125,16 +153,25 @@ describe("C4 loopback listener lifecycle", () => {
 
   it("adopts a live matching instance instead of creating a duplicate listener", async () => {
     const storageRoot = await root();
-    const first = await start({ storageRoot });
+    const activeDataset = projectionDataset(NOW);
+    (activeDataset["health"] as Record<string, unknown>)["runningSessions"] = 3;
+    const first = await start({ storageRoot, projectionDataset: activeDataset });
     const unusedAdopterDataset = projectionDataset(NOW);
     (unusedAdopterDataset["health"] as Record<string, unknown>)["startupMode"] = "adopted";
+    (unusedAdopterDataset["health"] as Record<string, unknown>)["runningSessions"] = 9_999;
     const second = await start({
       storageRoot,
       random: (size) => Buffer.alloc(size, 22),
       projectionDataset: unusedAdopterDataset,
     });
     expect(second.startupMode).toBe("adopted");
-    expect(second.bootstrap).toEqual({ scope: "client-attachment", mode: "adopted" });
+    expect(second.bootstrap).toEqual({
+      scope: "client-attachment",
+      mode: "adopted",
+      presentationMode: "normal",
+      runningSessions: 3,
+    });
+    expect(startupSentence(second.bootstrap)).toBe("Reconnecting to 3 running sessions");
     expect(second.ownsListener).toBe(false);
     expect(second.descriptor).toEqual(first.descriptor);
     expect(second.lifecycle()).toMatchObject({ state: "ready", startupMode: "adopted", recovery: "identity-adopted" });
@@ -152,6 +189,45 @@ describe("C4 loopback listener lifecycle", () => {
         sweepCompletedAt: null,
       },
     });
+  });
+
+  it("refuses cross-presentation adoption before any projection can be consumed", async () => {
+    for (const [existingMode, requestedMode] of [
+      ["developer", "normal"],
+      ["normal", "developer"],
+    ] as const) {
+      const storageRoot = await root();
+      const first = await start({ storageRoot, presentationMode: existingMode });
+      await expect(startControlServiceForTest({
+        storageRoot,
+        clock: () => NOW,
+        random: (size) => Buffer.alloc(size, 29),
+        presentationMode: requestedMode,
+        projectionDataset: projectionDataset(NOW),
+      })).rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
+
+      const existingHealth = await httpGet(first.descriptor, "/v1/projections/health");
+      const existingPayload = (existingHealth.json as { payload: Record<string, unknown> }).payload;
+      expect(first.descriptor.presentationMode).toBe(existingMode);
+      if (existingMode === "developer") expect(existingPayload).toHaveProperty("pid");
+      else expect(existingPayload).not.toHaveProperty("pid");
+      await first.close();
+      handles.splice(handles.indexOf(first), 1);
+    }
+  });
+
+  it("reports the actual mode when a matching Developer client adopts", async () => {
+    const storageRoot = await root();
+    const first = await start({ storageRoot, presentationMode: "developer" });
+    const second = await start({ storageRoot, presentationMode: "developer" });
+    expect(second.bootstrap).toEqual({
+      scope: "client-attachment",
+      mode: "adopted",
+      presentationMode: "developer",
+      runningSessions: 0,
+    });
+    expect(second.descriptor.presentationMode).toBe("developer");
+    expect(second.descriptor).toEqual(first.descriptor);
   });
 
   it("cleans the lock after a port conflict before descriptor publication", async () => {

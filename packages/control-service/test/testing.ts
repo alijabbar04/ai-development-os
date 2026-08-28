@@ -22,6 +22,7 @@ export function projectionDataset(
 ): Record<string, unknown> {
   return {
     health: {
+      runningSessions: 0,
       providerHealth: [{
         providerId: "anthropic",
         availability: "available",
@@ -79,6 +80,7 @@ export function projectionDataset(
       decisionId: "decision-one",
       routeAlias: "aster",
       agent: "claude-code",
+      ownership: "owned",
       reasonCodes: ["deterministic-selection", "owned-profile", "usage-eligible"],
       ruleIds: ["route.deterministic-selection"],
       decidedAt: computedAt,

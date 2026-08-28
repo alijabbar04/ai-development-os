@@ -709,7 +709,9 @@ response-rejected attempts were not retried, and the distinct earlier success
 whose full envelope was reduced remains `BLOCKED_EVIDENCE` with no reconstructed
 fields. `PLN-02` remains incomplete. Production admission stays blocked on
 Stage 17W, `productionAdmitted=false`, and no Stage 18 evidence enables provider
-or task execution. Stage 20A is eligible but was not started. Query-native,
+or task execution. Stage 20A C0-C5 is implemented as a production-disabled
+read-only candidate and remains gated on its current independent reviews and
+exact-head validation. Query-native,
 high-throughput team scheduling remains a deployment-scale nonclaim rather than
 a Stage 18 development-acceptance item.
 
@@ -913,8 +915,10 @@ Tests and gate:
 ## Stage 20: Typed local control boundary
 
 Status: Stage 20A C0-C5 implemented on the production-disabled read-only
-candidate. C4 passed independent security review; the repaired C5 candidate is
-awaiting independent leakage re-review. Stage 20B is not started.
+candidate. The original C4 candidate passed independent security review; the
+presentation-bound adoption delta is awaiting focused C4 re-review and the
+repaired C5 candidate is awaiting fresh independent leakage re-review. Stage
+20B is not started.
 
 Packages: `@ai-dev-os/api`, `@ai-dev-os/client`, `@ai-dev-os/control-service`
 

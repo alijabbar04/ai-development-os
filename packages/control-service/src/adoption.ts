@@ -6,7 +6,11 @@ import type { ControlArtifactStore } from "./artifacts.js";
 import type { ConnectionDescriptor } from "./contracts.js";
 import { ControlServiceError, controlFail } from "./errors.js";
 import { CONTROL_HOST, START_NONCE_PATTERN } from "./identity.js";
-import { exactString, readExactRecord } from "./structural.js";
+import {
+  CONTROL_PRESENTATION_MODES,
+  type ControlPresentationMode,
+} from "./routes.js";
+import { exactInteger, exactString, readExactRecord } from "./structural.js";
 
 export const ADOPTION_RESPONSE_LIMIT = 8_192;
 export const ADOPTION_TIMEOUT_MS = 1_000;
@@ -185,31 +189,53 @@ function parseResponse<T extends JsonValue>(response: AdoptionTransportResponse,
 }
 
 function healthPayload(value: unknown): JsonValue {
-  const record = readExactRecord(value, ["serviceVersion", "startNonce", "ready"]);
+  const record = readExactRecord(value, ["serviceVersion", "startNonce", "presentationMode", "ready"]);
   if (record["ready"] !== true) controlFail("ADOPTION_REFUSED");
   return Object.freeze({
     serviceVersion: exactString(record["serviceVersion"], /^\d+\.\d+\.\d+$/u, 32),
     startNonce: exactString(record["startNonce"], START_NONCE_PATTERN, 32),
+    presentationMode: exactPresentationMode(record["presentationMode"]),
     ready: true,
   });
 }
 
 function sessionPayload(value: unknown): JsonValue {
-  const record = readExactRecord(value, ["serviceVersion", "startNonce", "state"]);
+  const record = readExactRecord(value, [
+    "serviceVersion", "startNonce", "presentationMode", "runningSessions", "state",
+  ]);
   if (record["state"] !== "active") controlFail("ADOPTION_REFUSED");
   return Object.freeze({
     serviceVersion: exactString(record["serviceVersion"], /^\d+\.\d+\.\d+$/u, 32),
     startNonce: exactString(record["startNonce"], START_NONCE_PATTERN, 32),
+    presentationMode: exactPresentationMode(record["presentationMode"]),
+    runningSessions: exactInteger(record["runningSessions"], 0, 10_000),
     state: "active",
   });
 }
 
+function exactPresentationMode(value: unknown): ControlPresentationMode {
+  if (
+    typeof value !== "string" ||
+    !(CONTROL_PRESENTATION_MODES as readonly string[]).includes(value)
+  ) controlFail("ADOPTION_REFUSED");
+  return value as ControlPresentationMode;
+}
+
+export interface AdoptedControlService {
+  readonly descriptor: ConnectionDescriptor;
+  readonly presentationMode: ControlPresentationMode;
+  readonly runningSessions: number;
+}
+
 export async function adoptExistingControlService(options: Readonly<{
   store: ControlArtifactStore;
+  expectedPresentationMode: ControlPresentationMode;
   transport?: AdoptionTransport;
   timeoutMs?: number;
-}>): Promise<ConnectionDescriptor> {
+}>): Promise<AdoptedControlService> {
   const descriptor = (await options.store.readDescriptor()).value;
+  const expectedPresentationMode = exactPresentationMode(options.expectedPresentationMode);
+  if (descriptor.presentationMode !== expectedPresentationMode) controlFail("ADOPTION_REFUSED");
   const transport = options.transport ?? createLoopbackAdoptionTransport();
   const timeoutMs = options.timeoutMs ?? ADOPTION_TIMEOUT_MS;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 10 || timeoutMs > 5_000) controlFail("ADOPTION_REFUSED");
@@ -226,7 +252,11 @@ export async function adoptExistingControlService(options: Readonly<{
       timeoutMs: remaining(),
     }), healthPayload);
     const payload = probe.payload as Record<string, JsonValue>;
-    if (payload["startNonce"] !== descriptor.startNonce || payload["serviceVersion"] !== descriptor.serviceVersion) {
+    if (
+      payload["startNonce"] !== descriptor.startNonce ||
+      payload["serviceVersion"] !== descriptor.serviceVersion ||
+      payload["presentationMode"] !== descriptor.presentationMode
+    ) {
       controlFail("ADOPTION_REFUSED");
     }
     // Yield only after the full health response has been parsed; the next
@@ -239,10 +269,18 @@ export async function adoptExistingControlService(options: Readonly<{
       timeoutMs: remaining(),
     }), sessionPayload);
     const sessionRecord = session.payload as Record<string, JsonValue>;
-    if (sessionRecord["startNonce"] !== descriptor.startNonce || sessionRecord["serviceVersion"] !== descriptor.serviceVersion) {
+    if (
+      sessionRecord["startNonce"] !== descriptor.startNonce ||
+      sessionRecord["serviceVersion"] !== descriptor.serviceVersion ||
+      sessionRecord["presentationMode"] !== descriptor.presentationMode
+    ) {
       controlFail("ADOPTION_REFUSED");
     }
-    return descriptor;
+    return Object.freeze({
+      descriptor,
+      presentationMode: descriptor.presentationMode,
+      runningSessions: sessionRecord["runningSessions"] as number,
+    });
   } catch (error) {
     if (error instanceof ControlServiceError) throw error;
     throw new ControlServiceError("ADOPTION_REFUSED");

@@ -26,6 +26,12 @@ fixed-length digests in constant time. Adoption probes the unauthenticated
 health nonce first and sends the bearer only after an exact identity match on
 the same still-open TCP channel. It never reconnects for the authenticated
 read, and one monotonic deadline bounds the complete adoption sequence.
+The descriptor, health probe, authenticated session response, and returned
+client-attachment bootstrap bind the listener's actual Normal or Developer
+presentation. A requested/actual mismatch refuses before transport creation.
+The authenticated session response also supplies the existing listener's
+bounded running-session count; the adopter's own unused dataset cannot supply
+or replace it.
 
 Descriptor and lock artifacts have fixed names and exact schemas. Storage uses
 no directory enumeration, rejects linked roots/artifacts, promotes create-only
@@ -44,8 +50,9 @@ at composition and have byte-identical route and command authority; no request
 field or query named `mode` is accepted.
 
 The Stage 20A projection source is a strictly parsed bounded in-memory dataset,
-not an effectful adapter or callback. It contains provider-health, probe, usage,
-and stored-routing evidence but no caller-supplied startup or recovery facts.
+not an effectful adapter or callback. It contains the existing service's
+bounded running-session count, provider-health, probe, usage, and stored-routing
+evidence but no caller-supplied startup-mode, restart, sweep, or recovery facts.
 It is composed only after the single-instance decision proves this caller owns
 a fresh listener, and before that listener is created. An adopter consumes the
 authoritative client-attachment result and never composes its unused dataset
@@ -76,8 +83,13 @@ the explicit `en-GB` / `Europe/London` weekday `[09:00,17:00)` contract:
 5,000 basis points for the borrowed five-hour window during that interval and
 7,000 basis points weekly at all times. Current usage at a cap refuses;
 current-plus-outstanding reservations equal to a cap remains eligible; a total
-over a cap refuses. The stored-routing projection contains
-only the already selected alias/agent, finite reasons, rules, and timestamps;
+over a cap refuses. Normal copy distinguishes source unavailability from
+provider-authority/high-confidence requirements, and cap copy is true for both
+current-at-cap and current-plus-outstanding-reservations refusal branches. The
+stored-routing projection contains only the already selected alias/agent,
+finite reasons, the exact scheduler selected top-level rule set, and timestamps;
+owned/borrowed reasons must agree with the selected route and every hard denial
+rule is rejected;
 Stage 20A does not implement C16 outcomes or forecasts.
 
 Health truthfully reports `dispatchPaused: false` and
@@ -86,7 +98,11 @@ Health truthfully reports `dispatchPaused: false` and
 `client-attachment` fresh/adopted bootstrap result. Because Stage 20A performs
 no recovery sweep, process startup is fixed to fresh with zero stopped,
 recovered, unresolved, and unconfirmed counts and no sweep timestamp or timing
-rows. The six deferred
+rows. `recovery-in-progress` is not an accepted C5 stale reason because no such
+mechanism or evidence exists. The client-attachment bootstrap instead carries
+the actual presentation plus either zero stopped-by-restart input for a fresh
+listener or the authenticated existing-service running-session count for an
+adoption. The six deferred
 parameterized C2 refusals receive condition-specific finite product copy at the
 C5 presentation boundary without changing their codes, details, or next-step
 semantics.
@@ -107,6 +123,12 @@ Node does not expose a proof that a parent-directory entry was durably flushed.
 - C4 is frozen and independently security-reviewed before C5 bytes are added.
 - The repaired frozen C4 candidate passed its fresh independent re-review with
   zero must-fix findings before C5 began; that verdict does not transfer to C5.
+- A later C5 re-review of frozen commit `384f082` returned FAIL with four
+  must-fix findings: presentation-unbound adoption, incomplete adopted W3
+  evidence plus unsupported recovery metadata, selected-route denial
+  contradictions, and condition-inaccurate usage copy. The repairs recorded by
+  this ADR remain candidates until a fresh exact-identity C5 review and focused
+  adoption-path C4 security re-review pass.
 - C5 accepts only injected deterministic records and C2 allowlist projection
   schemas; it does not read real installed state.
 - Stage 20B owns all commands and mutation. Stage 21 owns desktop composition.

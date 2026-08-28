@@ -43,15 +43,26 @@ import {
 
 export interface ControlServiceHandle {
   readonly startupMode: StartupMode;
-  readonly bootstrap: Readonly<{
-    readonly scope: "client-attachment";
-    readonly mode: StartupMode;
-  }>;
+  readonly bootstrap: ControlServiceBootstrap;
   readonly descriptor: ConnectionDescriptor;
   readonly ownsListener: boolean;
   lifecycle(): LifecycleSnapshot;
   close(): Promise<void>;
 }
+
+export type ControlServiceBootstrap =
+  | Readonly<{
+      readonly scope: "client-attachment";
+      readonly mode: "fresh";
+      readonly presentationMode: ControlPresentationMode;
+      readonly stoppedByRestart: 0;
+    }>
+  | Readonly<{
+      readonly scope: "client-attachment";
+      readonly mode: "adopted";
+      readonly presentationMode: ControlPresentationMode;
+      readonly runningSessions: number;
+    }>;
 
 export interface StartControlServiceOptions {
   readonly storageRoot: string;
@@ -384,6 +395,7 @@ function composeListener(options: Readonly<{
         ready: true,
         serviceVersion: options.session.serviceVersion,
         startNonce: options.session.startNonce,
+        presentationMode: options.presentationMode,
       });
     },
   });
@@ -456,6 +468,8 @@ function composeListener(options: Readonly<{
       sendSuccess(reply, {
         serviceVersion: options.session.serviceVersion,
         startNonce: options.session.startNonce,
+        presentationMode: options.presentationMode,
+        runningSessions: options.projections.runningSessionCount(),
         state: "active",
       });
     },
@@ -475,12 +489,24 @@ async function cleanupLease(store: ControlArtifactStore, lease: ArtifactLease | 
   }
 }
 
-function adoptedHandle(descriptor: ConnectionDescriptor, lifecycle: ControlLifecycle): ControlServiceHandle {
+function adoptedHandle(
+  adopted: Readonly<{
+    descriptor: ConnectionDescriptor;
+    presentationMode: ControlPresentationMode;
+    runningSessions: number;
+  }>,
+  lifecycle: ControlLifecycle,
+): ControlServiceHandle {
   let closed = false;
   return Object.freeze({
     startupMode: "adopted" as const,
-    bootstrap: Object.freeze({ scope: "client-attachment" as const, mode: "adopted" as const }),
-    descriptor,
+    bootstrap: Object.freeze({
+      scope: "client-attachment" as const,
+      mode: "adopted" as const,
+      presentationMode: adopted.presentationMode,
+      runningSessions: adopted.runningSessions,
+    }),
+    descriptor: adopted.descriptor,
     ownsListener: false,
     lifecycle: () => lifecycle.snapshot(),
     async close() {
@@ -517,9 +543,12 @@ export async function startControlServiceInternal(options: InternalControlServic
   });
   if (disposition.kind === "adopt") {
     lifecycle.transition("begin-adoption");
-    const descriptor = await adoptExistingControlService({ store: options.store });
+    const adopted = await adoptExistingControlService({
+      store: options.store,
+      expectedPresentationMode: options.presentationMode,
+    });
     lifecycle.transition("adoption-ready");
-    return adoptedHandle(descriptor, lifecycle);
+    return adoptedHandle(adopted, lifecycle);
   }
 
   lifecycle.transition("begin-fresh");
@@ -554,6 +583,7 @@ export async function startControlServiceInternal(options: InternalControlServic
     const descriptor: ConnectionDescriptor = Object.freeze({
       schemaVersion: 1,
       serviceVersion: CONTROL_SERVICE_VERSION,
+      presentationMode: options.presentationMode,
       host: CONTROL_HOST,
       port: address.port,
       processId: options.processId,
@@ -567,7 +597,12 @@ export async function startControlServiceInternal(options: InternalControlServic
     let closed = false;
     return Object.freeze({
       startupMode: "fresh" as const,
-      bootstrap: Object.freeze({ scope: "client-attachment" as const, mode: "fresh" as const }),
+      bootstrap: Object.freeze({
+        scope: "client-attachment" as const,
+        mode: "fresh" as const,
+        presentationMode: options.presentationMode,
+        stoppedByRestart: 0 as const,
+      }),
       descriptor,
       ownsListener: true,
       lifecycle: () => lifecycle.snapshot(),

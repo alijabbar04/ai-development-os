@@ -6,9 +6,10 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  adoptExistingControlService,
+  adoptExistingControlService as adoptWithPresentationMode,
   createControlArtifactStore,
   createLaunchIdentity,
+  type ControlPresentationMode,
   type ConnectionDescriptor,
 } from "../src/index.js";
 
@@ -72,18 +73,67 @@ async function storeDescriptor(port: number, byte = 11): Promise<{ descriptor: C
   const identity = createLaunchIdentity({ now: NOW, random: (size) => Buffer.alloc(size, byte) });
   const descriptor: ConnectionDescriptor = {
     schemaVersion: 1, serviceVersion: "0.1.0", host: "127.0.0.1", port,
-    processId: process.pid, ...identity,
+    presentationMode: "normal", processId: process.pid, ...identity,
   };
   await store.writeDescriptor(descriptor);
   return { descriptor, store };
 }
 
+type AdoptionOptions = Parameters<typeof adoptWithPresentationMode>[0];
+
+async function adoptExistingControlService(
+  options: Omit<AdoptionOptions, "expectedPresentationMode"> &
+    Readonly<{ expectedPresentationMode?: ControlPresentationMode }>,
+) {
+  return await adoptWithPresentationMode({
+    expectedPresentationMode: "normal",
+    ...options,
+  });
+}
+
 describe("C3 nonce-before-bearer adoption", () => {
+  it("refuses a descriptor presentation mismatch before opening a transport", async () => {
+    const { store } = await storeDescriptor(45122, 10);
+    let calls = 0;
+    await expect(adoptExistingControlService({
+      store,
+      expectedPresentationMode: "developer",
+      transport: {
+        get: async () => {
+          calls += 1;
+          throw new Error("transport must remain unused");
+        },
+      },
+    })).rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
+    expect(calls).toBe(0);
+  });
+
+  it("refuses a live presentation mismatch without sending the bearer", async () => {
+    const received: Array<string | undefined> = [];
+    let expected: ConnectionDescriptor | undefined;
+    const { port } = await fixture((req, res) => {
+      received.push(req.headers.authorization);
+      sendBounded(res, envelope({
+        serviceVersion: expected?.serviceVersion,
+        startNonce: expected?.startNonce,
+        presentationMode: "developer",
+        ready: true,
+      }));
+    });
+    const prepared = await storeDescriptor(port, 18);
+    expected = prepared.descriptor;
+    await expect(adoptExistingControlService({ store: prepared.store, timeoutMs: 200 }))
+      .rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
+    expect(received).toEqual([undefined]);
+  });
+
   it("sends no authorization to a nonce-mismatched hostile listener", async () => {
     const received: Array<string | undefined> = [];
     const { port } = await fixture((req, res) => {
       received.push(req.headers.authorization);
-      sendBounded(res, envelope({ serviceVersion: "0.1.0", startNonce: "f".repeat(32), ready: true }));
+      sendBounded(res, envelope({
+        serviceVersion: "0.1.0", startNonce: "f".repeat(32), presentationMode: "normal", ready: true,
+      }));
     });
     const { descriptor, store } = await storeDescriptor(port);
     await expect(adoptExistingControlService({ store, timeoutMs: 200 })).rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
@@ -116,14 +166,29 @@ describe("C3 nonce-before-bearer adoption", () => {
     const { port } = await fixture((req, res) => {
       received.push({ path: req.url, authorization: req.headers.authorization });
       if (req.url === "/v1/health") {
-        sendBounded(res, envelope({ serviceVersion: expected?.serviceVersion, startNonce: expected?.startNonce, ready: true }), "application/json; charset=utf-8");
+        sendBounded(res, envelope({
+          serviceVersion: expected?.serviceVersion,
+          startNonce: expected?.startNonce,
+          presentationMode: expected?.presentationMode,
+          ready: true,
+        }), "application/json; charset=utf-8");
       } else {
-        sendBounded(res, envelope({ serviceVersion: expected?.serviceVersion, startNonce: expected?.startNonce, state: "active" }), "application/json; charset=utf-8");
+        sendBounded(res, envelope({
+          serviceVersion: expected?.serviceVersion,
+          startNonce: expected?.startNonce,
+          presentationMode: expected?.presentationMode,
+          runningSessions: 3,
+          state: "active",
+        }), "application/json; charset=utf-8");
       }
     });
     const prepared = await storeDescriptor(port, 12);
     expected = prepared.descriptor;
-    await expect(adoptExistingControlService({ store: prepared.store, timeoutMs: 200 })).resolves.toEqual(expected);
+    await expect(adoptExistingControlService({ store: prepared.store, timeoutMs: 200 })).resolves.toEqual({
+      descriptor: expected,
+      presentationMode: "normal",
+      runningSessions: 3,
+    });
     expect(received).toEqual([
       { path: "/v1/health", authorization: undefined },
       { path: "/v1/session", authorization: `Bearer ${expected.bearerToken}` },
@@ -139,6 +204,7 @@ describe("C3 nonce-before-bearer adoption", () => {
       const body = envelope({
         serviceVersion: expected?.serviceVersion,
         startNonce: expected?.startNonce,
+        presentationMode: expected?.presentationMode,
         ready: true,
       });
       response.writeHead(200, {
@@ -174,7 +240,9 @@ describe("C3 nonce-before-bearer adoption", () => {
 
   it("applies an absolute deadline even while a responder drips bytes", async () => {
     const { port } = await fixture((_request, response) => {
-      const body = envelope({ serviceVersion: "0.1.0", startNonce: "f".repeat(32), ready: true });
+      const body = envelope({
+        serviceVersion: "0.1.0", startNonce: "f".repeat(32), presentationMode: "normal", ready: true,
+      });
       response.writeHead(200, {
         "content-length": String(Buffer.byteLength(body, "utf8")),
         "content-type": "application/json",
@@ -194,7 +262,9 @@ describe("C3 nonce-before-bearer adoption", () => {
   });
 
   it("strictly refuses malformed or unbounded HTTP response framing", async () => {
-    const validBody = envelope({ serviceVersion: "0.1.0", startNonce: "f".repeat(32), ready: true });
+    const validBody = envelope({
+      serviceVersion: "0.1.0", startNonce: "f".repeat(32), presentationMode: "normal", ready: true,
+    });
     const complete = [
       "HTTP/1.0 200 OK\r\nContent-Length: 0\r\nContent-Type: application/json\r\n\r\n",
       "HTTP/1.1 200 OK\r\nBad Header: value\r\nContent-Length: 0\r\nContent-Type: application/json\r\n\r\n",
@@ -273,7 +343,12 @@ describe("C3 nonce-before-bearer adoption", () => {
     });
     await expect(adoptExistingControlService({
       store,
-      transport: { get: async () => response({ serviceVersion: descriptor.serviceVersion, startNonce: descriptor.startNonce, ready: false }) },
+      transport: { get: async () => response({
+        serviceVersion: descriptor.serviceVersion,
+        startNonce: descriptor.startNonce,
+        presentationMode: descriptor.presentationMode,
+        ready: false,
+      }) },
     })).rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
 
     let call = 0;
@@ -283,8 +358,67 @@ describe("C3 nonce-before-bearer adoption", () => {
         get: async () => {
           call += 1;
           return call === 1
-            ? response({ serviceVersion: descriptor.serviceVersion, startNonce: descriptor.startNonce, ready: true })
-            : response({ serviceVersion: descriptor.serviceVersion, startNonce: "e".repeat(32), state: "active" });
+            ? response({
+                serviceVersion: descriptor.serviceVersion,
+                startNonce: descriptor.startNonce,
+                presentationMode: descriptor.presentationMode,
+                ready: true,
+              })
+            : response({
+                serviceVersion: descriptor.serviceVersion,
+                startNonce: "e".repeat(32),
+                presentationMode: descriptor.presentationMode,
+                runningSessions: 0,
+                state: "active",
+              });
+        },
+      },
+    })).rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
+
+    call = 0;
+    await expect(adoptExistingControlService({
+      store,
+      transport: {
+        get: async () => {
+          call += 1;
+          return call === 1
+            ? response({
+                serviceVersion: descriptor.serviceVersion,
+                startNonce: descriptor.startNonce,
+                presentationMode: descriptor.presentationMode,
+                ready: true,
+              })
+            : response({
+                serviceVersion: descriptor.serviceVersion,
+                startNonce: descriptor.startNonce,
+                presentationMode: "developer",
+                runningSessions: 0,
+                state: "active",
+              });
+        },
+      },
+    })).rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
+
+    call = 0;
+    await expect(adoptExistingControlService({
+      store,
+      transport: {
+        get: async () => {
+          call += 1;
+          return call === 1
+            ? response({
+                serviceVersion: descriptor.serviceVersion,
+                startNonce: descriptor.startNonce,
+                presentationMode: descriptor.presentationMode,
+                ready: true,
+              })
+            : response({
+                serviceVersion: descriptor.serviceVersion,
+                startNonce: descriptor.startNonce,
+                presentationMode: descriptor.presentationMode,
+                runningSessions: 10_001,
+                state: "active",
+              });
         },
       },
     })).rejects.toMatchObject({ code: "ADOPTION_REFUSED" });

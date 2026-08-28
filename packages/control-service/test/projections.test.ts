@@ -32,9 +32,22 @@ import {
 const NOW = "2026-08-26T10:00:00.000Z";
 const NONCE = "a".repeat(32);
 const CAP_SENTENCES = Object.freeze({
-  "usage.borrowed.weekly-70-cap": "This borrowed profile has reached its weekly usage limit.",
-  "usage.borrowed.work-hours-five-hour-50-cap": "This borrowed profile has reached its weekday work-hours usage limit.",
+  "usage.borrowed.weekly-70-cap": "Current usage and outstanding reservations leave no weekly capacity for more work.",
+  "usage.borrowed.work-hours-five-hour-50-cap": "Current usage and outstanding reservations leave no weekday work-hours capacity for more work.",
 } as const);
+
+const ROUTING_DENIAL_RULE_IDS = Object.freeze([
+  "route.borrowed.explicit-task-model-authorization",
+  "route.borrowed.fable-forbidden",
+  "route.capability.required",
+  "route.explicit-identity.exact",
+  "route.health.fresh",
+  "route.no-eligible-candidate",
+  "route.permission-mode.required",
+  "route.profile.authorization.required",
+  "route.provider.available",
+  ...USAGE_ELIGIBILITY_RULE_IDS,
+] as const);
 
 function cloneDataset(now = NOW): Record<string, unknown> {
   return structuredClone(projectionDataset(now));
@@ -108,6 +121,7 @@ describe("C5 deterministic read projections", () => {
       nonceReference: `launch:${NONCE}`,
       sweepTimings: [],
     });
+    expect(runtime.runningSessionCount()).toBe(0);
   });
 
   it("refuses unbound startup/recovery claims and credential-shaped probe versions", () => {
@@ -132,6 +146,23 @@ describe("C5 deterministic read projections", () => {
       probe["version"] = version;
       expect(() => createControlProjectionRuntime(dataset), version).toThrow();
     }
+    for (const recordFor of [
+      (dataset: Record<string, unknown>) => dataset["health"] as Record<string, unknown>,
+      (dataset: Record<string, unknown>) =>
+        (dataset["usageProfiles"] as Record<string, unknown>[])[0] as Record<string, unknown>,
+      (dataset: Record<string, unknown>) =>
+        (dataset["routingDecisions"] as Record<string, unknown>[])[0] as Record<string, unknown>,
+    ]) {
+      const unsupportedRecovery = cloneDataset();
+      const record = recordFor(unsupportedRecovery);
+      record["confidence"] = "stale";
+      record["staleReason"] = "recovery-in-progress";
+      expect(() => createControlProjectionRuntime(unsupportedRecovery)).toThrow();
+    }
+
+    const unboundedSessions = cloneDataset();
+    (unboundedSessions["health"] as Record<string, unknown>)["runningSessions"] = 10_001;
+    expect(() => createControlProjectionRuntime(unboundedSessions)).toThrow();
   });
 
   it("serves exact policy constants with product sentences in Normal and rule ids only in Developer", () => {
@@ -441,7 +472,23 @@ describe("C5 deterministic read projections", () => {
     if (unavailableText === null) throw new Error("fixture profile missing");
     expect(payload(unavailableText)).toMatchObject({
       eligibility: { eligible: false, reasons: [
-        "Usage must come from an authoritative source.",
+        "Usage is unavailable; nothing is assumed about remaining capacity.",
+        "Usage evidence must be current.",
+      ] },
+    });
+
+    const lowConfidenceDataset = cloneDataset();
+    const lowConfidence = usage(lowConfidenceDataset);
+    snapshot(lowConfidence)["sourceConfidence"] = "medium";
+    lowConfidence["confidence"] = "stale";
+    lowConfidence["staleReason"] = "sequence-lag";
+    setEligibility(lowConfidence, ["usage.authority.required", "usage.stale.refused"]);
+    const lowConfidenceText = createControlProjectionRuntime(lowConfidenceDataset)
+      .usageProfile("profile-owned", context());
+    if (lowConfidenceText === null) throw new Error("fixture profile missing");
+    expect(payload(lowConfidenceText)).toMatchObject({
+      eligibility: { eligible: false, reasons: [
+        "Usage must be provider-authoritative and high-confidence.",
         "Usage evidence must be current.",
       ] },
     });
@@ -579,6 +626,58 @@ describe("C5 deterministic read projections", () => {
     });
     expect(normalText).not.toMatch(/model|forecast|outcome|wait|reroute|ask|refuse/iu);
     expect(runtime.storedRoutingDecision("task-other", context())).toBeNull();
+  });
+
+  it("accepts only a coherent selected scheduler decision and rejects every denial family", () => {
+    const schedulerDecision = routeTask({
+      task: schedulerTask(),
+      workloadClass: "general",
+      preference: "balanced",
+      candidates: [schedulerCandidate()],
+      usageSnapshots: [schedulerUsageSnapshot()],
+      now: new Date("2026-08-10T10:00:00.000Z"),
+      maximumSnapshotAgeMs: 60_000,
+    });
+    expect(schedulerDecision.outcome).toBe("selected");
+    expect(schedulerDecision.ruleIds).toEqual(["route.deterministic-selection"]);
+    const parityDataset = cloneDataset();
+    const parityRoute = (parityDataset["routingDecisions"] as Record<string, unknown>[])[0];
+    if (parityRoute === undefined || schedulerDecision.selected === null) throw new Error("selected fixture missing");
+    parityRoute["ruleIds"] = [...schedulerDecision.ruleIds];
+    parityRoute["ownership"] = schedulerDecision.selected.ownership;
+    expect(() => createControlProjectionRuntime(parityDataset)).not.toThrow();
+
+    for (const denialRule of ROUTING_DENIAL_RULE_IDS) {
+      const dataset = cloneDataset();
+      const route = (dataset["routingDecisions"] as Record<string, unknown>[])[0];
+      if (route === undefined) throw new Error("route fixture missing");
+      route["ruleIds"] = ["route.deterministic-selection", denialRule];
+      expect(() => createControlProjectionRuntime(dataset), denialRule).toThrow();
+    }
+
+    for (const mutate of [
+      (route: Record<string, unknown>) => { route["reasonCodes"] = ["deterministic-selection", "owned-profile"]; },
+      (route: Record<string, unknown>) => {
+        route["reasonCodes"] = ["borrowed-policy", "deterministic-selection", "owned-profile", "usage-eligible"];
+      },
+      (route: Record<string, unknown>) => {
+        route["ownership"] = "authorized-borrowed";
+        route["reasonCodes"] = ["deterministic-selection", "owned-profile", "usage-eligible"];
+      },
+    ]) {
+      const dataset = cloneDataset();
+      const route = (dataset["routingDecisions"] as Record<string, unknown>[])[0];
+      if (route === undefined) throw new Error("route fixture missing");
+      mutate(route);
+      expect(() => createControlProjectionRuntime(dataset)).toThrow();
+    }
+
+    const borrowedDataset = cloneDataset();
+    const borrowedRoute = (borrowedDataset["routingDecisions"] as Record<string, unknown>[])[0];
+    if (borrowedRoute === undefined) throw new Error("route fixture missing");
+    borrowedRoute["ownership"] = "authorized-borrowed";
+    borrowedRoute["reasonCodes"] = ["borrowed-policy", "deterministic-selection", "usage-eligible"];
+    expect(() => createControlProjectionRuntime(borrowedDataset)).not.toThrow();
   });
 
   it("refuses unknown, cross-profile, owner, path, fingerprint, model, and credential-shaped fields", () => {

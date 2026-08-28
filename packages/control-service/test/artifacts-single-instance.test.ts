@@ -30,7 +30,14 @@ function pair(processId = 700, byte = 3): { descriptor: ConnectionDescriptor; lo
   const identity = createLaunchIdentity({ now: NOW, random: (size) => Buffer.alloc(size, byte) });
   const common = { schemaVersion: 1 as const, serviceVersion: "0.1.0", processId, startNonce: identity.startNonce, issuedAt: identity.issuedAt };
   return {
-    descriptor: { ...common, host: "127.0.0.1", port: 41111, bearerToken: identity.bearerToken, expiresAt: identity.expiresAt },
+    descriptor: {
+      ...common,
+      presentationMode: "normal",
+      host: "127.0.0.1",
+      port: 41111,
+      bearerToken: identity.bearerToken,
+      expiresAt: identity.expiresAt,
+    },
     lock: common,
   };
 }

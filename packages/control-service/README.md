@@ -24,10 +24,15 @@ replaced between an ownership check and unlink. An orphaned or unverifiable
 claim blocks later mutation; Stage 20A does not delete it by age or silently
 recover it.
 
-Adoption sends health and session reads over one TCP connection. The bearer is
-written only after the complete health response matches the descriptor nonce
-and version. A closed channel is never replaced, and one monotonic deadline
-bounds connect, response framing, identity verification, and authentication.
+Adoption sends health and session reads over one TCP connection. The descriptor
+binds the listener's actual Normal or Developer presentation, and a caller that
+requests the other presentation refuses before opening a transport. The bearer
+is written only after the complete health response matches the descriptor
+nonce, version, and presentation. The authenticated session response repeats
+that identity and supplies the bounded running-session count used by an adopted
+client attachment. A closed channel is never replaced, and one monotonic
+deadline bounds connect, response framing, identity verification, and
+authentication.
 
 ## Stage 20A read surface
 
@@ -47,13 +52,15 @@ envelope with one monotonic sequence, server-owned `serverNow`, `computedAt`,
 confidence, and a finite stale reason. A missing named record produces the
 finite C2 `SERVICE_NOT_READY` refusal; raw source errors are never returned.
 
-C5 accepts one strictly parsed, bounded in-memory dataset for provider health,
-agent probes, usage, and stored routing records. It accepts no startup or
+C5 accepts one strictly parsed, bounded in-memory dataset for the existing
+service's running-session count, provider health, agent probes, usage, and
+stored routing records. It accepts no startup-mode, restart, sweep, or other
 recovery claims, read callbacks, or Account Manager, vault, provider,
 scheduler, task, workspace, repository, or Git runtime. Unknown fields,
 mixed-profile reservations, model-text fields, credential/path/fingerprint
 canaries, and unbounded collections refuse before a fresh listener is created.
 An adopting caller's unused dataset is never composed into the existing
+listener; its attachment count comes only from the authenticated existing
 listener.
 
 Usage preserves `active`, `inactive`, `stale`, and `unavailable` as distinct
@@ -76,7 +83,12 @@ as ready. Its `service-process` startup scope describes the process that owns
 the listener, not a later client's attachment. Stage 20A performs no recovery
 sweep, so this surface is fixed to fresh with zero recovery counts, no sweep
 timestamp, and no timing rows. The returned handle separately reports the
-authoritative `client-attachment` result as fresh or adopted. The routing
-projection exposes only an injected stored selection and finite product-owned
-reasons; it contains no model, forecast, allocation outcome, command, or
-effect.
+authoritative `client-attachment` result. Fresh carries the actual presentation
+and zero stopped-by-restart input; adopted carries the existing presentation
+and authenticated bounded running-session count, which are sufficient for the
+two distinct W3 sentence inputs. The routing projection admits only the
+scheduler's selected top-level rule set, validates owned/borrowed reason
+coherence, and exposes finite product-owned reasons; it contains no denial
+rule, model, forecast, allocation outcome, command, or effect.
+`recovery-in-progress` is refused because Stage 20A has no recovery mechanism
+or evidence.

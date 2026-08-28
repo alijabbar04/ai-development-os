@@ -7,11 +7,16 @@ import {
   START_NONCE_PATTERN,
 } from "./identity.js";
 import { controlFail } from "./errors.js";
+import {
+  CONTROL_PRESENTATION_MODES,
+  type ControlPresentationMode,
+} from "./routes.js";
 import { exactInteger, exactString, exactTimestamp, readExactRecord } from "./structural.js";
 
 export interface ConnectionDescriptor {
   readonly schemaVersion: typeof CONTROL_DESCRIPTOR_SCHEMA_VERSION;
   readonly serviceVersion: string;
+  readonly presentationMode: ControlPresentationMode;
   readonly host: typeof CONTROL_HOST;
   readonly port: number;
   readonly processId: number;
@@ -33,7 +38,7 @@ const VERSION = /^\d+\.\d+\.\d+$/u;
 
 export function parseConnectionDescriptor(value: unknown): ConnectionDescriptor {
   const record = readExactRecord(value, [
-    "schemaVersion", "serviceVersion", "host", "port", "processId",
+    "schemaVersion", "serviceVersion", "presentationMode", "host", "port", "processId",
     "startNonce", "bearerToken", "issuedAt", "expiresAt",
   ]);
   if (record["schemaVersion"] !== CONTROL_DESCRIPTOR_SCHEMA_VERSION || record["host"] !== CONTROL_HOST) {
@@ -46,6 +51,7 @@ export function parseConnectionDescriptor(value: unknown): ConnectionDescriptor 
   return Object.freeze({
     schemaVersion: CONTROL_DESCRIPTOR_SCHEMA_VERSION,
     serviceVersion: exactString(record["serviceVersion"], VERSION, 32),
+    presentationMode: exactPresentationMode(record["presentationMode"]),
     host: CONTROL_HOST,
     port: exactInteger(record["port"], 1, 65_535),
     processId: exactInteger(record["processId"], 1, 2_147_483_647),
@@ -54,6 +60,14 @@ export function parseConnectionDescriptor(value: unknown): ConnectionDescriptor 
     issuedAt,
     expiresAt,
   });
+}
+
+function exactPresentationMode(value: unknown): ControlPresentationMode {
+  if (
+    typeof value !== "string" ||
+    !(CONTROL_PRESENTATION_MODES as readonly string[]).includes(value)
+  ) controlFail("INVALID_INPUT");
+  return value as ControlPresentationMode;
 }
 
 export function parseInstanceLock(value: unknown): InstanceLock {

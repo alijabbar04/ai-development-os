@@ -30,6 +30,7 @@ function descriptor() {
   return {
     schemaVersion: 1,
     serviceVersion: "0.1.0",
+    presentationMode: "normal",
     host: CONTROL_HOST,
     port: 43123,
     processId: 772,
@@ -87,7 +88,7 @@ describe("C3 strict descriptor and lock contracts", () => {
     const parsed = parseConnectionDescriptor(descriptor());
     expect(parsed.host).toBe("127.0.0.1");
     expect(Object.keys(parsed)).toEqual([
-      "schemaVersion", "serviceVersion", "host", "port", "processId",
+      "schemaVersion", "serviceVersion", "presentationMode", "host", "port", "processId",
       "startNonce", "bearerToken", "issuedAt", "expiresAt",
     ]);
     expect(serializeConnectionDescriptor(parsed).endsWith("\n")).toBe(true);
@@ -105,8 +106,19 @@ describe("C3 strict descriptor and lock contracts", () => {
     const { host: _host, ...missing } = value;
     expect(() => parseConnectionDescriptor(missing)).toThrow();
     expect(() => parseConnectionDescriptor({ ...value, host: "0.0.0.0" })).toThrow();
+    expect(() => parseConnectionDescriptor({ ...value, presentationMode: "diagnostic" })).toThrow();
     expect(() => parseConnectionDescriptor({ ...value, port: 0 })).toThrow();
     expect(() => parseConnectionDescriptor({ ...value, expiresAt: "2026-08-26T12:00:00.000Z" })).toThrow();
     expect(() => parseInstanceLock({ schemaVersion: 1, serviceVersion: "0.1.0", processId: 1, startNonce: value.startNonce, issuedAt: NOW, age: 1 })).toThrow();
+  });
+
+  it("refuses non-enumerable record fields", () => {
+    const value = descriptor();
+    Object.defineProperty(value, "presentationMode", {
+      value: "normal",
+      enumerable: false,
+      configurable: true,
+    });
+    expect(() => parseConnectionDescriptor(value)).toThrow();
   });
 });

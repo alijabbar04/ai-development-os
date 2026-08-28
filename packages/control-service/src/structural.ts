@@ -16,7 +16,10 @@ export function readExactRecord(value: unknown, fields: readonly string[]): Reco
     const output: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const field of fields) {
       const descriptor = descriptors[field];
-      if (descriptor === undefined || !("value" in descriptor)) controlFail("INVALID_INPUT");
+      if (
+        descriptor === undefined || !("value" in descriptor) ||
+        descriptor.enumerable !== true
+      ) controlFail("INVALID_INPUT");
       output[field] = descriptor.value;
     }
     return output;

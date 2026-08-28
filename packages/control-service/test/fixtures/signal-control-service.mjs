@@ -15,6 +15,7 @@ if (typeof storageRoot !== "string" || storageRoot.length === 0 || typeof proces
     presentationMode: "normal",
     projectionDataset: {
       health: {
+        runningSessions: 0,
         providerHealth: [],
         probes: [],
         computedAt: "2026-08-26T10:00:00.000Z",

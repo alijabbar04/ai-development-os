@@ -70,9 +70,13 @@ const ROUTING_RULE_IDS = Object.freeze([
   ...USAGE_ELIGIBILITY_RULE_IDS,
 ] as const);
 
+const SELECTED_ROUTING_RULE_IDS = Object.freeze([
+  "route.deterministic-selection",
+] as const);
+
 const POLICY_RULE_SENTENCES = Object.freeze({
   "usage.schema-v3.required": "A current usage record is required.",
-  "usage.authority.required": "Usage must come from an authoritative source.",
+  "usage.authority.required": "Usage must be provider-authoritative and high-confidence.",
   "usage.authorization.required": "This profile must be explicitly authorised.",
   "usage.revocation.refused": "Revoked or unconfirmed access is refused.",
   "usage.future.refused": "Future-dated usage evidence is refused.",
@@ -81,9 +85,12 @@ const POLICY_RULE_SENTENCES = Object.freeze({
   "usage.window.inactive": "Both usage windows must be active.",
   "usage.reset.invalid": "Reset times must follow the observation time.",
   "usage.window.expired": "Expired usage windows cannot authorise routing.",
-  "usage.borrowed.weekly-70-cap": "This borrowed profile has reached its weekly usage limit.",
-  "usage.borrowed.work-hours-five-hour-50-cap": "This borrowed profile has reached its weekday work-hours usage limit.",
+  "usage.borrowed.weekly-70-cap": "Current usage and outstanding reservations leave no weekly capacity for more work.",
+  "usage.borrowed.work-hours-five-hour-50-cap": "Current usage and outstanding reservations leave no weekday work-hours capacity for more work.",
 } as const satisfies Record<(typeof USAGE_ELIGIBILITY_RULE_IDS)[number], string>);
+
+const USAGE_UNAVAILABLE_SENTENCE =
+  "Usage is unavailable; nothing is assumed about remaining capacity." as const;
 
 const AUTHORISED_FOR = Object.freeze({
   personal: "Personal work",
@@ -121,7 +128,6 @@ const STALE_REASONS = Object.freeze([
   "source-freshness-expired",
   "source-unavailable",
   "service-read-only",
-  "recovery-in-progress",
 ] as const);
 const WINDOW_STATUSES = Object.freeze(["active", "inactive", "stale", "unavailable"] as const);
 const AUTHORIZATION = Object.freeze(["authorized", "unauthorized", "ambiguous"] as const);
@@ -211,6 +217,7 @@ interface UsageProfileRecord extends ProjectionMetadata {
 }
 
 interface HealthRecord extends ProjectionMetadata {
+  readonly runningSessions: number;
   readonly providerHealth: readonly Readonly<{
     providerId: string;
     availability: ProviderAvailability;
@@ -240,6 +247,7 @@ interface RoutingDecisionRecord extends ProjectionMetadata {
   readonly decisionId: string;
   readonly routeAlias: string;
   readonly agent: Agent;
+  readonly ownership: Ownership;
   readonly reasonCodes: readonly RoutingReasonCode[];
   readonly ruleIds: readonly (typeof ROUTING_RULE_IDS)[number][];
   readonly decidedAt: string;
@@ -255,6 +263,7 @@ export interface ControlProjectionContext {
 }
 
 export interface ControlProjectionRuntime {
+  runningSessionCount(): number;
   health(context: ControlProjectionContext): string;
   usagePolicyConstants(context: ControlProjectionContext): string;
   usageProfile(profileId: string, context: ControlProjectionContext): string | null;
@@ -434,7 +443,7 @@ function parseUsageProfile(value: unknown): UsageProfileRecord {
 
 function parseHealth(value: unknown): HealthRecord {
   const record = readExactRecord(value, [
-    "providerHealth", "probes", "computedAt", "confidence", "staleReason",
+    "runningSessions", "providerHealth", "probes", "computedAt", "confidence", "staleReason",
   ]);
   const providerHealth = readExactArray(record["providerHealth"], 16).map((item) => {
     const entry = readExactRecord(item, ["providerId", "availability", "health", "observedAt"]);
@@ -460,6 +469,7 @@ function parseHealth(value: unknown): HealthRecord {
     new Set(probes.map((item) => item.agent)).size !== probes.length
   ) controlFail("INVALID_INPUT");
   const output: HealthRecord = Object.freeze({
+    runningSessions: exactInteger(record["runningSessions"], 0, 10_000),
     providerHealth: Object.freeze(providerHealth),
     probes: Object.freeze(probes),
     ...parseMetadata(record),
@@ -474,13 +484,22 @@ function parseHealth(value: unknown): HealthRecord {
 
 function parseRoutingDecision(value: unknown): RoutingDecisionRecord {
   const record = readExactRecord(value, [
-    "taskId", "decisionId", "routeAlias", "agent", "reasonCodes", "ruleIds",
+    "taskId", "decisionId", "routeAlias", "agent", "ownership", "reasonCodes", "ruleIds",
     "decidedAt", "evidenceAt", "computedAt", "confidence", "staleReason",
   ]);
   const reasonCodes = uniqueSorted(readExactArray(record["reasonCodes"], 16).map((item) =>
     exactEnum(item, Object.freeze(Object.keys(ROUTING_REASON_SENTENCES)) as readonly RoutingReasonCode[])));
   const ruleIds = uniqueSorted(readExactArray(record["ruleIds"], 32).map((item) => exactEnum(item, ROUTING_RULE_IDS)));
-  if (reasonCodes.length === 0 || !ruleIds.includes("route.deterministic-selection") || ruleIds.includes("route.no-eligible-candidate")) {
+  const ownership = exactEnum(record["ownership"], OWNERSHIP);
+  const expectedOwnershipReason = ownership === "owned" ? "owned-profile" : "borrowed-policy";
+  const refusedOwnershipReason = ownership === "owned" ? "borrowed-policy" : "owned-profile";
+  if (
+    JSON.stringify(ruleIds) !== JSON.stringify(SELECTED_ROUTING_RULE_IDS) ||
+    !reasonCodes.includes("deterministic-selection") ||
+    !reasonCodes.includes("usage-eligible") ||
+    !reasonCodes.includes(expectedOwnershipReason) ||
+    reasonCodes.includes(refusedOwnershipReason)
+  ) {
     controlFail("INVALID_INPUT");
   }
   const output: RoutingDecisionRecord = Object.freeze({
@@ -488,6 +507,7 @@ function parseRoutingDecision(value: unknown): RoutingDecisionRecord {
     decisionId: exactIdentifier(record["decisionId"]),
     routeAlias: exactIdentifier(record["routeAlias"], 64),
     agent: exactEnum(record["agent"], AGENTS),
+    ownership,
     reasonCodes,
     ruleIds,
     decidedAt: exactTimestamp(record["decidedAt"]),
@@ -632,7 +652,7 @@ const USAGE_NORMAL_SCHEMA = defineProjectionSchema("usageProfileNormal", {
       reasons: {
         kind: "array",
         maximumItems: USAGE_ELIGIBILITY_RULE_IDS.length,
-        item: copy(Object.values(POLICY_RULE_SENTENCES)),
+        item: copy([...Object.values(POLICY_RULE_SENTENCES), USAGE_UNAVAILABLE_SENTENCE]),
       },
     },
   },
@@ -669,7 +689,7 @@ const USAGE_DEVELOPER_SCHEMA = defineProjectionSchema("usageProfileDeveloper", {
       reasons: {
         kind: "array",
         maximumItems: USAGE_ELIGIBILITY_RULE_IDS.length,
-        item: copy(Object.values(POLICY_RULE_SENTENCES)),
+        item: copy([...Object.values(POLICY_RULE_SENTENCES), USAGE_UNAVAILABLE_SENTENCE]),
       },
       ruleIds: {
         kind: "array",
@@ -733,7 +753,7 @@ const ROUTING_DEVELOPER_SCHEMA = defineProjectionSchema("storedRoutingDeveloper"
   ...ROUTING_NORMAL_SCHEMA.fields,
   taskId: { kind: "identifier" },
   decisionId: { kind: "identifier" },
-  ruleIds: { kind: "array", maximumItems: 32, item: rule(ROUTING_RULE_IDS) },
+  ruleIds: { kind: "array", maximumItems: 1, item: rule(SELECTED_ROUTING_RULE_IDS) },
 });
 
 function parseContext(value: ControlProjectionContext): Readonly<ControlProjectionContext> {
@@ -931,7 +951,7 @@ function usagePayload(record: UsageProfileRecord, context: Readonly<ControlProje
     snapshot: { observedAt: record.snapshot.observedAt, freshUntil: record.snapshot.freshUntil },
     eligibility: {
       eligible: record.eligibility.eligible,
-      reasons: record.eligibility.ruleIds.map((ruleId) => POLICY_RULE_SENTENCES[ruleId]),
+      reasons: record.eligibility.ruleIds.map((ruleId) => usageRuleSentence(record, ruleId)),
     },
     capsInEffect: {
       fiveHour50: borrowed && isLondonWorkHours(context.serverNow),
@@ -960,6 +980,14 @@ function usagePayload(record: UsageProfileRecord, context: Readonly<ControlProje
       taskId: item.taskId,
     })),
   };
+}
+
+function usageRuleSentence(record: UsageProfileRecord, ruleId: UsageRuleId): string {
+  if (
+    ruleId === "usage.authority.required" &&
+    record.snapshot.failureCode === "source-unavailable"
+  ) return USAGE_UNAVAILABLE_SENTENCE;
+  return POLICY_RULE_SENTENCES[ruleId];
 }
 
 function policyPayload(audience: ProjectionAudience): unknown {
@@ -1012,6 +1040,7 @@ export function createControlProjectionRuntime(value: unknown): ControlProjectio
     controlFail("INVALID_INPUT");
   }
   return Object.freeze({
+    runningSessionCount(): number { return health.runningSessions; },
     health(contextValue: ControlProjectionContext): string {
       const context = parseContext(contextValue);
       return serializeEnvelope(
