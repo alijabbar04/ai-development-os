@@ -10,6 +10,7 @@ import {
   USAGE_POLICY_SCHEMA_VERSION,
   USAGE_POLICY_TIMEZONE,
   createControlProjectionRuntime,
+  createLaunchIdentity,
   isLondonWorkHours,
   type ControlProjectionContext,
 } from "../src/index.js";
@@ -620,10 +621,12 @@ describe("C5 deterministic read projections", () => {
     expect(normal).not.toHaveProperty("taskId");
     expect(normal).not.toHaveProperty("decisionId");
     expect(normal).not.toHaveProperty("ruleIds");
+    expect(normal).not.toHaveProperty("workloadClass");
     expect(developer).toMatchObject({
       taskId: "task-one", decisionId: "decision-one",
       ruleIds: ["route.deterministic-selection"],
     });
+    expect(developer).not.toHaveProperty("workloadClass");
     expect(normalText).not.toMatch(/model|forecast|outcome|wait|reroute|ask|refuse/iu);
     expect(runtime.storedRoutingDecision("task-other", context())).toBeNull();
   });
@@ -644,6 +647,7 @@ describe("C5 deterministic read projections", () => {
     const parityRoute = (parityDataset["routingDecisions"] as Record<string, unknown>[])[0];
     if (parityRoute === undefined || schedulerDecision.selected === null) throw new Error("selected fixture missing");
     parityRoute["ruleIds"] = [...schedulerDecision.ruleIds];
+    parityRoute["workloadClass"] = "general";
     parityRoute["ownership"] = schedulerDecision.selected.ownership;
     expect(() => createControlProjectionRuntime(parityDataset)).not.toThrow();
 
@@ -678,6 +682,39 @@ describe("C5 deterministic read projections", () => {
     borrowedRoute["ownership"] = "authorized-borrowed";
     borrowedRoute["reasonCodes"] = ["borrowed-policy", "deterministic-selection", "usage-eligible"];
     expect(() => createControlProjectionRuntime(borrowedDataset)).not.toThrow();
+
+    const borrowedFableDecision = routeTask({
+      task: schedulerTask(),
+      workloadClass: "fable",
+      preference: "balanced",
+      candidates: [schedulerCandidate({
+        profileId: "profile:borrowed",
+        ownership: "authorized-borrowed",
+      })],
+      usageSnapshots: [schedulerUsageSnapshot({
+        snapshotId: "usage:borrowed:fable",
+        profileId: "profile:borrowed",
+        ownership: "authorized-borrowed",
+      })],
+      now: new Date("2026-08-10T10:00:00.000Z"),
+      maximumSnapshotAgeMs: 60_000,
+    });
+    expect(borrowedFableDecision.outcome).toBe("denied");
+    expect(borrowedFableDecision.considered[0]?.ruleIds)
+      .toContain("route.borrowed.fable-forbidden");
+
+    for (const mutate of [
+      (route: Record<string, unknown>) => { route["workloadClass"] = "fable"; },
+      (route: Record<string, unknown>) => { route["agent"] = "fable"; },
+    ]) {
+      const dataset = cloneDataset();
+      const route = (dataset["routingDecisions"] as Record<string, unknown>[])[0];
+      if (route === undefined) throw new Error("route fixture missing");
+      route["ownership"] = "authorized-borrowed";
+      route["reasonCodes"] = ["borrowed-policy", "deterministic-selection", "usage-eligible"];
+      mutate(route);
+      expect(() => createControlProjectionRuntime(dataset)).toThrow();
+    }
   });
 
   it("refuses unknown, cross-profile, owner, path, fingerprint, model, and credential-shaped fields", () => {
@@ -707,6 +744,64 @@ describe("C5 deterministic read projections", () => {
       `AKIA${"A".repeat(16)}`, "sha256:abc", "usage.borrowed.owner", "C:\\private\\file",
     ].join(" ");
     expect(positiveControl).toMatch(/<img|\u202E|sk-ant|AKIA|sha256:|usage\.|C:\\/u);
+  });
+
+  it("refuses a real service bearer shape from every identifier source before either presentation", () => {
+    const bearer = createLaunchIdentity({
+      now: NOW,
+      random: (size) => Buffer.alloc(size, 104),
+    }).bearerToken;
+    expect(bearer).toMatch(/^[a-z][A-Za-z0-9_-]{42}$/u);
+
+    const mutations = Object.freeze([
+      ["health provider", (dataset: Record<string, unknown>) => {
+        const health = dataset["health"] as Record<string, unknown>;
+        ((health["providerHealth"] as Record<string, unknown>[])[0] as Record<string, unknown>)["providerId"] = bearer;
+      }],
+      ["probe version", (dataset: Record<string, unknown>) => {
+        const health = dataset["health"] as Record<string, unknown>;
+        ((health["probes"] as Record<string, unknown>[])[0] as Record<string, unknown>)["version"] = bearer;
+      }],
+      ["profile id", (dataset: Record<string, unknown>) => { usage(dataset)["profileId"] = bearer; }],
+      ["profile alias", (dataset: Record<string, unknown>) => { usage(dataset)["alias"] = bearer; }],
+      ["profile provider", (dataset: Record<string, unknown>) => { usage(dataset)["provider"] = bearer; }],
+      ["profile product", (dataset: Record<string, unknown>) => { usage(dataset)["product"] = bearer; }],
+      ["five-hour window", (dataset: Record<string, unknown>) => {
+        windows(usage(dataset))["fiveHour"]!["windowId"] = bearer;
+      }],
+      ["weekly window", (dataset: Record<string, unknown>) => {
+        windows(usage(dataset))["weekly"]!["windowId"] = bearer;
+      }],
+      ["reservation profile", (dataset: Record<string, unknown>) => {
+        ((usage(dataset)["reservations"] as Record<string, unknown>[])[0] as Record<string, unknown>)["profileId"] = bearer;
+      }],
+      ["reservation id", (dataset: Record<string, unknown>) => {
+        ((usage(dataset)["reservations"] as Record<string, unknown>[])[0] as Record<string, unknown>)["reservationId"] = bearer;
+      }],
+      ["reservation task", (dataset: Record<string, unknown>) => {
+        ((usage(dataset)["reservations"] as Record<string, unknown>[])[0] as Record<string, unknown>)["taskId"] = bearer;
+      }],
+      ["routing task", (dataset: Record<string, unknown>) => {
+        ((dataset["routingDecisions"] as Record<string, unknown>[])[0] as Record<string, unknown>)["taskId"] = bearer;
+      }],
+      ["routing decision", (dataset: Record<string, unknown>) => {
+        ((dataset["routingDecisions"] as Record<string, unknown>[])[0] as Record<string, unknown>)["decisionId"] = bearer;
+      }],
+      ["routing alias", (dataset: Record<string, unknown>) => {
+        ((dataset["routingDecisions"] as Record<string, unknown>[])[0] as Record<string, unknown>)["routeAlias"] = bearer;
+      }],
+    ] as const);
+
+    for (const audience of ["normal", "developer"] as const) {
+      for (const [name, mutate] of mutations) {
+        const dataset = cloneDataset();
+        mutate(dataset);
+        expect(() => {
+          const runtime = createControlProjectionRuntime(dataset);
+          runtime.usageProfile("profile-owned", context(audience));
+        }, `${audience}: ${name}`).toThrow();
+      }
+    }
   });
 
   it("serializes deterministically inside the response bound", () => {

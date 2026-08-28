@@ -11,7 +11,11 @@ import {
 } from "@ai-dev-os/api";
 import type { JsonObject } from "@ai-dev-os/domain";
 import { controlFail } from "./errors.js";
-import { CONTROL_SERVICE_VERSION, START_NONCE_PATTERN } from "./identity.js";
+import {
+  BEARER_TOKEN_PATTERN,
+  CONTROL_SERVICE_VERSION,
+  START_NONCE_PATTERN,
+} from "./identity.js";
 import {
   exactInteger,
   exactString,
@@ -144,6 +148,7 @@ const RESERVATION_STATUSES = Object.freeze([
   "reserved", "reconciliation-required", "reconciled", "released",
 ] as const);
 const AGENTS = Object.freeze(["claude-code", "codex", "fable"] as const);
+const WORKLOAD_CLASSES = Object.freeze(["general", "fable"] as const);
 const STARTUP_MODES = Object.freeze(["adopted", "fresh"] as const);
 const PROVIDER_AVAILABILITY = Object.freeze(["available", "unavailable", "unknown"] as const);
 const PROVIDER_HEALTH = Object.freeze(["healthy", "degraded", "unavailable", "unknown"] as const);
@@ -162,6 +167,7 @@ type SourceConfidence = (typeof SOURCE_CONFIDENCE)[number];
 type FailureCode = (typeof FAILURE_CODES)[number];
 type ReservationStatus = (typeof RESERVATION_STATUSES)[number];
 type Agent = (typeof AGENTS)[number];
+type WorkloadClass = (typeof WORKLOAD_CLASSES)[number];
 type StartupMode = (typeof STARTUP_MODES)[number];
 type ProviderAvailability = (typeof PROVIDER_AVAILABILITY)[number];
 type ProviderHealth = (typeof PROVIDER_HEALTH)[number];
@@ -247,6 +253,7 @@ interface RoutingDecisionRecord extends ProjectionMetadata {
   readonly decisionId: string;
   readonly routeAlias: string;
   readonly agent: Agent;
+  readonly workloadClass: WorkloadClass;
   readonly ownership: Ownership;
   readonly reasonCodes: readonly RoutingReasonCode[];
   readonly ruleIds: readonly (typeof ROUTING_RULE_IDS)[number][];
@@ -282,7 +289,10 @@ function exactEnum<const T extends readonly string[]>(value: unknown, values: T)
 
 function exactIdentifier(value: unknown, maximum = 128): string {
   const identifier = exactString(value, IDENTIFIER, maximum);
-  if (IDENTIFIER_LEAK_SHAPES.some((pattern) => pattern.test(identifier))) controlFail("INVALID_INPUT");
+  if (
+    BEARER_TOKEN_PATTERN.test(identifier) ||
+    IDENTIFIER_LEAK_SHAPES.some((pattern) => pattern.test(identifier))
+  ) controlFail("INVALID_INPUT");
   return identifier;
 }
 
@@ -484,12 +494,14 @@ function parseHealth(value: unknown): HealthRecord {
 
 function parseRoutingDecision(value: unknown): RoutingDecisionRecord {
   const record = readExactRecord(value, [
-    "taskId", "decisionId", "routeAlias", "agent", "ownership", "reasonCodes", "ruleIds",
+    "taskId", "decisionId", "routeAlias", "agent", "workloadClass", "ownership", "reasonCodes", "ruleIds",
     "decidedAt", "evidenceAt", "computedAt", "confidence", "staleReason",
   ]);
   const reasonCodes = uniqueSorted(readExactArray(record["reasonCodes"], 16).map((item) =>
     exactEnum(item, Object.freeze(Object.keys(ROUTING_REASON_SENTENCES)) as readonly RoutingReasonCode[])));
   const ruleIds = uniqueSorted(readExactArray(record["ruleIds"], 32).map((item) => exactEnum(item, ROUTING_RULE_IDS)));
+  const agent = exactEnum(record["agent"], AGENTS);
+  const workloadClass = exactEnum(record["workloadClass"], WORKLOAD_CLASSES);
   const ownership = exactEnum(record["ownership"], OWNERSHIP);
   const expectedOwnershipReason = ownership === "owned" ? "owned-profile" : "borrowed-policy";
   const refusedOwnershipReason = ownership === "owned" ? "borrowed-policy" : "owned-profile";
@@ -498,7 +510,8 @@ function parseRoutingDecision(value: unknown): RoutingDecisionRecord {
     !reasonCodes.includes("deterministic-selection") ||
     !reasonCodes.includes("usage-eligible") ||
     !reasonCodes.includes(expectedOwnershipReason) ||
-    reasonCodes.includes(refusedOwnershipReason)
+    reasonCodes.includes(refusedOwnershipReason) ||
+    (ownership === "authorized-borrowed" && (agent === "fable" || workloadClass === "fable"))
   ) {
     controlFail("INVALID_INPUT");
   }
@@ -506,7 +519,8 @@ function parseRoutingDecision(value: unknown): RoutingDecisionRecord {
     taskId: exactIdentifier(record["taskId"]),
     decisionId: exactIdentifier(record["decisionId"]),
     routeAlias: exactIdentifier(record["routeAlias"], 64),
-    agent: exactEnum(record["agent"], AGENTS),
+    agent,
+    workloadClass,
     ownership,
     reasonCodes,
     ruleIds,

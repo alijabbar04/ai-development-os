@@ -87,9 +87,11 @@ over a cap refuses. Normal copy distinguishes source unavailability from
 provider-authority/high-confidence requirements, and cap copy is true for both
 current-at-cap and current-plus-outstanding-reservations refusal branches. The
 stored-routing projection contains only the already selected alias/agent,
-finite reasons, the exact scheduler selected top-level rule set, and timestamps;
-owned/borrowed reasons must agree with the selected route and every hard denial
-rule is rejected;
+finite reasons, the exact scheduler selected top-level rule set, and timestamps.
+Its strictly parsed but unprojected workload class proves the scheduler's
+borrowed-Fable invariant; borrowed Fable workloads and borrowed Fable-agent
+selections are rejected. Owned/borrowed reasons must agree with the selected
+route and every hard denial rule is rejected;
 Stage 20A does not implement C16 outcomes or forecasts.
 
 Health truthfully reports `dispatchPaused: false` and
@@ -129,6 +131,12 @@ Node does not expose a proof that a parent-directory entry was durably flushed.
   contradictions, and condition-inaccurate usage copy. The repairs recorded by
   this ADR remain candidates until a fresh exact-identity C5 review and focused
   adoption-path C4 security re-review pass.
+- The focused C4 re-review of repaired commit `286d755` passed with zero
+  must-fix findings. Its fresh C5 review returned FAIL with two new must-fix
+  findings: an unprefixed real 43-character service bearer could pass as an
+  identifier, and an impossible borrowed-Fable stored selection could be
+  described positively. The next candidate rejects both shapes and requires a
+  fresh C5 verdict; the C4 PASS remains scoped to `286d755`.
 - C5 accepts only injected deterministic records and C2 allowlist projection
   schemas; it does not read real installed state.
 - Stage 20B owns all commands and mutation. Stage 21 owns desktop composition.

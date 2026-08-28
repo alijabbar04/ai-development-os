@@ -80,6 +80,7 @@ export function projectionDataset(
       decisionId: "decision-one",
       routeAlias: "aster",
       agent: "claude-code",
+      workloadClass: "general",
       ownership: "owned",
       reasonCodes: ["deterministic-selection", "owned-profile", "usage-eligible"],
       ruleIds: ["route.deterministic-selection"],

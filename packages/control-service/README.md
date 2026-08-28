@@ -58,7 +58,9 @@ stored routing records. It accepts no startup-mode, restart, sweep, or other
 recovery claims, read callbacks, or Account Manager, vault, provider,
 scheduler, task, workspace, repository, or Git runtime. Unknown fields,
 mixed-profile reservations, model-text fields, credential/path/fingerprint
-canaries, and unbounded collections refuse before a fresh listener is created.
+canaries, the exact unprefixed 43-character service-bearer shape in every
+identifier source, and unbounded collections refuse before a fresh listener is
+created.
 An adopting caller's unused dataset is never composed into the existing
 listener; its attachment count comes only from the authenticated existing
 listener.
@@ -88,7 +90,9 @@ and zero stopped-by-restart input; adopted carries the existing presentation
 and authenticated bounded running-session count, which are sufficient for the
 two distinct W3 sentence inputs. The routing projection admits only the
 scheduler's selected top-level rule set, validates owned/borrowed reason
-coherence, and exposes finite product-owned reasons; it contains no denial
-rule, model, forecast, allocation outcome, command, or effect.
+coherence, binds an unprojected scheduler workload class, and rejects any
+borrowed Fable workload or borrowed Fable-agent selection. It exposes finite
+product-owned reasons and contains no denial rule, model, forecast, allocation
+outcome, command, or effect.
 `recovery-in-progress` is refused because Stage 20A has no recovery mechanism
 or evidence.

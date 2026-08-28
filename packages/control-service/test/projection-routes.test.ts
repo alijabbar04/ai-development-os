@@ -14,6 +14,7 @@ const NORMAL_LEAKAGE_PATTERNS = Object.freeze([
   /(?:usage|route|admission|orchestration)\.[a-z0-9.-]+/u,
   /sha256:|\b(?:att|lease|trc|ctx)-|\b(?:hnd|dec):|basis[-\s]+points?|\b429\b/iu,
   /sk-ant-|\bAKIA[0-9A-Z]{16}\b|\bBearer\s+|[A-Za-z]:\\|\\\\/u,
+  /[A-Za-z0-9_-]{43}/u,
 ]);
 
 function matchingNormalLeaks(text: string): readonly string[] {
@@ -133,6 +134,7 @@ describe("C5 authenticated projection routes", () => {
     for (const positiveControl of [
       '"sourceFingerprint"', '"ownerEmail"', "usage.stale.refused", "sha256:abc",
       "lease-handle", "basis points", `Bearer ${"x".repeat(43)}`,
+      handle.descriptor.bearerToken,
       ["sk", "ant", "api03", "A".repeat(30)].join("-"), "C:\\private\\path",
     ]) {
       expect(matchingNormalLeaks(positiveControl), positiveControl).not.toEqual([]);
