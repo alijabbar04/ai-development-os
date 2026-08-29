@@ -19,12 +19,14 @@ import { CREDENTIAL_ENTRY_URL, CREDENTIAL_PROTOCOL, CREDENTIAL_SESSION_PARTITION
 import { createHardenedCredentialWindow, hardenCredentialSession, installGlobalWebContentsGuard, installMinimalEditMenu, loadCredentialWindow } from "../main/hardening.js";
 import { installCredentialIpc } from "../main/ipc.js";
 import { installCredentialProtocol, resolveCredentialProtocolRequest } from "../main/protocol.js";
+import { alignSyntheticSmokeClock, syntheticAuthorizationWindow } from "./smoke-clock.js";
 import { createTestCredentialHost, type TestCredentialHostControl } from "./test-host.js";
 
 const SYNTHETIC_CANARY = "SYNTHETIC_CREDENTIAL_STAGE18E";
 const SYNTHETIC_REPLACEMENT = "SYNTHETIC_REPLACEMENT_STAGE18E";
 const SYNTHETIC_ACTIVITY_SHAPE = ["sk", "ant", "api03", "SYNTHETIC_ACTIVITY_CANARY"].join("-");
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const smokeStartedAtMs = Date.now();
 const SYNTHETIC_CANDIDATE_BINDING: Stage18eICandidateBinding = Object.freeze({
   schemaVersion: 1,
   status: "published",
@@ -193,8 +195,7 @@ async function createSyntheticAuthorizedValidationPort(
   outcome: CredentialValidationOutcome,
 ): Promise<SyntheticAuthorizedValidationPort> {
   const root = resolve(smokeRoot, "synthetic-anthropic-authorizations", sequence.toString(16).padStart(8, "0"));
-  const issuedAt = "2026-08-20T09:59:00.000Z";
-  const expiresAt = "2026-08-20T11:00:00.000Z";
+  const { issuedAt, expiresAt } = syntheticAuthorizationWindow(control.clock);
   const packet = createAnthropicValidationAuthorizationPacket({
     candidate: SYNTHETIC_CANDIDATE_BINDING,
     authorizationReference: `synthetic-electron-smoke-${sequence}`,
@@ -237,6 +238,7 @@ async function openSurface(options: SurfaceOptions = {}): Promise<Surface> {
   surfaceSequence += 1;
   let failDecrypt = false;
   const control = createTestCredentialHost(options.seedState === "unrecoverable" ? { failDecrypt: () => failDecrypt } : {});
+  alignSyntheticSmokeClock(control.clock, smokeStartedAtMs);
   const auxiliaryServices: Array<ReturnType<TestCredentialHostControl["createService"]>> = [];
   const shouldSeed = options.seedCredential === true || options.seedState !== undefined || options.seedDisabled === true || options.seedValidationOutcomes !== undefined;
   if (shouldSeed) {
