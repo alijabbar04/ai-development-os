@@ -54,6 +54,7 @@ C0-C2 worktree and branch were not edited.
 | Leakage repair | `8765a46c9375cc99e18a10a69d5ffc77bf72ae21` | `6c6c235d3d946a35a5acfa5fc0d46451d75db903` | Real-bearer and borrowed-Fable refusals |
 | Reviewed source | `9a7d03ee6ed0ab9212f336d54d7eb6b7bac572b2` | `d2498883a9db16920cad9b5fd0803467b8f6f40b` | Usage/session temporal-evidence binding |
 | Hosted Windows fixture repair | `82eb99af2ecdd83e6b218c9c04686d9b1274380d` | `9394deaada3a4dbeec978774d070aa93fc04b917` | Canonical disposable test roots; production source unchanged |
+| Credential smoke clock repair | `83c72a06c1e2e446938c8e512ebaf5f296dae47a` | `aa5b461cacf5ac1144bb3e66614b79cb168842ba` | Aligns only the synthetic host/authorization clock with the smoke start; production source unchanged |
 
 The reviewed source parent is
 `8765a46c9375cc99e18a10a69d5ffc77bf72ae21`. Its branch, HEAD, tree, parent,
@@ -61,10 +62,15 @@ staged/unstaged/untracked path lists, and final post-review status were checked
 exactly and were clean.
 
 The control-service production source tree is
-`7d7955cc498777700214b6ad75dab711ad401c40` at both reviewed source
-`9a7d03e` and hosted-Windows repair `82eb99a`. The latter changes only six test
-files and two test-infrastructure files. It adds no packaged or exported code,
-route, schema, command, dependency, listener authority, or production path.
+`7d7955cc498777700214b6ad75dab711ad401c40` at reviewed source `9a7d03e`,
+hosted-Windows repair `82eb99a`, and credential-smoke repair `83c72a0`. The
+first hosted repair changes only six control-service test files and two
+test-infrastructure files. The second changes only credential-setup synthetic
+test-harness code and its focused unit regression. The credential-host
+production-main tree remains `0a67b5431ba9ac16cc6767b1b15da3c2aee81b74`,
+byte-identical to parent `6be5c2d`. Neither repair adds packaged or exported
+code, a route, schema, command, dependency, listener authority, provider call,
+credential access, or production path.
 
 ## Component boundary
 
@@ -231,8 +237,20 @@ C5 review history is intentionally retained:
    changed suites, exercised linked-root and linked-ancestor controls, found
    zero matching temporary-root residue, and began and ended on the exact clean
    identity.
+6. Exact credential-smoke repair
+   `83c72a06c1e2e446938c8e512ebaf5f296dae47a`, tree
+   `aa5b461cacf5ac1144bb3e66614b79cb168842ba`, received a fresh focused
+   security/authority and leakage/privacy review. It passed with zero must-fix
+   findings. The reviewer independently confirmed the date-boundary diagnosis,
+   unchanged Stage 20 and credential production trees, time-zone/DST-safe epoch
+   arithmetic, bounded one-hour synthetic authorization, unchanged one-shot
+   controls, and excluded `dist/testing` payload. Review began clean at the
+   exact identity. Its global end-state check saw only this root-owned
+   checkpoint edit, made concurrently after review began; the three reviewed
+   paths and index remained clean. The terminal handoff therefore supplies a
+   fresh clean final-head reconciliation rather than suppressing that evidence.
 
-Three non-blocking advisories remain:
+Six non-blocking advisories remain:
 
 1. `static-policy.test.ts` manually enumerates source files and uses lexical
    import detection. Its planted controls work and manual inspection found no
@@ -246,6 +264,18 @@ Three non-blocking advisories remain:
    before returning the path and can leave one empty bounded owned directory.
    This is deliberately safer than recursively deleting a path whose identity
    was not proved; future identity-bound cleanup could improve hygiene.
+4. The focused smoke-clock unit test proves exact alignment and authorization
+   window arithmetic, while the maintained real Electron smoke remains the
+   end-to-end renderer-freshness regression. The unit test title could state
+   that narrower role more literally.
+5. The smoke-clock helper rejects non-finite timestamps but does not separately
+   reject finite values outside JavaScript's representable `Date` range. Its
+   inputs are constrained to `Date.now()` and existing valid `Date` values, so
+   this is unreachable in the reviewed harness; an explicit range check would
+   make the helper independently total.
+6. The pre-existing explicit future-time presentation scenario uses
+   `2099-01-01`. It is safely beyond current CI time but is not indefinitely
+   calendar-proof.
 
 None of these advisories widens current runtime authority.
 
@@ -318,6 +348,37 @@ Focused package testing passed 13 files and 105 tests; package coverage retained
 90.57% statements (1,125/1,242), 84.49% branches (725/858), 98.97% functions
 (194/196), and 94.31% lines (1,012/1,073). Root `npm run check` also passed on
 exact repair `82eb99a` before this documentation-only publication delta.
+
+The next documentation candidate was
+`6be5c2d1825aba8387d8a6e53181fff34ef0909f`. Exact-head hosted CI run
+`33228733074`, attempt `1`, completed PostgreSQL integration, packed consumer
+on Windows, dependency audit, coverage, Ubuntu check, and packed credential
+host on Windows successfully. The Windows check job passed install, the full
+root check (including all 105 control-service tests), the Stage 18 descendant
+verifier, Windows native shape, and application-vault Electron smoke, then
+failed only the maintained credential-host Electron smoke at
+`in-flight-started`. No unchanged-head rerun was used.
+
+The same smoke failed locally with `SMOKE_RENDER_TIMEOUT` after its one-shot
+marker had been consumed and its complete validation in-flight lock assertion
+had passed. The post-result predicate still required a `Validated` badge. The
+synthetic host and authorization packet were permanently dated 20 August 2026,
+while renderer freshness deliberately uses the current browser time and turns
+accepted results into `Check needed` after seven days. Thus the fixture crossed
+its real seven-day boundary on 27 August; no Stage 20 source or hosted runner
+behaviour caused the failure.
+
+Test-only repair `83c72a0` captures the smoke start once, advances each
+synthetic host clock to that instant, and derives the synthetic one-hour
+authorization window from that same clock. It does not relax the unchanged
+post-result assertion, freshness rule, one-shot marker, authorization gate,
+provider-dispatch prohibition, or production-disabled boundary. A focused
+regression advances the former fixture beyond seven days and verifies exact
+alignment plus the bounded authorization window. The focused regression passed
+2 tests, the complete credential-setup suite passed 23 files and 299 tests, and
+the real default/reduced/forced Electron smoke passed 71/2/4 assertions both
+through direct pre-commit compilation and through the standard clean-candidate
+build path.
 
 The final documentation commit is subjected again to package typecheck/tests/
 coverage, affected workspace and root checks, root coverage, audit, complete
