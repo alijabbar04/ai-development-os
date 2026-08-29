@@ -146,8 +146,19 @@ Node does not expose a proof that a parent-directory entry was durably flushed.
   and the bare adopted running-session count bypassed stale/future health
   evidence. The replacement candidate orders usage evidence and binds session
   count, computation time, current confidence, and response `serverNow`; its
-  changed session contract requires fresh focused C4 review as well as a fresh
+  changed session contract required fresh focused C4 review as well as a fresh
   C5 verdict.
+- Exact replacement source commit
+  `9a7d03ee6ed0ab9212f336d54d7eb6b7bac572b2`, tree
+  `d2498883a9db16920cad9b5fd0803467b8f6f40b`, passed both the complete C5
+  truth/privacy review and the focused changed-session C4 security review with
+  zero must-fix findings. The verdict is scoped to those exact source bytes and
+  does not pre-authorize Stage 20B or transfer to later executable changes.
+- The final reviewer retained one non-blocking maintenance advisory: the
+  control-service forbidden-import test enumerates source files manually and
+  detects imports lexically. Its planted controls pass and no forbidden current
+  import was found; a future maintenance change should derive the production
+  module closure and parse import syntax robustly.
 - C5 accepts only injected deterministic records and C2 allowlist projection
   schemas; it does not read real installed state.
 - Stage 20B owns all commands and mutation. Stage 21 owns desktop composition.

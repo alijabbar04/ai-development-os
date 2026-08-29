@@ -710,8 +710,10 @@ whose full envelope was reduced remains `BLOCKED_EVIDENCE` with no reconstructed
 fields. `PLN-02` remains incomplete. Production admission stays blocked on
 Stage 17W, `productionAdmitted=false`, and no Stage 18 evidence enables provider
 or task execution. Stage 20A C0-C5 is implemented as a production-disabled
-read-only candidate and remains gated on its current independent reviews and
-exact-head validation. Query-native,
+read-only source candidate. Exact source commit `9a7d03e` passed its fresh C5
+truth/privacy and focused changed-session C4 security reviews with zero
+must-fix findings; publication remains bound to final exact-head validation.
+Query-native,
 high-throughput team scheduling remains a deployment-scale nonclaim rather than
 a Stage 18 development-acceptance item.
 
@@ -914,10 +916,11 @@ Tests and gate:
 
 ## Stage 20: Typed local control boundary
 
-Status: Stage 20A C0-C5 implemented on the production-disabled read-only
-candidate. C4 passed focused review at `286d755`; the later session-evidence
-delta is awaiting fresh focused C4 review and the repaired C5 candidate is
-awaiting fresh independent leakage re-review. Stage 20B is not started.
+Status: Stage 20A C0-C5 source complete on the production-disabled read-only
+candidate. Exact source commit `9a7d03e` passed a fresh complete C5
+truth/privacy review and focused changed-session C4 security review with zero
+must-fix findings. Final publication remains bound to exact-head validation.
+Stage 20B is not started.
 
 Packages: `@ai-dev-os/api`, `@ai-dev-os/client`, `@ai-dev-os/control-service`
 
