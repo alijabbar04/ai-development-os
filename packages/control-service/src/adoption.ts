@@ -10,7 +10,7 @@ import {
   CONTROL_PRESENTATION_MODES,
   type ControlPresentationMode,
 } from "./routes.js";
-import { exactInteger, exactString, readExactRecord } from "./structural.js";
+import { exactInteger, exactString, exactTimestamp, readExactRecord } from "./structural.js";
 
 export const ADOPTION_RESPONSE_LIMIT = 8_192;
 export const ADOPTION_TIMEOUT_MS = 1_000;
@@ -201,14 +201,19 @@ function healthPayload(value: unknown): JsonValue {
 
 function sessionPayload(value: unknown): JsonValue {
   const record = readExactRecord(value, [
-    "serviceVersion", "startNonce", "presentationMode", "runningSessions", "state",
+    "serviceVersion", "startNonce", "presentationMode", "runningSessions",
+    "runningSessionsComputedAt", "runningSessionsConfidence", "state",
   ]);
-  if (record["state"] !== "active") controlFail("ADOPTION_REFUSED");
+  if (record["state"] !== "active" || record["runningSessionsConfidence"] !== "current") {
+    controlFail("ADOPTION_REFUSED");
+  }
   return Object.freeze({
     serviceVersion: exactString(record["serviceVersion"], /^\d+\.\d+\.\d+$/u, 32),
     startNonce: exactString(record["startNonce"], START_NONCE_PATTERN, 32),
     presentationMode: exactPresentationMode(record["presentationMode"]),
     runningSessions: exactInteger(record["runningSessions"], 0, 10_000),
+    runningSessionsComputedAt: exactTimestamp(record["runningSessionsComputedAt"]),
+    runningSessionsConfidence: "current",
     state: "active",
   });
 }
@@ -272,7 +277,9 @@ export async function adoptExistingControlService(options: Readonly<{
     if (
       sessionRecord["startNonce"] !== descriptor.startNonce ||
       sessionRecord["serviceVersion"] !== descriptor.serviceVersion ||
-      sessionRecord["presentationMode"] !== descriptor.presentationMode
+      sessionRecord["presentationMode"] !== descriptor.presentationMode ||
+      new Date(sessionRecord["runningSessionsComputedAt"] as string).valueOf() >
+        new Date(session.serverNow).valueOf()
     ) {
       controlFail("ADOPTION_REFUSED");
     }

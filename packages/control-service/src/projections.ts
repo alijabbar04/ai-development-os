@@ -270,7 +270,11 @@ export interface ControlProjectionContext {
 }
 
 export interface ControlProjectionRuntime {
-  runningSessionCount(): number;
+  runningSessionEvidence(serverNow: string): Readonly<{
+    count: number;
+    computedAt: string;
+    confidence: "current";
+  }>;
   health(context: ControlProjectionContext): string;
   usagePolicyConstants(context: ControlProjectionContext): string;
   usageProfile(profileId: string, context: ControlProjectionContext): string | null;
@@ -412,6 +416,9 @@ function parseUsageProfile(value: unknown): UsageProfileRecord {
   });
   const parsedSnapshot = parseSnapshot(record["snapshot"]);
   const metadata = parseMetadata(record);
+  if (timestampMs(parsedSnapshot.observedAt) > timestampMs(metadata.computedAt)) {
+    controlFail("INVALID_INPUT");
+  }
   if (parsedWindows.fiveHour.windowId === parsedWindows.weekly.windowId) {
     controlFail("INVALID_INPUT");
   }
@@ -1054,7 +1061,19 @@ export function createControlProjectionRuntime(value: unknown): ControlProjectio
     controlFail("INVALID_INPUT");
   }
   return Object.freeze({
-    runningSessionCount(): number { return health.runningSessions; },
+    runningSessionEvidence(serverNowValue: string) {
+      const serverNow = exactTimestamp(serverNowValue);
+      if (
+        health.confidence !== "current" ||
+        health.staleReason !== null ||
+        timestampMs(health.computedAt) > timestampMs(serverNow)
+      ) controlFail("INVALID_INPUT");
+      return Object.freeze({
+        count: health.runningSessions,
+        computedAt: health.computedAt,
+        confidence: "current" as const,
+      });
+    },
     health(contextValue: ControlProjectionContext): string {
       const context = parseContext(contextValue);
       return serializeEnvelope(

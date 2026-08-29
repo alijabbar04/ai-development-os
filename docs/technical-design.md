@@ -725,10 +725,9 @@ effectful Stage 20B. C2 is a framework-independent contract package with an
 explicit zero-route registry. The separate production-disabled
 `@ai-dev-os/control-service` package now contains C3 lifecycle/descriptor and
 adoption contracts, the C4 literal-loopback Fastify listener, and the C5
-allowlisted UI projections. The original C4 candidate passed independent
-security review; the presentation-bound adoption delta requires focused C4
-re-review, and the repaired C5 candidate requires fresh independent leakage
-re-review. Commands,
+allowlisted UI projections. C4 passed focused review at `286d755`; the later
+session-evidence delta requires fresh focused C4 re-review, and the repaired C5
+candidate requires fresh independent leakage re-review. Commands,
 approvals, pause/kill, and durable
 emergency-stop authority belong to Stage 20B, not Stage 20A.
 

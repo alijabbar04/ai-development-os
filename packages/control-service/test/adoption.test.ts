@@ -24,9 +24,9 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
-function envelope(payload: Record<string, unknown>): string {
+function envelope(payload: Record<string, unknown>, serverNow = NOW): string {
   return JSON.stringify({
-    schemaVersion: 1, sequence: 1, serverNow: NOW, productionEnabled: false,
+    schemaVersion: 1, sequence: 1, serverNow, productionEnabled: false,
     ok: true, kind: "success", payload,
   });
 }
@@ -178,6 +178,8 @@ describe("C3 nonce-before-bearer adoption", () => {
           startNonce: expected?.startNonce,
           presentationMode: expected?.presentationMode,
           runningSessions: 3,
+          runningSessionsComputedAt: NOW,
+          runningSessionsConfidence: "current",
           state: "active",
         }), "application/json; charset=utf-8");
       }
@@ -369,6 +371,8 @@ describe("C3 nonce-before-bearer adoption", () => {
                 startNonce: "e".repeat(32),
                 presentationMode: descriptor.presentationMode,
                 runningSessions: 0,
+                runningSessionsComputedAt: NOW,
+                runningSessionsConfidence: "current",
                 state: "active",
               });
         },
@@ -393,6 +397,8 @@ describe("C3 nonce-before-bearer adoption", () => {
                 startNonce: descriptor.startNonce,
                 presentationMode: "developer",
                 runningSessions: 0,
+                runningSessionsComputedAt: NOW,
+                runningSessionsConfidence: "current",
                 state: "active",
               });
         },
@@ -417,11 +423,48 @@ describe("C3 nonce-before-bearer adoption", () => {
                 startNonce: descriptor.startNonce,
                 presentationMode: descriptor.presentationMode,
                 runningSessions: 10_001,
+                runningSessionsComputedAt: NOW,
+                runningSessionsConfidence: "current",
                 state: "active",
               });
         },
       },
     })).rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
+
+    for (const temporalEvidence of [
+      { runningSessionsComputedAt: NOW, runningSessionsConfidence: "stale" },
+      {
+        runningSessionsComputedAt: "2026-08-26T10:01:00.000Z",
+        runningSessionsConfidence: "current",
+      },
+    ] as const) {
+      call = 0;
+      await expect(adoptExistingControlService({
+        store,
+        transport: {
+          get: async () => {
+            call += 1;
+            return call === 1
+              ? response({
+                  serviceVersion: descriptor.serviceVersion,
+                  startNonce: descriptor.startNonce,
+                  presentationMode: descriptor.presentationMode,
+                  ready: true,
+                })
+              : response({
+                  serviceVersion: descriptor.serviceVersion,
+                  startNonce: descriptor.startNonce,
+                  presentationMode: descriptor.presentationMode,
+                  runningSessions: 3,
+                  ...temporalEvidence,
+                  state: "active",
+                });
+          },
+        },
+      }), temporalEvidence.runningSessionsConfidence).rejects.toMatchObject({
+        code: "ADOPTION_REFUSED",
+      });
+    }
 
     await expect(adoptExistingControlService({
       store,

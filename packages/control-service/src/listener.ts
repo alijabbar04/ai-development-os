@@ -245,9 +245,13 @@ function composeListener(options: Readonly<{
     const payload = assertResponseBound(serializeTransportRefusal(code, nextSequence(), options.clock()));
     reply.code(statusFor(code)).type("application/json; charset=utf-8").send(payload);
   };
-  const sendSuccess = (reply: FastifyReply, payload: Parameters<typeof serializeSuccess>[0]): void => {
+  const sendSuccess = (
+    reply: FastifyReply,
+    payload: Parameters<typeof serializeSuccess>[0],
+    serverNow = options.clock(),
+  ): void => {
     reply.code(200).type("application/json; charset=utf-8")
-      .send(assertResponseBound(serializeSuccess(payload, nextSequence(), options.clock())));
+      .send(assertResponseBound(serializeSuccess(payload, nextSequence(), serverNow)));
   };
   const sendProjection = (reply: FastifyReply, project: (
     sequence: number,
@@ -465,13 +469,19 @@ function composeListener(options: Readonly<{
       catch { sendRefusal(reply, "QUERY_REFUSED"); return; }
       await options.beforeSessionRead?.(request.signal);
       if (request.signal.aborted) return;
+      const serverNow = options.clock();
+      let runningSessionEvidence: ReturnType<ControlProjectionRuntime["runningSessionEvidence"]>;
+      try { runningSessionEvidence = options.projections.runningSessionEvidence(serverNow); }
+      catch { sendRefusal(reply, "SERVICE_UNAVAILABLE"); return; }
       sendSuccess(reply, {
         serviceVersion: options.session.serviceVersion,
         startNonce: options.session.startNonce,
         presentationMode: options.presentationMode,
-        runningSessions: options.projections.runningSessionCount(),
+        runningSessions: runningSessionEvidence.count,
+        runningSessionsComputedAt: runningSessionEvidence.computedAt,
+        runningSessionsConfidence: runningSessionEvidence.confidence,
         state: "active",
-      });
+      }, serverNow);
     },
   });
 

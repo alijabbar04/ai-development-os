@@ -30,8 +30,11 @@ The descriptor, health probe, authenticated session response, and returned
 client-attachment bootstrap bind the listener's actual Normal or Developer
 presentation. A requested/actual mismatch refuses before transport creation.
 The authenticated session response also supplies the existing listener's
-bounded running-session count; the adopter's own unused dataset cannot supply
-or replace it.
+bounded running-session count plus exact computation time and literal current
+confidence. The listener refuses stale or request-time-future evidence, and the
+adopter exact-parses the evidence and rejects computation after the response's
+server-owned time. The adopter's own unused dataset cannot supply or replace
+the count.
 
 Descriptor and lock artifacts have fixed names and exact schemas. Storage uses
 no directory enumeration, rejects linked roots/artifacts, promotes create-only
@@ -85,7 +88,8 @@ the explicit `en-GB` / `Europe/London` weekday `[09:00,17:00)` contract:
 current-plus-outstanding reservations equal to a cap remains eligible; a total
 over a cap refuses. Normal copy distinguishes source unavailability from
 provider-authority/high-confidence requirements, and cap copy is true for both
-current-at-cap and current-plus-outstanding-reservations refusal branches. The
+current-at-cap and current-plus-outstanding-reservations refusal branches.
+Snapshot observation may not postdate the usage record's own computation. The
 stored-routing projection contains only the already selected alias/agent,
 finite reasons, the exact scheduler selected top-level rule set, and timestamps.
 Its strictly parsed but unprojected workload class proves the scheduler's
@@ -137,6 +141,13 @@ Node does not expose a proof that a parent-directory entry was durably flushed.
   identifier, and an impossible borrowed-Fable stored selection could be
   described positively. The next candidate rejects both shapes and requires a
   fresh C5 verdict; the C4 PASS remains scoped to `286d755`.
+- Frozen C5 commit `8765a46` resolved both findings but returned FAIL with two
+  temporal truth findings: usage observation could postdate its own computation,
+  and the bare adopted running-session count bypassed stale/future health
+  evidence. The replacement candidate orders usage evidence and binds session
+  count, computation time, current confidence, and response `serverNow`; its
+  changed session contract requires fresh focused C4 review as well as a fresh
+  C5 verdict.
 - C5 accepts only injected deterministic records and C2 allowlist projection
   schemas; it does not read real installed state.
 - Stage 20B owns all commands and mutation. Stage 21 owns desktop composition.

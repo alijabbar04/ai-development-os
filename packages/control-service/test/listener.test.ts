@@ -102,6 +102,8 @@ describe("C4 loopback listener lifecycle", () => {
         startNonce: handle.descriptor.startNonce,
         presentationMode: "normal",
         runningSessions: 0,
+        runningSessionsComputedAt: NOW,
+        runningSessionsConfidence: "current",
         state: "active",
       },
     });
@@ -189,6 +191,37 @@ describe("C4 loopback listener lifecycle", () => {
         sweepCompletedAt: null,
       },
     });
+  });
+
+  it("refuses stale or future running-session evidence before it can populate an adopted bootstrap", async () => {
+    for (const evidence of ["stale", "future"] as const) {
+      const storageRoot = await root();
+      const dataset = projectionDataset(NOW);
+      const health = dataset["health"] as Record<string, unknown>;
+      health["runningSessions"] = 3;
+      if (evidence === "stale") {
+        health["confidence"] = "stale";
+        health["staleReason"] = "sequence-lag";
+      } else {
+        health["computedAt"] = "2099-01-01T00:00:00.000Z";
+      }
+      const first = await start({ storageRoot, projectionDataset: dataset });
+
+      const session = await httpGet(first.descriptor, "/v1/session");
+      expect(session.statusCode, evidence).toBe(503);
+      expect(session.json, evidence).toMatchObject({
+        kind: "transport-refusal",
+        transportRefusal: { code: "SERVICE_UNAVAILABLE", details: null },
+      });
+
+      await expect(startControlServiceForTest({
+        storageRoot,
+        clock: () => NOW,
+        random: (size) => Buffer.alloc(size, 28),
+        presentationMode: "normal",
+        projectionDataset: projectionDataset(NOW),
+      }), evidence).rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
+    }
   });
 
   it("refuses cross-presentation adoption before any projection can be consumed", async () => {

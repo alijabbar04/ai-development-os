@@ -30,7 +30,11 @@ requests the other presentation refuses before opening a transport. The bearer
 is written only after the complete health response matches the descriptor
 nonce, version, and presentation. The authenticated session response repeats
 that identity and supplies the bounded running-session count used by an adopted
-client attachment. A closed channel is never replaced, and one monotonic
+client attachment together with its exact computation time and literal current
+confidence. The listener refuses this session read when the underlying count is
+stale or future-dated at the response's server-owned time, and the adopter
+independently exact-parses the evidence and rejects computation after the
+response `serverNow`. A closed channel is never replaced, and one monotonic
 deadline bounds connect, response framing, identity verification, and
 authentication.
 
@@ -73,7 +77,8 @@ freshness bounded by active resets, and unavailable/failure/confidence
 consistency are checked before projection. The ten freshness rules and both
 borrowed-cap rules use exact scheduler boundary semantics: a current value at
 the cap refuses, a projection equal to the cap is allowed, and a projection
-over the cap refuses. Normal receives product-owned reason sentences; exact
+over the cap refuses. Snapshot observation is also required not to postdate the
+enclosing record's `computedAt`. Normal receives product-owned reason sentences; exact
 policy rule IDs and bounded record identities are Developer-only. `sourceFingerprint` and
 borrowed-owner identity are never projected in either presentation. The
 Europe/London weekday `[09:00,17:00)` calculation uses the explicit `en-GB`

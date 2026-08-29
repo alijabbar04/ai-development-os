@@ -915,10 +915,9 @@ Tests and gate:
 ## Stage 20: Typed local control boundary
 
 Status: Stage 20A C0-C5 implemented on the production-disabled read-only
-candidate. The original C4 candidate passed independent security review; the
-presentation-bound adoption delta is awaiting focused C4 re-review and the
-repaired C5 candidate is awaiting fresh independent leakage re-review. Stage
-20B is not started.
+candidate. C4 passed focused review at `286d755`; the later session-evidence
+delta is awaiting fresh focused C4 review and the repaired C5 candidate is
+awaiting fresh independent leakage re-review. Stage 20B is not started.
 
 Packages: `@ai-dev-os/api`, `@ai-dev-os/client`, `@ai-dev-os/control-service`
 

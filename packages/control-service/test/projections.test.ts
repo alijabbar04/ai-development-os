@@ -122,7 +122,11 @@ describe("C5 deterministic read projections", () => {
       nonceReference: `launch:${NONCE}`,
       sweepTimings: [],
     });
-    expect(runtime.runningSessionCount()).toBe(0);
+    expect(runtime.runningSessionEvidence(NOW)).toEqual({
+      count: 0,
+      computedAt: NOW,
+      confidence: "current",
+    });
   });
 
   it("refuses unbound startup/recovery claims and credential-shaped probe versions", () => {
@@ -164,6 +168,19 @@ describe("C5 deterministic read projections", () => {
     const unboundedSessions = cloneDataset();
     (unboundedSessions["health"] as Record<string, unknown>)["runningSessions"] = 10_001;
     expect(() => createControlProjectionRuntime(unboundedSessions)).toThrow();
+
+    const staleSessions = cloneDataset();
+    const staleHealth = staleSessions["health"] as Record<string, unknown>;
+    staleHealth["runningSessions"] = 3;
+    staleHealth["confidence"] = "stale";
+    staleHealth["staleReason"] = "sequence-lag";
+    expect(() => createControlProjectionRuntime(staleSessions).runningSessionEvidence(NOW)).toThrow();
+
+    const futureSessions = cloneDataset();
+    const futureHealth = futureSessions["health"] as Record<string, unknown>;
+    futureHealth["runningSessions"] = 3;
+    futureHealth["computedAt"] = "2099-01-01T00:00:00.000Z";
+    expect(() => createControlProjectionRuntime(futureSessions).runningSessionEvidence(NOW)).toThrow();
   });
 
   it("serves exact policy constants with product sentences in Normal and rule ids only in Developer", () => {
@@ -367,7 +384,6 @@ describe("C5 deterministic read projections", () => {
       },
       { name: "authorization", expected: ["usage.authorization.required"], mutate: (record) => { record["authorization"] = "ambiguous"; } },
       { name: "revocation", expected: ["usage.revocation.refused"], mutate: (record) => { record["revocation"] = "unknown"; } },
-      { name: "future", expected: ["usage.future.refused"], mutate: (record) => { snapshot(record)["observedAt"] = "2026-08-26T10:01:00.000Z"; } },
       {
         name: "stale", expected: ["usage.stale.refused"], mutate: (record) => {
           record["confidence"] = "stale";
@@ -431,7 +447,44 @@ describe("C5 deterministic read projections", () => {
       expect(normalText, fixture.name).not.toMatch(/(?:usage|route|admission|orchestration)\.[a-z0-9.-]+/u);
       fixture.expected.forEach((ruleId) => reached.add(ruleId));
     }
+    const futureDecision = routeTask({
+      task: schedulerTask({ createdAt: NOW, deadline: "2026-08-26T12:00:00.000Z" }),
+      workloadClass: "general",
+      preference: "balanced",
+      candidates: [schedulerCandidate({ healthObservedAt: NOW })],
+      usageSnapshots: [schedulerUsageSnapshot({
+        observedAt: "2026-08-26T10:01:00.000Z",
+        freshUntil: "2026-08-26T10:05:00.000Z",
+        fiveHour: {
+          windowId: "window:five-hour:future",
+          status: "active",
+          usedBasisPoints: 1_000,
+          remainingBasisPoints: 9_000,
+          resetAt: "2026-08-26T12:00:00.000Z",
+        },
+        weekly: {
+          windowId: "window:weekly:future",
+          status: "active",
+          usedBasisPoints: 2_000,
+          remainingBasisPoints: 8_000,
+          resetAt: "2026-08-28T08:00:00.000Z",
+        },
+      })],
+      now: new Date(NOW),
+      maximumSnapshotAgeMs: 60_000,
+    });
+    expect(futureDecision.considered[0]?.ruleIds).toContain("usage.future.refused");
+    reached.add("usage.future.refused");
     expect([...reached].sort()).toEqual([...USAGE_FRESHNESS_RULE_IDS].sort());
+  });
+
+  it("refuses usage evidence observed after its own computation even when serverNow is later", () => {
+    const dataset = cloneDataset();
+    snapshot(usage(dataset))["observedAt"] = "2026-08-26T10:01:00.000Z";
+    expect(() => createControlProjectionRuntime(dataset).usageProfile(
+      "profile-owned",
+      context("developer", "2026-08-26T10:02:00.000Z"),
+    )).toThrow();
   });
 
   it("preserves inactive nulls, stale last values, unavailable nulls, and past reset evidence", () => {
