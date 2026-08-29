@@ -709,10 +709,9 @@ response-rejected attempts were not retried, and the distinct earlier success
 whose full envelope was reduced remains `BLOCKED_EVIDENCE` with no reconstructed
 fields. `PLN-02` remains incomplete. Production admission stays blocked on
 Stage 17W, `productionAdmitted=false`, and no Stage 18 evidence enables provider
-or task execution. Stage 20A C0-C5 is implemented as a production-disabled
-read-only source candidate. Exact source commit `9a7d03e` passed its fresh C5
-truth/privacy and focused changed-session C4 security reviews with zero
-must-fix findings; publication remains bound to final exact-head validation.
+or task execution. Stage 20A C0-C5 is complete and externally reviewed as a
+production-disabled read-only source. C6 adds only the pure canonical project
+contract spine; it does not change Stage 18 acceptance or production facts.
 Query-native,
 high-throughput team scheduling remains a deployment-scale nonclaim rather than
 a Stage 18 development-acceptance item.
@@ -916,13 +915,14 @@ Tests and gate:
 
 ## Stage 20: Typed local control boundary
 
-Status: Stage 20A C0-C5 source complete on the production-disabled read-only
-candidate. Exact source commit `9a7d03e` passed a fresh complete C5
-truth/privacy review and focused changed-session C4 security review with zero
-must-fix findings. Final publication remains bound to exact-head validation.
-Stage 20B is not started.
+Status: Stage 20A C0-C5 is complete and externally reviewed on the sealed
+production-disabled read-only source. C6 implements the pure canonical project
+contract spine and remains a candidate until its focused/root gates,
+independent exact-candidate review, publication, and exact-head hosted CI pass.
+C7 persistence and Stage 20B have not started.
 
-Packages: `@ai-dev-os/api`, `@ai-dev-os/client`, `@ai-dev-os/control-service`
+Packages: `@ai-dev-os/api`, `@ai-dev-os/client`, `@ai-dev-os/control-service`,
+`@ai-dev-os/project`
 
 ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stage
 20B. Stage 20A exposes no command or mutation. Its ordered checkpoints are:
@@ -935,9 +935,22 @@ ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stag
    followed by an independent security review.
 4. **C5:** the first UI-facing read projections, followed by an independent
    leakage review.
+5. **C6:** the canonical 21-record project model plus the accepted
+   `ProjectStop` and `ProjectSummaryProjection` reconciliation contracts,
+   strict parsers and canonical serialization, finite typed copy/deep-link
+   serializers, total state tables, and explicit recursive authority-free
+   projections. C6 ratifies the six P-2 conditions but exposes no eligibility
+   or authorization predicate; C9 must bind them to its authoritative
+   specification, coverage, ceiling, candidate-requirement, and scope-approval
+   records. The package has zero runtime dependencies and no I/O, persistence,
+   command, scheduling, or process capability.
+
+C7 deliberately lands separately because persistence integration changes the
+shared aggregate union and must re-prove memory, SQLite, and PostgreSQL
+contracts. No new `AGGREGATE_TYPES` member or migration is part of C6.
 
 Stage 20B later owns commands, idempotency, replay protection, approval binding,
-pause/kill, and durable emergency-stop authority. None exists in C0-C5.
+pause/kill, and durable emergency-stop authority. None is implemented by C6.
 
 Later deliverables:
 
@@ -968,11 +981,18 @@ Tests and gate:
   stop, rate limits, reconnect, cursor replay, and daemon restart.
 - Fuzz tests cover JSON limits, event versions, hostile free-form content,
   recipient substitution, notification redaction, and out-of-order commands.
+- C6 independently proves every canonical parser shape, duplicate-key and
+  hostile-object refusal, all legal and illegal lifecycle cells, terminality,
+  the full task-state/blocker-to-`RunStatus` product, session/plan/approval/usage
+  display vocabularies, immutable supersession, transcript non-reliance,
+  Normal/Developer authority parity, forbidden-import positive controls, and a
+  clean packed consumer.
 
 The control plane is a local child process owned by the future desktop shell,
 never a Windows Service, scheduled task, machine daemon, or auto-start entry.
 Machine lifecycle and packaging remain Stage 23 work. Every Stage 20 component
 remains production-disabled, and no real agent/provider dispatch is permitted.
+`PLN-02` remains incomplete and `productionAdmitted=false`.
 
 ## Stage 21: Windows desktop application and setup wizard
 

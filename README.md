@@ -41,7 +41,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
 | Stage 18 | **Development scope accepted; production remains gated** — `AM-02` and `INT-01` remain proven. On 2026-08-25 one fresh, separately authorized Stage 18E-I Anthropic validation used the exact externally reviewed candidate, a new one-shot marker and the existing owned application-vault `SecretRef`. One provider dispatch attempt was made; there was no retry or fallback. The create-only 38-field receipt and terminal sidecar committed, and the exact named projection proved HTTP 200, the pinned model, exactly one text block containing exactly `OK`, 774 ms duration, 12 input tokens and 4 output tokens without retaining the credential or response body. `ANT-02` is therefore **proven** and `developmentAccepted=true` is derived. The earlier missing-envelope success remains `BLOCKED_EVIDENCE`. `PLN-02` remains incomplete, `productionAdmitted=false`, Stage 17W remains the production gate, and this checkpoint made Stage 20A eligible. |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
-| Stage 20 | **Stage 20A C0-C5 read-only source complete** — `@ai-dev-os/api` remains pure and route-free; `@ai-dev-os/control-service` adds exact identity/lifecycle artifacts, nonce-before-bearer adoption, a literal `127.0.0.1` listener, and four allowlisted UI projections. The inventory is six GET routes and zero commands. Exact source commit `9a7d03e` passed a fresh complete C5 truth/privacy review and focused changed-session C4 security review with zero must-fix findings. Production remains disabled; Stage 20B is not started. |
+| Stage 20 | **Stage 20A C0-C5 reviewed; C6 canonical project contracts implemented** — the read-only control plane remains six GET routes and zero commands. The pure, zero-runtime-dependency `@ai-dev-os/project` package adds the canonical 21-record project model, the accepted `ProjectStop` and summary reconciliation contracts, strict parsers, total state tables, and authority-free projections. C7 persistence and Stage 20B commands have not started. Production remains disabled. |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
 
@@ -75,10 +75,11 @@ Three things are stated plainly because they are easy to assume the other way:
   `BLOCKED_EVIDENCE` success whose missing fields were not reconstructed.
   `PLN-02` remains incomplete, the admission schema still has no admitted
   variant, `productionAdmitted=false`, and Stage 17W remains the production
-  gate. Stage 20A C0-C5 is isolated on its own production-disabled feature
-  branch. Its literal-loopback service exposes six reads and zero commands;
-  no production bootstrap, project spine, desktop, provider action, or task
-  execution is introduced by this checkpoint.
+  gate. Stage 20A C0-C5 is complete and externally reviewed. C6 adds only the
+  pure canonical project contract spine on a separate production-disabled
+  feature branch. Its state tables and projections perform no persistence,
+  provider, credential, project, task, process, or scheduling action. C7 and
+  Stage 20B have not started.
 
 ## Documents
 
@@ -218,6 +219,12 @@ most valuable.
 
 - [`@ai-dev-os/evaluation`](packages/evaluation/README.md) validates exact bounded deterministic evidence against externally trusted subject-bound criterion-manifest, evidence-instance, and waiver-digest allowlists, preserves non-authoritative model disagreement, produces authority-free completeness findings, and journals command-equivalent evaluation runs through the persistence port.
 - [`@ai-dev-os/integrator`](packages/integrator/README.md) binds an accepted evaluation admission to exact commits, trees, ordered parents, paths, validation and authority; journals a serialized fenced effect intent and exact receipt; refuses ambiguous retry; and exposes a real sanitized Git implementation only through its disposable-fixture testing subpath. Production Git effects remain literally disabled.
+
+## Stage 20 packages
+
+- [`@ai-dev-os/api`](packages/api/README.md) is the pure, framework-independent, route-free C2 envelope and allowlist-projection boundary.
+- [`@ai-dev-os/control-service`](packages/control-service/README.md) is the production-disabled C3-C5 literal-loopback read host with exact lifecycle/adoption and six GET, zero-command authority.
+- [`@ai-dev-os/project`](packages/project/README.md) is the pure C6 canonical project spine: strict versioned records, deterministic serialization, total state tables, and authority-free health/summary/display projections. It has no persistence, runtime capability, or command surface.
 
 Provider/model IDs remain opaque configuration. The router can choose any configured eligible GPT or Claude inference target without name heuristics or a built-in commercial preference. Claude Code and Codex adapters implement the separate coding-agent contract and cannot be used as inference thinkers. The first-party Anthropic inference adapter remains production-disabled. Earlier canary attempts remain consumed at their recorded outcomes; a fresh candidate-bound attempt produced the complete sanitized receipt required to prove `ANT-02`. One provider dispatch attempt was made; no retry occurred. That development evidence grants no general provider, task, or production authority. Usage/reset facts come only from normalized authorized observations, never guessed provider policy. The exact-pinned Account Manager reader emits `claude-code` observations; this closure performed no new installed-state read.
 

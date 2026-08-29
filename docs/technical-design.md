@@ -727,9 +727,30 @@ explicit zero-route registry. The separate production-disabled
 adoption contracts, the C4 literal-loopback Fastify listener, and the C5
 allowlisted UI projections. Exact source commit `9a7d03e` passed a fresh
 complete C5 truth/privacy review and a focused changed-session C4 security
-review with zero must-fix findings. Commands,
-approvals, pause/kill, and durable
-emergency-stop authority belong to Stage 20B, not Stage 20A.
+review with zero must-fix findings.
+
+C6 begins the contract-only project spine in the separate pure
+`@ai-dev-os/project` package. ADR 0040 ratifies the 21 canonical records plus
+the accepted `ProjectStop` and `ProjectSummaryProjection` reconciliation
+contracts. The package has zero runtime dependencies: type-only imports prove
+parity with domain, policy, scheduler, process-broker, and secrets vocabulary and
+compile out of packed JavaScript. Strict parsers, canonical serialization, ten
+total transition tables, pure recovery directives, exhaustive task/session
+display mapping, and project health/summary projection introduce no I/O,
+persistence, ambient time, runtime registration, command, or authority.
+
+Immutable plan successors receive new identities, a gap-free next revision,
+and an explicit predecessor. Sealed scheduling evidence is digest-bound, while
+model-origin records remain `authority:"none"`. Provider-session, chat,
+transcript, and narrative references are data or display links and cannot
+drive durable project state. Normal and Developer presentations expose the same
+empty command tuple and no authority. Normal is an explicit recursive product
+subset; Developer returns only a re-parsed canonical projection, so callers
+cannot append arbitrary diagnostics.
+
+C7 alone owns persistence integration and any future shared aggregate-type
+change. Commands, approvals, pause/kill, and durable emergency-stop authority
+belong to later Stage 20B checkpoints, not C6.
 
 The future control plane is a child process owned by Electron main, never a
 Windows Service, scheduled task, machine daemon, or auto-start entry. Every
