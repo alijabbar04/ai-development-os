@@ -53,11 +53,18 @@ C0-C2 worktree and branch were not edited.
 | Review repair | `286d75530f4e1fddc160e5a34e949bc87c4494e1` | `a561ed4c2652722a3f79088617dba59bae0662ea` | Presentation, W3, route-selection, and copy repairs |
 | Leakage repair | `8765a46c9375cc99e18a10a69d5ffc77bf72ae21` | `6c6c235d3d946a35a5acfa5fc0d46451d75db903` | Real-bearer and borrowed-Fable refusals |
 | Reviewed source | `9a7d03ee6ed0ab9212f336d54d7eb6b7bac572b2` | `d2498883a9db16920cad9b5fd0803467b8f6f40b` | Usage/session temporal-evidence binding |
+| Hosted Windows fixture repair | `82eb99af2ecdd83e6b218c9c04686d9b1274380d` | `9394deaada3a4dbeec978774d070aa93fc04b917` | Canonical disposable test roots; production source unchanged |
 
 The reviewed source parent is
 `8765a46c9375cc99e18a10a69d5ffc77bf72ae21`. Its branch, HEAD, tree, parent,
 staged/unstaged/untracked path lists, and final post-review status were checked
 exactly and were clean.
+
+The control-service production source tree is
+`7d7955cc498777700214b6ad75dab711ad401c40` at both reviewed source
+`9a7d03e` and hosted-Windows repair `82eb99a`. The latter changes only six test
+files and two test-infrastructure files. It adds no packaged or exported code,
+route, schema, command, dependency, listener authority, or production path.
 
 ## Component boundary
 
@@ -216,12 +223,31 @@ C5 review history is intentionally retained:
    truth/privacy review and focused changed-session C4 security review. Both
    verdicts were PASS with zero must-fix findings. Review began and ended with
    the exact identity and an empty staged, unstaged, and untracked path set.
+5. Exact test-infrastructure repair
+   `82eb99af2ecdd83e6b218c9c04686d9b1274380d`, tree
+   `9394deaada3a4dbeec978774d070aa93fc04b917`, received a fresh focused C4
+   security and C5 truth/privacy review. It passed with zero must-fix findings.
+   The reviewer verified the unchanged production source tree, reran all
+   changed suites, exercised linked-root and linked-ancestor controls, found
+   zero matching temporary-root residue, and began and ended on the exact clean
+   identity.
 
-One non-blocking advisory remains: `static-policy.test.ts` manually enumerates
-source files and uses lexical import detection. Its planted controls work and
-manual inspection found no forbidden current import. A future maintenance
-change should derive the production module closure and parse import syntax
-robustly. This does not widen current authority.
+Three non-blocking advisories remain:
+
+1. `static-policy.test.ts` manually enumerates source files and uses lexical
+   import detection. Its planted controls work and manual inspection found no
+   forbidden current import. A future maintenance change should derive the
+   production module closure and parse import syntax robustly.
+2. The canonical-temporary-root regression detector is positive-controlled but
+   lexical and scans direct `*.test.ts` files. Aliased expressions, nested
+   fixtures, or alternate syntax could evade it; a future structural lint rule
+   would be stronger.
+3. If post-creation identity validation itself fails, the test helper refuses
+   before returning the path and can leave one empty bounded owned directory.
+   This is deliberately safer than recursively deleting a path whose identity
+   was not proved; future identity-bound cleanup could improve hygiene.
+
+None of these advisories widens current runtime authority.
 
 ## Guard-removal assurance
 
@@ -256,6 +282,7 @@ next mutation. No mutated listener using a wildcard host was launched.
 | usage `observedAt <= computedAt` | impossible temporal usage was accepted and the test failed |
 | current/non-future running-session source | future session evidence was accepted and the test failed |
 | adoption evidence `computedAt <= serverNow` | future authenticated session evidence was accepted and the test failed |
+| canonical disposable-root fixture policy | a planted raw `mkdtemp(join(tmpdir(), ...))` expression was detected |
 
 The planted bearer and source-fingerprint checks cover the required
 token-projected/leakage positive controls without writing a real credential or
@@ -263,7 +290,7 @@ contacting installed state.
 
 ## Deterministic validation evidence
 
-On exact reviewed source `9a7d03e`, before this documentation-only delta:
+On exact reviewed source `9a7d03e`, before the first documentation-only delta:
 
 - control-service typecheck passed;
 - all 12 control-service test files passed, 103 tests total;
@@ -271,6 +298,26 @@ On exact reviewed source `9a7d03e`, before this documentation-only delta:
   (1,125/1,242), 84.49% branches (725/858), 98.97% functions (194/196), and
   94.31% lines (1,012/1,073); and
 - `git diff --check` and exact clean-state checks passed.
+
+The first published documentation candidate was
+`b5ec145091503a74cb5ee56da37f6e5a6a2b4a23`. Exact-head hosted CI run
+`33225936595`, attempt `1`, completed five jobs successfully and failed the
+Windows coverage and Windows check jobs. This was not treated as an
+infrastructure flake and no unchanged-head rerun was used. All 50 failing
+control-service tests derived their storage root from the ambient
+`mkdtemp(join(tmpdir(), ...))` spelling. On that hosted runner the supplied
+spelling differed from `realpath(root)`, so the unchanged production artifact
+store correctly returned its finite `STORAGE_UNSAFE` refusal.
+
+Repair `82eb99a` now resolves the ambient temporary directory to its canonical
+spelling before creating each owned fixture root. It then verifies that the
+new root is a direct non-linked directory whose supplied spelling already
+equals its real path. The production artifact store still rejects symlink,
+junction, reparse, UNC, device, alternate-stream, and non-canonical roots.
+Focused package testing passed 13 files and 105 tests; package coverage retained
+90.57% statements (1,125/1,242), 84.49% branches (725/858), 98.97% functions
+(194/196), and 94.31% lines (1,012/1,073). Root `npm run check` also passed on
+exact repair `82eb99a` before this documentation-only publication delta.
 
 The final documentation commit is subjected again to package typecheck/tests/
 coverage, affected workspace and root checks, root coverage, audit, complete
