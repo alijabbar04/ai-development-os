@@ -1,5 +1,4 @@
-import { mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { join, parse as parsePath } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -12,12 +11,13 @@ import {
   type ConnectionDescriptor,
   type InstanceLock,
 } from "../src/index.js";
+import { createCanonicalTemporaryRoot } from "./temporary-root.js";
 
 const roots: string[] = [];
 const NOW = "2026-08-26T10:00:00.000Z";
 
 async function root(): Promise<string> {
-  const value = await mkdtemp(join(tmpdir(), "ai-dev-os-c3-"));
+  const value = await createCanonicalTemporaryRoot("ai-dev-os-c3-");
   roots.push(value);
   return value;
 }

@@ -1,8 +1,6 @@
 import { createServer, request, type ServerResponse } from "node:http";
 import { createServer as createNetServer, type Server as NetServer, type Socket } from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -12,6 +10,7 @@ import {
   type ControlPresentationMode,
   type ConnectionDescriptor,
 } from "../src/index.js";
+import { createCanonicalTemporaryRoot } from "./temporary-root.js";
 
 const roots: string[] = [];
 const servers: ReturnType<typeof createServer>[] = [];
@@ -66,7 +65,7 @@ async function fixture(handler: Parameters<typeof createServer>[0]): Promise<{ s
 }
 
 async function storeDescriptor(port: number, byte = 11): Promise<{ descriptor: ConnectionDescriptor; store: ReturnType<typeof createControlArtifactStore> }> {
-  const directory = await mkdtemp(join(tmpdir(), "ai-dev-os-adopt-"));
+  const directory = await createCanonicalTemporaryRoot("ai-dev-os-adopt-");
   roots.push(directory);
   const store = createControlArtifactStore({ root: directory });
   await store.prepare();

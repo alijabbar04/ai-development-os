@@ -1,10 +1,9 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ControlServiceHandle } from "../src/index.js";
 import { httpGet } from "./http-helpers.js";
 import { projectionDataset, startControlServiceForTest } from "./testing.js";
+import { createCanonicalTemporaryRoot } from "./temporary-root.js";
 
 const NOW = "2026-08-26T10:00:00.000Z";
 const roots: string[] = [];
@@ -24,7 +23,7 @@ function matchingNormalLeaks(text: string): readonly string[] {
 }
 
 async function start(mode: "normal" | "developer" = "normal"): Promise<ControlServiceHandle> {
-  const storageRoot = await mkdtemp(join(tmpdir(), "ai-dev-os-c5-routes-"));
+  const storageRoot = await createCanonicalTemporaryRoot("ai-dev-os-c5-routes-");
   roots.push(storageRoot);
   const handle = await startControlServiceForTest({
     storageRoot,

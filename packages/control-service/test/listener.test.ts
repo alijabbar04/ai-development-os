@@ -1,6 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -16,13 +15,14 @@ import {
 } from "../src/index.js";
 import { projectionDataset, startControlServiceForTest } from "./testing.js";
 import { httpGet } from "./http-helpers.js";
+import { createCanonicalTemporaryRoot } from "./temporary-root.js";
 
 const NOW = "2026-08-26T10:00:00.000Z";
 const roots: string[] = [];
 const handles: ControlServiceHandle[] = [];
 
 async function root(): Promise<string> {
-  const value = await mkdtemp(join(tmpdir(), "ai-dev-os-c4-"));
+  const value = await createCanonicalTemporaryRoot("ai-dev-os-c4-");
   roots.push(value);
   return value;
 }

@@ -1,10 +1,10 @@
 import { fork } from "node:child_process";
-import { access, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { access, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { CONNECTION_DESCRIPTOR_FILE, INSTANCE_LOCK_FILE } from "../src/index.js";
+import { createCanonicalTemporaryRoot } from "./temporary-root.js";
 
 const roots: string[] = [];
 
@@ -19,7 +19,7 @@ async function missing(path: string): Promise<boolean> {
 
 describe("C4 task-owned process containment fixture", () => {
   it("closes the listener and owned artifacts through its signal path", async () => {
-    const storageRoot = await mkdtemp(join(tmpdir(), "ai-dev-os-c4-child-"));
+    const storageRoot = await createCanonicalTemporaryRoot("ai-dev-os-c4-child-");
     roots.push(storageRoot);
     const fixture = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "signal-control-service.mjs");
     const child = fork(fixture, [storageRoot], {
