@@ -748,9 +748,17 @@ empty command tuple and no authority. Normal is an explicit recursive product
 subset; Developer returns only a re-parsed canonical projection, so callers
 cannot append arbitrary diagnostics.
 
-C7 alone owns persistence integration and any future shared aggregate-type
-change. Commands, approvals, pause/kill, and durable emergency-stop authority
-belong to later Stage 20B checkpoints, not C6.
+C7, ratified by ADR 0041, extends the generic persistence vocabulary from ten
+to exactly 20 members. The ten additions map the independently changing C6
+project records to opaque versioned aggregate envelopes without importing the
+project package or interpreting its state machines. Memory remains generic;
+SQLite's released generic-TEXT schema needs no migration; PostgreSQL appends
+forward-only migration `0004-project-persistence-aggregates` to align its two
+physical check constraints. Released migration bytes remain immutable.
+
+C7 adds no application repository, write route, runtime composition, or real
+project record. Commands, approvals, pause/kill, and durable emergency-stop
+authority belong to later Stage 20B checkpoints, not C6 or C7.
 
 The future control plane is a child process owned by Electron main, never a
 Windows Service, scheduled task, machine daemon, or auto-start entry. Every

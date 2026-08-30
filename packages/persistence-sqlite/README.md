@@ -23,6 +23,13 @@ Opening applies pending migrations and validates the applied history; the
 returned object exposes only `transact`, `migrationStatus`, and `close` —
 the raw SQLite connection never crosses the package boundary.
 
+Stage 20 C7 adds no SQLite migration. Both `aggregates.aggregate_type` and
+`events.aggregate_type` have always been generic `TEXT NOT NULL`; the shared
+runtime parser supplies the exact closed vocabulary before a statement runs.
+Released `0001-initial-schema` remains byte-identical and checksummed while the
+complete shared suite proves every new discriminator in memory and file modes,
+including physical close/reopen for the file database.
+
 ## Driver decision
 
 **Chosen: `better-sqlite3` (v12 line).** Mature and actively maintained,

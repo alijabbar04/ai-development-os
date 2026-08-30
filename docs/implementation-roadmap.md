@@ -916,10 +916,12 @@ Tests and gate:
 ## Stage 20: Typed local control boundary
 
 Status: Stage 20A C0-C5 is complete and externally reviewed on the sealed
-production-disabled read-only source. C6 implements the pure canonical project
-contract spine and remains a candidate until its focused/root gates,
-independent exact-candidate review, publication, and exact-head hosted CI pass.
-C7 persistence and Stage 20B have not started.
+production-disabled read-only source. C6 is complete on exact commit
+`fd94ffba31d45e3ea75d12d5a2f417ba1538a29c`. C7 is the isolated generic
+persistence extension described below; its terminal acceptance requires the
+independent exact-tree review, publication, and exact-head hosted PostgreSQL
+gate recorded outside its self-referential candidate tree. Stage 20B has not
+started.
 
 Packages: `@ai-dev-os/api`, `@ai-dev-os/client`, `@ai-dev-os/control-service`,
 `@ai-dev-os/project`
@@ -944,10 +946,21 @@ ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stag
    specification, coverage, ceiling, candidate-requirement, and scope-approval
    records. The package has zero runtime dependencies and no I/O, persistence,
    command, scheduling, or process capability.
+6. **C7:** retain the released ten-member persistence discriminator prefix and
+   append exactly `project-brief`, `project-plan`, `agent-session`, `handover`,
+   `approval-request`, `spending-request`, `notification`,
+   `communication-thread`, `external-integration`, and `project-stop`. Memory
+   and SQLite already store validated generic text. PostgreSQL alone appends
+   `0004-project-persistence-aggregates`, without rewriting data. Independent
+   inventories and the shared adapter suite prove the exact 20-member union,
+   every new optimistic-concurrency/event lifecycle, durable reopen, physical
+   constraint parity, all released-prefix upgrades, rollback/resume, and the
+   existing `PER-02`/`PER-03` real-server guarantees.
 
-C7 deliberately lands separately because persistence integration changes the
-shared aggregate union and must re-prove memory, SQLite, and PostgreSQL
-contracts. No new `AGGREGATE_TYPES` member or migration is part of C6.
+C7 lands separately because persistence integration changes the shared
+aggregate union and must re-prove memory, SQLite, and PostgreSQL contracts. No
+new `AGGREGATE_TYPES` member or migration was part of C6, and C7 adds no
+project-runtime or command surface.
 
 Stage 20B later owns commands, idempotency, replay protection, approval binding,
 pause/kill, and durable emergency-stop authority. None is implemented by C6.
@@ -987,6 +1000,12 @@ Tests and gate:
   display vocabularies, immutable supersession, transcript non-reliance,
   Normal/Developer authority parity, forbidden-import positive controls, and a
   clean packed consumer.
+- C7 independently proves its exact original/new discriminator inventories,
+  refuses drift and embedded/projection substitutions, and runs the complete
+  per-type aggregate/journal contract on memory, SQLite, and PostgreSQL. Hosted
+  PostgreSQL additionally re-proves migration serialization, physical reopen,
+  `SERIALIZABLE` conflicts, native `SKIP LOCKED`, finite/redacted failures,
+  commit-ordered sequences, and backend-loss recovery.
 
 The control plane is a local child process owned by the future desktop shell,
 never a Windows Service, scheduled task, machine daemon, or auto-start entry.

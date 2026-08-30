@@ -91,6 +91,22 @@ describe("adapter construction and path safety", () => {
 });
 
 describe("migrations", () => {
+  it("keeps the released schema byte-pinned and the aggregate discriminator generic", () => {
+    expect(SQLITE_MIGRATIONS).toHaveLength(1);
+    expect(SQLITE_MIGRATIONS[0]?.id).toBe("0001-initial-schema");
+    expect(migrationChecksum(SQLITE_MIGRATIONS[0]!).hex).toBe(
+      "22634a6fa46f0c27e4e5839357b114e449760cf4bca2648bbc0d50182eadd9ea",
+    );
+    expect(SQLITE_MIGRATIONS[0]?.content.match(/aggregate_type TEXT NOT NULL/gu)).toHaveLength(2);
+    expect(SQLITE_MIGRATIONS[0]?.content).not.toMatch(/aggregate_type[^\n]*CHECK/gu);
+
+    const plantedPhysicalVocabulary = SQLITE_MIGRATIONS[0]!.content.replace(
+      "aggregate_type TEXT NOT NULL",
+      "aggregate_type TEXT NOT NULL CHECK (aggregate_type IN ('project'))",
+    );
+    expect(plantedPhysicalVocabulary).toMatch(/aggregate_type[^\n]*CHECK/gu);
+  });
+
   it("opens an empty database, records checksummed migrations, and reopens cleanly", async () => {
     const file = tempDatabaseFile();
     const clock = createManualClock();

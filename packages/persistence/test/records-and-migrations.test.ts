@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ValidationError } from "@ai-dev-os/domain";
 import {
+  AGGREGATE_TYPES,
   MAX_PAYLOAD_TEXT_LENGTH,
   PersistenceError,
   applyAcknowledge,
@@ -22,14 +23,87 @@ import {
   validateCreateAggregateInput,
   validateEnqueueOutboxInput,
   validateUpdateAggregateInput,
+  type AggregateType,
   type AppliedMigration,
   type MigrationDefinition,
   type OutboxMessage,
 } from "../src/index.js";
 
+const ORIGINAL_AGGREGATE_TYPES = Object.freeze([
+  "artifact-manifest",
+  "budget-account",
+  "evaluation-run",
+  "integration-run",
+  "project",
+  "product-plan",
+  "task-graph",
+  "task-run",
+  "telemetry-ledger",
+  "worker-run",
+] as const);
+
+const C7_PROJECT_AGGREGATE_TYPES = Object.freeze([
+  "project-brief",
+  "project-plan",
+  "agent-session",
+  "handover",
+  "approval-request",
+  "spending-request",
+  "notification",
+  "communication-thread",
+  "external-integration",
+  "project-stop",
+] as const);
+
+const EXPECTED_AGGREGATE_TYPES = Object.freeze([
+  ...ORIGINAL_AGGREGATE_TYPES,
+  ...C7_PROJECT_AGGREGATE_TYPES,
+] as const);
+
+type Equal<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends
+  (<Value>() => Value extends Right ? 1 : 2) ? true : false;
+type Assert<Condition extends true> = Condition;
+type _AggregateTypeRuntimeParity = Assert<
+  Equal<AggregateType, (typeof EXPECTED_AGGREGATE_TYPES)[number]>
+>;
+
 const T0 = "2026-08-02T12:00:00.000Z";
 
 describe("record validation", () => {
+  it("keeps the exact independently enumerated 20-member aggregate vocabulary", () => {
+    expect(ORIGINAL_AGGREGATE_TYPES).toHaveLength(10);
+    expect(C7_PROJECT_AGGREGATE_TYPES).toHaveLength(10);
+    expect(AGGREGATE_TYPES).toEqual(EXPECTED_AGGREGATE_TYPES);
+    expect(new Set(AGGREGATE_TYPES).size).toBe(20);
+    for (const aggregateType of EXPECTED_AGGREGATE_TYPES) {
+      expect(parseAggregateType(aggregateType)).toBe(aggregateType);
+    }
+  });
+
+  it("refuses aggregate vocabulary drift and keeps embedded or derived project records out", () => {
+    const refused = [
+      "unknown",
+      "Project-brief",
+      "project-brief ",
+      "pr\u043eject-brief",
+      "plan-stage",
+      "task",
+      "dependency",
+      "decision",
+      "usage-reservation",
+      "evidence-record",
+      "deliverable",
+      "blocker",
+      "constraint",
+      "project-health",
+      "project-summary",
+    ] as const;
+    for (const aggregateType of refused) {
+      expect(() => parseAggregateType(aggregateType), aggregateType).toThrow(ValidationError);
+    }
+  });
+
   it("validates and canonicalizes aggregate writes", () => {
     const validated = validateCreateAggregateInput({
       aggregateType: "project",

@@ -7,6 +7,12 @@ checksum, and error behavior, verified by the same shared contract suite —
 not a weakened mock. Intended for unit tests and for scheduler/router
 development in later stages.
 
+Stage 20 C7 needs no adapter change: the implementation already keys its maps
+by the shared validated `AggregateType`. The expanded 20-member union therefore
+uses the same transaction, checksum, optimistic-concurrency, isolation, event,
+and close semantics. The shared suite independently exercises all ten C7
+additions; no project parser or runtime behavior is imported.
+
 ## Usage
 
 ```ts

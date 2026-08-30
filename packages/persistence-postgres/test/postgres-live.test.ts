@@ -4,7 +4,13 @@ import {
   runPersistenceContractSuite,
   type ContractHarness,
 } from "@ai-dev-os/persistence/testing";
-import { preparePayload, type MigrationDefinition, type OperationRecord, type PersistenceError } from "@ai-dev-os/persistence";
+import {
+  AGGREGATE_TYPES,
+  preparePayload,
+  type MigrationDefinition,
+  type OperationRecord,
+  type PersistenceError,
+} from "@ai-dev-os/persistence";
 import type { PersistenceAdapter, TransactionContext } from "@ai-dev-os/persistence";
 import {
   INTEGRATION_SCHEMA_VERSION,
@@ -28,6 +34,34 @@ import {
 } from "./live-harness.js";
 
 const live = readLivePostgresConfiguration();
+
+const EXPECTED_C7_AGGREGATE_TYPES = Object.freeze([
+  "artifact-manifest",
+  "budget-account",
+  "evaluation-run",
+  "integration-run",
+  "project",
+  "product-plan",
+  "task-graph",
+  "task-run",
+  "telemetry-ledger",
+  "worker-run",
+  "project-brief",
+  "project-plan",
+  "agent-session",
+  "handover",
+  "approval-request",
+  "spending-request",
+  "notification",
+  "communication-thread",
+  "external-integration",
+  "project-stop",
+] as const);
+
+function physicalConstraintVocabulary(definition: unknown): readonly string[] {
+  if (typeof definition !== "string") throw new Error("Expected a PostgreSQL constraint definition.");
+  return Object.freeze([...definition.matchAll(/'([^']+)'::text/gu)].map((match) => match[1]!));
+}
 
 const INTEGRATOR_T0 = "2099-08-11T09:00:00.000Z";
 const INTEGRATOR_T1 = "2099-08-11T09:01:00.000Z";
@@ -269,10 +303,175 @@ if (live === null) {
           throw new Error("Expected both migration startups to complete.");
         }
         expect(await first.migrationStatus()).toMatchObject({ pending: [], databaseSchemaAhead: false });
-        expect((await second.migrationStatus()).applied).toHaveLength(3);
+        expect((await second.migrationStatus()).applied).toHaveLength(4);
         await Promise.all([first.close(), second.close()]);
       } finally {
         await Promise.allSettled([first?.close(), second?.close()]);
+        await dropLiveSchema(live, schema);
+      }
+    });
+
+    it("creates a fresh schema whose two physical vocabularies exactly match the public union", async () => {
+      const schema = uniqueLiveSchema("c7_fresh_constraint_parity");
+      const adapter = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
+      try {
+        expect(AGGREGATE_TYPES).toEqual(EXPECTED_C7_AGGREGATE_TYPES);
+        await withRawPool(live, async (pool) => {
+          const constraints = await pool.query(
+            `SELECT c.conname, pg_catalog.pg_get_constraintdef(c.oid, true) AS definition
+               FROM pg_catalog.pg_constraint AS c
+               JOIN pg_catalog.pg_class AS t ON t.oid=c.conrelid
+               JOIN pg_catalog.pg_namespace AS n ON n.oid=t.relnamespace
+              WHERE n.nspname=$1
+                AND c.conname IN ('aggregates_aggregate_type_check','events_aggregate_type_check')
+              ORDER BY c.conname`,
+            [schema],
+          );
+          expect(constraints.rows).toHaveLength(2);
+          for (const row of constraints.rows) {
+            expect(physicalConstraintVocabulary(row["definition"]), String(row["conname"]))
+              .toEqual(EXPECTED_C7_AGGREGATE_TYPES);
+          }
+          const planted = [...physicalConstraintVocabulary(constraints.rows[0]?.["definition"])] as string[];
+          planted[planted.length - 1] = "project-stopped";
+          expect(() => expect(planted).toEqual(EXPECTED_C7_AGGREGATE_TYPES)).toThrow();
+        });
+      } finally {
+        await adapter.close();
+        await dropLiveSchema(live, schema);
+      }
+    });
+
+    it("upgrades every released schema prefix and preserves old aggregate and event bytes", async () => {
+      for (const prefixLength of [1, 2, 3] as const) {
+        const schema = uniqueLiveSchema(`c7_upgrade_prefix_${prefixLength}`);
+        let prefix: Awaited<ReturnType<typeof createPostgresPersistenceAdapterForTesting>> | undefined;
+        let upgraded: Awaited<ReturnType<typeof createPostgresPersistenceAdapter>> | undefined;
+        try {
+          prefix = await createPostgresPersistenceAdapterForTesting(adapterOptions(live, schema), {
+            migrations: Object.freeze(POSTGRES_MIGRATIONS.slice(0, prefixLength)),
+          });
+          await prefix.transact(async (tx) => {
+            await tx.aggregates.create({
+              aggregateType: "project",
+              aggregateId: `project:c7-prefix-${prefixLength}`,
+              schemaVersion: 1,
+              payload: { before: true, prefixLength },
+              traceId: `trace:c7-prefix-${prefixLength}`,
+            });
+            await tx.events.append({
+              eventId: `event:c7-prefix-${prefixLength}`,
+              aggregateType: "project",
+              aggregateId: `project:c7-prefix-${prefixLength}`,
+              aggregateVersion: 1,
+              eventType: "project.created",
+              eventSchemaVersion: 1,
+              payload: { before: true, prefixLength },
+              occurredAt: "2026-08-29T12:00:00.000Z",
+              traceId: `trace:event:c7-prefix-${prefixLength}`,
+              causationId: `causation:c7-prefix-${prefixLength}`,
+            });
+          });
+          await prefix.close();
+          prefix = undefined;
+
+          const readPersistedRows = async () => withRawPool(live, async (pool) => {
+            const aggregate = await pool.query(
+              `SELECT aggregate_type, aggregate_id, schema_version::text AS schema_version,
+                      aggregate_version::text AS aggregate_version, payload,
+                      checksum_algorithm, checksum_hex, created_at, updated_at, trace_id
+                 FROM "${schema}".aggregates
+                WHERE aggregate_type='project' AND aggregate_id=$1`,
+              [`project:c7-prefix-${prefixLength}`],
+            );
+            const event = await pool.query(
+              `SELECT event_id, aggregate_type, aggregate_id,
+                      aggregate_version::text AS aggregate_version, event_type,
+                      event_schema_version::text AS event_schema_version, payload,
+                      checksum_algorithm, checksum_hex, occurred_at, recorded_at,
+                      global_sequence::text AS global_sequence, trace_id, causation_id
+                 FROM "${schema}".events WHERE event_id=$1`,
+              [`event:c7-prefix-${prefixLength}`],
+            );
+            expect(aggregate.rows).toHaveLength(1);
+            expect(event.rows).toHaveLength(1);
+            return Object.freeze({
+              aggregate: Object.freeze({ ...aggregate.rows[0]! }),
+              event: Object.freeze({ ...event.rows[0]! }),
+            });
+          });
+
+          const before = await readPersistedRows();
+          const expectRowsUnchanged = (actual: typeof before): void => {
+            expect(actual).toEqual(before);
+          };
+          const plantedTraceRewrite = Object.freeze({
+            ...before,
+            event: Object.freeze({ ...before.event, trace_id: "trace:rewritten" }),
+          });
+          expect(() => expectRowsUnchanged(plantedTraceRewrite)).toThrow();
+
+          upgraded = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
+          expect((await upgraded.migrationStatus()).applied.map((migration) => migration.id))
+            .toEqual(POSTGRES_MIGRATIONS.map((migration) => migration.id));
+          expectRowsUnchanged(await readPersistedRows());
+        } finally {
+          await Promise.allSettled([prefix?.close(), upgraded?.close()]);
+          await dropLiveSchema(live, schema);
+        }
+      }
+    });
+
+    it("rolls back a failing C7 migration completely and resumes with the corrected bytes", async () => {
+      const schema = uniqueLiveSchema("c7_migration_resume");
+      const releasedPrefix = Object.freeze(POSTGRES_MIGRATIONS.slice(0, 3));
+      const failingC7 = Object.freeze({
+        id: "0004-project-persistence-aggregates",
+        content: `${POSTGRES_MIGRATIONS[3]!.content}\nCREATE TABLE migration failure syntax`,
+      }) satisfies MigrationDefinition;
+      let prefix: Awaited<ReturnType<typeof createPostgresPersistenceAdapterForTesting>> | undefined;
+      let resumed: Awaited<ReturnType<typeof createPostgresPersistenceAdapter>> | undefined;
+      try {
+        prefix = await createPostgresPersistenceAdapterForTesting(adapterOptions(live, schema), {
+          migrations: releasedPrefix,
+        });
+        await prefix.close();
+        prefix = undefined;
+
+        await expect(createPostgresPersistenceAdapterForTesting(adapterOptions(live, schema), {
+          migrations: Object.freeze([...releasedPrefix, failingC7]),
+        })).rejects.toMatchObject({
+          code: "MIGRATION_FAILED",
+          details: { migrationId: "0004-project-persistence-aggregates" },
+        });
+
+        await withRawPool(live, async (pool) => {
+          const history = await pool.query(`SELECT id FROM "${schema}".schema_migrations ORDER BY ordinal`);
+          expect(history.rows.map((row) => row["id"]))
+            .toEqual(releasedPrefix.map((migration) => migration.id));
+          const constraints = await pool.query(
+            `SELECT c.conname, pg_catalog.pg_get_constraintdef(c.oid, true) AS definition
+               FROM pg_catalog.pg_constraint AS c
+               JOIN pg_catalog.pg_class AS t ON t.oid=c.conrelid
+               JOIN pg_catalog.pg_namespace AS n ON n.oid=t.relnamespace
+              WHERE n.nspname=$1
+                AND c.conname IN ('aggregates_aggregate_type_check','events_aggregate_type_check')
+              ORDER BY c.conname`,
+            [schema],
+          );
+          expect(constraints.rows).toHaveLength(2);
+          for (const row of constraints.rows) {
+            expect(physicalConstraintVocabulary(row["definition"]), String(row["conname"])).toEqual([
+              "artifact-manifest", "budget-account", "evaluation-run", "integration-run",
+              "project", "product-plan", "task-graph", "task-run", "telemetry-ledger", "worker-run",
+            ]);
+          }
+        });
+
+        resumed = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
+        expect((await resumed.migrationStatus()).applied).toHaveLength(4);
+      } finally {
+        await Promise.allSettled([prefix?.close(), resumed?.close()]);
         await dropLiveSchema(live, schema);
       }
     });
@@ -346,11 +545,12 @@ if (live === null) {
                 "0001-initial-schema",
                 "0002-evaluation-run-aggregate",
                 "0003-integration-run-aggregate",
+                "0004-project-persistence-aggregates",
               ]);
               await pool.query(
                 `INSERT INTO "${schema}".schema_migrations
                    (id, checksum_algorithm, checksum_hex, applied_at, ordinal)
-                 VALUES ('9999-future-schema','sha-256',$1,'2026-08-10T22:00:00.000Z',4)`,
+                 VALUES ('9999-future-schema','sha-256',$1,'2026-08-10T22:00:00.000Z',5)`,
                 ["a".repeat(64)],
               );
             }

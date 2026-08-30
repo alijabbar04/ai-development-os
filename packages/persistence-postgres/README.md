@@ -50,6 +50,17 @@ is immutable. A future migration, checksum drift, history gap, or failed
 migration refuses startup; a failed migration rolls back and a later corrected
 open resumes from the last committed prefix.
 
+Stage 20 C7 appends `0004-project-persistence-aggregates`. It replaces only the
+named aggregate/event discriminator check constraints with the exact shared
+20-member union and performs no data rewrite. Tests pin all three earlier
+checksums, prove upgrade from every released prefix, and snapshot every
+physical aggregate/event column before and after upgrade. Non-default trace and
+causation values plus a planted trace rewrite make exact old-row survival a
+load-bearing oracle. Tests also compare both physical constraints with an
+independently owned TypeScript inventory and exercise rollback/corrected
+resume. Memory and SQLite retain their generic-text physical storage; project
+payloads remain opaque here.
+
 Canonical JSON remains `TEXT` because its exact UTF-8 representation is the
 checksum identity. Timestamps are canonical UTC text from the injected clock,
 avoiding driver conversion/truncation. Mixed-case identifiers use PostgreSQL's

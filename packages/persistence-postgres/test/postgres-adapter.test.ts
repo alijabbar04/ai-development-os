@@ -410,6 +410,38 @@ describe("PostgreSQL migrations and row validation", () => {
     await reopened.adapter.close();
   });
 
+  it("keeps the released prefix after an injected C7 failure and applies 0004 once on resume", async () => {
+    const database = new FakePostgresDatabase();
+    const releasedPrefix = Object.freeze(POSTGRES_MIGRATIONS.slice(0, 3));
+    const seeded = await createPostgresPersistenceAdapterForTesting(options(), {
+      poolFactory: createFakePoolFactory(database),
+      migrations: releasedPrefix,
+    });
+    await seeded.close();
+
+    database.queryFailures.push({
+      tag: "ALTER TABLE aggregates DROP CONSTRAINT",
+      error: Object.assign(new Error("secret C7 migration SQL"), { code: "42601" }),
+    });
+    await expect(open(database)).rejects.toMatchObject({
+      code: "MIGRATION_FAILED",
+      details: { migrationId: "0004-project-persistence-aggregates", postgresCode: "42601" },
+    });
+
+    const prefixReopen = await createPostgresPersistenceAdapterForTesting(options(), {
+      poolFactory: createFakePoolFactory(database),
+      migrations: releasedPrefix,
+    });
+    expect((await prefixReopen.migrationStatus()).applied.map((migration) => migration.id))
+      .toEqual(releasedPrefix.map((migration) => migration.id));
+    await prefixReopen.close();
+
+    const corrected = await open(database);
+    expect((await corrected.adapter.migrationStatus()).applied.map((migration) => migration.id))
+      .toEqual(POSTGRES_MIGRATIONS.map((migration) => migration.id));
+    await corrected.adapter.close();
+  });
+
   it("destroys a session when rollback or advisory-unlock fails", async () => {
     const rollback = new FakePostgresDatabase();
     rollback.queryFailures.push(

@@ -119,8 +119,9 @@ duration and usage, and no credential or response-body retention. One provider
 dispatch attempt was made; no retry or fallback occurred. `ANT-02` is therefore proven and
 `developmentAccepted=true`. This changes sequencing, not runtime authority:
 `PLN-02` remains incomplete, `productionAdmitted=false`, and Stage 17W remains
-the production gate. Stage 20A C0-C5 remains read-only, and C6 adds only pure
-project contracts; neither changes those production facts.
+the production gate. Stage 20A C0-C5 remains read-only, C6 adds only pure
+project contracts, and C7 adds only their generic persistence discriminators;
+none changes those production facts.
 
 ## Future Windows computer and internet authority
 
@@ -150,8 +151,10 @@ literal-loopback six-read, zero-command service with allowlisted projections in
 `@ai-dev-os/control-service`. C6 adds the pure `@ai-dev-os/project` contract
 spine: the canonical 21-record vocabulary plus accepted project-stop and
 summary reconciliation records, total lifecycle tables, and deterministic
-authority-free projections. It persists nothing and exposes no command or
-runtime capability. C7 persistence has not started. Stage 20B later owns commands,
+authority-free projections. C7 maps exactly ten independently changing C6
+records into the generic persistence discriminator and appends only the
+required PostgreSQL check-constraint migration. It exposes no command or
+runtime capability. Stage 20B later owns commands,
 idempotency, replay protection, approval binding, recipient/channel identity,
 notification redaction, and durable emergency-stop authority. Free-form inbound
 text is always untrusted task input, never direct authority.
@@ -203,7 +206,7 @@ Stage 20 boundary or convert a chat identity into execution authority.
 | --- | --- |
 | 17W | Windows secure-execution proof and release gate; production remains unavailable until it passes. |
 | 18 | Development scope accepted: durable orchestration, usage-aware authorized-profile routing, supported Account Manager observations, and the bounded Anthropic transport proof; production remains gated. |
-| 20 | Stage 20A C0-C5 is complete and externally reviewed. C6 adds the pure canonical project-contract spine; C7 persistence and later Stage 20B commands/approvals/emergency-stop authority remain unstarted. |
+| 20 | Stage 20A C0-C5 and C6 are complete. C7 is the isolated production-disabled persistence-vocabulary checkpoint; later C8/C9 and Stage 20B commands/approvals/emergency-stop authority remain unstarted. |
 | 21 | Windows Normal/Developer desktop experience and future Fable 5 review gates. |
 | 22 | Discord, then Telegram, with WhatsApp deferred to a separate assessment. |
 | 23–24W | Windows packaging, operations, hardening, and release readiness. |
@@ -215,7 +218,7 @@ The detailed dependency order and acceptance gates remain in the
 ## Explicit non-claims
 
 No UI, messaging integration, installer, update mechanism, production sandbox,
-or Fable review is implemented by this document. C6 performs no project, task,
+or Fable review is implemented by this document. C6/C7 perform no real project, task,
 provider, credential, purchase, scheduling, or process action. The Stage 18
 scheduler and usage contracts remain production-disabled, and no borrowed
 profile is authorized by documentation alone. `PLN-02` remains incomplete,

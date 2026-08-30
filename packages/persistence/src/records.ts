@@ -8,9 +8,9 @@ const { ensureNullable, ensureSafeInteger, ensureString, ensureTimestamp, fail }
   validation;
 
 /**
- * Aggregate types persisted in Stage 3. This union is deliberately closed:
- * later stages extend it when their aggregates exist, so the storage layer
- * never accepts unknown aggregate kinds.
+ * Aggregate types persisted through Stage 20 C7. This union is deliberately
+ * closed: later stages extend it only when their aggregates exist, so the
+ * storage layer never accepts unknown aggregate kinds.
  */
 export const AGGREGATE_TYPES = Object.freeze([
   "artifact-manifest",
@@ -23,6 +23,16 @@ export const AGGREGATE_TYPES = Object.freeze([
   "task-run",
   "telemetry-ledger",
   "worker-run",
+  "project-brief",
+  "project-plan",
+  "agent-session",
+  "handover",
+  "approval-request",
+  "spending-request",
+  "notification",
+  "communication-thread",
+  "external-integration",
+  "project-stop",
 ] as const);
 
 export type AggregateType = (typeof AGGREGATE_TYPES)[number];

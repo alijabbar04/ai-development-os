@@ -4,6 +4,35 @@ import { describe, expect, it } from "vitest";
 import { migrationChecksum } from "@ai-dev-os/persistence";
 import { POSTGRES_MIGRATIONS } from "../src/index.js";
 
+const EXPECTED_AGGREGATE_TYPES = Object.freeze([
+  "artifact-manifest",
+  "budget-account",
+  "evaluation-run",
+  "integration-run",
+  "project",
+  "product-plan",
+  "task-graph",
+  "task-run",
+  "telemetry-ledger",
+  "worker-run",
+  "project-brief",
+  "project-plan",
+  "agent-session",
+  "handover",
+  "approval-request",
+  "spending-request",
+  "notification",
+  "communication-thread",
+  "external-integration",
+  "project-stop",
+] as const);
+
+function aggregateTypeVocabularies(sql: string): readonly (readonly string[])[] {
+  return [...sql.matchAll(/CHECK \(aggregate_type IN \(([^)]+)\)\)/gu)].map((match) =>
+    Object.freeze([...match[1]!.matchAll(/'([^']+)'/gu)].map((literal) => literal[1]!)),
+  );
+}
+
 const packageRoot = resolve(import.meta.dirname, "..");
 
 function read(path: string): string {
@@ -40,10 +69,11 @@ describe("PostgreSQL package static policy", () => {
   });
 
   it("pins the native locking, sequence, checksum, and migration invariants", () => {
-    expect(POSTGRES_MIGRATIONS).toHaveLength(3);
+    expect(POSTGRES_MIGRATIONS).toHaveLength(4);
     const migration = POSTGRES_MIGRATIONS[0];
     const evaluationMigration = POSTGRES_MIGRATIONS[1];
     const integrationMigration = POSTGRES_MIGRATIONS[2];
+    const projectMigration = POSTGRES_MIGRATIONS[3];
     expect(migration?.id).toBe("0001-initial-schema");
     expect(migrationChecksum(migration!).hex).toBe(
       "34413d60368bc485b1cbdc088d5000baa4ce31829c71ff0947d813aae1545f11",
@@ -58,6 +88,19 @@ describe("PostgreSQL package static policy", () => {
       "595f8bea3d06baae44370aeeca5f1a21f57cadf55f2970fb20b054e9ad29c065",
     );
     expect(integrationMigration?.content).toContain("'integration-run'");
+    expect(projectMigration?.id).toBe("0004-project-persistence-aggregates");
+    expect(migrationChecksum(projectMigration!).hex).toBe(
+      "5de038634e296881ba4f258f5b784fe749117515e6758c6cde77818b3e1ce5aa",
+    );
+    expect(aggregateTypeVocabularies(projectMigration!.content)).toEqual([
+      EXPECTED_AGGREGATE_TYPES,
+      EXPECTED_AGGREGATE_TYPES,
+    ]);
+    const plantedMismatch = projectMigration!.content.replace("'project-stop'", "'project-stopped'");
+    expect(() => expect(aggregateTypeVocabularies(plantedMismatch)).toEqual([
+      EXPECTED_AGGREGATE_TYPES,
+      EXPECTED_AGGREGATE_TYPES,
+    ])).toThrow();
     const adapter = read(resolve(packageRoot, "src", "postgres-adapter.ts"));
     const migrations = read(resolve(packageRoot, "src", "migrations.ts"));
     expect(adapter).toContain("FOR UPDATE SKIP LOCKED");

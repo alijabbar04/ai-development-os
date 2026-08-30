@@ -7,7 +7,26 @@ import type {
   PersistenceAdapter,
   TransactionContext,
 } from "../ports.js";
-import type { AggregateEnvelope, OutboxMessage } from "../records.js";
+import {
+  preparePayload,
+  type AggregateEnvelope,
+  type AggregateType,
+  type OutboxMessage,
+} from "../records.js";
+
+/** Independently owned C7 inventory; never derived from the production union. */
+const C7_PROJECT_AGGREGATE_TYPES = Object.freeze([
+  "project-brief",
+  "project-plan",
+  "agent-session",
+  "handover",
+  "approval-request",
+  "spending-request",
+  "notification",
+  "communication-thread",
+  "external-integration",
+  "project-stop",
+] as const satisfies readonly AggregateType[]);
 
 /** Deterministic, manually advanced clock for contract tests. */
 export interface ManualClock extends Clock {
@@ -119,6 +138,195 @@ export function runPersistenceContractSuite(
         idempotencyKey: extra.idempotencyKey ?? `key-${id}`,
         availableAt: extra.availableAt ?? null,
       });
+
+    describe("Stage 20 C7 project aggregate vocabulary", () => {
+      it.each(C7_PROJECT_AGGREGATE_TYPES)(
+        "supports the complete aggregate and journal contract for %s",
+        async (aggregateType) => {
+          const primaryId = `c7:${aggregateType}:shared`;
+          const secondaryId = `c7:${aggregateType}:secondary`;
+          const primaryEventId = `event:c7:${aggregateType}:primary`;
+          const secondaryEventId = `event:c7:${aggregateType}:secondary`;
+          const projectEventId = `event:c7:${aggregateType}:project`;
+
+          const created = await adapter.transact((tx) => tx.aggregates.create({
+            aggregateType,
+            aggregateId: primaryId,
+            schemaVersion: 1,
+            payload: { aggregateType, state: "created" },
+            traceId: "trace:c7",
+          }));
+          expect(created).toMatchObject({
+            aggregateType,
+            aggregateId: primaryId,
+            schemaVersion: 1,
+            aggregateVersion: 1,
+            payload: { aggregateType, state: "created" },
+          });
+
+          await expectPersistenceError(
+            adapter.transact((tx) => tx.aggregates.create({
+              aggregateType,
+              aggregateId: primaryId,
+              schemaVersion: 1,
+              payload: { duplicate: true },
+            })),
+            "CONCURRENCY_CONFLICT",
+          );
+
+          const read = await adapter.transact((tx) => tx.aggregates.get(aggregateType, primaryId));
+          expect(read).toEqual(created);
+
+          const updatedPayload = { aggregateType, state: "updated", revision: 2 };
+          const updated = await adapter.transact((tx) => tx.aggregates.update({
+            aggregateType,
+            aggregateId: primaryId,
+            schemaVersion: 1,
+            expectedVersion: 1,
+            payload: updatedPayload,
+            traceId: "trace:c7:update",
+          }));
+          expect(updated).toMatchObject({
+            aggregateType,
+            aggregateId: primaryId,
+            aggregateVersion: 2,
+            payload: updatedPayload,
+          });
+          expect(updated.checksum).toEqual(preparePayload(updatedPayload, "c7.expected").checksum);
+
+          for (const expectedVersion of [1, 4]) {
+            const conflict = await expectPersistenceError(
+              adapter.transact((tx) => tx.aggregates.update({
+                aggregateType,
+                aggregateId: primaryId,
+                schemaVersion: 1,
+                expectedVersion,
+                payload: { forbidden: expectedVersion },
+              })),
+              "CONCURRENCY_CONFLICT",
+            );
+            expect(conflict.details).toMatchObject({ expectedVersion, actualVersion: 2 });
+          }
+
+          await adapter.transact(async (tx) => {
+            await tx.aggregates.create({
+              aggregateType,
+              aggregateId: secondaryId,
+              schemaVersion: 1,
+              payload: { aggregateType, state: "secondary" },
+            });
+            await tx.aggregates.create({
+              aggregateType: "project",
+              aggregateId: primaryId,
+              schemaVersion: 1,
+              payload: { aggregateType: "project", state: "same-id" },
+            });
+            await tx.events.append({
+              eventId: primaryEventId,
+              aggregateType,
+              aggregateId: primaryId,
+              aggregateVersion: 2,
+              eventType: `${aggregateType}.updated`,
+              eventSchemaVersion: 1,
+              payload: updatedPayload,
+              occurredAt: CONTRACT_EPOCH,
+            });
+            await tx.events.append({
+              eventId: secondaryEventId,
+              aggregateType,
+              aggregateId: secondaryId,
+              aggregateVersion: 1,
+              eventType: `${aggregateType}.created`,
+              eventSchemaVersion: 1,
+              payload: { aggregateType, state: "secondary" },
+              occurredAt: CONTRACT_EPOCH,
+            });
+            await tx.events.append({
+              eventId: projectEventId,
+              aggregateType: "project",
+              aggregateId: primaryId,
+              aggregateVersion: 1,
+              eventType: "project.created",
+              eventSchemaVersion: 1,
+              payload: { aggregateType: "project" },
+              occurredAt: CONTRACT_EPOCH,
+            });
+          });
+
+          const aggregatePageOne = await adapter.transact((tx) => tx.aggregates.list({
+            aggregateType,
+            limit: 1,
+            cursor: null,
+          }));
+          const aggregatePageTwo = await adapter.transact((tx) => tx.aggregates.list({
+            aggregateType,
+            limit: 1,
+            cursor: aggregatePageOne.nextCursor,
+          }));
+          expect([...aggregatePageOne.items, ...aggregatePageTwo.items].map((item) => item.aggregateId))
+            .toEqual([secondaryId, primaryId].sort());
+          expect((await adapter.transact((tx) => tx.aggregates.list({ aggregateType: "project" })))
+            .items.map((item) => item.aggregateId)).toEqual([primaryId]);
+
+          const perAggregate = await adapter.transact((tx) => tx.events.list({
+            aggregateType,
+            aggregateId: primaryId,
+            limit: 10,
+            cursor: null,
+          }));
+          expect(perAggregate.items.map((item) => item.eventId)).toEqual([primaryEventId]);
+          expect(perAggregate.items[0]).toMatchObject({ payload: updatedPayload });
+          expect(perAggregate.items[0]?.checksum)
+            .toEqual(preparePayload(updatedPayload, "c7.expected-event").checksum);
+          const perType = await adapter.transact((tx) => tx.events.list({
+            aggregateType,
+            limit: 10,
+            cursor: null,
+          }));
+          expect(perType.items.map((item) => item.eventId)).toEqual([
+            primaryEventId,
+            secondaryEventId,
+          ]);
+          const globalPageOne = await adapter.transact((tx) => tx.events.list({ limit: 2 }));
+          const globalPageTwo = await adapter.transact((tx) => tx.events.list({
+            limit: 2,
+            cursor: globalPageOne.nextCursor,
+          }));
+          expect([...globalPageOne.items, ...globalPageTwo.items].map((item) => item.eventId))
+            .toEqual([primaryEventId, secondaryEventId, projectEventId]);
+
+          await adapter.close();
+          await expectPersistenceError(
+            adapter.transact((tx) => tx.aggregates.get(aggregateType, primaryId)),
+            "ADAPTER_CLOSED",
+          );
+
+          if (harness.reopen !== undefined) {
+            const reopened = await harness.reopen();
+            try {
+              const durable = await reopened.transact(async (tx) => ({
+                aggregate: await tx.aggregates.get(aggregateType, primaryId),
+                events: await tx.events.list({
+                  aggregateType,
+                  aggregateId: primaryId,
+                  limit: 10,
+                  cursor: null,
+                }),
+              }));
+              expect(durable.aggregate).toMatchObject({
+                aggregateType,
+                aggregateId: primaryId,
+                aggregateVersion: 2,
+                payload: updatedPayload,
+              });
+              expect(durable.events.items.map((item) => item.eventId)).toEqual([primaryEventId]);
+            } finally {
+              await reopened.close();
+            }
+          }
+        },
+      );
+    });
 
     describe("aggregates", () => {
       it("creates version-1 envelopes with canonical frozen payloads and clock timestamps", async () => {

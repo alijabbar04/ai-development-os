@@ -11,6 +11,10 @@ no database driver, and no I/O beyond `node:crypto` (checksums) and
 `@ai-dev-os/persistence-memory`, `@ai-dev-os/persistence-sqlite`, and
 `@ai-dev-os/persistence-postgres`.
 
+Stage 20 C7 extends only the generic closed aggregate discriminator. Project
+payload meaning remains in the dependency-free `@ai-dev-os/project` package
+and is not interpreted here.
+
 ## Responsibilities and non-responsibilities
 
 **Owns:** port interfaces (`PersistenceAdapter`, `TransactionContext`,
@@ -30,10 +34,14 @@ import providers, Electron, HTTP frameworks, or UI code.
 
 ## Persistence model
 
-One generic **versioned aggregate store** persists every Stage 3 aggregate,
-typed by the closed `AGGREGATE_TYPES` union (`project`, `product-plan`, `evaluation-run`,
-`task-graph`, `task-run`, `worker-run`, `budget-account`, `artifact-manifest`,
-`telemetry-ledger`, `integration-run`). Each
+One generic **versioned aggregate store** persists every admitted aggregate,
+typed by the exact 20-member closed `AGGREGATE_TYPES` union. The released ten
+members are `artifact-manifest`, `budget-account`, `evaluation-run`,
+`integration-run`, `project`, `product-plan`, `task-graph`, `task-run`,
+`telemetry-ledger`, and `worker-run`. C7 appends `project-brief`, `project-plan`,
+`agent-session`, `handover`, `approval-request`, `spending-request`,
+`notification`, `communication-thread`, `external-integration`, and
+`project-stop`. Each
 envelope carries:
 
 | Field | Meaning |
@@ -157,10 +165,11 @@ uses randomness. The contract suite drives lease expiry with a manual clock
 (vitest is an optional peer dependency, needed only by adapter test
 suites). Adapter packages provide a `ContractHarness` (adapter, manual
 clock, observer capture, and optional reopen/corruption capabilities) and
-get ~45 behavioral tests covering CRUD, version conflicts, atomicity,
+get more than 50 behavioral tests covering CRUD, version conflicts, atomicity,
 rollback, retry-without-duplicates, ordering, pagination, outbox leasing
 and lifecycle, corruption, hostile input, secret hygiene, lifecycle, and
-migration status. Capability-gated tests (reopen, corruption) are skipped
+migration status. C7 adds one independently enumerated full contract case for
+each of its ten discriminators. Capability-gated tests (reopen, corruption) are skipped
 only where the capability is genuinely absent (e.g. reopening a pure
 in-memory store).
 
