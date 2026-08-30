@@ -917,14 +917,13 @@ Tests and gate:
 
 Status: Stage 20A C0-C5 is complete and externally reviewed on the sealed
 production-disabled read-only source. C6 is complete on exact commit
-`fd94ffba31d45e3ea75d12d5a2f417ba1538a29c`. C7 is the isolated generic
-persistence extension described below; its terminal acceptance requires the
-independent exact-tree review, publication, and exact-head hosted PostgreSQL
-gate recorded outside its self-referential candidate tree. Stage 20B has not
-started.
+`fd94ffba31d45e3ea75d12d5a2f417ba1538a29c`; C7 is complete on exact commit
+`30d144ea3a3067f53caa701d32cde784edd4faa3`; and C8 implements the bounded,
+production-disabled project-intake library described below. C9 plan assembly
+and command-bearing Stage 20B work have not started.
 
 Packages: `@ai-dev-os/api`, `@ai-dev-os/client`, `@ai-dev-os/control-service`,
-`@ai-dev-os/project`
+`@ai-dev-os/project`, `@ai-dev-os/intake`
 
 ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stage
 20B. Stage 20A exposes no command or mutation. Its ordered checkpoints are:
@@ -956,14 +955,30 @@ ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stag
    every new optimistic-concurrency/event lifecycle, durable reopen, physical
    constraint parity, all released-prefix upgrades, rollback/resume, and the
    existing `PER-02`/`PER-03` real-server guarantees.
+7. **C8:** transform explicit operator input and bounded injected repository
+   observations into an ephemeral digest-bound candidate; enforce the accepted
+   two-round/eight-question/three-blocking clarification ceiling; and only on
+   explicit acceptance materialize the real C6 `ProjectBrief`. One conditional
+   C7 transaction updates the sole `project-brief` lineage and appends the
+   provenance/evidence event with every applicable decision atomically. Conflict or
+   ambiguous outcome permits bounded head/journal reread but never a blind
+   retry. Pure Normal and Developer projections have identical empty authority
+   and command surfaces. No route, UI, provider, credential, scheduling, task,
+   or production capability is added.
 
-C7 lands separately because persistence integration changes the shared
+C7 landed separately because persistence integration changes the shared
 aggregate union and must re-prove memory, SQLite, and PostgreSQL contracts. No
 new `AGGREGATE_TYPES` member or migration was part of C6, and C7 adds no
 project-runtime or command surface.
 
-Stage 20B later owns commands, idempotency, replay protection, approval binding,
-pause/kill, and durable emergency-stop authority. None is implemented by C6.
+C8 reuses those contracts without changing the C6 record registry, the C7
+aggregate union, or any migration. Its candidates and pre-acceptance sessions
+are deliberately non-durable. C9 must refuse plan sealing unless a current
+accepted `ProjectBrief` exists; C6 does not own that gate.
+
+Later command-bearing Stage 20B work owns authenticated commands, replay
+protection, approval binding, pause/kill, and durable emergency-stop authority.
+None is implemented by C6-C8.
 
 Later deliverables:
 
@@ -1006,6 +1021,13 @@ Tests and gate:
   PostgreSQL additionally re-proves migration serialization, physical reopen,
   `SERIALIZABLE` conflicts, native `SKIP LOCKED`, finite/redacted failures,
   commit-ordered sequences, and backend-loss recovery.
+- C8 independently proves objective fidelity and provenance, parser-bound
+  candidates, hostile-text refusal, constrained read-only inspection, exact
+  clarification ceilings and defaults, one-write atomic acceptance, optimistic
+  conflict and unknown-result adjudication, bounded journal pagination,
+  transcript non-reliance, recursive Normal/Developer parity, leakage controls,
+  forbidden-import controls, memory/SQLite integration, and a clean packed
+  consumer.
 
 The control plane is a local child process owned by the future desktop shell,
 never a Windows Service, scheduled task, machine daemon, or auto-start entry.

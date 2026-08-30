@@ -760,6 +760,33 @@ C7 adds no application repository, write route, runtime composition, or real
 project record. Commands, approvals, pause/kill, and durable emergency-stop
 authority belong to later Stage 20B checkpoints, not C6 or C7.
 
+C8, ratified by ADR 0042, adds the production-disabled `@ai-dev-os/intake`
+library. Its pure core validates explicit operator input through the real C6
+parsers, retains provenance for every candidate field, preserves the operator
+objective verbatim, and enforces one default/two maximum clarification rounds,
+eight questions and three blocking questions per round. Candidate and
+clarification state is ephemeral; repository prose is untrusted data and
+cannot become the objective.
+
+The optional inspection boundary receives an approved canonical root and
+injected read-only filesystem, Git, and monotonic-clock ports. It enforces
+containment, traversal/reparse refusal, finite file/byte/deadline limits, and a
+closed set of Git argument arrays with hooks, remotes, credentials, mutation,
+and shell interpretation disabled. The pure core has no ambient filesystem,
+process, environment, clock, network, provider, credential, UI, or scheduler
+access.
+
+Explicit acceptance is the only durable transition. C8 derives one
+`project-brief` aggregate id per project and requests exactly one optimistic C7
+transaction that writes the current C6 `ProjectBrief` and appends one complete
+provenance/evidence event carrying every applicable decision. Conflict or ambiguous
+outcome triggers bounded head and ascending-journal reread only; C8 never
+blindly retries. Normal is a recursive structural subset of Developer and both
+expose `authority:"none"`, no commands, and no runtime action handles. C9 must
+add the missing invariant that a plan cannot seal without a current accepted
+brief. C8 adds no plan, route, UI, command, task execution, or production
+admission.
+
 The future control plane is a child process owned by Electron main, never a
 Windows Service, scheduled task, machine daemon, or auto-start entry. Every
 Stage 20 component remains production-disabled and cannot dispatch a real agent
