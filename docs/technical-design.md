@@ -782,10 +782,45 @@ transaction that writes the current C6 `ProjectBrief` and appends one complete
 provenance/evidence event carrying every applicable decision. Conflict or ambiguous
 outcome triggers bounded head and ascending-journal reread only; C8 never
 blindly retries. Normal is a recursive structural subset of Developer and both
-expose `authority:"none"`, no commands, and no runtime action handles. C9 must
-add the missing invariant that a plan cannot seal without a current accepted
-brief. C8 adds no plan, route, UI, command, task execution, or production
-admission.
+expose `authority:"none"`, no commands, and no runtime action handles. C8 adds
+no plan, route, UI, command, task execution, or production admission.
+
+C9, ratified by ADR 0043, adds `@ai-dev-os/plan`. Its production root imports
+only `@ai-dev-os/project` at runtime. It exact-key parses the complete assembly
+request; independently verifies proposal, product-specification and coverage
+digests; preserves provenance and the complete request as durable review
+evidence; deterministically assembles every required C6 task/plan field; and
+enforces bounded acyclic graph, budget, constraint, specification, coverage,
+lineage, and seal invariants. The published product-planning contracts are
+type-only at that boundary, with C9-owned runtime mirrors.
+
+Every C9 write re-proves an accepted brief by correlating the current
+`project-brief` aggregate with exactly one acceptance event at every durable
+lineage position through the current version and the public C8 parser. It uses
+a non-serializable, one-shot capability whose
+private facts bind final canonical bytes, operation sequence, event IDs,
+authenticated operator rows, and exact decisions. The injected store port
+exposes neither a transaction nor driver handle. The only concrete composition
+lives under `@ai-dev-os/plan/testing`, where the same suite runs over memory and
+real SQLite; no issuer or adapter is reachable from the production export.
+
+The nine schema-version-1 plan events preserve complete review/control and
+accepted-brief evidence. The first write is only a drafting version-1 record;
+promotion and seal are separate transactions. C9 drives seven C6 cells and a
+total 21-state/25-symbol session lifecycle. Ambiguous writes permit only
+bounded exact head/event or ascending-journal observation, never a retry.
+Sealing recomputes all six conditions and retains the budget account's
+orthogonal total-token ceiling. Durable scope approval remains null, every
+task remains pending, and no scheduling or execution proof is exported.
+The test-only composition places a finite deadline around evidence reads and
+checks it before mutation without detaching an in-flight C7 adapter call.
+
+Normal and Developer plan projections have identical empty commands and no
+authority. Normal structurally omits identities, digests, provenance and
+audit-only ceiling evidence; Developer labels them without callbacks or runtime
+handles. C9 adds no application wiring, listener, route, command, aggregate
+type, migration, context pack, approval/spending authority, provider,
+credential, scheduler eligibility, task execution, or production admission.
 
 The future control plane is a child process owned by Electron main, never a
 Windows Service, scheduled task, machine daemon, or auto-start entry. Every

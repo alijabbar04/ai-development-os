@@ -1,0 +1,728 @@
+{
+  "schemaVersion": 1,
+  "status": "REBOUND_PROPOSAL",
+  "subject": {
+    "head": "1bfe9769d662a45a7e4b7f114a016328476d5215",
+    "tree": "5fd1a3dc8f5593e76fd96cdbbec2e830502f76d3",
+    "parent": "30d144ea3a3067f53caa701d32cde784edd4faa3"
+  },
+  "ownerLegend": {
+    "C6": "already enforced by @ai-dev-os/project at the frozen head",
+    "C9": "new work in @ai-dev-os/plan",
+    "C6+C9": "C6 enforces part of it; C9 adds the rest",
+    "C6+C8": "C6 supplies the record parser; C8 supplies accepted-lineage persistence proof",
+    "C8+C9": "C8 enforces acceptance; C9 repeats a defence-in-depth seal check",
+    "C7+C9": "C7 enforces part of it; C9 adds the rest",
+    "C9-by-absence": "held by C9 writing no code that could violate it, proven by a static-policy test"
+  },
+  "planLimits": {
+    "note": "C9-owned; every value must be <= the C6 array bound, and compile-checked <= TASK_GRAPH_LIMITS where a counterpart exists - maxStages and maxTasksPerStage have none and are bounded by the C6 array limit alone (SP-9)",
+    "maxStages": 64,
+    "maxTasks": 512,
+    "maxTasksPerStage": 64,
+    "maxDependencies": 1024,
+    "maxDepth": 32,
+    "maxFanIn": 32,
+    "maxFanOut": 32,
+    "c6HardBounds": {
+      "arrayItems": 1024,
+      "canonicalArray": 10000,
+      "canonicalDepth": 64,
+      "canonicalNodes": 100000,
+      "text": 16384
+    },
+    "taskGraphBounds": {
+      "maxTasks": 10000,
+      "maxDependenciesPerTask": 256,
+      "maxEdges": 100000,
+      "maxDepth": 128
+    },
+    "persistenceBound": {
+      "maxPayloadTextLength": 10000000
+    },
+    "rationale": "maxStages, maxTasks, maxTasksPerStage, maxDepth, maxFanIn and maxFanOut are deliberately far below every hard bound so a plan stays humanly reviewable. maxDependencies is the exception: it equals the C6 array bound of 1024 because C6 already enforces that ceiling, so a lower C9 value would only duplicate it - the binding constraints on graph size are maxTasks, maxDepth and the degree bounds. All are configuration recorded in the C9 ADR; raising one is a documented decision, not an implementation detail."
+  },
+  "invariants": [
+    {
+      "id": "PR-1",
+      "record": "Project",
+      "owner": "C6",
+      "statement": "projectId matches ^prj: and the identifier pattern"
+    },
+    {
+      "id": "PR-2",
+      "record": "Project",
+      "owner": "C9",
+      "statement": "all payload projectIds agree; the project-plan aggregate ID equals projectId; the independently decorated/hash-derived project-brief aggregate ID is correlated through validated acceptance proof and is not equated to projectId",
+      "refusal": "plan.project.mismatch"
+    },
+    {
+      "id": "PR-3",
+      "record": "Project",
+      "owner": "C9",
+      "statement": "the concrete commit adapter re-reads and parses the current project aggregate inside the same C7 transaction; status must be active before any C9 write and no request-carried project value is accepted. Promote, scope-approval escalation and seal also require its aggregate version and content digest to equal the assembly basis in the proven head event; draft, redraft and revision reassemble from the current Project, while terminal cleanup and audit-only annotation are exempt only from basis equality",
+      "refusal": "plan.project.not-active / plan.proposal.stale"
+    },
+    {
+      "id": "PR-4",
+      "record": "ProjectStop",
+      "owner": "C9",
+      "statement": "the adapter completes a bounded in-transaction current-stop query, parses every matching head and checks isProjectStopActive; request bytes cannot assert absence; an active stop refuses plan.project.stopped, invalid/malformed/repeated/non-advancing/empty-continuation pagination refuses plan.store.cursor-invalid, malformed envelope/payload/checksum refuses plan.store.corrupt, and adapter failure/bound exhaustion refuses plan.store.unavailable; every branch writes nothing",
+      "refusal": "plan.project.stopped / plan.store.cursor-invalid / plan.store.corrupt / plan.store.unavailable"
+    },
+    {
+      "id": "PR-5",
+      "record": "global e-stop",
+      "owner": "C9-by-absence",
+      "statement": "C9 neither consults nor asserts the global emergency stop"
+    },
+    {
+      "id": "PR-6",
+      "record": "Project",
+      "owner": "C6+C9",
+      "statement": "repositoryRoots are absolute canonical paths and never reach a Normal projection"
+    },
+    {
+      "id": "BR-1",
+      "record": "ProjectBrief",
+      "owner": "C6",
+      "statement": "origin is the literal operator"
+    },
+    {
+      "id": "BR-2",
+      "record": "ProjectBrief",
+      "owner": "C6+C8",
+      "statement": "revision is literal 1; accepted lineage position is AggregateEnvelope.aggregateVersion"
+    },
+    {
+      "id": "BR-3",
+      "record": "ProjectBrief",
+      "owner": "C9",
+      "statement": "every G1-G7 read proves the current aggregate/event binding over projectId, derived aggregateId, aggregateVersion, briefId, briefContentDigest, acceptedCandidateDigest, acceptanceEventId, parsed event payload, and all envelope/event correlations",
+      "refusals": [
+        "plan.brief.superseded",
+        "plan.brief.acceptance-proof-invalid"
+      ]
+    },
+    {
+      "id": "BR-4",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "briefRevision is written as the literal 1",
+      "refusal": "plan.brief.revision-not-one",
+      "gap": "CG-01"
+    },
+    {
+      "id": "BR-5",
+      "record": "ProjectBrief",
+      "owner": "C9",
+      "statement": "independently recomputed canonical briefContentDigest equals the bound value, remains distinct from acceptedCandidateDigest, and acceptance-event proof remains valid",
+      "refusals": [
+        "plan.brief.content-digest-mismatch",
+        "plan.brief.acceptance-proof-invalid"
+      ]
+    },
+    {
+      "id": "BR-6",
+      "record": "ProjectBrief",
+      "owner": "C8+C9",
+      "statement": "published C8 event parsing proves no blocking open question; C9's frozen defence scans only durable openQuestions[].blocking booleans on the acceptance-proven parsed brief. It never reconstructs C8's five ephemeral candidate bases; conformance fixtures cover each upstream basis through C8 resolution and acceptance",
+      "refusal": "plan.brief.blocking-unanswered",
+      "gap": "CG-02"
+    },
+    {
+      "id": "BR-7",
+      "record": "Constraint",
+      "owner": "C6",
+      "statement": "hard enforcement iff machineForm present"
+    },
+    {
+      "id": "BR-8",
+      "record": "Constraint",
+      "owner": "C6",
+      "statement": "model-origin constraints are advisory with authority none"
+    },
+    {
+      "id": "BR-9",
+      "record": "ProjectBrief",
+      "owner": "C9",
+      "statement": "brief prose reaches plan prose only through an explicit derivedFrom provenance binding, over all six authority-bearing paths of PV-6 (node-qualified: stage.title, stage.intent, stage.exitCriteria[], task.title, task.objective, task.acceptance[].criterion) - not only task title and objective"
+    },
+    {
+      "id": "BR-10",
+      "record": "ProjectBrief",
+      "owner": "C9",
+      "statement": "C9 reads briefs and never writes one; its narrow readAcceptedBriefHead result distinguishes absent, accepted, invalid-proof, and unresolved. Isolated test composition validates with parseIntakeAcceptanceEvent, while production application wiring is deferred"
+    },
+    {
+      "id": "PL-1",
+      "record": "ProjectPlan",
+      "owner": "C6",
+      "statement": "exact 21-key shape"
+    },
+    {
+      "id": "PL-2",
+      "record": "ProjectPlan",
+      "owner": "C6",
+      "statement": "origin model and authority none, both literal"
+    },
+    {
+      "id": "PL-3",
+      "record": "ProjectPlan",
+      "owner": "C6",
+      "statement": "revision 1 iff supersedes null; no self-supersession"
+    },
+    {
+      "id": "PL-4",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "planDigest verified against planDigestMaterial on every read and before every write",
+      "refusal": "DIGEST_MISMATCH"
+    },
+    {
+      "id": "PL-5",
+      "record": "PlanStage",
+      "owner": "C9",
+      "statement": "stage ordinals are gap-free 1..N",
+      "refusal": "plan.stage.ordinal-not-dense"
+    },
+    {
+      "id": "PL-6",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "stages, tasks and dependencies are stored in canonical sorted order"
+    },
+    {
+      "id": "PL-7",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "For a non-null validated SpecificationBinding, specificationRef equals spec: plus the first 32 hex characters of expectedSpecificationDigest and coverageRef equals coverage: plus the first 32 hex characters of expectedCoverageDigest; the binding and assembled plan carry those same values, while the distinct upstream product-specification:* ID remains in SpecificationBinding.specificationId.",
+      "gap": "CG-09"
+    },
+    {
+      "id": "PL-8",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "specificationRef and coverageRef are both non-null iff the validated SpecificationBinding is non-null; otherwise both are null.",
+      "refusal": "plan.specification.incoherent"
+    },
+    {
+      "id": "PL-9",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "state===sealed implies sealedAt non-null; state in {drafting, clarifying, proposed, awaiting_scope_approval, rejected, abandoned} implies sealedAt null; state===superseded preserves the predecessor's sealedAt byte-identically (null when superseded from proposed, non-null when superseded from sealed). C6 leaves superseded and abandoned unconstrained in both directions.",
+      "refusal": "plan.seal.metadata",
+      "reconciles": "PL-11"
+    },
+    {
+      "id": "PL-10",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "every ProjectPlan written by C9 has sealedByApprovalId null. A synthetic consumed approval may satisfy the pure condition-6 evaluator in tests, but C9 owns no scope-approval-consumed transition and that fixture never reaches persistence. Non-null durable metadata is reserved for later C10 composition",
+      "refusal": "plan.seal.approval-binding"
+    },
+    {
+      "id": "PL-11",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "a real supersede preserves sealedAt and sealedByApprovalId byte-identically: plan.superseded preserves them on the committed record, and either plan.revised mode preserves them in the PlanPredecessorStamp produced from the legal post-fold superseded predecessor. A plan.drafted redraft does not supersede its drafting predecessor; its PlanDraftReplacementStamp preserves that predecessor's null seal fields and state drafting"
+    },
+    {
+      "id": "PL-12",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "budgetCeiling is componentwise <= the resolved project ceiling and, when the account has a token budget, maximumInputTokens + maximumOutputTokens is <= its hard maxTotalTokens using a checked-subtraction comparison",
+      "refusal": "plan.seal.condition-5"
+    },
+    {
+      "id": "PL-12b",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "every write has one explicit state and postcondition rule. Operations with an L1 edge equal that fold. First create has no predecessor and commits PLAN_STATE_MACHINE.initial (drafting). Redraft has no L1 edge and replaces an exact drafting predecessor with a new drafting record under the create-versus-redraft and mode oracle. plan.revised first folds its proposed or sealed predecessor to superseded and stamps that exact post-fold result, then commits the distinct new head at drafting. plan.budget-extended advances no head and preserves the plan byte-identically. No record write or annotation is unguarded",
+      "refusal": "plan.state.illegal"
+    },
+    {
+      "id": "PL-13",
+      "record": "ProjectPlan",
+      "owner": "C7+C9",
+      "statement": "serialized canonical payload <= 10000000 characters, pre-checked by C9"
+    },
+    {
+      "id": "PL-14",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "prose is free of bidi overrides and isolates",
+      "refusal": "plan.text.bidi",
+      "gap": "CG-10"
+    },
+    {
+      "id": "PL-15",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "timestamps are caller-supplied; no ambient clock exists in the package"
+    },
+    {
+      "id": "PL-16",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "a stored plan that fails to re-parse is corruption, not a validation refusal",
+      "refusal": "plan.store.corrupt"
+    },
+    {
+      "id": "PL-17",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "state===sealed implies a non-null, non-empty validated SpecificationBinding and its exact PL-7 references; without it seal conditions 3 and 6 are vacuously satisfied. A null binding with both references null stays legal for drafting and proposed.",
+      "refusal": "plan.specification.absent"
+    },
+    {
+      "id": "PL-18",
+      "record": "ProjectPlan",
+      "owner": "C9",
+      "statement": "every complete plan is re-derived at the raw commit boundary, dispatching on event kind and operation.mode. First draft uses revision 1, null supersedes, and no predecessor or link. Same-brief redraft preserves the head brief, revision and supersedes, stamps the exact drafting predecessor, and byte-copies its prior R2 link. Stale-draft R2 redraft resets to revision 1 and null supersedes and carries an exact drafting replacement stamp plus fresh draft-replacement link. Revised R1 uses the same brief, head revision plus 1, head plan ID as supersedes, a post-fold superseded stamp, and null rebase. Revised R2 uses the later brief, revision 1 and null supersedes, the post-fold superseded stamp, and a fresh superseding link. All five assembly branches use the embedded parsed request, transactionally parsed current Project including task dataClassification, and store-owned coordinates; every other operation equals its literal field-delta transform. Promote, scope-approval escalation and seal additionally bind the current Project version and content digest to the proven head event assembly basis. Equality covers all 21 plan keys and complete event material"
+    },
+    {
+      "id": "ST-1",
+      "record": "PlanStage",
+      "owner": "C6",
+      "statement": "stg: prefix, unique within the plan"
+    },
+    {
+      "id": "ST-2",
+      "record": "PlanStage",
+      "owner": "C6",
+      "statement": "ordinal unique within the plan"
+    },
+    {
+      "id": "ST-3",
+      "record": "PlanStage",
+      "owner": "C6",
+      "statement": "taskIds are a one-to-one partition of plan tasks"
+    },
+    {
+      "id": "ST-4",
+      "record": "PlanStage",
+      "owner": "C6",
+      "statement": "exitCriteria and exitEvidenceKinds are non-empty"
+    },
+    {
+      "id": "ST-5",
+      "record": "PlanStage",
+      "owner": "C9",
+      "statement": "stage count <= PLAN_LIMITS.maxStages",
+      "refusal": "plan.graph.too-many-stages"
+    },
+    {
+      "id": "ST-6",
+      "record": "PlanStage",
+      "owner": "C9",
+      "statement": "tasks per stage <= PLAN_LIMITS.maxTasksPerStage",
+      "refusal": "plan.graph.stage-too-large"
+    },
+    {
+      "id": "ST-7",
+      "record": "PlanStage",
+      "owner": "C9",
+      "statement": "no ordering dependency (finish-to-start or artifact) points backwards across stage ordinals; advisory edges are exempt, matching DP-11",
+      "refusal": "plan.graph.stage-order-inconsistent"
+    },
+    {
+      "id": "ST-8",
+      "record": "PlanStage",
+      "owner": "C6+C9",
+      "statement": "exit evidence kinds are declared requirements, never satisfied at plan time"
+    },
+    {
+      "id": "ST-9",
+      "record": "PlanStage",
+      "owner": "C9",
+      "statement": "an operator-review gate creates no approval and no blocker at plan time"
+    },
+    {
+      "id": "TK-1",
+      "record": "ProjectTask",
+      "owner": "C6",
+      "statement": "tsk: prefix, unique, stageId exists"
+    },
+    {
+      "id": "TK-2",
+      "record": "ProjectTask",
+      "owner": "C6",
+      "statement": "editScope non-none implies code-edit capability"
+    },
+    {
+      "id": "TK-3",
+      "record": "ProjectTask",
+      "owner": "C6",
+      "statement": "repository-write capability implies workspaceMode worktree"
+    },
+    {
+      "id": "TK-4",
+      "record": "ProjectTask",
+      "owner": "C6",
+      "statement": "at least one acceptance criterion"
+    },
+    {
+      "id": "TK-5",
+      "record": "ProjectTask",
+      "owner": "C9",
+      "statement": "every task in a plan C9 writes is state pending with stateRevision 1",
+      "refusal": "plan.task.not-pending"
+    },
+    {
+      "id": "TK-6",
+      "record": "ProjectTask",
+      "owner": "C6+C9",
+      "statement": "the five execution-policy fields are exact C9 literals: retry={maximumAttempts:1,initialBackoffMs:0,maximumBackoffMs:0,retryableFailures:[]}, timeout={dispatchMs:1,attemptMs:1}, priority=normal, workloadClass=general, handoverPolicy={requires:none,acceptFrom:[],maximumAgeMs:null}; none is a C6 default or caller input"
+    },
+    {
+      "id": "TK-7",
+      "record": "ProjectTask",
+      "owner": "C6",
+      "statement": "risk and complexity are explicit"
+    },
+    {
+      "id": "TK-8",
+      "record": "ProjectTask",
+      "owner": "C9",
+      "statement": "task budget is componentwise <= plan budgetCeiling",
+      "refusal": "plan.budget.task-exceeds-ceiling"
+    },
+    {
+      "id": "TK-9",
+      "record": "ProjectTask",
+      "owner": "C9",
+      "statement": "the componentwise sum of task budgets is <= budgetCeiling",
+      "refusal": "plan.budget.sum-exceeds-ceiling"
+    },
+    {
+      "id": "TK-10",
+      "record": "ProjectTask",
+      "owner": "C9",
+      "statement": "irreversible or approval-bound tasks need an explicit recorded disposition before sealing",
+      "refusal": "plan.task.irreversible-unbound"
+    },
+    {
+      "id": "TK-11",
+      "record": "ProjectTask",
+      "owner": "C9",
+      "statement": "handoverPolicy.acceptFrom names in-plan upstream tasks",
+      "refusal": "plan.task.handover-source-unknown"
+    },
+    {
+      "id": "TK-12",
+      "record": "ProjectTask",
+      "owner": "C9",
+      "statement": "requirementIds are present where a required coverage obligation exists"
+    },
+    {
+      "id": "TK-13",
+      "record": "ProjectTask",
+      "owner": "C6",
+      "statement": "expectedOutputSchema is canonical JSON with no prototype-pollution shape"
+    },
+    {
+      "id": "TK-14",
+      "record": "ProjectTask",
+      "owner": "C6+C9",
+      "statement": "validationCommand is bounded data and is never executed by C9"
+    },
+    {
+      "id": "TK-15",
+      "record": "ProjectTask",
+      "owner": "C9",
+      "statement": "no task names a provider, model, profile, account or credential",
+      "refusal": "plan.task.provider-fact"
+    },
+    {
+      "id": "DP-1",
+      "record": "Dependency",
+      "owner": "C6",
+      "statement": "both endpoints exist"
+    },
+    {
+      "id": "DP-2",
+      "record": "Dependency",
+      "owner": "C6",
+      "statement": "no self-dependency"
+    },
+    {
+      "id": "DP-3",
+      "record": "Dependency",
+      "owner": "C6",
+      "statement": "artifact kind iff artifactKind non-null"
+    },
+    {
+      "id": "DP-4",
+      "record": "Dependency",
+      "owner": "C6",
+      "statement": "tuple set is duplicate-free"
+    },
+    {
+      "id": "DP-5",
+      "record": "Dependency",
+      "owner": "C6",
+      "statement": "no cycle"
+    },
+    {
+      "id": "DP-6",
+      "record": "Dependency",
+      "owner": "C9",
+      "statement": "deterministic topological order via Kahn with a min-heap on (stage ordinal, taskId)"
+    },
+    {
+      "id": "DP-7",
+      "record": "Dependency",
+      "owner": "C9",
+      "statement": "graph depth <= PLAN_LIMITS.maxDepth",
+      "refusal": "plan.graph.too-deep",
+      "gap": "CG-07"
+    },
+    {
+      "id": "DP-8",
+      "record": "Dependency",
+      "owner": "C9",
+      "statement": "per-task in-degree and out-degree bounded",
+      "refusal": "plan.graph.fan-in / plan.graph.fan-out"
+    },
+    {
+      "id": "DP-9",
+      "record": "Dependency",
+      "owner": "C6+C9",
+      "statement": "edge count <= 1024, pre-checked by C9"
+    },
+    {
+      "id": "DP-10",
+      "record": "Dependency",
+      "owner": "C9",
+      "statement": "at most one dependency per ordered task pair",
+      "refusal": "plan.graph.parallel-edge"
+    },
+    {
+      "id": "DP-11",
+      "record": "Dependency",
+      "owner": "C9",
+      "statement": "advisory edges constrain neither computePlanOrder (DP-6) nor stage order (ST-7), but are counted for the cycle check, the edge-count bound, the degree bounds and the parallel-edge rule"
+    },
+    {
+      "id": "CN-1",
+      "record": "Constraint",
+      "owner": "C9",
+      "statement": "every brief constraint has an explicit plan disposition keyed by constraintId in common PlanReviewEvidence on every event; first draft, redraft and revision derive it and later events copy it byte-for-byte, so it remains available after reopen",
+      "refusal": "plan.constraint.no-disposition"
+    },
+    {
+      "id": "CN-2",
+      "record": "Constraint",
+      "owner": "C9",
+      "statement": "hard constraints need a recognised machine-form schema for their kind",
+      "refusal": "plan.constraint.machine-form-unrecognised",
+      "gap": "CG-06"
+    },
+    {
+      "id": "CN-3",
+      "record": "Constraint",
+      "owner": "C9",
+      "statement": "a waived disposition names an operator waiver decision bound to this plan and revision whose bytes match the private issued commit authorization; decidedBy alone is not authentication",
+      "refusal": "plan.constraint.waiver-unbound"
+    },
+    {
+      "id": "DC-1",
+      "record": "Decision",
+      "owner": "C6",
+      "statement": "content-derived ids asserted against an independent digest"
+    },
+    {
+      "id": "DC-2",
+      "record": "Decision",
+      "owner": "C6",
+      "statement": "decidedBy has no model member"
+    },
+    {
+      "id": "DC-3",
+      "record": "Decision",
+      "owner": "C9",
+      "statement": "every C9 decision binds scope.planId AND scope.planRevision, and the staleness predicate is the PAIR: a decision whose scope.planId or scope.planRevision differs from the current plan refuses as stale. Both halves are load-bearing: every redraft mints a new planId; an ordinary same-brief redraft preserves revision and supersedes, while a stale-draft R2 redraft resets them to 1 and null. A revision-only predicate can therefore let a decision bound to the replaced draft survive whenever its revision happens to equal the replacement's, even though its task set may differ",
+      "refusal": "plan.decision.stale-binding"
+    },
+    {
+      "id": "DC-4",
+      "record": "Decision",
+      "owner": "C9",
+      "statement": "budget-extension-accepted binds exactly one task plus exact plan identity and revision",
+      "refusal": "plan.decision.budget-extension-shape"
+    },
+    {
+      "id": "DC-5",
+      "record": "Decision",
+      "owner": "C9",
+      "statement": "only the seven plan-time decision kinds are emitted, and each only on the event that carries it, under a total single-valued map (plan-persistence-and-idempotency.md section 4): scope-accepted, scope-deferred, waiver-granted and conflict-resolution ride plan.sealed; scope-rejected rides plan.scope-rejected; plan-revision-accepted rides plan.revised; budget-extension-accepted rides plan.budget-extended. plan.proposed and plan.scope-approval-required carry no decision, so any decision on either refuses.",
+      "refusal": "plan.decision.kind-out-of-scope"
+    },
+    {
+      "id": "DC-6",
+      "record": "Decision",
+      "owner": "C6",
+      "statement": "supplied decision histories are acyclic and duplicate-free"
+    },
+    {
+      "id": "BL-1",
+      "record": "Blocker",
+      "owner": "C9",
+      "statement": "C9 creates no Blocker"
+    },
+    {
+      "id": "BL-2",
+      "record": "Blocker",
+      "owner": "C9",
+      "statement": "blocking items are never hidden: all six seal verdicts and all undisposed constraints are reported together"
+    },
+    {
+      "id": "DL-1",
+      "record": "Deliverable",
+      "owner": "C9",
+      "statement": "C9 creates no Deliverable"
+    },
+    {
+      "id": "DL-2",
+      "record": "PlanStage",
+      "owner": "C6",
+      "statement": "exitEvidenceKinds are explicit and non-empty"
+    },
+    {
+      "id": "EV-1",
+      "record": "EvidenceRecord",
+      "owner": "C6+C9",
+      "statement": "C9 creates no EvidenceRecord; runId is a required run: identifier and no run exists at plan time"
+    },
+    {
+      "id": "EV-2",
+      "record": "EvidenceRecord",
+      "owner": "C6+C9",
+      "statement": "coverage claims may not be closed by operator- or provider-produced evidence",
+      "refusal": "plan.coverage.evidence-insufficient"
+    },
+    {
+      "id": "UR-1",
+      "record": "UsageReservation",
+      "owner": "C9",
+      "statement": "C9 creates, reserves, releases and reconciles nothing"
+    },
+    {
+      "id": "UR-2",
+      "record": "UsageReservation",
+      "owner": "C9",
+      "statement": "budgetCeiling is a declaration, never rendered as money held"
+    },
+    {
+      "id": "SP-1",
+      "record": "ProjectStop",
+      "owner": "C9",
+      "statement": "an active stop refuses every C9 write"
+    },
+    {
+      "id": "SP-2",
+      "record": "ProjectStop",
+      "owner": "C9",
+      "statement": "C9 never engages or resumes a stop"
+    },
+    {
+      "id": "SP-3",
+      "record": "global e-stop",
+      "owner": "C9",
+      "statement": "C9 does not implement, reference or claim the global emergency stop"
+    },
+    {
+      "id": "SP-4",
+      "record": "ProjectSummaryProjection",
+      "owner": "C6",
+      "statement": "a stopped project projects status stopped without touching Project.status"
+    },
+    {
+      "id": "H-1",
+      "record": "all",
+      "owner": "C9",
+      "statement": "no plan field asserts that an effect took place"
+    },
+    {
+      "id": "H-2",
+      "record": "ProjectTask",
+      "owner": "C9",
+      "statement": "unavailable providers, accounts, quotas and capacity never become plan facts"
+    },
+    {
+      "id": "H-3",
+      "record": "package",
+      "owner": "C9",
+      "statement": "production-disabled state is structural, not a runtime flag check"
+    },
+    {
+      "id": "H-4",
+      "record": "errors",
+      "owner": "C9",
+      "statement": "refusals never echo input; finite roots and static explanations"
+    },
+    {
+      "id": "H-5",
+      "record": "projections",
+      "owner": "C9",
+      "statement": "every covered/satisfied/ready claim traces to a record, never to prose"
+    },
+    {
+      "id": "H-6",
+      "record": "proposal",
+      "owner": "C9",
+      "statement": "a model-authored sentence can never reach an authority-bearing field UNLABELLED, and can never reach an authority-conferring position at all (origin, derivedFrom, authority, sealedByApprovalId, a Decision, an ApprovalRequest). Model prose does appear in the six authority-bearing prose paths - that is what a review is for - but always carrying its origin: model label"
+    },
+    {
+      "id": "H-7",
+      "record": "projections",
+      "owner": "C9",
+      "statement": "stale is rendered, never hidden; the disabled seal action keeps a discoverable reason"
+    }
+  ],
+  "sealConditions": [
+    {
+      "condition": 1,
+      "statement": "acyclic DAG",
+      "realization": "the public parseProjectPlan is re-run at seal time on the exact stored bytes; its internal DAG assertion is module-private and is never imported directly",
+      "refusal": "plan.seal.condition-1",
+      "wire": "SEAL_CONDITION_FAILED{condition:1}"
+    },
+    {
+      "condition": 2,
+      "statement": "node, depth, fan-in and fan-out within configured bounds",
+      "realization": "PLAN_LIMITS, all <= C6 array bounds, and compile-checked <= TASK_GRAPH_LIMITS where a counterpart exists (SP-9: maxStages and maxTasksPerStage have none)",
+      "refusal": "plan.seal.condition-2",
+      "wire": "SEAL_CONDITION_FAILED{condition:2}"
+    },
+    {
+      "condition": 3,
+      "statement": "every required requirement covered by a task or an authorized waiver",
+      "realization": "over the deterministically transformed SpecificationBinding: each row preserves upstream decisionId, digest, disposition, executable flag and provenance; every non-null upstream requirement-task:* coverage ID maps exactly once to a unique in-plan tsk:*; each required/expected-quality requirement has that task or a plan-bound waiver whose complete Decision bytes match the issued host authorization. A caller-authored decidedBy:operator shape is not authorization. delight-candidate may carry a task but does not block when absent; waived requires a host-authenticated waiver and no task; other non-executable dispositions carry no task. SB-8 requires a non-null, non-empty binding and unconditional reverse coverage of every in-plan task at seal.",
+      "refusal": "plan.seal.condition-3",
+      "wire": "SEAL_CONDITION_FAILED{condition:3}"
+    },
+    {
+      "condition": 4,
+      "statement": "every hard constraint carries a machineForm",
+      "realization": "C6 parse-time bidirectional rule plus a C9 recognised machine-form schema and an explicit disposition",
+      "refusal": "plan.seal.condition-4",
+      "wire": "SEAL_CONDITION_FAILED{condition:4}"
+    },
+    {
+      "condition": 5,
+      "statement": "budget within the project ceiling",
+      "realization": "the commit transaction recomputes exact ResolvedProjectCeilingEvidence from the current parsed open project-scoped budget-account aggregate and exact hard budget-money/budget-tokens constraints on the acceptance-proven brief. Its ceiling has five OrchestrationBudget components and its orthogonal accountMaximumTotalTokens is the account maxTotalTokens or null when the account has no token budget. Nullable account directional maxima fall back to maxTotalTokens; each component uses the minimum of present finite account and brief candidates, with no candidate zero. Condition 5 checks the subject plan against all five components and, when the account total exists, checks plan input <= total then plan output <= total - plan input. Resolved directional evidence may legitimately be 100/100 against total 100; subject plan 60/60 fails and 60/40 passes. Overlapping source conflict, currency mismatch, invalid evidence, or missing/cancelled/wrong-scope account refuses plan.budget.ceiling-conflict. No request/event verdict or decision supplies or relaxes the ceiling.",
+      "refusal": "plan.seal.condition-5",
+      "wire": "SEAL_CONDITION_FAILED{condition:5}"
+    },
+    {
+      "condition": 6,
+      "statement": "material inferred scope requires a consumed scope-expansion approval",
+      "realization": "material inference is derived from preserved upstream provenance and task/stage provenance, including every unauthenticated origin:operator claim and SB-4c. The pure evaluator accepts an explicit SealEvaluationInput.scopeApproval only for predicate testing. The durable C9 commit boundary always supplies null, independently recomputes the verdict and requires byte equality with event verdicts; synthetic or caller-authored approvals cannot persist a seal before C10. SB-8 requires a non-null, non-empty binding. Evidence loss or capability mismatch fails plan.coverage.provenance-inconsistent; honest inference without approval fails plan.seal.condition-6.",
+      "refusal": "plan.seal.condition-6",
+      "wire": "SEAL_CONDITION_FAILED{condition:6}"
+    }
+  ]
+}

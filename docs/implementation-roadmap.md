@@ -918,12 +918,13 @@ Tests and gate:
 Status: Stage 20A C0-C5 is complete and externally reviewed on the sealed
 production-disabled read-only source. C6 is complete on exact commit
 `fd94ffba31d45e3ea75d12d5a2f417ba1538a29c`; C7 is complete on exact commit
-`30d144ea3a3067f53caa701d32cde784edd4faa3`; and C8 implements the bounded,
-production-disabled project-intake library described below. C9 plan assembly
-and command-bearing Stage 20B work have not started.
+`30d144ea3a3067f53caa701d32cde784edd4faa3`; C8 implements the bounded,
+production-disabled project-intake library; and C9 implements the pure,
+production-disabled plan contract described below. Command-bearing Stage 20B
+work has not started.
 
 Packages: `@ai-dev-os/api`, `@ai-dev-os/client`, `@ai-dev-os/control-service`,
-`@ai-dev-os/project`, `@ai-dev-os/intake`
+`@ai-dev-os/project`, `@ai-dev-os/intake`, `@ai-dev-os/plan`
 
 ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stage
 20B. Stage 20A exposes no command or mutation. Its ordered checkpoints are:
@@ -965,6 +966,18 @@ ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stag
    retry. Pure Normal and Developer projections have identical empty authority
    and command surfaces. No route, UI, provider, credential, scheduling, task,
    or production capability is added.
+8. **C9:** exact-key parse and digest-bind plan proposals, product
+   specification/coverage transforms, provenance, constraints, budgets, and
+   lineages; deterministically assemble complete C6 plans; re-prove the current
+   accepted C8 brief; evaluate all six seal conditions; and drive only the
+   seven owned C6 transitions through a total 21-state/25-symbol session
+   machine. Every mutation uses one private one-shot authorization and one
+   conditional C7 transaction attempt. The isolated `./testing` composition
+   proves atomicity, first-write safety, bounded ambiguity observation, and
+   parity over memory and real SQLite. The production root has one runtime
+   workspace dependency (`@ai-dev-os/project`) and exports no issuer, adapter,
+   route, command, approval, scheduling eligibility, execution capability, or
+   production wiring.
 
 C7 landed separately because persistence integration changes the shared
 aggregate union and must re-prove memory, SQLite, and PostgreSQL contracts. No
@@ -973,12 +986,18 @@ project-runtime or command surface.
 
 C8 reuses those contracts without changing the C6 record registry, the C7
 aggregate union, or any migration. Its candidates and pre-acceptance sessions
-are deliberately non-durable. C9 must refuse plan sealing unless a current
-accepted `ProjectBrief` exists; C6 does not own that gate.
+are deliberately non-durable. C9 supplies the missing authoritative seal gate:
+the current `project-brief` aggregate must correlate with its unique current-
+version acceptance event, every earlier accepted-lineage position must remain
+continuous, and each event must pass the public C8 event parser. It also preserves
+the complete assembly request and review evidence in each of nine closed plan
+event variants. C9 changes no C6/C7 discriminator or migration and adds no
+production composition.
 
 Later command-bearing Stage 20B work owns authenticated commands, replay
 protection, approval binding, pause/kill, and durable emergency-stop authority.
-None is implemented by C6-C8.
+None is implemented by C6-C9. C10 separately owns scope-approval consumption;
+C9's pure synthetic approval predicate grants no durable authority.
 
 Later deliverables:
 
@@ -1028,6 +1047,14 @@ Tests and gate:
   transcript non-reliance, recursive Normal/Developer parity, leakage controls,
   forbidden-import controls, memory/SQLite integration, and a clean packed
   consumer.
+- C9 pins the complete 81-member plan-rule vocabulary and 98 dossier invariants, exact
+  proposal/specification/coverage digests, fixed task policy, deterministic
+  graph order, all six seal conditions, the complete 21 by 25 lifecycle,
+  one-shot authorization, exact nine-event parsing, first-write safety,
+  rollback and concurrency, accepted-brief/event correlation, Project/stop
+  gates, bounded head/journal observation, Normal/Developer authority parity,
+  static boundaries, memory/real-SQLite parity, and an installed packed
+  consumer with no workspace links.
 
 The control plane is a local child process owned by the future desktop shell,
 never a Windows Service, scheduled task, machine daemon, or auto-start entry.

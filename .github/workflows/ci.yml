@@ -310,6 +310,8 @@ jobs:
 
       - run: npm run verify:intake-packed-consumer
 
+      - run: npm run verify:plan-packed-consumer
+
       - run: npm run verify:app-vault-packed-consumer
 
   # The packed credential host executes the reviewed Electron runtime. Its

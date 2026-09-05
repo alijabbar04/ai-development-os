@@ -1,0 +1,44 @@
+{
+  "name": "@ai-dev-os/plan",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pure, deterministic, production-disabled plan assembly, review, and sealing contracts for AI Development OS.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../project run build && npm --prefix ../intake run build && npm --prefix ../persistence run build && npm --prefix ../domain run build && npm --prefix ../product-planning run build",
+    "build": "tsc -p tsconfig.json",
+    "pretypecheck": "npm run prebuild",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm --prefix ../project run build && npm --prefix ../intake run build && npm --prefix ../persistence run build && npm --prefix ../domain run build && npm --prefix ../product-planning run build && npm --prefix ../persistence-memory run build && npm --prefix ../persistence-sqlite run build",
+    "test": "vitest run",
+    "pretest:coverage": "npm run pretest",
+    "test:coverage": "vitest run --coverage",
+    "preverify:packed-consumer": "npm run build",
+    "verify:packed-consumer": "node scripts/verify-packed-consumer.mjs"
+  },
+  "dependencies": {
+    "@ai-dev-os/project": "^0.1.0"
+  },
+  "devDependencies": {
+    "@ai-dev-os/domain": "^0.1.0",
+    "@ai-dev-os/intake": "^0.1.0",
+    "@ai-dev-os/persistence": "^0.1.0",
+    "@ai-dev-os/persistence-memory": "^0.1.0",
+    "@ai-dev-os/persistence-sqlite": "^0.1.0",
+    "@ai-dev-os/product-planning": "^0.1.0"
+  }
+}

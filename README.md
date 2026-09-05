@@ -41,7 +41,7 @@ that `main` deliberately does not. The badge above reports CI on `main`.
 | Linux/macOS production platforms | **Deferred to Stage 25**, unavailable/unverified |
 | Stage 18 | **Development scope accepted; production remains gated** — `AM-02` and `INT-01` remain proven. On 2026-08-25 one fresh, separately authorized Stage 18E-I Anthropic validation used the exact externally reviewed candidate, a new one-shot marker and the existing owned application-vault `SecretRef`. One provider dispatch attempt was made; there was no retry or fallback. The create-only 38-field receipt and terminal sidecar committed, and the exact named projection proved HTTP 200, the pinned model, exactly one text block containing exactly `OK`, 774 ms duration, 12 input tokens and 4 output tokens without retaining the credential or response body. `ANT-02` is therefore **proven** and `developmentAccepted=true` is derived. The earlier missing-envelope success remains `BLOCKED_EVIDENCE`. `PLN-02` remains incomplete, `productionAdmitted=false`, Stage 17W remains the production gate, and this checkpoint made Stage 20A eligible. |
 | Stage 19 | **Stage 19B production-disabled integration checkpoint complete** — deterministic evaluation and serialized local-Git integration are published with exact-final-head hosted CI; production Git effects remain unavailable |
-| Stage 20 | **C0-C8 implemented as production-disabled checkpoints** — the read-only control plane remains six GET routes and zero commands; C6 supplies canonical project contracts; C7 extends generic persistence; and C8 adds deterministic, bounded project intake with no pre-acceptance writes. Explicit acceptance can request one atomic `project-brief` write through an injected persistence port, but C8 exposes no route, command, UI, task, scheduling, provider, credential, or production authority. C9 and command-bearing Stage 20B work have not started. Production remains disabled. |
+| Stage 20 | **C0-C9 implemented as production-disabled checkpoints** — the read-only control plane remains six GET routes and zero commands; C6 supplies canonical project contracts; C7 extends generic persistence; C8 adds deterministic bounded project intake; and C9 adds pure plan assembly, accepted-brief proof, review/seal predicates, exact lifecycle and injected persistence conformance. C9 exports no route, command, UI, scheduler eligibility, approval/spending authority, provider, credential, or production capability. Command-bearing Stage 20B work has not started. Production remains disabled. |
 | Production autonomous execution | **Refuses** |
 | Maturity | Pre-1.0. Nothing is published to any registry. |
 
@@ -79,9 +79,14 @@ Three things are stated plainly because they are easy to assume the other way:
   canonical project contract spine, C7 adds its generic persistence vocabulary,
   and C8 adds a production-disabled project-intake library. C8 candidates and
   clarification rounds remain ephemeral until explicit acceptance; its only
-  durable boundary is one injected atomic `project-brief` transaction. No C8
-  route, command, UI, provider, credential, task, process, or scheduling action
-  exists. C9 and command-bearing Stage 20B work have not started.
+  durable boundary is one injected atomic `project-brief` transaction. C9 adds
+  the production-disabled `@ai-dev-os/plan` contract: deterministic assembly,
+  current accepted-brief proof, provenance/specification/coverage binding,
+  six-condition seal evaluation, exact lifecycle, and an isolated memory/real-
+  SQLite persistence conformance composition. It adds no route, command, UI,
+  scheduling eligibility, approval/spending authority, provider, credential,
+  task execution, or production action. Command-bearing Stage 20B work has not
+  started.
 
 ## Documents
 
@@ -228,6 +233,7 @@ most valuable.
 - [`@ai-dev-os/control-service`](packages/control-service/README.md) is the production-disabled C3-C5 literal-loopback read host with exact lifecycle/adoption and six GET, zero-command authority.
 - [`@ai-dev-os/project`](packages/project/README.md) is the pure C6 canonical project spine: strict versioned records, deterministic serialization, total state tables, and authority-free health/summary/display projections. It has no persistence, runtime capability, or command surface.
 - [`@ai-dev-os/intake`](packages/intake/README.md) is the production-disabled C8 intake library: deterministic candidates with field provenance, bounded clarification, constrained injected repository observation, explicit acceptance into one C7 `project-brief` lineage, finite recovery, and authority-free Normal/Developer projections. It exposes no route or command.
+- [`@ai-dev-os/plan`](packages/plan/README.md) is the production-disabled C9 planning library: strict proposal/specification/provenance parsing, deterministic C6 plan assembly, accepted-brief and six-condition seal proof, exact lifecycle and ambiguity observation, and an isolated C8/C7 memory/SQLite conformance composition. Its production root exposes no authorization issuer, adapter, route, command, or execution capability.
 
 Provider/model IDs remain opaque configuration. The router can choose any configured eligible GPT or Claude inference target without name heuristics or a built-in commercial preference. Claude Code and Codex adapters implement the separate coding-agent contract and cannot be used as inference thinkers. The first-party Anthropic inference adapter remains production-disabled. Earlier canary attempts remain consumed at their recorded outcomes; a fresh candidate-bound attempt produced the complete sanitized receipt required to prove `ANT-02`. One provider dispatch attempt was made; no retry occurred. That development evidence grants no general provider, task, or production authority. Usage/reset facts come only from normalized authorized observations, never guessed provider policy. The exact-pinned Account Manager reader emits `claude-code` observations; this closure performed no new installed-state read.
 

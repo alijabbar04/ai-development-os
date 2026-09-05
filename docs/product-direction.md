@@ -120,9 +120,10 @@ dispatch attempt was made; no retry or fallback occurred. `ANT-02` is therefore 
 `developmentAccepted=true`. This changes sequencing, not runtime authority:
 `PLN-02` remains incomplete, `productionAdmitted=false`, and Stage 17W remains
 the production gate. Stage 20A C0-C5 remains read-only, C6 adds only pure
-project contracts, C7 adds only their generic persistence discriminators, and
-C8 adds only a production-disabled project-intake library; none changes those
-production facts.
+project contracts, C7 adds only their generic persistence discriminators, C8
+adds only a production-disabled project-intake library, and C9 adds only a
+production-disabled plan library with an isolated test persistence
+composition; none changes those production facts.
 
 ## Future Windows computer and internet authority
 
@@ -161,8 +162,14 @@ and materializes a canonical brief only after explicit acceptance. Accepted
 briefs and consolidated intake decisions share one atomic `project-brief`
 journal transaction. Normal and Developer projections retain identical empty
 authority and command surfaces. C8 adds no route, desktop UI, provider, task,
-scheduler, or production runtime. C9 must add the accepted-brief requirement
-before plan sealing. Later command-bearing Stage 20B work owns commands,
+scheduler, or production runtime. C9 now exact-key parses and digest-binds
+proposals, provenance, specification/coverage and budget material; assembles
+deterministic C6 plans; correlates the current accepted-brief aggregate and
+event; and evaluates the six seal conditions. Its production root exposes no
+authorization issuer or adapter; the memory/SQLite composition and one-shot
+issuer exist only under the test subpath. C9 creates no scheduling eligibility,
+approval, spend, task execution, route, command, UI, or production runtime.
+Later command-bearing Stage 20B work owns commands,
 idempotency, replay protection, approval binding, recipient/channel identity,
 notification redaction, and durable emergency-stop authority. Free-form inbound
 text is always untrusted task input, never direct authority.
@@ -214,7 +221,7 @@ Stage 20 boundary or convert a chat identity into execution authority.
 | --- | --- |
 | 17W | Windows secure-execution proof and release gate; production remains unavailable until it passes. |
 | 18 | Development scope accepted: durable orchestration, usage-aware authorized-profile routing, supported Account Manager observations, and the bounded Anthropic transport proof; production remains gated. |
-| 20 | C0-C8 are implemented as production-disabled checkpoints: read-only control, canonical project contracts, generic persistence, and bounded project intake. C9 planning and command-bearing Stage 20B approvals/emergency-stop authority remain unstarted. |
+| 20 | C0-C9 are implemented as production-disabled checkpoints: read-only control, canonical project contracts, generic persistence, bounded project intake, and deterministic plan assembly/seal contracts. Command-bearing Stage 20B approvals/emergency-stop authority remains unstarted. |
 | 21 | Windows Normal/Developer desktop experience and future Fable 5 review gates. |
 | 22 | Discord, then Telegram, with WhatsApp deferred to a separate assessment. |
 | 23–24W | Windows packaging, operations, hardening, and release readiness. |
@@ -226,8 +233,9 @@ The detailed dependency order and acceptance gates remain in the
 ## Explicit non-claims
 
 No UI, messaging integration, installer, update mechanism, production sandbox,
-or external C8 review is implemented by this document. C6-C8 perform no real
-project, task, provider, credential, purchase, scheduling, or process action. The Stage 18
+or production activation is implemented by this document. C6-C9 perform no
+real project, task, provider, credential, purchase, scheduling, or process
+action. The Stage 18
 scheduler and usage contracts remain production-disabled, and no borrowed
 profile is authorized by documentation alone. `PLN-02` remains incomplete,
 `productionAdmitted=false`, Windows production availability remains false,
