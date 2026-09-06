@@ -311,6 +311,7 @@ jobs:
       - run: npm run verify:intake-packed-consumer
 
       - run: npm run verify:plan-packed-consumer
+      - run: npm run verify:approval-packed-consumer
 
       - run: npm run verify:app-vault-packed-consumer
 

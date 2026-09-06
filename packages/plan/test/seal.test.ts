@@ -126,6 +126,8 @@ describe("G-1..G-14 six-condition sealing", () => {
     });
     const approval = consumedScopeApproval(input);
     expect(scopeApprovalSatisfiesCondition6(approval, input.plan)).toBe(true);
+    const wrongClass = parseApprovalRequest({ ...approval, class: "application-restart", actions: ["application-restart"] });
+    expect(scopeApprovalSatisfiesCondition6(wrongClass, input.plan)).toBe(false);
     expect(evaluateSealConditions({ ...input, scopeApproval: approval })[5]).toMatchObject({ condition: 6, passed: true });
     expect(scopeApprovalSatisfiesCondition6({ ...approval, approvalRequestId: "forged" } as never, input.plan)).toBe(false);
     expect(scopeApprovalSatisfiesCondition6({ ...approval, state: "approved" } as never, input.plan)).toBe(false);

@@ -920,11 +920,12 @@ production-disabled read-only source. C6 is complete on exact commit
 `fd94ffba31d45e3ea75d12d5a2f417ba1538a29c`; C7 is complete on exact commit
 `30d144ea3a3067f53caa701d32cde784edd4faa3`; C8 implements the bounded,
 production-disabled project-intake library; and C9 implements the pure,
-production-disabled plan contract described below. Command-bearing Stage 20B
+production-disabled plan contract described below. C10 adds the bounded approval
+and spending library with isolated synthetic transactions. Command-bearing Stage 20B
 work has not started.
 
 Packages: `@ai-dev-os/api`, `@ai-dev-os/client`, `@ai-dev-os/control-service`,
-`@ai-dev-os/project`, `@ai-dev-os/intake`, `@ai-dev-os/plan`
+`@ai-dev-os/project`, `@ai-dev-os/intake`, `@ai-dev-os/plan`, `@ai-dev-os/approval`
 
 ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stage
 20B. Stage 20A exposes no command or mutation. Its ordered checkpoints are:
@@ -978,6 +979,13 @@ ADR 0038 divides this work into a read-only Stage 20A and a later effectful Stag
    workspace dependency (`@ai-dev-os/project`) and exports no issuer, adapter,
    route, command, approval, scheduling eligibility, execution capability, or
    production wiring.
+9. **C10:** construct and bind five classes of one-shot approval; atomically
+   consume spending approval/authorize spending or replace a pending pair;
+   enforce original policy validity, actual money and exact project/effect
+   scope; and provide pure consequential projections. Only the isolated testing
+   composition owns synthetic C7 transactions. Locale-independent plan/policy
+   ordering retains numeric precedence and refuses incompatible earlier bytes
+   without rewriting sealed records. See ADR 0044 and the C10 checkpoint.
 
 C7 landed separately because persistence integration changes the shared
 aggregate union and must re-prove memory, SQLite, and PostgreSQL contracts. No
@@ -996,8 +1004,10 @@ production composition.
 
 Later command-bearing Stage 20B work owns authenticated commands, replay
 protection, approval binding, pause/kill, and durable emergency-stop authority.
-None is implemented by C6-C9. C10 separately owns scope-approval consumption;
-C9's pure synthetic approval predicate grants no durable authority.
+C10 defines the future application seam and tests synthetic spending transactions;
+it does not deploy these application capabilities. Joint scope-approval
+consumption and plan sealing belong to the subsequent R2 application/plan-store
+amendment. C9's pure synthetic approval predicate grants no durable authority.
 
 Later deliverables:
 

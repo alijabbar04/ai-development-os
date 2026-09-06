@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import * as projectApi from "../src/index.js";
 import {
@@ -5,7 +6,7 @@ import {
   ProjectContractError, assertAcyclicSupersession,
   assertNewBrief, assertNewDecision, assertNewEvidence, assertNewHandover,
   assertNewPlanRevision, assertPlanDigest,
-  assertContentDerivedIdentity, assertSpendingAuthorization, canEvidenceCloseRequirement, canonicalizeProjectJson,
+  assertContentDerivedIdentity, assertSpendingAuthorization, deriveMoneyBinding, canEvidenceCloseRequirement, canonicalizeProjectJson,
   isProjectStopActive, parseApprovalRequest, parseDecision,
   parseEvidenceRecord, parseHandover, parseProjectBrief, parseProjectPlan, parseProjectStop,
   parseSpendingRequest, planDigestMaterial,
@@ -182,10 +183,17 @@ describe("evidence, spending and scoped stop boundaries", () => {
     approvalInput["approvalRequestId"] = "apr:money"; approvalInput["class"] = "purchase"; approvalInput["actions"] = ["purchase"];
     approvalInput["money"] = { vendor: { name: "Example Vendor", instanceRef: "vendor:one" }, amountMinorUnits: 500, currency: "GBP", kind: "one-time", period: null, occurrences: null, quoteDigest: SHA, quotedAt: T0, quoteExpiresAt: T1 };
     approvalInput["state"] = "consumed"; approvalInput["consumptionCount"] = 1; approvalInput["decidedAt"] = T0; approvalInput["approverClass"] = "user"; approvalInput["consumedAt"] = T0;
+    approvalInput["money"] = deriveMoneyBinding(spending);
+    approvalInput["scope"] = { ...(approvalInput["scope"] as object), taskId: null };
+    approvalInput["expiresAt"] = spending.quoteExpiresAt;
+    approvalInput["decidedAt"] = spending.quotedAt;
+    approvalInput["consumedAt"] = spending.quotedAt;
+    const hash = { sha256: (text: string) => createHash("sha256").update(text).digest("hex") };
+    approvalInput["subjectDigest"] = hash.sha256(spendingSubjectMaterial(spending));
     const approval = parseApprovalRequest(approvalInput);
     expect(spendingSubjectMaterial(spending)).toContain('"amountMinorUnits":500');
-    expect(() => assertSpendingAuthorization(spending, approval, SHA)).not.toThrow();
-    expect(() => assertSpendingAuthorization(spending, approval, "b".repeat(64))).toThrowError(ProjectContractError);
+    expect(() => assertSpendingAuthorization(spending, approval, hash)).not.toThrow();
+    expect(() => assertSpendingAuthorization(spending, approval, { sha256: () => "b".repeat(64) })).toThrowError(ProjectContractError);
     expect(PROJECT_AVAILABLE_COMMANDS).not.toContain("purchase" as never);
   });
 

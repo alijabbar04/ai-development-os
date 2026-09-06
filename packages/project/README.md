@@ -1,5 +1,13 @@
 # `@ai-dev-os/project`
 
+C10 changes `assertSpendingAuthorization(spending, approval, hash, effectScope?)`
+to derive subject material and every MoneyBinding term from the actual parsed
+spend. A caller-supplied digest string is no longer accepted. Project IDs must
+be equal (null means global-only); actual task/provider/workspace coordinates
+must match. `deriveMoneyBinding` is the reusable pure helper. These are contract
+checks, not authentication or payment execution. Subject bytes and C6 schemas
+and state tables are unchanged.
+
 Pure, deterministic, production-disabled contracts for the AI Development OS
 project spine. This package defines data; it does not create projects, build
 plans, schedule tasks, run agents, contact providers, persist records, or grant

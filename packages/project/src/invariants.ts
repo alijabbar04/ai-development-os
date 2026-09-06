@@ -1,7 +1,8 @@
 import type {
   ApprovalRequest, Decision, EvidenceRecord, Handover, ProjectBrief, ProjectPlan,
-  ProjectStop, SpendingRequest,
+  ProjectStop, SpendingRequest, MoneyBinding,
 } from "./contracts.js";
+import { parseApprovalRequest, parseSpendingRequest } from "./parsers.js";
 import { serializeCanonicalProjectJson } from "./canonical.js";
 import { refuse } from "./errors.js";
 import { nextRevision } from "./state-machines.js";
@@ -158,18 +159,51 @@ export function spendingSubjectMaterial(spending: SpendingRequest): string {
   });
 }
 
-/** Contract-layer proof only. This function cannot and does not execute a purchase. */
+/** Derive every money term from the parsed spending record, never from a claimed digest. */
+export function deriveMoneyBinding(value: SpendingRequest): MoneyBinding {
+  const spending = parseSpendingRequest(value);
+  return Object.freeze({
+    vendor: spending.vendor,
+    amountMinorUnits: spending.amountMinorUnits,
+    currency: spending.currency,
+    kind: spending.kind === "subscription" ? "per-period" : spending.kind === "recurring-limit-change" ? "ceiling" : "one-time",
+    period: spending.recurrence?.period ?? null,
+    occurrences: spending.recurrence?.occurrences ?? null,
+    quoteDigest: spending.quoteDigest,
+    quotedAt: spending.quotedAt,
+    quoteExpiresAt: spending.quoteExpiresAt,
+  });
+}
+
+export interface SpendingDigestPort { sha256(material: string): string }
+export type SpendingEffectScope = Pick<ApprovalRequest["scope"], "taskId" | "providerInstanceId" | "workspaceId">;
+
+/**
+ * Contract proof only; no purchase is executed. The trusted effect owner supplies
+ * a hash implementation and actual task/provider/workspace coordinates. Null
+ * project scope is global-only, not a wildcard covering a project-bound spend.
+ */
 export function assertSpendingAuthorization(
-  spending: SpendingRequest,
-  approval: ApprovalRequest,
-  independentlyComputedSubjectDigest: string,
+  spendingValue: SpendingRequest,
+  approvalValue: ApprovalRequest,
+  hash: SpendingDigestPort,
+  effectScope: SpendingEffectScope = { taskId: null, providerInstanceId: null, workspaceId: null },
 ): void {
+  const spending = parseSpendingRequest(spendingValue);
+  const approval = parseApprovalRequest(approvalValue);
   const expectedClass = spending.kind === "recurring-limit-change" ? "spending-limit" : spending.kind;
   if (
     spending.linkedApprovalRequestId !== approval.approvalRequestId ||
     approval.state !== "consumed" ||
     approval.class !== expectedClass ||
-    approval.subjectDigest !== independentlyComputedSubjectDigest
+    approval.consumedAt === null || approval.consumedAt < spending.quotedAt ||
+    approval.expiresAt > spending.quoteExpiresAt ||
+    spending.projectId !== approval.scope.projectId ||
+    approval.scope.taskId !== effectScope.taskId ||
+    approval.scope.providerInstanceId !== effectScope.providerInstanceId ||
+    approval.scope.workspaceId !== effectScope.workspaceId ||
+    serializeCanonicalProjectJson(approval.money) !== serializeCanonicalProjectJson(deriveMoneyBinding(spending)) ||
+    approval.subjectDigest !== digest(hash.sha256(spendingSubjectMaterial(spending)), "spendingRequest.subjectDigest")
   ) {
     refuse("AUTHORITY_VIOLATION", "spendingRequest.linkedApprovalRequestId", "The spending request lacks an exact consumed approval binding.");
   }

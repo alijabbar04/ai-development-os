@@ -41,6 +41,9 @@ export const POLICY_SCHEMA_VERSION = 1 as const;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const RULE_ID_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
 
+// Canonical policy material uses code-unit order, independently of host locale.
+function compareIds(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
+
 export const POLICY_ACTIONS = Object.freeze([
   "provider-disclosure", "model-eligibility", "cloud-execution", "local-execution",
   "artifact-persistence", "input-logging", "output-logging", "workspace-read",
@@ -242,7 +245,7 @@ export function parsePolicyRequest(value: unknown, path = "policyRequest"): Poli
   ensureSchemaVersion(record["schemaVersion"], `${path}.schemaVersion`, POLICY_SCHEMA_VERSION);
   const evidence = ensureArray(record["approvalEvidence"], `${path}.approvalEvidence`, 32)
     .map((entry, index) => parseApprovalEvidence(entry, `${path}.approvalEvidence[${index}]`))
-    .sort((a, b) => a.approvalRequestId.localeCompare(b.approvalRequestId) || a.evidenceRef.localeCompare(b.evidenceRef));
+    .sort((a, b) => compareIds(a.approvalRequestId, b.approvalRequestId) || compareIds(a.evidenceRef, b.evidenceRef));
   const request = Object.freeze({
     schemaVersion: POLICY_SCHEMA_VERSION,
     action: ensureEnum(record["action"], `${path}.action`, POLICY_ACTIONS),
@@ -281,6 +284,22 @@ export interface ApprovalRequirement {
   readonly usage: ApprovalUsage;
   readonly approverClass: ApproverClass;
   readonly traceId: string;
+  readonly policyVersion: string;
+  readonly policyFingerprint: string;
+  readonly issuedAt: string;
+}
+
+/** Trusted original requirement, loaded by the application, never from model evidence. */
+export function parseApprovalRequirement(value: unknown): ApprovalRequirement {
+  const path = "approvalRequirement";
+  const item = ensureRecord(value, path);
+  ensureExactKeys(item, ["approvalRequestId", "action", "risk", "scope", "subjectDigest", "expiresAt", "usage", "approverClass", "traceId", "policyVersion", "policyFingerprint", "issuedAt"], path);
+  const id = (key: string) => ensureString(item[key], `${path}.${key}`, { maxLength: 128, pattern: ID_PATTERN, patternName: "identifier" });
+  const sha = (key: string) => ensureString(item[key], `${path}.${key}`, { maxLength: 64, pattern: /^[a-f0-9]{64}$/, patternName: "digest" });
+  const issuedAt = ensureTimestamp(item["issuedAt"], `${path}.issuedAt`);
+  const expiresAt = ensureTimestamp(item["expiresAt"], `${path}.expiresAt`);
+  if (expiresAt <= issuedAt) fail(path, "bad_expiration", "must retain the issued validity interval.");
+  return Object.freeze({ approvalRequestId: id("approvalRequestId"), action: ensureEnum(item["action"], `${path}.action`, POLICY_ACTIONS), risk: ensureEnum(item["risk"], `${path}.risk`, TASK_RISKS), scope: parseApprovalScope(item["scope"]), subjectDigest: sha("subjectDigest"), expiresAt, usage: ensureEnum(item["usage"], `${path}.usage`, APPROVAL_USAGES), approverClass: ensureEnum(item["approverClass"], `${path}.approverClass`, APPROVER_CLASSES), traceId: id("traceId"), policyVersion: id("policyVersion"), policyFingerprint: sha("policyFingerprint"), issuedAt });
 }
 export interface PolicyReason { readonly code: string; readonly message: string }
 export interface PolicyDecision {
@@ -315,11 +334,6 @@ export function createManualPolicyClock(startIso = "2026-08-02T00:00:00.000Z"): 
   });
 }
 
-function scopeCovers(granted: ApprovalScope, requested: ApprovalScope): boolean {
-  const keys = Object.keys(granted) as Array<keyof ApprovalScope>;
-  return keys.every((key) => granted[key] === null || granted[key] === requested[key]);
-}
-
 function capabilityAvailable(capability: PolicyCapability, provider: ProviderDescriptor | null): boolean {
   if (provider === null) return false;
   const map: Readonly<Record<PolicyCapability, boolean>> = {
@@ -343,11 +357,22 @@ export function createDeterministicPolicyBroker(options: {
   readonly clock: PolicyClock;
   readonly observer?: PolicyObserver;
   readonly idSource?: (ruleId: string, request: PolicyRequest) => string;
+  /** Immutable originals from trusted application storage for restart continuity.
+   * Omission retains up to 1024 originals within this broker only. It does not
+   * restore authority from evidence or renew an expired requirement. */
+  readonly originalRequirements?: readonly ApprovalRequirement[];
 }): PolicyBroker {
   const policyVersion = ensureString(options.policyVersion, "policyVersion", { maxLength: 64, pattern: ID_PATTERN, patternName: "policy version" });
   const authorityRank: Readonly<Record<PolicyAuthority, number>> = { organization: 0, project: 1, user: 2 };
-  const rules = options.rules.map((rule, index) => parsePolicyRule(rule, `rules[${index}]`)).sort((a, b) => authorityRank[a.authority] - authorityRank[b.authority] || a.id.localeCompare(b.id));
+  const rules = options.rules.map((rule, index) => parsePolicyRule(rule, `rules[${index}]`)).sort((a, b) => authorityRank[a.authority] - authorityRank[b.authority] || compareIds(a.id, b.id));
   if (new Set(rules.map((rule) => rule.id)).size !== rules.length) throw new PolicyError("INVALID_POLICY", "Policy rule identifiers must be unique.");
+  const policyFingerprint = createHash("sha256").update(toCanonicalJson({ policyVersion, rules })).digest("hex");
+  const originals = new Map<string, ApprovalRequirement>();
+  for (const raw of options.originalRequirements ?? []) {
+    const original = parseApprovalRequirement(raw);
+    if (originals.has(original.approvalRequestId) || originals.size >= 1024) throw new PolicyError("INVALID_POLICY", "Original approval requirements must be unique and bounded.");
+    originals.set(original.approvalRequestId, original);
+  }
 
   return Object.freeze({
     evaluate(rawRequest: PolicyRequest): PolicyDecision {
@@ -358,6 +383,7 @@ export function createDeterministicPolicyBroker(options: {
       const transformations = new Set<RedactionKind>();
       const approvals: ApprovalRequirement[] = [];
       const approvalsToConsume: string[] = [];
+      const previouslyIssued = new Set(originals.keys());
       const forbiddenCapabilities = new Set<PolicyCapability>();
       let allowedByRule = false;
       let denied = false;
@@ -379,8 +405,16 @@ export function createDeterministicPolicyBroker(options: {
         for (const item of rule.forbiddenCapabilities) forbiddenCapabilities.add(item);
         if (rule.approval !== null) {
           if (request.subjectDigest === null) { denied = true; reasons.push(Object.freeze({ code: "APPROVAL_SUBJECT_REQUIRED", message: "Approval requires a digest of the normalized action subject." })); continue; }
-          const approvalRequestId = options.idSource?.(rule.id, request) ?? `approval-${createHash("sha256").update(toCanonicalJson({ policyVersion, ruleId: rule.id, action: request.action, risk: request.risk, scope: request.scope, subjectDigest: request.subjectDigest, traceId: request.trace.traceId })).digest("hex").slice(0, 24)}`;
-          approvals.push(Object.freeze({ approvalRequestId, action: request.action, risk: request.risk, scope: request.scope, subjectDigest: request.subjectDigest, expiresAt: new Date(new Date(now).valueOf() + rule.approval.ttlMs).toISOString(), usage: rule.approval.usage, approverClass: rule.approval.approverClass, traceId: request.trace.traceId }));
+          const approvalRequestId = options.idSource?.(rule.id, request) ?? `approval-${createHash("sha256").update(toCanonicalJson({ policyVersion, policyFingerprint, ruleId: rule.id, action: request.action, risk: request.risk, scope: request.scope, subjectDigest: request.subjectDigest, traceId: request.trace.traceId })).digest("hex").slice(0, 24)}`;
+          const original = originals.get(approvalRequestId);
+          const expected = { approvalRequestId, action: request.action, risk: request.risk, scope: request.scope, subjectDigest: request.subjectDigest, usage: rule.approval.usage, approverClass: rule.approval.approverClass, traceId: request.trace.traceId, policyVersion, policyFingerprint };
+          if (original !== undefined && toCanonicalJson({ ...original, issuedAt: null, expiresAt: null }) !== toCanonicalJson({ ...expected, issuedAt: null, expiresAt: null })) {
+            denied = true; reasons.push(Object.freeze({ code: "APPROVAL_REQUIREMENT_STALE", message: "The original requirement does not match the current policy and subject." })); continue;
+          }
+          if (original === undefined && originals.size >= 1024) throw new PolicyError("INVALID_REQUEST", "The bounded original requirement store is full.");
+          const requirement = original ?? parseApprovalRequirement({ ...expected, issuedAt: now, expiresAt: new Date(new Date(now).valueOf() + rule.approval.ttlMs).toISOString() });
+          originals.set(approvalRequestId, requirement);
+          approvals.push(requirement);
         }
       }
 
@@ -409,12 +443,19 @@ export function createDeterministicPolicyBroker(options: {
 
       const missingTransformations = [...transformations].sort().filter((item) => !request.transformationsApplied.includes(item));
       const missingApprovals: ApprovalRequirement[] = [];
-      for (const requirement of approvals.sort((a, b) => a.approvalRequestId.localeCompare(b.approvalRequestId))) {
-        const denial = request.approvalEvidence.find((item) => item.approvalRequestId === requirement.approvalRequestId && item.subjectDigest === requirement.subjectDigest && item.result === "denied" && item.revokedAt === null && item.expiresAt > now);
+      for (const requirement of approvals.sort((a, b) => compareIds(a.approvalRequestId, b.approvalRequestId))) {
+        const matches = (item: ApprovalEvidence): boolean => previouslyIssued.has(requirement.approvalRequestId)
+          && requirement.issuedAt <= now && item.approvalRequestId === requirement.approvalRequestId
+          && item.action === requirement.action && item.risk === requirement.risk
+          && item.subjectDigest === requirement.subjectDigest && toCanonicalJson(item.scope) === toCanonicalJson(requirement.scope)
+          && item.usage === requirement.usage && item.approverClass === requirement.approverClass
+          && item.decidedAt >= requirement.issuedAt && item.decidedAt <= now
+          && item.expiresAt === requirement.expiresAt && item.expiresAt > now && item.revokedAt === null;
+        const denial = request.approvalEvidence.find((item) => matches(item) && item.result === "denied");
         if (denial !== undefined) { denied = true; reasons.push(Object.freeze({ code: "APPROVAL_DENIED", message: "Required approval evidence records a denial." })); continue; }
-        const evidence = request.approvalEvidence.find((item) => item.approvalRequestId === requirement.approvalRequestId && item.action === requirement.action && item.risk === requirement.risk && item.subjectDigest === requirement.subjectDigest && scopeCovers(item.scope, request.scope) && item.approverClass === requirement.approverClass && item.result === "approved" && item.expiresAt > now && item.revokedAt === null && (item.usage === "reusable" || item.consumedAt === null));
+        const evidence = request.approvalEvidence.find((item) => matches(item) && item.result === "approved" && (requirement.usage === "reusable" || item.consumedAt === null));
         if (evidence === undefined || request.requesterKind === "model") missingApprovals.push(requirement);
-        else if (evidence.usage === "one-shot") approvalsToConsume.push(evidence.approvalRequestId);
+        else if (requirement.usage === "one-shot") approvalsToConsume.push(evidence.approvalRequestId);
       }
       const conditional = !denied && (missingTransformations.length > 0 || missingApprovals.length > 0 || (requiredLocality === "local" && request.locality === "unspecified"));
       const outcome: PolicyOutcome = denied ? "denied" : conditional ? "conditional" : "allowed";

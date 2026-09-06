@@ -1,3 +1,4 @@
+import { compareCanonicalIds } from "./order.js";
 import {
   PLAN_STATES,
   assertAcyclicSupersession,
@@ -239,7 +240,7 @@ function expectedProvenance(assemblyRequest: PlanReviewEvidence["assemblyRequest
   return Object.freeze({
     stages: Object.freeze(assemblyRequest.proposal.stages.map((stage) => Object.freeze({ stageId: stage.stageId, fields: stage.provenance }))),
     tasks: Object.freeze([...assemblyRequest.proposal.tasks]
-      .sort((left, right) => (stageOrdinal.get(left.stageId) ?? 0) - (stageOrdinal.get(right.stageId) ?? 0) || left.taskId.localeCompare(right.taskId))
+      .sort((left, right) => (stageOrdinal.get(left.stageId) ?? 0) - (stageOrdinal.get(right.stageId) ?? 0) || compareCanonicalIds(left.taskId, right.taskId))
       .map((task) => Object.freeze({ taskId: task.taskId, fields: task.provenance }))),
   });
 }

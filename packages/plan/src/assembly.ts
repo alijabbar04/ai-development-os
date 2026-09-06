@@ -1,3 +1,4 @@
+import { compareCanonicalIds } from "./order.js";
 import {
   assertPlanDigest,
   parsePlanStage,
@@ -179,7 +180,7 @@ function validateProvenance(
   });
   const stageOrdinal = new Map(request.proposal.stages.map((stage, index) => [stage.stageId, index]));
   const tasks = [...request.proposal.tasks]
-    .sort((left, right) => (stageOrdinal.get(left.stageId) ?? 0) - (stageOrdinal.get(right.stageId) ?? 0) || left.taskId.localeCompare(right.taskId))
+    .sort((left, right) => (stageOrdinal.get(left.stageId) ?? 0) - (stageOrdinal.get(right.stageId) ?? 0) || compareCanonicalIds(left.taskId, right.taskId))
     .map((task) => {
       const values = nodeValues(task);
       for (const [path, row] of Object.entries(task.provenance)) {
@@ -316,7 +317,7 @@ export function computePlanOrder(planValue: unknown): readonly string[] {
   const compare = (left: string, right: string): number => {
     const leftTask = task.get(left)!;
     const rightTask = task.get(right)!;
-    return (ordinal.get(leftTask.stageId) ?? 0) - (ordinal.get(rightTask.stageId) ?? 0) || left.localeCompare(right);
+    return (ordinal.get(leftTask.stageId) ?? 0) - (ordinal.get(rightTask.stageId) ?? 0) || compareCanonicalIds(left, right);
   };
   const ready = plan.tasks.filter((item) => indegree.get(item.taskId) === 0).map((item) => item.taskId).sort(compare);
   const order: string[] = [];
@@ -350,7 +351,7 @@ export function assertPlanRecordInvariants(planValue: unknown, digest: PlanDiges
   }
   const stageOrdinal = new Map(plan.stages.map((stage) => [stage.stageId, stage.ordinal]));
   const sortedTasks = [...plan.tasks].sort((left, right) =>
-    (stageOrdinal.get(left.stageId) ?? 0) - (stageOrdinal.get(right.stageId) ?? 0) || left.taskId.localeCompare(right.taskId));
+    (stageOrdinal.get(left.stageId) ?? 0) - (stageOrdinal.get(right.stageId) ?? 0) || compareCanonicalIds(left.taskId, right.taskId));
   if (!sameCanonicalValue(plan.tasks, sortedTasks) || !sameCanonicalValue(plan.dependencies, sortedDependencies(plan.dependencies))) {
     refusePlan("PLAN_VALIDATION_REFUSED", "plan.proposal.malformed", "plan");
   }
@@ -386,7 +387,7 @@ export function assertPlanRecordInvariants(planValue: unknown, digest: PlanDiges
 }
 
 function sortedDependencies(values: readonly Dependency[]): readonly Dependency[] {
-  return Object.freeze([...values].sort((left, right) => dependencyKey(left).localeCompare(dependencyKey(right))));
+  return Object.freeze([...values].sort((left, right) => compareCanonicalIds(dependencyKey(left), dependencyKey(right))));
 }
 
 export function assemblePlan(
@@ -460,7 +461,7 @@ export function assemblePlan(
     }
   });
   const tasks = [...request.proposal.tasks]
-    .sort((left, right) => (stageOrdinal.get(left.stageId) ?? 0) - (stageOrdinal.get(right.stageId) ?? 0) || left.taskId.localeCompare(right.taskId))
+    .sort((left, right) => (stageOrdinal.get(left.stageId) ?? 0) - (stageOrdinal.get(right.stageId) ?? 0) || compareCanonicalIds(left.taskId, right.taskId))
     .map((task) => {
       const budget = allocations.get(task.taskId);
       if (budget === undefined) return refusePlan("PLAN_VALIDATION_REFUSED", "plan.proposal.malformed", "planBudget");
@@ -567,7 +568,7 @@ export function assertPlanReviewCoherent(result: PlanAssemblyResult): void {
   }));
   const allocations = new Map(result.review.assemblyRequest.taskBudgetAllocations.map((entry) => [entry.taskId, entry.budget]));
   const expectedTasks = [...proposal.tasks]
-    .sort((left, right) => (stageOrdinal.get(left.stageId) ?? 0) - (stageOrdinal.get(right.stageId) ?? 0) || left.taskId.localeCompare(right.taskId))
+    .sort((left, right) => (stageOrdinal.get(left.stageId) ?? 0) - (stageOrdinal.get(right.stageId) ?? 0) || compareCanonicalIds(left.taskId, right.taskId))
     .map((task) => Object.freeze({
       taskId: task.taskId,
       stageId: task.stageId,

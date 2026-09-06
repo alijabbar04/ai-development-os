@@ -1,5 +1,12 @@
 # @ai-dev-os/plan
 
+C10 compatibility: canonical ID comparisons use explicit UTF-16 code-unit order,
+preserving numeric stage/version precedence. Earlier sealed records whose order
+differs are refused under the current invariant, never rewritten. Original
+accepted packets stay immutable. Declared stage order and existing presentation
+bytes in proposal material retain their prior semantics. Joint durable scope
+consumption and plan sealing remain R2 work; C10 adds no plan lifecycle/event.
+
 Stage 20 Phase B checkpoint C9: pure, deterministic plan proposal parsing,
 assembly, review, sealing predicates, lifecycle state, and persistence ports.
 

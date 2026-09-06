@@ -1,3 +1,4 @@
+import { compareCanonicalIds } from "./order.js";
 import { serializeCanonicalProjectJson } from "@ai-dev-os/project";
 import { EXECUTABLE_DISPOSITIONS, SCOPE_AUTHORITIES, SCOPE_DISPOSITIONS } from "./constants.js";
 import type {
@@ -130,11 +131,11 @@ export function parseRequirementTaskCoverageMirror(value: unknown): ParsedCovera
 }
 
 function coverageCompare(left: ParsedCoverage, right: ParsedCoverage): number {
-  return left.requirementId.localeCompare(right.requirementId)
-    || left.requirementDigest.localeCompare(right.requirementDigest)
-    || left.decisionId.localeCompare(right.decisionId)
-    || left.disposition.localeCompare(right.disposition)
-    || (left.taskId ?? "").localeCompare(right.taskId ?? "");
+  return compareCanonicalIds(left.requirementId, right.requirementId)
+    || compareCanonicalIds(left.requirementDigest, right.requirementDigest)
+    || compareCanonicalIds(left.decisionId, right.decisionId)
+    || compareCanonicalIds(left.disposition, right.disposition)
+    || compareCanonicalIds((left.taskId ?? ""), right.taskId ?? "");
 }
 
 export function specificationDigestMaterial(specification: ParsedSpecification): Readonly<{ schemaVersion: 1; specification: ParsedSpecification }> {
@@ -145,8 +146,8 @@ export function coverageDigestMaterial(input: PlanSpecificationAdapterInput): Re
   return Object.freeze({
     schemaVersion: 1,
     coverage: Object.freeze([...input.coverage].sort(coverageCompare)),
-    taskIdMap: Object.freeze([...input.taskIdMap].sort((left, right) => left.upstreamTaskId.localeCompare(right.upstreamTaskId))),
-    waiverBindings: Object.freeze([...input.waiverBindings].sort((left, right) => left.requirementId.localeCompare(right.requirementId))),
+    taskIdMap: Object.freeze([...input.taskIdMap].sort((left, right) => compareCanonicalIds(left.upstreamTaskId, right.upstreamTaskId))),
+    waiverBindings: Object.freeze([...input.waiverBindings].sort((left, right) => compareCanonicalIds(left.requirementId, right.requirementId))),
   });
 }
 

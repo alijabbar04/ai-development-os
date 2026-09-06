@@ -1,3 +1,4 @@
+import { compareCanonicalIds } from "./order.js";
 import {
   canonicalizeProjectJson,
   parseDependency,
@@ -541,12 +542,12 @@ export function normalizedProposalMaterial(request: PlanAssemblyRequest): Readon
   const ordinal = new Map(request.proposal.stages.map((stage, index) => [stage.stageId, index + 1]));
   const tasks = [...request.proposal.tasks].sort((left, right) =>
     (ordinal.get(left.stageId) ?? Number.MAX_SAFE_INTEGER) - (ordinal.get(right.stageId) ?? Number.MAX_SAFE_INTEGER)
-      || left.taskId.localeCompare(right.taskId));
+      || compareCanonicalIds(left.taskId, right.taskId));
   const dependencies = [...request.proposal.dependencies].sort((left, right) =>
-    left.fromTaskId.localeCompare(right.fromTaskId)
-      || left.toTaskId.localeCompare(right.toTaskId)
-      || left.kind.localeCompare(right.kind)
-      || (left.artifactKind ?? "").localeCompare(right.artifactKind ?? ""));
+    compareCanonicalIds(left.fromTaskId, right.fromTaskId)
+      || compareCanonicalIds(left.toTaskId, right.toTaskId)
+      || compareCanonicalIds(left.kind, right.kind)
+      || compareCanonicalIds((left.artifactKind ?? ""), right.artifactKind ?? ""));
   const proposal = Object.freeze({ ...request.proposal, tasks: Object.freeze(tasks), dependencies: Object.freeze(dependencies) });
   return Object.freeze({
     schemaVersion: 1,
@@ -555,21 +556,21 @@ export function normalizedProposalMaterial(request: PlanAssemblyRequest): Readon
     specificationInput: request.specificationInput === null ? null : Object.freeze({
       ...request.specificationInput,
       coverage: Object.freeze([...request.specificationInput.coverage].sort(coverageCompare)),
-      taskIdMap: Object.freeze([...request.specificationInput.taskIdMap].sort((a, b) => a.upstreamTaskId.localeCompare(b.upstreamTaskId))),
-      waiverBindings: Object.freeze([...request.specificationInput.waiverBindings].sort((a, b) => a.requirementId.localeCompare(b.requirementId))),
+      taskIdMap: Object.freeze([...request.specificationInput.taskIdMap].sort((a, b) => compareCanonicalIds(a.upstreamTaskId, b.upstreamTaskId))),
+      waiverBindings: Object.freeze([...request.specificationInput.waiverBindings].sort((a, b) => compareCanonicalIds(a.requirementId, b.requirementId))),
     }),
-    taskBudgetAllocations: Object.freeze([...request.taskBudgetAllocations].sort((a, b) => a.taskId.localeCompare(b.taskId))),
+    taskBudgetAllocations: Object.freeze([...request.taskBudgetAllocations].sort((a, b) => compareCanonicalIds(a.taskId, b.taskId))),
     expectedSpecificationDigest: request.expectedSpecificationDigest,
     expectedCoverageDigest: request.expectedCoverageDigest,
   });
 }
 
 function coverageCompare(left: PlanSpecificationAdapterInput["coverage"][number], right: PlanSpecificationAdapterInput["coverage"][number]): number {
-  return left.requirementId.localeCompare(right.requirementId)
-    || left.requirementDigest.localeCompare(right.requirementDigest)
-    || left.decisionId.localeCompare(right.decisionId)
-    || left.disposition.localeCompare(right.disposition)
-    || (left.taskId ?? "").localeCompare(right.taskId ?? "");
+  return compareCanonicalIds(left.requirementId, right.requirementId)
+    || compareCanonicalIds(left.requirementDigest, right.requirementDigest)
+    || compareCanonicalIds(left.decisionId, right.decisionId)
+    || compareCanonicalIds(left.disposition, right.disposition)
+    || compareCanonicalIds((left.taskId ?? ""), right.taskId ?? "");
 }
 
 export function canonicalPlanValue(value: unknown): string {

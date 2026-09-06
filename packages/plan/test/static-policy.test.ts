@@ -8,7 +8,7 @@ const repositoryRoot = resolve(packageRoot, "..", "..");
 
 const EXPECTED_PRODUCTION_FILES = [
   "/src/assembly.ts", "/src/constants.ts", "/src/contracts.ts", "/src/errors.ts",
-  "/src/index.ts", "/src/lifecycle.ts", "/src/observation.ts", "/src/persistence.ts",
+  "/src/index.ts", "/src/lifecycle.ts", "/src/observation.ts", "/src/order.ts", "/src/persistence.ts",
   "/src/projections.ts", "/src/seal.ts", "/src/specification.ts", "/src/validation.ts",
 ] as const;
 

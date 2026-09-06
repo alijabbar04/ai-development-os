@@ -12,6 +12,7 @@ export {
   PolicyError,
   parseApprovalScope,
   parseApprovalEvidence,
+  parseApprovalRequirement,
   parsePolicyRule,
   parsePolicyRequest,
   createDeterministicPolicyBroker,

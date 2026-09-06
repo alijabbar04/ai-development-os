@@ -1,3 +1,4 @@
+import { compareCanonicalIds } from "./order.js";
 import {
   parseApprovalRequest,
   parseProjectPlan,
@@ -370,7 +371,7 @@ export function projectStopSnapshotDigestMaterial(
   digest: PlanDigestPort,
 ): string {
   const checkedProjectId = planIdentifier(projectId, "prj:", "planStore");
-  const sorted = [...stops].sort((left, right) => String(left["aggregateId"]).localeCompare(String(right["aggregateId"]))
+  const sorted = [...stops].sort((left, right) => compareCanonicalIds(String(left["aggregateId"]), String(right["aggregateId"]))
     || Number(left["aggregateVersion"]) - Number(right["aggregateVersion"]));
   try {
     return planDigest(

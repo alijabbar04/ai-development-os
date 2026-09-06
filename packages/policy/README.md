@@ -1,5 +1,14 @@
 # @ai-dev-os/policy
 
+C10 emitted requirements include original `issuedAt`, `policyVersion` and
+`policyFingerprint`. Evidence must match exact usage, scope, approver and original
+expiry, activate between issuance and the trusted clock, and remain unrevoked
+and unconsumed when one-shot. The broker retains at most 1,024 originals or accepts
+`originalRequirements` from trusted application storage. Evidence cannot establish
+an original; evaluation never renews expiry by inventing now+TTL. Restart without
+trusted originals needs fresh explicit issuance/decision. Changed policy IDs
+invalidate earlier evidence. Stable ordering uses code-unit comparisons.
+
 The central provider-neutral policy broker for AI Development OS. It combines
 Stage 2 classifications and handling policies with provider/model capability
 facts, locality, action intent, task risk, configured rules, transformations,
