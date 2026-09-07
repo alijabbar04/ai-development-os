@@ -1,4 +1,4 @@
-import { access, readFile, rm, writeFile } from "node:fs/promises";
+import { access, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { WorkspaceError } from "@ai-dev-os/workspace";
 import { describe, expect, it, vi } from "vitest";
@@ -11,6 +11,19 @@ function deferred<T = void>() {
 }
 
 describe("real-Git fixture case lifetime", () => {
+  it("uses one native canonical identity for a created root and its cleanup", async () => {
+    let root = "";
+    await new RealGitFixtureCase().run(async (owner) => {
+      root = await owner.createRoot();
+      // Windows TEMP may contain an 8.3 alias. The async filesystem API uses
+      // native canonical names, so creation must hand out that same identity.
+      expect(root).toBe(await realpath(root));
+      await writeFile(join(root, "owned"), "real filesystem");
+      expect(await readFile(join(root, "owned"), "utf8")).toBe("real filesystem");
+    });
+    await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("joins a timed-out body before deletion and cannot collect a later owner's root", async () => {
     const controller = new AbortController();
     const ready = deferred<string>();

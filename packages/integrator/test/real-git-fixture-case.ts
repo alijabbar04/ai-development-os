@@ -40,7 +40,8 @@ export class RealGitFixtureCase {
   }
 
   createRoot(): Promise<string> {
-    const parent = realpathSync(tmpdir());
+    // Match fs/promises.realpath during cleanup, including Windows 8.3 aliases.
+    const parent = realpathSync.native(tmpdir());
     // Register the unique path before mkdir starts. A failed exclusive mkdir
     // does not confer ownership of a pre-existing directory.
     // Keep mkdtemp's original six-character suffix length: Git creates long
