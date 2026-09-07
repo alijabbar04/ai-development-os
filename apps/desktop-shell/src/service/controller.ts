@@ -214,16 +214,27 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
     const deadlineAt = new Date(attemptStartedAt).valueOf() + readyDeadlineMs;
     recoveryAt = Number.POSITIVE_INFINITY;
     notify();
-    await mkdir(storageParent, { recursive: true });
-    const root = await mkdtemp(join(storageParent, storagePrefix));
-    if (clock().valueOf() >= deadlineAt) {
-      try {
-        await removeRoot(root);
-      } catch {
-        rootCleanupFailed = true;
+    let deadlineElapsed = false;
+    const deadlineNotificationTimer = setTimeout(() => {
+      deadlineElapsed = true;
+      if (phase === "loading") markFailed("SERVICE_READY_TIMEOUT", deadlineAt);
+    }, Math.max(0, deadlineAt - clock().valueOf()));
+    let root: string | null = null;
+    try {
+      await mkdir(storageParent, { recursive: true });
+      if (deadlineElapsed || clock().valueOf() >= deadlineAt) throw new Error("SERVICE_READY_TIMEOUT");
+      root = await mkdtemp(join(storageParent, storagePrefix));
+      if (deadlineElapsed || clock().valueOf() >= deadlineAt) throw new Error("SERVICE_READY_TIMEOUT");
+    } catch (error) {
+      clearTimeout(deadlineNotificationTimer);
+      if (root !== null) {
+        try { await removeRoot(root); }
+        catch { rootCleanupFailed = true; }
       }
-      markFailed("SERVICE_READY_TIMEOUT", deadlineAt);
-      throw new Error("SERVICE_READY_TIMEOUT");
+      if (!deadlineElapsed) {
+        markFailed(error instanceof Error && error.message === "SERVICE_READY_TIMEOUT" ? "SERVICE_READY_TIMEOUT" : "SERVICE_START_FAILED", deadlineAt);
+      }
+      throw error;
     }
     const nonce = randomBytes(16).toString("hex");
     const child = fork(childPath, [], {
@@ -274,7 +285,7 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
         expectedPresentationMode: requestedMode,
         timeoutMs: Math.min(5_000, adoptionRemainingMs),
       });
-      if (clock().valueOf() > deadlineAt) throw new Error("SERVICE_READY_TIMEOUT");
+      if (clock().valueOf() >= deadlineAt) throw new Error("SERVICE_READY_TIMEOUT");
       if (active !== launch || child.exitCode !== null || child.signalCode !== null) throw new Error("SERVICE_CHILD_EXITED");
       lastObservation = sanitizeAdoptedService(adopted, clock().toISOString());
       launch.verified = true;
@@ -292,6 +303,7 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
       throw error;
     } finally {
       if (timer !== null) clearTimeout(timer);
+      clearTimeout(deadlineNotificationTimer);
     }
   };
 
