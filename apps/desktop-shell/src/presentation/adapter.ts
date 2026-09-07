@@ -5,6 +5,11 @@ import type {
   ProjectSummaryProjection,
 } from "@ai-dev-os/project";
 import type { PlanProjectionAction } from "@ai-dev-os/plan";
+import type {
+  PlanningCommandResult,
+  PlanningProjectView,
+  PlanningWorkspaceView,
+} from "@ai-dev-os/application/planning-contracts";
 
 export interface DesktopPresentationSource {
   readonly example: true;
@@ -75,6 +80,119 @@ export interface DesktopWorkspacePresentation {
 
 function words(value: string): string {
   return value.replaceAll("-", " ").replaceAll("_", " ");
+}
+
+export interface PlanningWorkspacePresentation {
+  readonly projects: readonly Readonly<{
+    projectId: string;
+    name: string;
+    versionLabel: string;
+    stateLabel: string;
+    stopped: boolean;
+  }>[];
+  readonly selected: PlanningProjectPresentation | null;
+}
+
+export interface PlanningProjectPresentation {
+  readonly projectId: string;
+  readonly name: string;
+  readonly versionLabel: string;
+  readonly stateLabel: string;
+  readonly stopped: boolean;
+  readonly budgetLabel: string;
+  readonly repositoryLabel: string;
+  readonly briefLabel: string;
+  readonly planLabel: string;
+}
+
+function currencyDigits(currency: string): number {
+  try {
+    return new Intl.NumberFormat("en-GB", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 2;
+  } catch {
+    return 2;
+  }
+}
+
+export function formatMinorUnits(minorUnits: number, currency: string): string {
+  const code = currency.toUpperCase();
+  const digits = currencyDigits(code);
+  try {
+    return new Intl.NumberFormat("en-GB", { style: "currency", currency: code }).format(minorUnits / (10 ** digits));
+  } catch {
+    return `${code} ${(minorUnits / 100).toFixed(2)}`;
+  }
+}
+
+export function formatPlanningState(value: string | null): string {
+  return value === null ? "No plan yet" : words(value);
+}
+
+export function shortDigest(value: string): string {
+  return value.length <= 18 ? value : `${value.slice(0, 10)}…${value.slice(-6)}`;
+}
+
+export function formatObservedAt(value: string): string {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return "Observation time unavailable";
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(instant);
+}
+
+export function planningResultMessage(result: PlanningCommandResult, action: string, includeReason = false): string {
+  const reason = !includeReason || result.reason === null ? "" : ` Details: ${result.reason}`;
+  switch (result.kind) {
+    case "committed": return `${action} saved.`;
+    case "ready": return `${action} is ready.`;
+    case "idempotent-replay": return `${action} was already saved. The original result is shown.`;
+    case "unknown": return `${action} may have been saved. Observe this exact command before doing anything else.`;
+    case "conflict": return `${action} was not saved because this project changed. Reload the saved project before continuing.${reason}`;
+    case "corrupt": return `${action} could not continue because saved data failed validation.${reason}`;
+    case "not-recorded": return `No saved outcome was found for ${action.toLowerCase()}.${reason}`;
+    case "cancelled": return `${action} was cancelled.`;
+    case "refused": return `${action} was unavailable.${reason}`;
+  }
+}
+
+export interface PlanningRecoveryDirective {
+  readonly pendingCommandId: string | null;
+  readonly reloadRequired: boolean;
+}
+
+export function planningRecoveryDirective(result: PlanningCommandResult, submittedCommandId: string | null): PlanningRecoveryDirective {
+  if (result.kind === "unknown") return Object.freeze({
+    pendingCommandId: submittedCommandId ?? result.commandId,
+    reloadRequired: submittedCommandId === null && result.commandId === null,
+  });
+  return Object.freeze({ pendingCommandId: null, reloadRequired: result.kind === "conflict" });
+}
+
+function adaptProject(project: PlanningProjectView): PlanningProjectPresentation {
+  return Object.freeze({
+    projectId: project.projectId,
+    name: project.name,
+    versionLabel: `Saved version ${project.version}`,
+    stateLabel: project.stopped ? "Stopped" : formatPlanningState(project.planState),
+    stopped: project.stopped,
+    budgetLabel: formatMinorUnits(project.budget.minorUnits, project.budget.currency),
+    repositoryLabel: project.repository === null ? "No repository selected" : `${project.repository.rootLeaf} · ${words(project.repository.state)}`,
+    briefLabel: project.brief === null ? "No accepted brief" : `Accepted brief version ${project.brief.version}`,
+    planLabel: project.plan === null ? "No saved plan" : `Plan revision ${project.plan.revision} · ${words(project.plan.state)}`,
+  });
+}
+
+export function adaptPlanningWorkspace(source: PlanningWorkspaceView): PlanningWorkspacePresentation {
+  return Object.freeze({
+    projects: Object.freeze(source.projects.map((project) => Object.freeze({
+      projectId: project.projectId,
+      name: project.name,
+      versionLabel: `Saved version ${project.version}`,
+      stateLabel: project.stopped ? "Stopped" : formatPlanningState(project.planState),
+      stopped: project.stopped,
+    }))),
+    selected: source.selected === null ? null : adaptProject(source.selected),
+  });
 }
 
 export function adaptWorkspacePresentation(source: DesktopPresentationSource): DesktopWorkspacePresentation {

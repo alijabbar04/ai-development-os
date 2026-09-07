@@ -31,6 +31,15 @@ describe("desktop IPC boundary", () => {
     expect(() => parseDesktopRequest({ ...envelope, preferences: { ...preferences, secret: "forbidden" } }, "desktop-shell:set-preferences", token)).toThrow("INVALID_REQUEST");
   });
 
+  it("accepts only bounded handover lookup coordinates on its read-only channel", () => {
+    const planning = { kind: "handover", projectId: "prj:owned", handoverId: "planning-handover:owned" };
+    expect(parseDesktopRequest({ ...envelope, planning }, "desktop-shell:planning-handover", token)).toMatchObject({ planning });
+    for (const proposed of [{ ...planning, path: "C:/outside.json" }, { ...planning, handoverId: "../outside" }, { ...planning, actor: "owner" }, { kind: "command", command: { kind: "stop-project" } }]) {
+      expect(() => parseDesktopRequest({ ...envelope, planning: proposed }, "desktop-shell:planning-handover", token)).toThrow("INVALID_REQUEST");
+    }
+    expect(() => parseDesktopRequest({ ...envelope, planning }, "desktop-shell:planning-command", token)).toThrow("INVALID_REQUEST");
+  });
+
   it("rejects wrong-nonce and unexpected child envelopes", () => {
     const nonce = "d".repeat(32);
     expect(acceptsChildReadyMessage({ kind: "ready", launchNonce: nonce }, nonce)).toBe(true);

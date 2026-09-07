@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "nodeVersion": "24.17.0",
+  "modulesAbi": "137",
+  "platform": "win32",
+  "arch": "x64",
+  "sha256": "c6335d08331c23d68b9f2b18adb102002d76ef150b47248e954c507e0d033664"
+}

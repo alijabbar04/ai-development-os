@@ -40,15 +40,42 @@ export function evaluateApprovalOperation(
   value: ApprovalOperation, head: ApprovalHead, controlValue: ApprovalControls,
   actorValue: OperatorDecisionEvidence, hash: ApprovalHashPort,
 ): readonly ApprovalMutation[] {
+  return evaluateOperation(value, head, controlValue, actorValue, hash, false);
+}
+
+/** Pure historical completion, never renewed approval or permission to spend.
+ * The application must authenticate the operator and verify the original durable
+ * consumption and receipt chain in the same transaction before using this value. */
+export function evaluateHistoricalMoneyCompletion(
+  value: ApprovalOperation, head: ApprovalHead, controlValue: ApprovalControls,
+  actorValue: OperatorDecisionEvidence, hash: ApprovalHashPort,
+): readonly ApprovalMutation[] {
+  const operation = parseApprovalOperation(value, hash);
+  if (!["report-executed", "record-receipt", "withdraw"].includes(operation.kind)
+    || head.approval === null || head.spending === null || operation.successor !== null) return refuse("money.history-unavailable");
+  const approval = assertApprovalRecord(operation.request, head.approval);
+  const spending = assertSpendingRecord(operation.request, head.spending);
+  assertSpendingAuthorization(spending, approval, hash, operation.request.proposal.binding.scope);
+  if (approval.state !== "consumed" || approval.consumptionCount !== 1
+    || !["authorized", "operator_executed"].includes(spending.state)) return refuse("money.history-unavailable");
+  const controls = parseApprovalControls(controlValue);
+  if (controls.binding.project?.projectId !== approval.scope.projectId) return refuse("binding.project-absent");
+  return evaluateOperation(operation, { approval, spending }, controls, actorValue, hash, true);
+}
+
+function evaluateOperation(
+  value: ApprovalOperation, head: ApprovalHead, controlValue: ApprovalControls,
+  actorValue: OperatorDecisionEvidence, hash: ApprovalHashPort, historical: boolean,
+): readonly ApprovalMutation[] {
   const op = parseApprovalOperation(value, hash), controls = parseApprovalControls(controlValue), actor = parseOperatorDecisionEvidence(actorValue);
   const request = op.request;
   if (op.at > controls.observedAt) return refuse("evidence.time-mismatch");
-  if (!controls.projectActive) return refuse("project.not-active");
+  if (!historical && !controls.projectActive) return refuse("project.not-active");
   const active = controls.stops.filter((s) => s.projectId === request.approval.scope.projectId && isProjectStopActive(s));
   if (active.some((s) => s.engagedAt > op.at)) return refuse("stop.evidence-incomplete");
   const drift = !same(request.proposal.binding, controls.binding);
-  if (op.kind !== "invalidate" && drift) return refuse("binding.stale");
-  if (active.length > 0 && op.kind !== "invalidate") return refuse("project.stopped");
+  if (!historical && op.kind !== "invalidate" && drift) return refuse("binding.stale");
+  if (!historical && active.length > 0 && op.kind !== "invalidate") return refuse("project.stopped");
   if (op.kind === "invalidate" && !drift && active.length === 0) return refuse("binding.not-invalidated");
   requireActor(request, actor);
   const mutations: ApprovalMutation[] = [];

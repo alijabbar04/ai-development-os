@@ -410,9 +410,9 @@ describe("PostgreSQL migrations and row validation", () => {
     await reopened.adapter.close();
   });
 
-  it("keeps the released prefix after an injected C7 failure and applies 0004 once on resume", async () => {
+  it.each([3, 4])("keeps released prefix %s after an extension failure and applies it once on resume", async (prefixLength) => {
     const database = new FakePostgresDatabase();
-    const releasedPrefix = Object.freeze(POSTGRES_MIGRATIONS.slice(0, 3));
+    const releasedPrefix = Object.freeze(POSTGRES_MIGRATIONS.slice(0, prefixLength));
     const seeded = await createPostgresPersistenceAdapterForTesting(options(), {
       poolFactory: createFakePoolFactory(database),
       migrations: releasedPrefix,
@@ -425,7 +425,7 @@ describe("PostgreSQL migrations and row validation", () => {
     });
     await expect(open(database)).rejects.toMatchObject({
       code: "MIGRATION_FAILED",
-      details: { migrationId: "0004-project-persistence-aggregates", postgresCode: "42601" },
+      details: { migrationId: POSTGRES_MIGRATIONS[prefixLength]!.id, postgresCode: "42601" },
     });
 
     const prefixReopen = await createPostgresPersistenceAdapterForTesting(options(), {

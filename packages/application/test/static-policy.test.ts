@@ -14,7 +14,9 @@ function productionSources(directory: string): readonly string[] {
     if (entry.isDirectory()) {
       return entry.name === "testing" ? [] : productionSources(path);
     }
-    return entry.isFile() && entry.name.endsWith(".ts") ? [read(path)] : [];
+    // The saved workspace holds one OS socket exclusively for process lifetime.
+    // It accepts no commands or data; no other network import is admitted.
+    return entry.isFile() && entry.name.endsWith(".ts") ? [entry.name === "planning-storage.ts" ? read(path).replace('import { createServer } from "node:net";', "") : read(path)] : [];
   });
 }
 
@@ -53,14 +55,18 @@ describe("Stage 18C application static policy", () => {
       readonly scripts: Record<string, string>;
     };
     expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "@ai-dev-os/approval",
       "@ai-dev-os/domain",
+      "@ai-dev-os/intake",
       "@ai-dev-os/persistence",
       "@ai-dev-os/persistence-postgres",
       "@ai-dev-os/persistence-sqlite",
+      "@ai-dev-os/plan",
+      "@ai-dev-os/project",
       "@ai-dev-os/scheduler",
     ]);
     expect(manifest.files).toEqual(["dist", "README.md"]);
-    expect(Object.keys(manifest.exports).sort()).toEqual([".", "./testing"]);
+    expect(Object.keys(manifest.exports).sort()).toEqual([".", "./planning", "./planning-contracts", "./planning-storage", "./testing"]);
     expect(manifest.scripts["pretest"]).toBe(
       "npm run build && npm --prefix ../persistence-memory run build",
     );

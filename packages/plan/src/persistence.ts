@@ -301,7 +301,7 @@ function parseOperation(kind: PlanJournalEventPayload["kind"], value: unknown): 
       literal(input["kind"], "draft", "planStore");
       return Object.freeze({ kind: "draft", mode: enumText(input["mode"], ["create", "redraft"] as const, "planStore") });
     }
-    case "plan.proposed": exactKeys(input, ["kind"], "planStore"); literal(input["kind"], "promote", "planStore"); return Object.freeze({ kind: "promote" });
+    case "plan.proposed": exactKeys(input, ["kind"], "planStore"); return Object.freeze({ kind: enumText(input["kind"], ["promote", "approve-scope"] as const, "planStore") });
     case "plan.scope-approval-required": exactKeys(input, ["kind"], "planStore"); literal(input["kind"], "require-scope-approval", "planStore"); return Object.freeze({ kind: "require-scope-approval" });
     case "plan.scope-rejected": exactKeys(input, ["kind"], "planStore"); literal(input["kind"], "reject-scope", "planStore"); return Object.freeze({ kind: "reject-scope" });
     case "plan.sealed": exactKeys(input, ["kind"], "planStore"); literal(input["kind"], "seal", "planStore"); return Object.freeze({ kind: "seal" });
@@ -341,7 +341,8 @@ function parsePredecessor(value: unknown): PlanPredecessorEvidence {
   exactKeys(input, ["planId", "revision", "supersedes", "state", "planDigest", "sealedAt", "sealedByApprovalId"], "planLineage");
   const state = enumText(input["state"], ["drafting", "superseded"] as const, "planLineage");
   const sealedAt = input["sealedAt"] === null ? null : timestamp(input["sealedAt"], "planLineage");
-  if (input["sealedByApprovalId"] !== null || state === "drafting" && sealedAt !== null) {
+  if (state === "drafting" && (input["sealedByApprovalId"] !== null || sealedAt !== null)
+    || sealedAt === null && input["sealedByApprovalId"] !== null) {
     refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.seal.approval-binding", "planLineage");
   }
   return Object.freeze({
@@ -351,7 +352,7 @@ function parsePredecessor(value: unknown): PlanPredecessorEvidence {
     state,
     planDigest: planDigest(input["planDigest"], "planLineage"),
     sealedAt,
-    sealedByApprovalId: null,
+    sealedByApprovalId: nullableId(input["sealedByApprovalId"], "apr:", "planLineage"),
   }) as PlanPredecessorEvidence;
 }
 
@@ -443,8 +444,7 @@ function parseSealEvidence(value: unknown): PlanSealEvidence {
   const verdicts = parsePlanSealVerdicts(input["verdicts"]);
   const blockingQuestionIds = strictArray(input["blockingQuestionIds"], (entry) => planIdentifier(entry, "", "planBrief"), "planBrief");
   if (new Set(blockingQuestionIds).size !== blockingQuestionIds.length
-    || [...blockingQuestionIds].sort().some((id, index) => id !== blockingQuestionIds[index])
-    || input["sealedByApprovalId"] !== null) {
+    || [...blockingQuestionIds].sort().some((id, index) => id !== blockingQuestionIds[index])) {
     refusePlan("PLAN_VALIDATION_REFUSED", "plan.seal.metadata", "planSeal");
   }
   return Object.freeze({
@@ -452,7 +452,7 @@ function parseSealEvidence(value: unknown): PlanSealEvidence {
     blockingQuestionIds,
     resolvedProjectCeiling: parseResolvedProjectCeilingEvidence(input["resolvedProjectCeiling"]),
     sealedAt: timestamp(input["sealedAt"], "planSeal"),
-    sealedByApprovalId: null,
+    sealedByApprovalId: nullableId(input["sealedByApprovalId"], "apr:", "planSeal"),
   });
 }
 
@@ -559,7 +559,7 @@ export function parsePlanJournalEvent(value: unknown, digest: PlanDigestPort): P
       refusePlan("PLAN_VALIDATION_REFUSED", "plan.proposal.malformed", "planLineage");
     }
   }
-  if (kind === "plan.sealed" && (seal === null || seal.sealedAt !== plan.sealedAt || seal.sealedByApprovalId !== null)
+  if (kind === "plan.sealed" && (seal === null || seal.sealedAt !== plan.sealedAt || seal.sealedByApprovalId !== plan.sealedByApprovalId)
     || kind === "plan.budget-extended" && (budgetExtension === null || budgetExtension.decisionId !== decisions[0]?.decisionId)) {
     refusePlan("PLAN_VALIDATION_REFUSED", "plan.seal.metadata", "planStore");
   }
@@ -698,6 +698,7 @@ export function operationKindsOf(request: PlanCommitRequest): readonly PlanOpera
     switch (step.event.operation.kind) {
       case "draft": return "draft";
       case "promote": return "promote";
+      case "approve-scope": return "approve-scope";
       case "require-scope-approval": return "require-scope-approval";
       case "reject-scope": return "reject-scope";
       case "seal": return "seal";
@@ -714,9 +715,16 @@ export function isHeadEvent(event: PlanJournalEventPayload): event is PlanHeadEv
 }
 
 export function assertCompleteMutationShape(request: PlanCommitRequest): void {
-  if (request.steps.length === 2
-    && (request.steps[0].event.kind !== "plan.proposed"
-      || request.steps[1].event.kind !== "plan.scope-approval-required")) {
+  const scopeSeal = request.steps.length === 2
+    && request.steps[0].event.operation.kind === "approve-scope"
+    && request.steps[0].expectedState === "awaiting_scope_approval"
+    && request.steps[1].event.kind === "plan.sealed"
+    && request.steps[1].event.plan.sealedByApprovalId !== null;
+  if (request.steps.length === 2 && !scopeSeal
+    && (request.steps[0].event.operation.kind !== "promote"
+      || request.steps[1].event.kind !== "plan.scope-approval-required")
+    || !scopeSeal && request.steps.some((step) => step.event.operation.kind === "approve-scope"
+      || step.event.kind === "plan.sealed" && step.event.plan.sealedByApprovalId !== null)) {
     refusePlan("PLAN_VALIDATION_REFUSED", "plan.proposal.malformed", "planStore");
   }
   let expectedVersion = request.binding.expectedAggregateVersion;

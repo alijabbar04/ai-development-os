@@ -6,6 +6,15 @@ scheduler and SQLite persistence contracts. It does not own a second task
 graph, scheduler, usage ledger, provider registry, workspace implementation,
 or policy broker.
 
+The separate `@ai-dev-os/application/planning` entry now provides the development
+saved-project facade. It composes real C7/C8 intake, the neutral PlanStore boundary
+and application-owned approval operations in one injected transaction adapter.
+`./planning-contracts` contains the finite UI contract; `./planning-storage` opens
+one explicit local SQLite root with DELETE/FULL durability and an exclusive OS
+lifetime owner. These entries do not connect the worker runtime, reservations,
+provider dispatch, account discovery or task execution. See the desktop shell's
+README for the saved/reopened manual workflow and its recovery boundaries.
+
 The historical Account Manager fixture adapter remains available for
 deterministic compatibility tests. A second supported, production-disabled
 route now loads only the exact reviewed Account Manager usage-reader artifact

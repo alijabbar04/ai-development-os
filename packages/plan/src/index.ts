@@ -81,6 +81,7 @@ export {
   assertRebasedPlanLineage,
   beginPlanWrite,
   promoteDraft,
+  consumePlanScopeApproval,
   rejectPlanScope,
   sealProposedPlan,
   supersedeForRevision,

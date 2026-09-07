@@ -25,7 +25,9 @@ describe("owned child service", () => {
     const parent = await mkdtemp(join(tmpdir(), "desktop-service-unavailable-test-")); roots.push(parent);
     const controller = createOwnedServiceController({
       childPath: join(parent, "not-started.js"),
-      storageParent: parent,
+      storageParent: join(parent, "runtime"),
+      dataRoot: join(parent, "saved-data"),
+      execPath: process.execPath,
       initialMode: "normal",
       serviceReadyDeadlineMs: 100,
       shutdownDeadlineMs: 100,
@@ -40,7 +42,9 @@ describe("owned child service", () => {
     const parent = await mkdtemp(join(tmpdir(), "desktop-service-failed-start-test-")); roots.push(parent);
     const controller = createOwnedServiceController({
       childPath: join(parent, "missing-child.js"),
-      storageParent: parent,
+      storageParent: join(parent, "runtime"),
+      dataRoot: join(parent, "saved-data"),
+      execPath: process.execPath,
       initialMode: "normal",
       serviceReadyDeadlineMs: 5_000,
       shutdownDeadlineMs: 100,
@@ -63,7 +67,9 @@ describe("owned child service", () => {
     const parent = await mkdtemp(join(tmpdir(), "desktop-service-controller-test-")); roots.push(parent);
     const controller = createOwnedServiceController({
       childPath: join(appRoot, "dist", "service", "child.js"),
-      storageParent: parent,
+      storageParent: join(parent, "runtime"),
+      dataRoot: join(parent, "saved-data"),
+      execPath: process.execPath,
       initialMode: "normal",
       serviceReadyDeadlineMs: 5_000,
       shutdownDeadlineMs: 2_000,

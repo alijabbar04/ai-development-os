@@ -12,6 +12,10 @@
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
+    },
+    "./persistence-boundary": {
+      "types": "./dist/persistence-boundary.d.ts",
+      "import": "./dist/persistence-boundary.js"
     }
   },
   "files": [
@@ -31,12 +35,12 @@
     "verify:packed-consumer": "node scripts/verify-packed-consumer.mjs"
   },
   "dependencies": {
-    "@ai-dev-os/project": "^0.1.0"
-  },
-  "devDependencies": {
+    "@ai-dev-os/project": "^0.1.0",
     "@ai-dev-os/domain": "^0.1.0",
     "@ai-dev-os/intake": "^0.1.0",
-    "@ai-dev-os/persistence": "^0.1.0",
+    "@ai-dev-os/persistence": "^0.1.0"
+  },
+  "devDependencies": {
     "@ai-dev-os/persistence-memory": "^0.1.0",
     "@ai-dev-os/persistence-sqlite": "^0.1.0",
     "@ai-dev-os/product-planning": "^0.1.0"

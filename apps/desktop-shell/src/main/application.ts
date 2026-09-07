@@ -24,6 +24,9 @@ import { installDesktopIpc, publishDesktopSnapshot } from "./ipc.js";
 import { createDesktopSnapshot } from "./lifecycle.js";
 import { readDesktopPreferences, writeDesktopPreferences } from "./preferences.js";
 import { installDesktopProtocol } from "./protocol.js";
+import { resolveOwnedNodeRuntime } from "./owned-runtime.js";
+import { nativePlanningDialog } from "./planning-dialog.js";
+import type { NativePlanningReply, NativePlanningRequest } from "../shared/planning-ipc.js";
 
 export interface DesktopApplicationOptions {
   readonly applicationRoot?: string;
@@ -31,6 +34,8 @@ export interface DesktopApplicationOptions {
   readonly serviceReadyDeadlineMs?: number;
   readonly shutdownDeadlineMs?: number;
   readonly onStartupPhase?: (phase: string) => void;
+  /** Owned integration harness only; never exposed by preload or IPC. */
+  readonly nativePlanningForTest?: (request: NativePlanningRequest) => Promise<NativePlanningReply>;
 }
 
 export interface DesktopApplicationHandle {
@@ -72,6 +77,7 @@ export async function launchDesktopApplication(options: DesktopApplicationOption
 
   const preferenceRoot = join(userDataRoot, "preferences");
   const runtimeRoot = join(userDataRoot, "runtime");
+  const ownedNodeRuntime = await resolveOwnedNodeRuntime(applicationRoot);
   let preferences = await readDesktopPreferences(preferenceRoot);
   phase("preferences-ready");
   let window: BrowserWindow | null = null;
@@ -82,8 +88,14 @@ export async function launchDesktopApplication(options: DesktopApplicationOption
 
   const service = createOwnedServiceController({
     childPath: join(applicationRoot, "dist", "service", "child.js"),
+    execPath: ownedNodeRuntime,
+    dataRoot: join(userDataRoot, "saved-workspace"),
     storageParent: runtimeRoot,
     initialMode: preferences.presentationMode,
+    nativePlanning: async (request) => {
+      if (window === null || window.isDestroyed() || disposed) return null;
+      return options.nativePlanningForTest === undefined ? await nativePlanningDialog(window, request) : await options.nativePlanningForTest(request);
+    },
     ...(options.serviceReadyDeadlineMs === undefined ? {} : { serviceReadyDeadlineMs: options.serviceReadyDeadlineMs }),
     ...(options.shutdownDeadlineMs === undefined ? {} : { shutdownDeadlineMs: options.shutdownDeadlineMs }),
     onChange: () => {
@@ -134,6 +146,7 @@ export async function launchDesktopApplication(options: DesktopApplicationOption
     window: createdWindow,
     actions: {
       snapshot,
+      planning: async (query) => await service.planning(query),
       async retryService() { await service.retry(); return snapshot(); },
       openReadOnly() { service.openReadOnly(); return snapshot(); },
       async setPreferences(next) {

@@ -328,7 +328,7 @@ export interface PlanPredecessorStamp {
   readonly state: "superseded";
   readonly planDigest: string;
   readonly sealedAt: string | null;
-  readonly sealedByApprovalId: null;
+  readonly sealedByApprovalId: string | null;
 }
 
 export interface PlanDraftReplacementStamp {
@@ -361,7 +361,7 @@ export interface PlanSealEvidence {
   readonly blockingQuestionIds: readonly string[];
   readonly resolvedProjectCeiling: ResolvedProjectCeilingEvidence;
   readonly sealedAt: string;
-  readonly sealedByApprovalId: null;
+  readonly sealedByApprovalId: string | null;
 }
 
 export interface PlanBudgetExtensionEvidence {
@@ -402,7 +402,7 @@ export interface PlanEventPayload<
 export type PlanDraftedEvent =
   | PlanEventPayload<"plan.drafted", Readonly<{ kind: "draft"; mode: "create" }>, readonly [], null, null, null, null>
   | PlanEventPayload<"plan.drafted", Readonly<{ kind: "draft"; mode: "redraft" }>, readonly [], PlanRebaseLink | null, PlanDraftReplacementStamp, null, null>;
-export type PlanProposedEvent = PlanEventPayload<"plan.proposed", Readonly<{ kind: "promote" }>, readonly [], null, null, null, null>;
+export type PlanProposedEvent = PlanEventPayload<"plan.proposed", Readonly<{ kind: "promote" | "approve-scope" }>, readonly [], null, null, null, null>;
 export type PlanScopeApprovalRequiredEvent = PlanEventPayload<"plan.scope-approval-required", Readonly<{ kind: "require-scope-approval" }>, readonly [], null, null, null, null>;
 export type PlanScopeRejectedEvent = PlanEventPayload<"plan.scope-rejected", Readonly<{ kind: "reject-scope" }>, readonly [DecisionOf<"scope-rejected">], null, null, null, null>;
 export type PlanSealedEvent = PlanEventPayload<"plan.sealed", Readonly<{ kind: "seal" }>, PlanSealDecisions, null, null, PlanSealEvidence, null>;
@@ -509,7 +509,7 @@ export interface PlanCommitAuthorization {
 }
 
 export type PlanOperationKind =
-  | "draft" | "promote" | "require-scope-approval" | "reject-scope"
+  | "draft" | "promote" | "approve-scope" | "require-scope-approval" | "reject-scope"
   | "seal" | "revise" | "discard-stale" | "abandon" | "record-budget-extension";
 
 export interface IssuedPlanCommitFacts {

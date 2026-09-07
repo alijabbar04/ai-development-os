@@ -7,6 +7,10 @@ const CHANNELS = Object.freeze({
   setPreferences: "desktop-shell:set-preferences",
   relaunch: "desktop-shell:relaunch",
   quit: "desktop-shell:quit",
+  planningSnapshot: "desktop-shell:planning-snapshot",
+  planningCommand: "desktop-shell:planning-command",
+  planningObserve: "desktop-shell:planning-observe",
+  planningHandover: "desktop-shell:planning-handover",
   stateChanged: "desktop-shell:state-changed",
 } as const);
 const ARGUMENT = "--desktop-session-token=";
@@ -21,6 +25,12 @@ function envelope(): Readonly<{ schemaVersion: 1; requestId: string; sessionToke
   return Object.freeze({ schemaVersion: 1, requestId: requestId(), sessionToken: SESSION_TOKEN });
 }
 
+async function planningReply(pending: Promise<unknown>): Promise<unknown> {
+  const reply = await pending as { ok?: boolean; value?: unknown };
+  if (reply?.ok !== true) throw new Error("PLANNING_UNAVAILABLE");
+  return reply.value;
+}
+
 contextBridge.exposeInMainWorld("aiPowerhouse", Object.freeze({
   snapshot: () => ipcRenderer.invoke(CHANNELS.snapshot, envelope()),
   retryService: () => ipcRenderer.invoke(CHANNELS.retryService, envelope()),
@@ -28,6 +38,10 @@ contextBridge.exposeInMainWorld("aiPowerhouse", Object.freeze({
   setPreferences: (preferences: unknown) => ipcRenderer.invoke(CHANNELS.setPreferences, Object.freeze({ ...envelope(), preferences })),
   relaunch: () => ipcRenderer.invoke(CHANNELS.relaunch, envelope()),
   quit: () => ipcRenderer.invoke(CHANNELS.quit, envelope()),
+  planningSnapshot: (projectId: unknown) => planningReply(ipcRenderer.invoke(CHANNELS.planningSnapshot, { ...envelope(), planning: { kind: "snapshot", projectId } })),
+  planningCommand: (command: unknown) => planningReply(ipcRenderer.invoke(CHANNELS.planningCommand, { ...envelope(), planning: { kind: "command", command } })),
+  planningObserve: (commandId: unknown) => planningReply(ipcRenderer.invoke(CHANNELS.planningObserve, { ...envelope(), planning: { kind: "observe", commandId } })),
+  planningHandover: (projectId: unknown, handoverId: unknown) => planningReply(ipcRenderer.invoke(CHANNELS.planningHandover, { ...envelope(), planning: { kind: "handover", projectId, handoverId } })),
   onStateChanged: (listener: (snapshot: unknown) => void) => {
     const handler = (_event: unknown, snapshot: unknown): void => listener(snapshot);
     ipcRenderer.on(CHANNELS.stateChanged, handler);

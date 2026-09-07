@@ -371,7 +371,7 @@ export function assertPlanRecordInvariants(planValue: unknown, digest: PlanDiges
       refusePlan("PLAN_VALIDATION_REFUSED", "plan.proposal.malformed", "planTask");
     }
   }
-  if (plan.sealedByApprovalId !== null) {
+  if (plan.sealedByApprovalId !== null && (plan.sealedAt === null || !["sealed", "superseded"].includes(plan.state))) {
     refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.seal.approval-binding", "planSeal");
   }
   if (["clarifying", "executing", "expanding", "stage_gate", "halted", "completed"].includes(plan.state)) {

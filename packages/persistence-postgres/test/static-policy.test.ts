@@ -69,11 +69,12 @@ describe("PostgreSQL package static policy", () => {
   });
 
   it("pins the native locking, sequence, checksum, and migration invariants", () => {
-    expect(POSTGRES_MIGRATIONS).toHaveLength(4);
+    expect(POSTGRES_MIGRATIONS).toHaveLength(5);
     const migration = POSTGRES_MIGRATIONS[0];
     const evaluationMigration = POSTGRES_MIGRATIONS[1];
     const integrationMigration = POSTGRES_MIGRATIONS[2];
     const projectMigration = POSTGRES_MIGRATIONS[3];
+    const planningMigration = POSTGRES_MIGRATIONS[4];
     expect(migration?.id).toBe("0001-initial-schema");
     expect(migrationChecksum(migration!).hex).toBe(
       "34413d60368bc485b1cbdc088d5000baa4ce31829c71ff0947d813aae1545f11",
@@ -101,6 +102,14 @@ describe("PostgreSQL package static policy", () => {
       EXPECTED_AGGREGATE_TYPES,
       EXPECTED_AGGREGATE_TYPES,
     ])).toThrow();
+    expect(planningMigration?.id).toBe("0005-saved-planning-aggregates");
+    expect(migrationChecksum(planningMigration!).hex).toBe(
+      "c0dce7bfc3b4d20c1fca85f86408dc30002548c81cd4685b2ca81b15a38b97f5",
+    );
+    const planningVocabulary = [...EXPECTED_AGGREGATE_TYPES, "planning-command", "planning-workspace", "planning-handover"];
+    expect(aggregateTypeVocabularies(planningMigration!.content)).toEqual([planningVocabulary, planningVocabulary]);
+    const incompletePlanning = planningMigration!.content.replace(",'planning-handover'", "");
+    expect(() => expect(aggregateTypeVocabularies(incompletePlanning)).toEqual([planningVocabulary, planningVocabulary])).toThrow();
     const adapter = read(resolve(packageRoot, "src", "postgres-adapter.ts"));
     const migrations = read(resolve(packageRoot, "src", "migrations.ts"));
     expect(adapter).toContain("FOR UPDATE SKIP LOCKED");

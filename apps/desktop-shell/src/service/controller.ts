@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { fork, type ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   adoptExistingControlService,
   createControlArtifactStore,
@@ -9,6 +9,7 @@ import {
 } from "@ai-dev-os/control-service";
 import { SERVICE_READY_DEADLINE_MS, SERVICE_SHUTDOWN_DEADLINE_MS } from "../main/constants.js";
 import type { PresentationMode, ServiceObservation } from "../shared/contracts.js";
+import { exactPlanningRecord, parseNativePlanningRequest, parsePlanningQuery, type NativePlanningReply, type NativePlanningRequest, type PlanningQuery, type PlanningReply } from "../shared/planning-ipc.js";
 
 export type OwnedServicePhase = "loading" | "ready" | "service-lost" | "failed-start" | "read-only" | "stopped";
 
@@ -38,16 +39,21 @@ export interface OwnedServiceController {
   terminateOwnedChildForTest(): Promise<void>;
   ownedProcessIdForTest(): number | null;
   ownedRuntimeRootForTest(): string | null;
+  planning(query: PlanningQuery): Promise<PlanningReply>;
+  loseNextPlanningReplyForTest(): void;
 }
 
 export interface OwnedServiceControllerOptions {
   readonly childPath: string;
+  readonly execPath: string;
+  readonly dataRoot: string;
   readonly storageParent: string;
   readonly initialMode: PresentationMode;
   readonly onChange?: () => void;
   readonly clock?: () => Date;
   readonly serviceReadyDeadlineMs?: number;
   readonly shutdownDeadlineMs?: number;
+  readonly nativePlanning?: (request: NativePlanningRequest) => Promise<NativePlanningReply>;
 }
 
 function childEnvironment(): NodeJS.ProcessEnv {
@@ -57,7 +63,6 @@ function childEnvironment(): NodeJS.ProcessEnv {
     const value = process.env[name];
     if (value !== undefined) output[name] = value;
   }
-  if (process.versions["electron"] !== undefined) output["ELECTRON_RUN_AS_NODE"] = "1";
   return output;
 }
 
@@ -121,6 +126,9 @@ async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<bool
 export function createOwnedServiceController(options: OwnedServiceControllerOptions): OwnedServiceController {
   const childPath = resolve(options.childPath);
   const storageParent = resolve(options.storageParent);
+  const dataRoot = resolve(options.dataRoot);
+  const contains = (root: string, target: string): boolean => { const part = relative(root.toLowerCase(), target.toLowerCase()); return part === "" || part !== ".." && !part.startsWith("..\\") && !part.startsWith("../") && !isAbsolute(part); };
+  if (contains(storageParent, dataRoot) || contains(dataRoot, storageParent)) throw new Error("SERVICE_DURABLE_ROOT_OVERLAP");
   const storagePrefix = "owned-service-";
   const clock = options.clock ?? (() => new Date());
   const readyDeadlineMs = options.serviceReadyDeadlineMs ?? SERVICE_READY_DEADLINE_MS;
@@ -139,6 +147,31 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
   let operation: Promise<void> = Promise.resolve();
   const pendingRootCleanup = new Set<Promise<void>>();
   let rootCleanupFailed = false;
+  const planningPending = new Map<string, { launch: ActiveLaunch; query: PlanningQuery; finish: (value: PlanningReply | null) => void }>();
+  const nativePending = new Set<string>();
+  let loseNextPlanningReply = false;
+  function failPlanning(launch: ActiveLaunch): void { for (const pending of [...planningPending.values()]) if (pending.launch === launch) pending.finish(null); }
+  async function planningMessage(launch: ActiveLaunch, message: unknown): Promise<void> {
+    if (active !== launch || !launch.verified || launch.expectedStop || message === null || typeof message !== "object" || Array.isArray(message)) return;
+    const raw = message as Record<string, unknown>;
+    if (raw["launchNonce"] !== launch.nonce) return;
+    try {
+      if (raw["kind"] === "planning-reply") {
+        const r = exactPlanningRecord(raw, ["kind", "launchNonce", "requestId", "ok", "value"]), pending = planningPending.get(String(r["requestId"]));
+        if (pending?.launch !== launch) return;
+        if (loseNextPlanningReply && pending.query.kind === "command") { loseNextPlanningReply = false; pending.finish(null); return; }
+        pending.finish(r["ok"] === true && JSON.stringify(r["value"]).length <= 2_097_152 ? r["value"] as PlanningReply : null);
+      } else if (raw["kind"] === "planning-native") {
+        const r = exactPlanningRecord(raw, ["kind", "launchNonce", "requestId", "nativeId", "request"]), pending = planningPending.get(String(r["requestId"]));
+        if (pending?.launch !== launch || pending.query.kind !== "command" || typeof r["nativeId"] !== "string" || !/^[a-f0-9]{32}$/u.test(r["nativeId"]) || nativePending.has(r["nativeId"]) || nativePending.size >= 8) return;
+        const request = parseNativePlanningRequest(r["request"]), nativeId = r["nativeId"]; nativePending.add(nativeId);
+        try {
+          const value = await options.nativePlanning?.(request) ?? null;
+          if (active === launch && !launch.expectedStop && planningPending.get(String(r["requestId"])) === pending && launch.child.connected) launch.child.send({ kind: "planning-native-reply", launchNonce: launch.nonce, nativeId, value });
+        } finally { nativePending.delete(nativeId); }
+      }
+    } catch { /* Malformed private child traffic cannot acquire host authority. */ }
+  }
 
   const notify = (): void => { options.onChange?.(); };
 
@@ -179,6 +212,7 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
 
   const closeLaunch = async (launch: ActiveLaunch): Promise<void> => {
     launch.expectedStop = true;
+    failPlanning(launch);
     if (launch.child.exitCode === null && launch.child.signalCode === null) {
       launch.child.send?.(Object.freeze({ kind: "shutdown", launchNonce: launch.nonce }));
       if (!(await waitForExit(launch.child, shutdownDeadlineMs))) {
@@ -240,13 +274,15 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
     const child = fork(childPath, [], {
       cwd: dirname(childPath),
       env: childEnvironment(),
-      execPath: process.execPath,
+      execPath: resolve(options.execPath),
+      execArgv: [],
       stdio: ["ignore", "ignore", "ignore", "ipc"],
     });
     const launch: ActiveLaunch = { child, root, nonce, expectedStop: false, verified: false };
     active = launch;
 
     child.once("exit", () => {
+      failPlanning(launch);
       if (active !== launch || launch.expectedStop) return;
       active = null;
       trackRootCleanup(root);
@@ -258,6 +294,7 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
       }
       notify();
     });
+    child.on("message", (message: unknown) => { void planningMessage(launch, message); });
 
     const readiness = new Promise<"ready" | "failed">((resolveReady, rejectReady) => {
       child.once("error", rejectReady);
@@ -266,7 +303,7 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
         if (parsed !== null) resolveReady(parsed);
       });
       child.once("exit", () => rejectReady(new Error("SERVICE_CHILD_EXITED")));
-      child.send(Object.freeze({ kind: "start", launchNonce: nonce, storageRoot: root, presentationMode: requestedMode }));
+      child.send(Object.freeze({ kind: "start", launchNonce: nonce, storageRoot: root, dataRoot: resolve(options.dataRoot), presentationMode: requestedMode }));
     });
     let timer: NodeJS.Timeout | null = null;
     try {
@@ -314,6 +351,22 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
   };
 
   return Object.freeze({
+    loseNextPlanningReplyForTest() { if (phase !== "ready") throw new Error("ACTION_UNAVAILABLE"); loseNextPlanningReply = true; },
+    async planning(value: PlanningQuery): Promise<PlanningReply> {
+      const query = parsePlanningQuery(value), launch = active;
+      if (phase !== "ready" || launch === null || !launch.verified || launch.expectedStop || planningPending.size >= 8) throw new Error("SERVICE_UNAVAILABLE");
+      const requestId = randomBytes(16).toString("hex");
+      return await new Promise<PlanningReply>((resolveReply, rejectReply) => {
+        const timer = setTimeout(() => finish(null), query.kind === "command" ? 120_000 : 20_000);
+        const finish = (reply: PlanningReply | null): void => {
+          if (!planningPending.has(requestId)) return;
+          clearTimeout(timer); planningPending.delete(requestId);
+          if (reply === null) rejectReply(new Error("SERVICE_PLANNING_UNCONFIRMED")); else resolveReply(reply);
+        };
+        planningPending.set(requestId, { launch, query, finish });
+        launch.child.send({ kind: "planning-request", launchNonce: launch.nonce, requestId, query }, (error) => { if (error !== null) finish(null); });
+      });
+    },
     async start(requestedMode = mode) {
       await serialize(async () => { await startOnce(requestedMode); });
     },

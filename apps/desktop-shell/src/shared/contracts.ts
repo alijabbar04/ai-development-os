@@ -11,6 +11,10 @@ export const DESKTOP_CHANNELS = Object.freeze({
   setPreferences: "desktop-shell:set-preferences",
   relaunch: "desktop-shell:relaunch",
   quit: "desktop-shell:quit",
+  planningSnapshot: "desktop-shell:planning-snapshot",
+  planningCommand: "desktop-shell:planning-command",
+  planningObserve: "desktop-shell:planning-observe",
+  planningHandover: "desktop-shell:planning-handover",
   stateChanged: "desktop-shell:state-changed",
 } as const);
 
@@ -88,4 +92,8 @@ export interface DesktopRequestEnvelope {
 
 export interface DesktopPreferenceUpdate extends DesktopRequestEnvelope {
   readonly preferences: DesktopPreferences;
+}
+
+export interface DesktopPlanningRequest extends DesktopRequestEnvelope {
+  readonly planning: unknown;
 }

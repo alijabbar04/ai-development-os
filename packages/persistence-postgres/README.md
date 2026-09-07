@@ -61,6 +61,13 @@ independently owned TypeScript inventory and exercise rollback/corrected
 resume. Memory and SQLite retain their generic-text physical storage; project
 payloads remain opaque here.
 
+The saved planning workspace appends `0005-saved-planning-aggregates` for
+`planning-command`, `planning-workspace` and `planning-handover`. Only the two
+named discriminator constraints change; all four released migration checksums
+and old row bytes remain intact. Fresh-schema parity, upgrades from every prior
+prefix, extension rollback/resume and the shared behavioral suite cover all 23
+types. The desktop continues to use its own local SQLite store.
+
 Canonical JSON remains `TEXT` because its exact UTF-8 representation is the
 checksum identity. Timestamps are canonical UTC text from the injected clock,
 avoiding driver conversion/truncation. Mixed-case identifiers use PostgreSQL's

@@ -8,7 +8,7 @@ const repositoryRoot = resolve(packageRoot, "..", "..");
 
 const EXPECTED_PRODUCTION_FILES = [
   "/src/assembly.ts", "/src/constants.ts", "/src/contracts.ts", "/src/errors.ts",
-  "/src/index.ts", "/src/lifecycle.ts", "/src/observation.ts", "/src/order.ts", "/src/persistence.ts",
+  "/src/index.ts", "/src/lifecycle.ts", "/src/observation.ts", "/src/order.ts", "/src/persistence-boundary.ts", "/src/persistence.ts",
   "/src/projections.ts", "/src/seal.ts", "/src/specification.ts", "/src/validation.ts",
 ] as const;
 
@@ -58,9 +58,9 @@ function workspaceImports(text: string): readonly Readonly<{ specifier: string; 
   return Object.freeze([...fromImports, ...sideEffects]);
 }
 
-function importBoundaryViolations(text: string): readonly string[] {
+function importBoundaryViolations(text: string, persistenceBoundary = false): readonly string[] {
   return workspaceImports(text)
-    .filter((entry) => !entry.typeOnly && entry.specifier !== "@ai-dev-os/project")
+    .filter((entry) => !entry.typeOnly && !["@ai-dev-os/project", ...(persistenceBoundary ? ["@ai-dev-os/domain", "@ai-dev-os/intake", "@ai-dev-os/persistence"] : [])].includes(entry.specifier))
     .map((entry) => entry.specifier);
 }
 
@@ -102,7 +102,8 @@ describe("SP-1..SP-12 production boundary", () => {
     expect(Object.isFrozen(publicApi.PLAN_AVAILABLE_COMMANDS)).toBe(true);
     expect(read("packages/api/src/routes.ts")).toMatch(/API_COMMAND_REGISTRY: readonly never\[\] = Object\.freeze\(\[\]\)/u);
     expect(read("packages/control-service/src/routes.ts")).toMatch(/CONTROL_COMMAND_REGISTRY: readonly never\[\] = Object\.freeze\(\[\]\)/u);
-    expect(read("packages/application/package.json")).not.toContain("@ai-dev-os/plan");
+    expect(read("packages/application/src/index.ts")).not.toContain("@ai-dev-os/plan/testing");
+    expect(read("packages/application/src/planning.ts")).not.toContain("/testing");
   });
 
   it("SP-2 pins the exact production source inventory and scans every file", () => {
@@ -116,8 +117,8 @@ describe("SP-1..SP-12 production boundary", () => {
     const combined = productionFiles().map((file) => readFileSync(file, "utf8")).join("\n");
     const imports = workspaceImports(combined);
     const runtimeTargets = [...new Set(imports.filter((entry) => !entry.typeOnly).map((entry) => entry.specifier))];
-    expect(runtimeTargets).toEqual(["@ai-dev-os/project"]);
-    expect(importBoundaryViolations(combined)).toEqual([]);
+    expect(runtimeTargets.sort()).toEqual(["@ai-dev-os/domain", "@ai-dev-os/intake", "@ai-dev-os/persistence", "@ai-dev-os/project"]);
+    for (const file of productionFiles()) expect(importBoundaryViolations(readFileSync(file, "utf8"), file.endsWith("persistence-boundary.ts")), file).toEqual([]);
     expect(combined).toMatch(/\bparseProjectPlan\s*\(/u);
     expect(combined).toMatch(/\bassertPlanDigest\s*\(/u);
 
@@ -135,13 +136,12 @@ describe("SP-1..SP-12 production boundary", () => {
       exports: Record<string, unknown>;
       files: readonly string[];
     };
-    expect(manifest.dependencies).toEqual({ "@ai-dev-os/project": "^0.1.0" });
+    expect(manifest.dependencies).toEqual({ "@ai-dev-os/project": "^0.1.0", "@ai-dev-os/domain": "^0.1.0", "@ai-dev-os/intake": "^0.1.0", "@ai-dev-os/persistence": "^0.1.0" });
     expect(Object.keys(manifest.devDependencies).sort()).toEqual([
-      "@ai-dev-os/domain", "@ai-dev-os/intake", "@ai-dev-os/persistence",
       "@ai-dev-os/persistence-memory", "@ai-dev-os/persistence-sqlite", "@ai-dev-os/product-planning",
     ]);
     expect(manifest.files).toEqual(["dist", "README.md"]);
-    expect(Object.keys(manifest.exports).sort()).toEqual([".", "./testing"]);
+    expect(Object.keys(manifest.exports).sort()).toEqual([".", "./persistence-boundary", "./testing"]);
     for (const forbidden of [
       "@ai-dev-os/context", "@ai-dev-os/artifact-store", "@ai-dev-os/artifacts",
       "@ai-dev-os/repository-index", "@ai-dev-os/memory", "@ai-dev-os/product-planning",
@@ -168,7 +168,7 @@ describe("SP-1..SP-12 production boundary", () => {
   it("SP-6 proves the main export graph cannot reach the testing subpath", () => {
     const graph = mainSourceGraph();
     expect(graph.map((file) => file.slice(packageRoot.length).replaceAll("\\", "/")))
-      .toEqual(EXPECTED_PRODUCTION_FILES);
+      .toEqual(EXPECTED_PRODUCTION_FILES.filter((file) => file !== "/src/persistence-boundary.ts"));
     expect(graph.some((file) => file.includes(resolve(packageRoot, "src", "testing")))).toBe(false);
     expect(source("src/index.ts")).not.toContain("./testing");
   });
@@ -210,7 +210,7 @@ describe("SP-1..SP-12 production boundary", () => {
   it("SP-11 independently pins payload and persistence-envelope schema version 1", () => {
     const contracts = source("src/contracts.ts");
     const persistence = source("src/persistence.ts");
-    const composition = source("src/testing/c8-c7-plan-store.ts");
+    const composition = source("src/persistence-boundary.ts");
     const commitImplementation = composition.slice(composition.indexOf("async function commit("));
     const appendCalls = [...commitImplementation.matchAll(/\.events\.append\s*\(\{/gu)];
     const envelopeVersions = [...commitImplementation.matchAll(/^\s+eventSchemaVersion:\s*(\d+),$/gmu)]
@@ -227,7 +227,7 @@ describe("SP-1..SP-12 production boundary", () => {
     const combined = productionFiles().map((file) => readFileSync(file, "utf8")).join("\n");
     expect(containsWrongAggregate(combined)).toBe(false);
     expect(containsWrongAggregate('const aggregateType = "product-plan";'), "positive control").toBe(true);
-    expect(source("src/testing/c8-c7-plan-store.ts")).toContain('aggregateType: "project-plan"');
+    expect(source("src/persistence-boundary.ts")).toContain('aggregateType: "project-plan"');
   });
 
   it("proves every ambient-capability detector with planted controls", () => {

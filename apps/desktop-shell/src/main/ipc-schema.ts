@@ -4,7 +4,9 @@ import type {
   DesktopPreferences,
   DesktopRequestChannel,
   DesktopRequestEnvelope,
+  DesktopPlanningRequest,
 } from "../shared/contracts.js";
+import { parsePlanningQuery } from "../shared/planning-ipc.js";
 
 const REQUEST_ID = /^[a-f0-9]{32}$/u;
 
@@ -29,7 +31,13 @@ function parseBase(record: Record<string, unknown>, expectedToken: string): Desk
   return Object.freeze({ schemaVersion: 1, requestId: record["requestId"], sessionToken: expectedToken });
 }
 
-export function parseDesktopRequest(raw: unknown, channel: DesktopRequestChannel, expectedToken: string): DesktopRequestEnvelope | DesktopPreferenceUpdate {
+export function parseDesktopRequest(raw: unknown, channel: DesktopRequestChannel, expectedToken: string): DesktopRequestEnvelope | DesktopPreferenceUpdate | DesktopPlanningRequest {
+  const planningKind = channel === "desktop-shell:planning-snapshot" ? "snapshot" : channel === "desktop-shell:planning-command" ? "command" : channel === "desktop-shell:planning-observe" ? "observe" : channel === "desktop-shell:planning-handover" ? "handover" : null;
+  if (planningKind !== null) {
+    const record = exactRecord(raw, ["schemaVersion", "requestId", "sessionToken", "planning"]), base = parseBase(record, expectedToken), planning = parsePlanningQuery(record["planning"]);
+    if (planning.kind !== planningKind) throw new Error("INVALID_REQUEST");
+    return Object.freeze({ ...base, planning });
+  }
   if (channel === "desktop-shell:set-preferences") {
     const record = exactRecord(raw, ["schemaVersion", "requestId", "sessionToken", "preferences"]);
     const base = parseBase(record, expectedToken);

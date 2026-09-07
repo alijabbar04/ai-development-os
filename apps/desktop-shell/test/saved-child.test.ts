@@ -1,0 +1,47 @@
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterEach, expect, it } from "vitest";
+import type { PlanningCommand, PlanningCommandResult, PlanningHandoverView, PlanningWorkspaceView } from "@ai-dev-os/application/planning-contracts";
+import { createOwnedServiceController, type OwnedServiceController } from "../src/service/controller.js";
+import { resolveOwnedNodeRuntime } from "../src/main/owned-runtime.js";
+
+const resources: { root: string; controller: OwnedServiceController }[] = [];
+afterEach(async () => { for (const resource of resources.splice(0)) { await resource.controller.stop(); if (!resource.root.startsWith(join(tmpdir(), "saved-child-test-"))) throw new Error("UNOWNED_FIXTURE"); await rm(resource.root, { recursive: true, force: true }); } });
+it("saves through the actual pinned child, observes lost acknowledgments, restarts, and rejects hostile renderer commands", async () => {
+  const root = await mkdtemp(join(tmpdir(), "saved-child-test-")), repository = join(root, "repository"), appRoot = resolve(import.meta.dirname, "..");
+  await mkdir(join(repository, ".git", "refs", "heads"), { recursive: true });
+  await writeFile(join(repository, ".git", "HEAD"), "ref: refs/heads/main\n");
+  await writeFile(join(repository, ".git", "refs", "heads", "main"), `${"b".repeat(40)}\n`);
+  const reviews: string[] = [];
+  const controller = createOwnedServiceController({ childPath: join(appRoot, "dist", "service", "child.js"), execPath: process.platform === "win32" ? await resolveOwnedNodeRuntime(appRoot) : process.execPath,
+    storageParent: join(root, "runtime"), dataRoot: join(root, "saved"), initialMode: "normal", nativePlanning: async (request) => { if (request.kind === "repository") return repository; if (request.kind === "confirm") { reviews.push(request.review.action); return true; } return null; } });
+  resources.push({ root, controller }); await controller.start();
+  const command = async (value: PlanningCommand): Promise<PlanningCommandResult> => await controller.planning({ kind: "command", command: value }) as PlanningCommandResult;
+  const created = await command({ kind: "create-project", commandId: "child:create", name: "Owned child observations", objective: "Keep a local journal", outcomes: ["Reopen the saved journal plan"], currency: "GBP", budgetMinorUnits: 0 });
+  expect(created).toMatchObject({ kind: "committed" }); let p = created.workspace!.selected!;
+  expect(p.repository).toMatchObject({ head: "b".repeat(40), branch: "main", state: "partial" });
+  p = (await command({ kind: "accept-brief", commandId: "child:accept", projectId: p.projectId, candidateId: p.candidate!.candidateId, candidateDigest: p.candidate!.digest, expectedBriefVersion: 0 })).workspace!.selected!;
+  p = (await command({ kind: "save-plan", commandId: "child:draft", projectId: p.projectId, expectedPlanVersion: 0, title: "Journal foundation", tasks: [{ title: "Local journal", objective: "Add a seasonal overview", acceptanceCriteria: ["A saved view reopens"] }], scope: "scope-expansion" })).workspace!.selected!;
+  p = (await command({ kind: "prepare-plan", commandId: "child:prepare", projectId: p.projectId, expectedPlanVersion: p.plan!.version })).workspace!.selected!;
+  const seal = { kind: "approve-scope" as const, commandId: "child:seal", projectId: p.projectId, expectedPlanVersion: p.plan!.version };
+  controller.loseNextPlanningReplyForTest(); await expect(command(seal)).rejects.toThrow("SERVICE_PLANNING_UNCONFIRMED");
+  const observed = await controller.planning({ kind: "observe", commandId: seal.commandId }) as PlanningCommandResult;
+  expect(observed).toMatchObject({ kind: "committed" }); p = observed.workspace!.selected!;
+  expect(p.plan?.state).toBe("sealed"); expect(p.approvals[0]?.state).toBe("consumed");
+  const count = reviews.length;
+  expect(await controller.planning({ kind: "command", command: { ...seal, commandId: "child:forged", actor: "owner", operatorConfirmed: true } })).toMatchObject({ kind: "refused" });
+  expect(reviews).toHaveLength(count);
+  p = (await command({ kind: "export-handover", commandId: "child:export", projectId: p.projectId, expectedPlanVersion: p.plan!.version })).workspace!.selected!;
+  const handoverQuery = { kind: "handover" as const, projectId: p.projectId, handoverId: p.handovers[0]!.handoverId };
+  const document = await controller.planning(handoverQuery) as PlanningHandoverView;
+  expect(document.authority).toBe("none"); expect(document.text).toBe(await readFile(p.handovers[0]!.fileName, "utf8"));
+  await expect(controller.planning({ ...handoverQuery, path: p.handovers[0]!.fileName } as never)).rejects.toThrow("INVALID_REQUEST");
+  const runtime = controller.ownedRuntimeRootForTest()!;
+  await controller.terminateOwnedChildForTest(); await controller.retry();
+  const restored = await controller.planning({ kind: "snapshot", projectId: p.projectId }) as PlanningWorkspaceView;
+  expect(restored.selected?.plan).toEqual(p.plan); expect(restored.selected?.approvals).toEqual(p.approvals); expect(restored.selected?.history).toEqual(p.history);
+  expect(await controller.planning(handoverQuery)).toEqual(document);
+  await expect(access(runtime)).rejects.toMatchObject({ code: "ENOENT" });
+  await controller.stop(); expect((await readFile(join(root, "saved", "planning.sqlite"))).length).toBeGreaterThan(0);
+}, 30000);

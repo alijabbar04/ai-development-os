@@ -874,11 +874,11 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
       .replaceAll("\r\n", "\n");
     // Check and coverage execute the audit. The two packed jobs reconstruct the
     // published candidate binding. Only those four jobs require full history.
-    expect(workflow.match(/uses: actions\/checkout@/g)).toHaveLength(6);
-    expect(workflow.match(/persist-credentials: false/g)).toHaveLength(6);
+    expect(workflow.match(/uses: actions\/checkout@/g)).toHaveLength(7);
+    expect(workflow.match(/persist-credentials: false/g)).toHaveLength(7);
     expect(workflow.match(/fetch-depth: 0/g)).toHaveLength(4);
     const job = (
-      name: "check" | "audit" | "coverage" | "postgres" | "packed-consumer" | "credential-host-packed",
+      name: "check" | "audit" | "coverage" | "postgres" | "packed-consumer" | "credential-host-packed" | "saved-desktop",
       next: string,
     ): string => {
       const start = workflow.indexOf(`  ${name}:\n`);
@@ -897,9 +897,13 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
     );
     const credentialHostPacked = job(
       "credential-host-packed",
+      "  saved-desktop:\n",
+    );
+    const savedDesktop = job(
+      "saved-desktop",
       "# What this workflow deliberately does NOT do",
     );
-    for (const body of [check, audit, coverage, postgres, packedConsumer, credentialHostPacked]) {
+    for (const body of [check, audit, coverage, postgres, packedConsumer, credentialHostPacked, savedDesktop]) {
       expect(body.match(/uses: actions\/checkout@/g)).toHaveLength(1);
       expect(body.match(/persist-credentials: false/g)).toHaveLength(1);
     }
@@ -909,6 +913,12 @@ describe("Stage 18 audit-overlay-bound completeness audit", () => {
     expect(credentialHostPacked.match(/fetch-depth: 0/g)).toHaveLength(1);
     expect(audit).not.toContain("fetch-depth:");
     expect(postgres).not.toContain("fetch-depth:");
+    // The saved child packs current files; it does not reconstruct an earlier
+    // audit subject. Keep the existing full-history grant narrow.
+    expect(savedDesktop).not.toContain("fetch-depth:");
+    expect(savedDesktop).toContain("run: npm run verify:runtime --workspace @ai-dev-os/desktop-shell");
+    expect(savedDesktop).toContain("run: npm run smoke:real --workspace @ai-dev-os/desktop-shell");
+    expect(savedDesktop).toContain("run: npm run verify:packed-runtime --workspace @ai-dev-os/desktop-shell");
   });
 
   it("binds operator-authorized inputs to every row without authorizing their outcome", () => {

@@ -9,7 +9,7 @@
  * `npm run build` have produced every workspace's `dist/`.
  *
  * What it proves, at the exact checked-out head:
- *   1. `npm pack` over the seven consumer-relevant workspaces yields tarballs
+ *   1. `npm pack` over the complete consumer-relevant closure yields tarballs
  *      containing ONLY `package.json`, `README.md`, and `dist/**` — no tests,
  *      no fixtures, no sources.
  *   2. A fresh, task-owned consumer directory can install exactly those
@@ -129,7 +129,7 @@ mkdirSync(join(consumerDirectory, "reader"), { recursive: true });
 evidence.push(["consumer.workRootKind", process.env["RUNNER_TEMP"] ? "runner-temp" : "os-temp"]);
 
 // --------------------------------------------------------------------------
-// 1. Pack the seven workspaces from the exact checked-out head.
+// 1. Pack the application runtime closure from the exact checked-out head.
 // --------------------------------------------------------------------------
 
 const tarballRelativePaths = {};

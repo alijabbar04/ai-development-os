@@ -58,6 +58,10 @@ const EXPECTED_C7_AGGREGATE_TYPES = Object.freeze([
   "project-stop",
 ] as const);
 
+const EXPECTED_CURRENT_AGGREGATE_TYPES = Object.freeze([
+  ...EXPECTED_C7_AGGREGATE_TYPES, "planning-command", "planning-workspace", "planning-handover",
+] as const);
+
 function physicalConstraintVocabulary(definition: unknown): readonly string[] {
   if (typeof definition !== "string") throw new Error("Expected a PostgreSQL constraint definition.");
   return Object.freeze([...definition.matchAll(/'([^']+)'::text/gu)].map((match) => match[1]!));
@@ -303,7 +307,7 @@ if (live === null) {
           throw new Error("Expected both migration startups to complete.");
         }
         expect(await first.migrationStatus()).toMatchObject({ pending: [], databaseSchemaAhead: false });
-        expect((await second.migrationStatus()).applied).toHaveLength(4);
+        expect((await second.migrationStatus()).applied).toHaveLength(5);
         await Promise.all([first.close(), second.close()]);
       } finally {
         await Promise.allSettled([first?.close(), second?.close()]);
@@ -315,7 +319,7 @@ if (live === null) {
       const schema = uniqueLiveSchema("c7_fresh_constraint_parity");
       const adapter = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
       try {
-        expect(AGGREGATE_TYPES).toEqual(EXPECTED_C7_AGGREGATE_TYPES);
+        expect(AGGREGATE_TYPES).toEqual(EXPECTED_CURRENT_AGGREGATE_TYPES);
         await withRawPool(live, async (pool) => {
           const constraints = await pool.query(
             `SELECT c.conname, pg_catalog.pg_get_constraintdef(c.oid, true) AS definition
@@ -330,11 +334,11 @@ if (live === null) {
           expect(constraints.rows).toHaveLength(2);
           for (const row of constraints.rows) {
             expect(physicalConstraintVocabulary(row["definition"]), String(row["conname"]))
-              .toEqual(EXPECTED_C7_AGGREGATE_TYPES);
+              .toEqual(EXPECTED_CURRENT_AGGREGATE_TYPES);
           }
           const planted = [...physicalConstraintVocabulary(constraints.rows[0]?.["definition"])] as string[];
           planted[planted.length - 1] = "project-stopped";
-          expect(() => expect(planted).toEqual(EXPECTED_C7_AGGREGATE_TYPES)).toThrow();
+          expect(() => expect(planted).toEqual(EXPECTED_CURRENT_AGGREGATE_TYPES)).toThrow();
         });
       } finally {
         await adapter.close();
@@ -343,7 +347,7 @@ if (live === null) {
     });
 
     it("upgrades every released schema prefix and preserves old aggregate and event bytes", async () => {
-      for (const prefixLength of [1, 2, 3] as const) {
+      for (const prefixLength of [1, 2, 3, 4] as const) {
         const schema = uniqueLiveSchema(`c7_upgrade_prefix_${prefixLength}`);
         let prefix: Awaited<ReturnType<typeof createPostgresPersistenceAdapterForTesting>> | undefined;
         let upgraded: Awaited<ReturnType<typeof createPostgresPersistenceAdapter>> | undefined;
@@ -422,12 +426,12 @@ if (live === null) {
       }
     });
 
-    it("rolls back a failing C7 migration completely and resumes with the corrected bytes", async () => {
-      const schema = uniqueLiveSchema("c7_migration_resume");
-      const releasedPrefix = Object.freeze(POSTGRES_MIGRATIONS.slice(0, 3));
+    it.each([3, 4])("rolls back a failing extension after prefix %s and resumes with the corrected bytes", async (prefixLength) => {
+      const schema = uniqueLiveSchema(`extension_migration_resume_${prefixLength}`);
+      const releasedPrefix = Object.freeze(POSTGRES_MIGRATIONS.slice(0, prefixLength));
       const failingC7 = Object.freeze({
-        id: "0004-project-persistence-aggregates",
-        content: `${POSTGRES_MIGRATIONS[3]!.content}\nCREATE TABLE migration failure syntax`,
+        id: POSTGRES_MIGRATIONS[prefixLength]!.id,
+        content: `${POSTGRES_MIGRATIONS[prefixLength]!.content}\nCREATE TABLE migration failure syntax`,
       }) satisfies MigrationDefinition;
       let prefix: Awaited<ReturnType<typeof createPostgresPersistenceAdapterForTesting>> | undefined;
       let resumed: Awaited<ReturnType<typeof createPostgresPersistenceAdapter>> | undefined;
@@ -442,7 +446,7 @@ if (live === null) {
           migrations: Object.freeze([...releasedPrefix, failingC7]),
         })).rejects.toMatchObject({
           code: "MIGRATION_FAILED",
-          details: { migrationId: "0004-project-persistence-aggregates" },
+          details: { migrationId: POSTGRES_MIGRATIONS[prefixLength]!.id },
         });
 
         await withRawPool(live, async (pool) => {
@@ -461,7 +465,7 @@ if (live === null) {
           );
           expect(constraints.rows).toHaveLength(2);
           for (const row of constraints.rows) {
-            expect(physicalConstraintVocabulary(row["definition"]), String(row["conname"])).toEqual([
+            expect(physicalConstraintVocabulary(row["definition"]), String(row["conname"])).toEqual(prefixLength === 4 ? EXPECTED_C7_AGGREGATE_TYPES : [
               "artifact-manifest", "budget-account", "evaluation-run", "integration-run",
               "project", "product-plan", "task-graph", "task-run", "telemetry-ledger", "worker-run",
             ]);
@@ -469,7 +473,7 @@ if (live === null) {
         });
 
         resumed = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
-        expect((await resumed.migrationStatus()).applied).toHaveLength(4);
+        expect((await resumed.migrationStatus()).applied).toHaveLength(5);
       } finally {
         await Promise.allSettled([prefix?.close(), resumed?.close()]);
         await dropLiveSchema(live, schema);
@@ -546,11 +550,12 @@ if (live === null) {
                 "0002-evaluation-run-aggregate",
                 "0003-integration-run-aggregate",
                 "0004-project-persistence-aggregates",
+                "0005-saved-planning-aggregates",
               ]);
               await pool.query(
                 `INSERT INTO "${schema}".schema_migrations
                    (id, checksum_algorithm, checksum_hex, applied_at, ordinal)
-                 VALUES ('9999-future-schema','sha-256',$1,'2026-08-10T22:00:00.000Z',5)`,
+                 VALUES ('9999-future-schema','sha-256',$1,'2026-08-10T22:00:00.000Z',6)`,
                 ["a".repeat(64)],
               );
             }

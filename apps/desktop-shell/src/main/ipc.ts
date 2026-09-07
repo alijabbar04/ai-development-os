@@ -10,6 +10,7 @@ import {
   type DesktopSnapshot,
 } from "../shared/contracts.js";
 import { assertDesktopIpcEvent, parseDesktopRequest } from "./ipc-schema.js";
+import { parsePlanningQuery, type PlanningQuery, type PlanningReply } from "../shared/planning-ipc.js";
 
 export interface DesktopIpcActions {
   snapshot(): DesktopSnapshot;
@@ -18,6 +19,7 @@ export interface DesktopIpcActions {
   setPreferences(preferences: DesktopPreferences): Promise<DesktopSnapshot>;
   relaunch(): Promise<void>;
   quit(): Promise<void>;
+  planning(query: PlanningQuery): Promise<PlanningReply>;
 }
 
 export interface DesktopIpcBoundary {
@@ -96,6 +98,12 @@ export function installDesktopIpc(ipcMain: IpcMain, boundary: DesktopIpcBoundary
     });
     invoke(DESKTOP_CHANNELS.relaunch, async () => { await boundary.actions.relaunch(); return Object.freeze({ completed: true as const }); });
     invoke(DESKTOP_CHANNELS.quit, async () => { await boundary.actions.quit(); return Object.freeze({ completed: true as const }); });
+    for (const channel of [DESKTOP_CHANNELS.planningSnapshot, DESKTOP_CHANNELS.planningCommand, DESKTOP_CHANNELS.planningObserve, DESKTOP_CHANNELS.planningHandover]) {
+      invoke(channel, async (request) => {
+        if (!("planning" in request)) throw new Error("INVALID_REQUEST");
+        return await boundary.actions.planning(parsePlanningQuery(request.planning));
+      });
+    }
     return dispose;
   } catch (error) {
     dispose();

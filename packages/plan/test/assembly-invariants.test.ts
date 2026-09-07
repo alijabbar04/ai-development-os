@@ -85,7 +85,7 @@ describe("P-1/P-2 graph and record invariants", () => {
       ["plan.proposal.malformed", (plan) => { ((plan["stages"] as Record<string, unknown>[])[0]!)["gate"] = "automatic"; }],
       ["plan.task.not-pending", (plan) => { ((plan["tasks"] as Record<string, unknown>[])[0]!)["state"] = "ready"; }],
       ["plan.proposal.malformed", (plan) => { ((plan["tasks"] as Record<string, unknown>[])[0]!)["idempotencyClass"] = "replayable"; }],
-      ["plan.seal.approval-binding", (plan) => { plan["state"] = "sealed"; plan["sealedAt"] = T1; plan["sealedByApprovalId"] = "apr:forged"; }],
+      ["plan.proposal.malformed", (plan) => { plan["sealedByApprovalId"] = "apr:forged"; }],
       ["plan.state.out-of-scope", (plan) => { plan["state"] = "executing"; plan["sealedAt"] = T1; }],
     ];
     for (const [expected, mutate] of cases) {

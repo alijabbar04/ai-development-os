@@ -12,6 +12,18 @@
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
+    },
+    "./planning-storage": {
+      "types": "./dist/planning-storage.d.ts",
+      "import": "./dist/planning-storage.js"
+    },
+    "./planning-contracts": {
+      "types": "./dist/planning-contracts.d.ts",
+      "import": "./dist/planning-contracts.js"
+    },
+    "./planning": {
+      "types": "./dist/planning.d.ts",
+      "import": "./dist/planning.js"
     }
   },
   "files": [
@@ -19,7 +31,7 @@
     "README.md"
   ],
   "scripts": {
-    "prebuild": "npm --prefix ../scheduler run build && npm --prefix ../persistence-sqlite run build && npm --prefix ../persistence-postgres run build",
+    "prebuild": "npm --prefix ../scheduler run build && npm --prefix ../persistence-sqlite run build && npm --prefix ../persistence-postgres run build && npm --prefix ../plan run build && npm --prefix ../approval run build",
     "build": "tsc -p tsconfig.json",
     "pretest": "npm run build && npm --prefix ../persistence-memory run build",
     "test": "vitest run",
@@ -33,7 +45,11 @@
     "@ai-dev-os/persistence": "^0.1.0",
     "@ai-dev-os/persistence-postgres": "^0.1.0",
     "@ai-dev-os/persistence-sqlite": "^0.1.0",
-    "@ai-dev-os/scheduler": "^0.1.0"
+    "@ai-dev-os/scheduler": "^0.1.0",
+    "@ai-dev-os/project": "^0.1.0",
+    "@ai-dev-os/intake": "^0.1.0",
+    "@ai-dev-os/plan": "^0.1.0",
+    "@ai-dev-os/approval": "^0.1.0"
   },
   "devDependencies": {
     "@ai-dev-os/persistence-memory": "^0.1.0",

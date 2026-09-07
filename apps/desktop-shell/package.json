@@ -6,21 +6,26 @@
   "type": "module",
   "main": "dist/main/startup.js",
   "scripts": {
-    "prebuild": "npm --prefix ../../packages/control-service run build && npm --prefix ../../packages/project run build && npm --prefix ../../packages/plan run build",
+    "prebuild": "npm --prefix ../../packages/control-service run build && npm --prefix ../../packages/project run build && npm --prefix ../../packages/plan run build && npm --prefix ../../packages/application run build",
     "build": "tsc -p tsconfig.json && node scripts/copy-renderer.mjs",
     "pretypecheck": "npm run prebuild",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "npm run build",
-    "test": "vitest run",
+    "test": "node scripts/prepare-test-runtime.mjs && vitest run",
     "pretest:coverage": "npm run build",
-    "test:coverage": "vitest run --coverage",
-    "prestart": "npm run build",
+    "test:coverage": "node scripts/prepare-test-runtime.mjs && vitest run --coverage",
+    "prestart": "npm run build && npm run prepare:runtime && npm run prepare:electron",
     "start": "node scripts/launch-desktop.mjs",
-    "presmoke:real": "npm run build",
-    "smoke:real": "node scripts/real-electron-smoke.mjs"
+    "presmoke:real": "npm run build && npm run prepare:runtime && npm run prepare:electron",
+    "smoke:real": "node scripts/real-electron-smoke.mjs",
+    "prepare:runtime": "node scripts/prepare-owned-runtime.mjs",
+    "verify:runtime": "node scripts/verify-owned-runtime.mjs",
+    "verify:packed-runtime": "node scripts/verify-packed-runtime.mjs",
+    "prepare:electron": "node scripts/ensure-electron-runtime.mjs"
   },
   "dependencies": {
-    "@ai-dev-os/control-service": "0.1.0"
+    "@ai-dev-os/control-service": "0.1.0",
+    "@ai-dev-os/application": "0.1.0"
   },
   "devDependencies": {
     "@ai-dev-os/plan": "^0.1.0",
@@ -33,5 +38,12 @@
   "engines": {
     "node": ">=22.12.0",
     "npm": ">=10.0.0"
-  }
+  },
+  "files": [
+    "dist",
+    "scripts/electron-environment.mjs",
+    "scripts/launch-desktop.mjs",
+    "runtime-pin.json",
+    ".runtime"
+  ]
 }

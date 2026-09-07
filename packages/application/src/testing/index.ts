@@ -10,3 +10,4 @@ export {
   createAccountManagerSupportedUsageAdapterForTesting,
   type AccountManagerSupportedReader,
 } from "../account-manager-usage.js";
+export { seedOwnedPlanningHistoryForTesting, verifyOwnedPlanningHistoryForTesting } from "./planning-history-fixture.js";

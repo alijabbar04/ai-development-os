@@ -1,25 +1,35 @@
-# AI Development OS desktop shell
+# AI Development OS saved Windows workspace
 
-This package is the first development-only Windows workspace for **AI Powerhouse**. It opens a hardened Electron window, starts one disposable child control service owned by that window, verifies the service through the published nonce-before-bearer adoption flow, and then closes the verification connection. The status shown in the UI is an observation with an age, not a claim that a socket remains connected.
+This development app saves local projects, accepted briefs, manually edited plans, exact scope approvals, project stops and planning handovers. It uses one application-owned SQLite store. It does not launch AI tasks or spend money.
 
-From the repository root:
+From the repository root, with Windows x64 Node **24.17.0** and the lockfile dependencies installed:
 
 ```powershell
 npm run start:desktop
 ```
 
-The first-light journey provides Home, Projects, Approvals, Usage, and Settings. Project intake, brief revisions, plans, and approvals are isolated synthetic examples. Example interactions update memory only and deliberately do not save a project, approve scope, run a task, contact a provider, or access credentials.
+The command builds the app, prepares its private hash-pinned Node child runtime, and restores the exact checksummed Electron **43.4.1** runtime if needed. The visible launcher strips inherited Electron, Node and credential controls. It never runs Electron as Node or rebuilds the repository SQLite addon for the Electron ABI. This is a source development launch, not an installer release.
 
-## Architecture and authority
+## Saved workflow
 
-- Electron main owns the child process, its unique runtime directory, adoption verification, benign preferences, lifecycle, and cleanup.
-- The child imports the public `startControlService` API and receives an empty, explicitly synthetic projection dataset. It has no provider, project, credential, account, task, repository, or operator data.
-- Preload exposes a finite frozen bridge. The renderer has no Node, filesystem, process, network, descriptor, nonce, bearer, or generic invoke access.
-- A custom protocol serves an exact asset allowlist with `connect-src 'none'`. The window is sandboxed, context-isolated, Node-disabled, popup/navigation/permission-denied, and fixed to Electron 43.4.1.
-- Normal and Developer presentation use the control service's existing mode vocabulary and have identical `authority: "none"` and empty command sets. Changing presentation restarts only this app's owned synthetic service. Developer presentation adds received diagnostics, not verbs or authority.
-- Only `presentationMode`, `textScale`, and first-launch acknowledgement are persisted beneath this app's dedicated development data root. There is no project/draft/approval database and no secret entry.
-- The 30-second visible-window and 20-second service-ready deadlines are constants. A failed first start does not offer recovery before the readiness deadline. At the deadline it offers Relaunch, Quit, and Open read-only; read-only is disabled unless a genuine cached safe observation exists.
+1. Create a project, enter its description and local planning budget, and choose one repository through the native folder picker. Inspection reads only bounded manifest metadata and Git HEAD/reference files. It runs no repository command, hook or instruction, and does not verify the referenced Git object or dirty state.
+2. Edit the brief candidate, answer any clarification, and accept the exact brief in the separate main-owned confirmation window. Unaccepted candidates stay in memory and are lost on close or service restart.
+3. Enter a structured manual plan. Save and prepare it. Required scope approval consumes the exact approval and seals the plan in one transaction. Review content comes from saved records; renderer text cannot grant authority.
+4. Quit and reopen to recover the same saved records and journal. A service loss leaves saved data intact; use **Home > Retry**. An unconfirmed write shows **Observe outcome**. Reconcile it before submitting a new action. Stale or conflicting content requires **Reload** and a fresh review.
+5. **Stop project** blocks supported local mutations. **Resume project** restores those operations and starts no process or task. Historical money records with trusted original receipts can accept legal operator reports while stopped or after binding drift; these reports do not change the original approval, amount or consumption count.
+6. Export a planning handover, reopen its saved content, and use its return template to attach a manually supplied JSON result through the native file picker. Handovers grant no authority and contain no execution IDs. Results remain attributed, untrusted operator reports; stale bindings are displayed explicitly.
 
-The presentation adapter uses type-only `Pick` contracts from the public C6 `ProjectBrief`, `ProjectSummaryProjection`, `ProjectPlan`, and `ApprovalRequest` types plus the public C9 plan action type. A later application owner can supply real, already-projected inputs without replacing renderer components. That later owner must compose durable C7/C8/C9/C10 application operations and exact authority checks; this shell intentionally invents no project endpoints or write commands.
+Projects, SQLite journals and handover artifacts live beneath `%APPDATA%/AI Development OS/desktop-shell-development/saved-workspace`. Preferences and disposable service transport directories are separate. The child drains operations and closes SQLite before cleanup; unknown live resources are preserved. SQLite uses DELETE journaling with FULL synchronization for acknowledged decisions. An OS lifetime lock permits only one owner of a saved store.
 
-No new third-party dependency was introduced. Electron 43.4.1 and the control-service/Fastify graph were already pinned in the accepted base; the added workspace only reuses them.
+## Boundaries and validation
+
+Normal and Developer presentation have the same actions and authority. The private bridge has finite typed operations; the six HTTP routes remain read-only. The renderer has no Node, filesystem, process, network, descriptor, bearer or generic invoke access. Both workspace and confirmation windows retain sandboxing, context isolation, restrictive CSP and exact sender/frame/session checks. The workspace keeps its 1024x720 minimum, 30-second visible-window deadline and 20-second service readiness deadline.
+
+The real Electron smoke uses an explicitly owned synthetic repository and data root. It exercises the DOM, real main-owned confirmations, the pinned child and SQLite; native folder/result selections and past-money fixture seeding are explicitly synthetic. It covers save/reopen, lost acknowledgment, service loss, stale view, stop/resume, handover/manual return, historical binding drift, scaling, reduced motion and forced colours. The packed-runtime gate installs fresh tarballs and proves the installed pinned child can save, seal and reopen actual SQLite.
+
+```powershell
+npm run smoke:real --workspace @ai-dev-os/desktop-shell
+npm run verify:packed-runtime --workspace @ai-dev-os/desktop-shell
+```
+
+Planning is manual. Provider access, live usage, quote retrieval, purchases, payments, AI task execution, production admission, installer release and PLN-02 remain unavailable. Synthetic examples and compatibility fixtures stay outside the saved workflow production entry points.

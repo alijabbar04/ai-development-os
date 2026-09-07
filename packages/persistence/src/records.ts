@@ -8,7 +8,7 @@ const { ensureNullable, ensureSafeInteger, ensureString, ensureTimestamp, fail }
   validation;
 
 /**
- * Aggregate types persisted through Stage 20 C7. This union is deliberately
+ * Aggregate types through C7 and the saved planning workspace. This union is deliberately
  * closed: later stages extend it only when their aggregates exist, so the
  * storage layer never accepts unknown aggregate kinds.
  */
@@ -33,6 +33,9 @@ export const AGGREGATE_TYPES = Object.freeze([
   "communication-thread",
   "external-integration",
   "project-stop",
+  "planning-command",
+  "planning-workspace",
+  "planning-handover",
 ] as const);
 
 export type AggregateType = (typeof AGGREGATE_TYPES)[number];

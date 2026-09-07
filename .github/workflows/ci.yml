@@ -99,7 +99,7 @@ jobs:
         with:
           # Satisfies the repository's declared engines (node >= 22.9) and matches
           # the version the delivered stages were measured on.
-          node-version: 24
+          node-version: 24.17.0
           cache: npm
 
       # Lockfile-exact install. `npm ci` fails rather than resolving a different
@@ -163,7 +163,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 24.17.0
           cache: npm
 
       - run: npm ci --ignore-scripts
@@ -197,7 +197,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 24.17.0
           cache: npm
 
       - run: npm ci
@@ -250,7 +250,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 24.17.0
           cache: npm
 
       - run: npm ci
@@ -265,8 +265,8 @@ jobs:
   # This job exists because the equivalent one-shot LOCAL packed-consumer
   # command was refused by a platform safety control and is permanently
   # consumed for that task; the repeatable, reviewable, repository-owned
-  # replacement runs here on every push instead. It packs the seven
-  # consumer-relevant workspaces from the exact checked-out head, installs
+  # replacement runs here on every push instead. It packs the complete
+  # application runtime closure from the exact checked-out head, installs
   # those tarballs into a fresh task-owned consumer directory on the runner
   # with lifecycle scripts disabled, verifies the dependency graph and the
   # high-severity audit, and then proves the documented production entry
@@ -299,7 +299,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 24.17.0
           cache: npm
 
       - run: npm ci --ignore-scripts
@@ -331,12 +331,35 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 24
+          node-version: 24.17.0
           cache: npm
 
       - run: npm ci
 
       - run: npm run verify:credential-host-packed
+
+  # The saved workspace's SQLite child uses a separately owned, hash-pinned
+  # Windows Node runtime. Exercise both the actual app and the installed packed
+  # dependency closure; a source-tree addon or earlier desktop summary cannot
+  # stand in for this exact-HEAD proof.
+  saved-desktop:
+    name: saved desktop and packed runtime (windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.17.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace @ai-dev-os/desktop-shell
+      - run: npm run prepare:runtime --workspace @ai-dev-os/desktop-shell
+      - run: npm run verify:runtime --workspace @ai-dev-os/desktop-shell
+      - run: npm run smoke:real --workspace @ai-dev-os/desktop-shell
+      - run: npm run verify:packed-runtime --workspace @ai-dev-os/desktop-shell
 
 # What this workflow deliberately does NOT do, recorded so nobody adds it by
 # assuming it was forgotten:

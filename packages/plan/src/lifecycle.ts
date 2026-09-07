@@ -179,10 +179,14 @@ export function rejectPlanScope(plan: ProjectPlan, updatedAt: string): ProjectPl
   return fold(plan, "scope-rejected", updatedAt);
 }
 
-export function sealProposedPlan(plan: ProjectPlan, sealedAt: string): ProjectPlan {
+export function consumePlanScopeApproval(plan: ProjectPlan, updatedAt: string): ProjectPlan {
+  return fold(plan, "scope-approval-consumed", updatedAt);
+}
+
+export function sealProposedPlan(plan: ProjectPlan, sealedAt: string, sealedByApprovalId: string | null = null): ProjectPlan {
   const state = transition(PLAN_STATE_MACHINE, plan.state, "seal");
   try {
-    return parseProjectPlan({ ...plan, state, sealedAt, sealedByApprovalId: null, updatedAt: sealedAt });
+    return parseProjectPlan({ ...plan, state, sealedAt, sealedByApprovalId, updatedAt: sealedAt });
   } catch {
     return refusePlan("PLAN_PRECONDITION_REFUSED", "plan.state.illegal", "planSeal");
   }

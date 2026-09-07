@@ -58,6 +58,9 @@ const C7_PROJECT_AGGREGATE_TYPES = Object.freeze([
 const EXPECTED_AGGREGATE_TYPES = Object.freeze([
   ...ORIGINAL_AGGREGATE_TYPES,
   ...C7_PROJECT_AGGREGATE_TYPES,
+  "planning-command",
+  "planning-workspace",
+  "planning-handover",
 ] as const);
 
 type Equal<Left, Right> =
@@ -71,11 +74,11 @@ type _AggregateTypeRuntimeParity = Assert<
 const T0 = "2026-08-02T12:00:00.000Z";
 
 describe("record validation", () => {
-  it("keeps the exact independently enumerated 20-member aggregate vocabulary", () => {
+  it("keeps the exact independently enumerated 23-member aggregate vocabulary", () => {
     expect(ORIGINAL_AGGREGATE_TYPES).toHaveLength(10);
     expect(C7_PROJECT_AGGREGATE_TYPES).toHaveLength(10);
     expect(AGGREGATE_TYPES).toEqual(EXPECTED_AGGREGATE_TYPES);
-    expect(new Set(AGGREGATE_TYPES).size).toBe(20);
+    expect(new Set(AGGREGATE_TYPES).size).toBe(23);
     for (const aggregateType of EXPECTED_AGGREGATE_TYPES) {
       expect(parseAggregateType(aggregateType)).toBe(aggregateType);
     }

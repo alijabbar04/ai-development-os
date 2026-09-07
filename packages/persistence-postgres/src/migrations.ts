@@ -123,6 +123,18 @@ ALTER TABLE events ADD CONSTRAINT events_aggregate_type_check
   CHECK (aggregate_type IN ('artifact-manifest','budget-account','evaluation-run','integration-run','project','product-plan','task-graph','task-run','telemetry-ledger','worker-run','project-brief','project-plan','agent-session','handover','approval-request','spending-request','notification','communication-thread','external-integration','project-stop'));
 `,
   }),
+  Object.freeze({
+    id: "0005-saved-planning-aggregates",
+    content: `
+ALTER TABLE aggregates DROP CONSTRAINT aggregates_aggregate_type_check;
+ALTER TABLE aggregates ADD CONSTRAINT aggregates_aggregate_type_check
+  CHECK (aggregate_type IN ('artifact-manifest','budget-account','evaluation-run','integration-run','project','product-plan','task-graph','task-run','telemetry-ledger','worker-run','project-brief','project-plan','agent-session','handover','approval-request','spending-request','notification','communication-thread','external-integration','project-stop','planning-command','planning-workspace','planning-handover'));
+
+ALTER TABLE events DROP CONSTRAINT events_aggregate_type_check;
+ALTER TABLE events ADD CONSTRAINT events_aggregate_type_check
+  CHECK (aggregate_type IN ('artifact-manifest','budget-account','evaluation-run','integration-run','project','product-plan','task-graph','task-run','telemetry-ledger','worker-run','project-brief','project-plan','agent-session','handover','approval-request','spending-request','notification','communication-thread','external-integration','project-stop','planning-command','planning-workspace','planning-handover'));
+`,
+  }),
 ]);
 
 const MIGRATION_LOCK_NAMESPACE = 1_092_874_307;

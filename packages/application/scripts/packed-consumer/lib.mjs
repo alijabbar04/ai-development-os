@@ -17,7 +17,7 @@
 
 import { createHash } from "node:crypto";
 
-/** The seven workspaces a real consumer of the AM-02 surface installs. */
+/** The full first-party runtime closure of the application package. */
 export const REPOSITORY_PACKAGES = Object.freeze([
   Object.freeze({ name: "@ai-dev-os/domain", directory: "packages/domain" }),
   Object.freeze({ name: "@ai-dev-os/artifacts", directory: "packages/artifacts" }),
@@ -31,6 +31,12 @@ export const REPOSITORY_PACKAGES = Object.freeze([
     directory: "packages/persistence-postgres",
   }),
   Object.freeze({ name: "@ai-dev-os/scheduler", directory: "packages/scheduler" }),
+  Object.freeze({ name: "@ai-dev-os/providers", directory: "packages/providers" }),
+  Object.freeze({ name: "@ai-dev-os/task-graph", directory: "packages/task-graph" }),
+  Object.freeze({ name: "@ai-dev-os/project", directory: "packages/project" }),
+  Object.freeze({ name: "@ai-dev-os/intake", directory: "packages/intake" }),
+  Object.freeze({ name: "@ai-dev-os/plan", directory: "packages/plan" }),
+  Object.freeze({ name: "@ai-dev-os/approval", directory: "packages/approval" }),
   Object.freeze({ name: "@ai-dev-os/application", directory: "packages/application" }),
 ]);
 
