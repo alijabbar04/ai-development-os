@@ -15,12 +15,41 @@ import { createCanonicalTemporaryRoot } from "./temporary-root.js";
 const roots: string[] = [];
 const servers: ReturnType<typeof createServer>[] = [];
 const rawServers: NetServer[] = [];
+const pendingFixtures: Promise<void>[] = [];
+const pendingReplies: Promise<void>[] = [];
+
+interface RawFixtureResources {
+  roots: string[];
+  servers: NetServer[];
+  replies: Promise<void>[];
+}
+const defaultRawResources: RawFixtureResources = { roots, servers: rawServers, replies: pendingReplies };
+
+async function disposeRawFixture(owned: RawFixtureResources): Promise<void> {
+  const replies = await Promise.allSettled(owned.replies);
+  for (const server of owned.servers) await new Promise<void>((resolve) => server.close(() => resolve()));
+  for (const root of owned.roots) await rm(root, { recursive: true, force: true });
+  for (const reply of replies) if (reply.status === "rejected") throw reply.reason;
+}
+
+function runFixture(operation: (owned: RawFixtureResources) => Promise<void>): Promise<void> {
+  const owned: RawFixtureResources = { roots: [], servers: [], replies: [] };
+  const pending = (async () => {
+    try { await operation(owned); }
+    finally { await disposeRawFixture(owned); }
+  })();
+  pendingFixtures.push(pending);
+  return pending;
+}
 const NOW = "2026-08-26T10:00:00.000Z";
 
 afterEach(async () => {
-  for (const server of servers.splice(0)) await new Promise<void>((resolve) => server.close(() => resolve()));
-  for (const server of rawServers.splice(0)) await new Promise<void>((resolve) => server.close(() => resolve()));
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+  // Snapshot this test before awaiting; a timed-out hook must not collect a later test.
+  const owned = { roots: roots.splice(0), servers: rawServers.splice(0), replies: pendingReplies.splice(0) };
+  const httpServers = servers.splice(0);
+  await Promise.allSettled(pendingFixtures.splice(0));
+  for (const server of httpServers) await new Promise<void>((resolve) => server.close(() => resolve()));
+  await disposeRawFixture(owned);
 });
 
 function envelope(payload: Record<string, unknown>, serverNow = NOW): string {
@@ -30,11 +59,15 @@ function envelope(payload: Record<string, unknown>, serverNow = NOW): string {
   });
 }
 
-async function rawFixture(respond: (socket: Socket) => void): Promise<number> {
+async function rawFixture(respond: (socket: Socket) => void | Promise<void>, owned = defaultRawResources): Promise<number> {
   const server = createNetServer((socket) => {
-    socket.once("data", () => { respond(socket); });
+    socket.once("data", () => {
+      const reply = Promise.resolve().then(() => respond(socket));
+      owned.replies.push(reply);
+      void reply.catch(() => { socket.destroy(); });
+    });
   });
-  rawServers.push(server);
+  owned.servers.push(server);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -64,9 +97,9 @@ async function fixture(handler: Parameters<typeof createServer>[0]): Promise<{ s
   return { server, port: address.port };
 }
 
-async function storeDescriptor(port: number, byte = 11): Promise<{ descriptor: ConnectionDescriptor; store: ReturnType<typeof createControlArtifactStore> }> {
+async function storeDescriptor(port: number, byte = 11, owned = defaultRawResources): Promise<{ descriptor: ConnectionDescriptor; store: ReturnType<typeof createControlArtifactStore> }> {
   const directory = await createCanonicalTemporaryRoot("ai-dev-os-adopt-");
-  roots.push(directory);
+  owned.roots.push(directory);
   const store = createControlArtifactStore({ root: directory });
   await store.prepare();
   const identity = createLaunchIdentity({ now: NOW, random: (size) => Buffer.alloc(size, byte) });
@@ -262,49 +295,51 @@ describe("C3 nonce-before-bearer adoption", () => {
     expect(performance.now() - started).toBeLessThan(250);
   });
 
-  it("strictly refuses malformed or unbounded HTTP response framing", async () => {
+  // Each independent real-I/O vector receives the unchanged default test budget.
+  const complete = [
+    "HTTP/1.0 200 OK\r\nContent-Length: 0\r\nContent-Type: application/json\r\n\r\n",
+    "HTTP/1.1 200 OK\r\nBad Header: value\r\nContent-Length: 0\r\nContent-Type: application/json\r\n\r\n",
+    "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nContent-Length: 0\r\nContent-Type: application/json\r\n\r\n",
+    "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: application/json\r\n\r\n0\r\n\r\n",
+    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n",
+    `HTTP/1.1 200 OK\r\nX-Pad: ${"x".repeat(4_100)}\r\nContent-Length: 0\r\n\r\n`,
+    "HTTP/1.1 200 OK\r\nX-Non-Ascii: \u0080\r\nContent-Length: 0\r\n\r\n",
+  ];
+  it.each(complete.map((response, index) => ({ response, index })))(
+    "strictly refuses malformed HTTP framing vector $index",
+    ({ response, index }) => runFixture(async (owned) => {
+      const port = await rawFixture((socket) => { socket.write(response); }, owned);
+      const { store } = await storeDescriptor(port, 30 + index, owned);
+      await expect(adoptExistingControlService({ store, timeoutMs: 200 }))
+        .rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
+    }),
+  );
+
+  it("refuses framing delivered in delayed partial chunks", () => runFixture(async (owned) => {
     const validBody = envelope({
       serviceVersion: "0.1.0", startNonce: "f".repeat(32), presentationMode: "normal", ready: true,
     });
-    const complete = [
-      "HTTP/1.0 200 OK\r\nContent-Length: 0\r\nContent-Type: application/json\r\n\r\n",
-      "HTTP/1.1 200 OK\r\nBad Header: value\r\nContent-Length: 0\r\nContent-Type: application/json\r\n\r\n",
-      "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nContent-Length: 0\r\nContent-Type: application/json\r\n\r\n",
-      "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: application/json\r\n\r\n0\r\n\r\n",
-      "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n",
-      `HTTP/1.1 200 OK\r\nX-Pad: ${"x".repeat(4_100)}\r\nContent-Length: 0\r\n\r\n`,
-      "HTTP/1.1 200 OK\r\nX-Non-Ascii: \u0080\r\nContent-Length: 0\r\n\r\n",
-    ];
-    for (const [index, response] of complete.entries()) {
-      const port = await rawFixture((socket) => { socket.write(response); });
-      const { store } = await storeDescriptor(port, 30 + index);
-      await expect(adoptExistingControlService({ store, timeoutMs: 200 }))
-        .rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
-    }
-
-    const partialPort = await rawFixture((socket) => {
+    const partialPort = await rawFixture(async (socket) => {
       const header = `HTTP/1.1 200 OK\r\nContent-Length: ${Buffer.byteLength(validBody, "utf8")}\r\nContent-Type: application/json\r\n\r\n`;
       socket.write(header.slice(0, 12));
-      setTimeout(() => { socket.write(`${header.slice(12)}${validBody}`); }, 5);
-    });
-    const partial = await storeDescriptor(partialPort, 40);
+      await new Promise<void>((resolve) => { setTimeout(resolve, 5); });
+      socket.write(`${header.slice(12)}${validBody}`);
+    }, owned);
+    const partial = await storeDescriptor(partialPort, 40, owned);
     await expect(adoptExistingControlService({ store: partial.store, timeoutMs: 200 }))
       .rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
 
-    const headerFloodPort = await rawFixture((socket) => {
-      socket.write("x".repeat(5_000));
-    });
-    const headerFlood = await storeDescriptor(headerFloodPort, 41);
-    await expect(adoptExistingControlService({ store: headerFlood.store, timeoutMs: 200 }))
-      .rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
+  }));
 
-    const totalFloodPort = await rawFixture((socket) => {
-      socket.write("x".repeat(13_000));
-    });
-    const totalFlood = await storeDescriptor(totalFloodPort, 42);
-    await expect(adoptExistingControlService({ store: totalFlood.store, timeoutMs: 200 }))
+  it.each([
+    { name: "header", bytes: 5_000, identityByte: 41 },
+    { name: "total", bytes: 13_000, identityByte: 42 },
+  ])("refuses unbounded $name framing floods", ({ bytes, identityByte }) => runFixture(async (owned) => {
+    const port = await rawFixture((socket) => { socket.write("x".repeat(bytes)); }, owned);
+    const { store } = await storeDescriptor(port, identityByte, owned);
+    await expect(adoptExistingControlService({ store, timeoutMs: 200 }))
       .rejects.toMatchObject({ code: "ADOPTION_REFUSED" });
-  });
+  }));
 
   it("refuses timeout, malformed JSON, and JSON-adjacent media types without a second request", async () => {
     for (const behavior of ["timeout", "malformed", "jsonp"] as const) {

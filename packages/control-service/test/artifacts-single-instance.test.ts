@@ -14,16 +14,30 @@ import {
 import { createCanonicalTemporaryRoot } from "./temporary-root.js";
 
 const roots: string[] = [];
+const pendingFixtures: Promise<void>[] = [];
+
+function runFixture(operation: (ownedRoots: string[]) => Promise<void>): Promise<void> {
+  const ownedRoots: string[] = [];
+  const pending = (async () => {
+    try { await operation(ownedRoots); }
+    finally { for (const value of ownedRoots) await rm(value, { recursive: true, force: true }); }
+  })();
+  pendingFixtures.push(pending);
+  return pending;
+}
 const NOW = "2026-08-26T10:00:00.000Z";
 
-async function root(): Promise<string> {
+async function root(ownedRoots = roots): Promise<string> {
   const value = await createCanonicalTemporaryRoot("ai-dev-os-c3-");
-  roots.push(value);
+  ownedRoots.push(value);
   return value;
 }
 
 afterEach(async () => {
-  for (const value of roots.splice(0)) await rm(value, { recursive: true, force: true });
+  // Snapshot first; every race owns its cleanup even if this hook also times out.
+  const ownedRoots = roots.splice(0);
+  await Promise.allSettled(pendingFixtures.splice(0));
+  for (const value of ownedRoots) await rm(value, { recursive: true, force: true });
 });
 
 function pair(processId = 700, byte = 3): { descriptor: ConnectionDescriptor; lock: InstanceLock } {
@@ -128,9 +142,11 @@ describe("C3 exact-name artifact store", () => {
     }
   });
 
-  it("serializes cooperating removal and replacement so a new identity is never unlinked", async () => {
-    for (let index = 0; index < 12; index += 1) {
-      const directory = await root();
+  // Preserve all twelve concurrent races, each with its own unchanged test deadline.
+  it.each(Array.from({ length: 12 }, (_, index) => index))(
+    "serializes removal and replacement without unlinking the new identity (race %i)",
+    (index) => runFixture(async (ownedRoots) => {
+      const directory = await root(ownedRoots);
       const store = createControlArtifactStore({ root: directory });
       await store.prepare();
       const oldLease = await store.writeDescriptor(pair(720 + index, 21).descriptor);
@@ -163,8 +179,8 @@ describe("C3 exact-name artifact store", () => {
       expect(removed.status).toBe("fulfilled");
       expect(written.status).toBe("fulfilled");
       expect((await store.readDescriptor()).value).toEqual(replacement);
-    }
-  });
+    }),
+  );
 });
 
 describe("C3 single-instance ownership", () => {

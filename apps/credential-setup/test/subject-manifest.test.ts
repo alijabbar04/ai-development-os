@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { aggregateSubjectFiles, assertManifestEquivalent, collectSubjectManifest, parseNameStatusZ, readCommittedSubjectManifest, serializeSubjectManifest, STAGE_18E_H_MANIFEST_PATH } from "../../../scripts/stage-18e-h-subject-manifest-lib.mjs";
+import { committedBlobFixture } from "./committed-blob-fixture.js";
 
 const file = Object.freeze({ path: "apps/example.txt", changeType: "M", byteCount: 3, blobOid: "1".repeat(40), sha256: "2".repeat(64) });
 
@@ -47,34 +48,17 @@ describe("Stage 18E-H canonical subject manifest", () => {
     expect(serializeSubjectManifest(expected)).not.toContain("\r");
   });
 
-  it("reads exact committed blobs without writing to or trusting the worktree", async () => {
-    const root = await mkdtemp(join(tmpdir(), "ai-dev-os-subject-manifest-"));
-    const git = (...arguments_: readonly string[]): string => execFileSync("git", arguments_, { cwd: root, encoding: "utf8", windowsHide: true }).trim();
-    try {
-      git("init", "--quiet");
-      git("config", "user.email", "manifest-test@example.invalid");
-      git("config", "user.name", "Manifest Test");
-      const target = join(root, "tracked.txt");
-      await writeFile(target, "base\n", "utf8");
-      git("add", "tracked.txt");
-      git("commit", "--quiet", "-m", "base");
-      const baseCommit = git("rev-parse", "HEAD");
-      await writeFile(target, "source\n", "utf8");
-      git("add", "tracked.txt");
-      git("commit", "--quiet", "-m", "source");
-      const sourceCommit = git("rev-parse", "HEAD");
-      await writeFile(target, "dirty-worktree\n", "utf8");
-      const beforeStatus = git("status", "--porcelain=v1", "--untracked-files=all");
+  describe("real committed-blob fixture", () => {
+    const check = committedBlobFixture("tracked.txt", "dirty-worktree\n");
+    it("reads exact committed blobs without writing to or trusting the worktree", () => check(async ({ root, target, baseCommit, sourceCommit, beforeStatus, git }) => {
       const manifest = collectSubjectManifest(root, baseCommit, sourceCommit);
       const afterStatus = git("status", "--porcelain=v1", "--untracked-files=all");
       const record = manifest.files.find((candidate) => candidate.path === "tracked.txt");
-      expect(record).toMatchObject({ byteCount: Buffer.byteLength("source\n"), sha256: createHash("sha256").update("source\n", "utf8").digest("hex") });
+      expect(record).toMatchObject({ blobOid: git("rev-parse", sourceCommit + ":tracked.txt"), byteCount: Buffer.byteLength("source\n"), sha256: createHash("sha256").update("source\n", "utf8").digest("hex") });
       expect(manifest.sourceTree).toBe(git("rev-parse", `${sourceCommit}^{tree}`));
       expect(await readFile(target, "utf8")).toBe("dirty-worktree\n");
       expect(afterStatus).toBe(beforeStatus);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
+    }));
   });
 
   it("reads the committed manifest blob when corrected CRLF worktree bytes would mask it", async () => {

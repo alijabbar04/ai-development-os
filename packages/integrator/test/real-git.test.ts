@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createMemoryPersistenceAdapter } from "@ai-dev-os/persistence-memory";
 import { createSqlitePersistenceAdapter } from "@ai-dev-os/persistence-sqlite";
-import { createGitRuntime, decodeTrimmed, type GitRuntime } from "@ai-dev-os/workspace";
-import { afterEach, describe, expect, it } from "vitest";
+import { decodeTrimmed, type GitRuntime } from "@ai-dev-os/workspace";
+import { describe, expect, it } from "vitest";
+import { fixtureCase, type RealGitFixtureCase } from "./real-git-fixture-case.js";
 import {
   IntegrationError,
   integrationDigest,
@@ -25,6 +25,7 @@ import {
 import { T0, T1, T2, T3, T4, TEST_CLOCK, authorityFor, command, fakePorts, requestInput, validationResult } from "./fixtures.js";
 
 interface Fixture {
+  readonly owner: RealGitFixtureCase;
   readonly root: string;
   readonly repository: string;
   readonly workspaceRoot: string;
@@ -33,18 +34,11 @@ interface Fixture {
   readonly targetTree: string;
   readonly sourceCommit: string;
   readonly sourceTree: string;
-  dispose(): Promise<void>;
 }
 
-const roots = new Set<string>();
 const FIXTURE_PROTECTED_REFS = Object.freeze(["refs/heads/fixture-admin"]);
 const RECOVERY_AT = "2026-08-11T09:05:00.000Z";
 const RECOVERY_CLOCK = Object.freeze({ now: () => new Date(RECOVERY_AT) });
-
-afterEach(async () => {
-  for (const root of roots) await rm(root, { recursive: true, force: true });
-  roots.clear();
-});
 
 async function git(runtime: GitRuntime, cwd: string, args: readonly string[], authorAt = T0): Promise<string> {
   const result = await runtime.runner.run([...runtime.configArguments({ allowLocalFileProtocol: true }), "-C", cwd, ...args], {
@@ -88,27 +82,24 @@ async function fileInventory(root: string, prefix = ""): Promise<readonly string
 async function expectedIntegratorCommit(runtime: GitRuntime, cwd: string, tree: string, target: string, source: string): Promise<string> {
   const privateObjects = await mkdtemp(join(resolve(cwd, ".."), ".expected-integration-objects-"));
   const mainObjects = resolve(cwd, await git(runtime, cwd, ["rev-parse", "--git-path", "objects"]));
-  try {
-    const result = await runtime.runner.run([
-      ...runtime.configArguments(), "-C", cwd, "commit-tree", tree, "-p", target, "-p", source,
-      "-m", "AI Development OS serialized integration",
-    ], {
-      cwd,
-      env: runtime.environment({
-        authorName: "AI Development OS Integrator",
-        authorEmail: "integrator@ai-dev-os.invalid",
-        authorDate: T2,
-        objectDirectory: privateObjects,
-        alternateObjectDirectories: [mainObjects],
-      }),
-      timeoutMs: 30_000,
-      maxOutputBytes: 1024,
-    });
-    if (result.exitCode !== 0) throw new Error("fixture integrator commit could not be derived");
-    return decodeTrimmed(result.stdout);
-  } finally {
-    await rm(privateObjects, { recursive: true, force: true });
-  }
+  // Private objects remain under the case-owned root until complete quiescence.
+  const result = await runtime.runner.run([
+    ...runtime.configArguments(), "-C", cwd, "commit-tree", tree, "-p", target, "-p", source,
+    "-m", "AI Development OS serialized integration",
+  ], {
+    cwd,
+    env: runtime.environment({
+      authorName: "AI Development OS Integrator",
+      authorEmail: "integrator@ai-dev-os.invalid",
+      authorDate: T2,
+      objectDirectory: privateObjects,
+      alternateObjectDirectories: [mainObjects],
+    }),
+    timeoutMs: 30_000,
+    maxOutputBytes: 1024,
+  });
+  if (result.exitCode !== 0) throw new Error("fixture integrator commit could not be derived");
+  return decodeTrimmed(result.stdout);
 }
 
 function reviseRequest(request: IntegrationRequest, overrides: Readonly<Record<string, unknown>>): IntegrationRequest {
@@ -146,12 +137,11 @@ async function repositoryFingerprint(runtime: GitRuntime, repository: string): P
   });
 }
 
-async function createFixture(kind: "fast-forward" | "merge" | "conflict" = "fast-forward"): Promise<Fixture> {
-  const root = await mkdtemp(join(tmpdir(), "ai-dev-os-integrator-fixture-"));
-  roots.add(root);
+async function createFixture(owner: RealGitFixtureCase, kind: "fast-forward" | "merge" | "conflict" = "fast-forward"): Promise<Fixture> {
+  const root = await owner.createRoot();
   const repository = join(root, "repository");
   const workspaceRoot = join(root, "integration-worktrees");
-  const runtime = await createGitRuntime({ root: join(root, "git-runtime") });
+  const runtime = await owner.createRuntime(root);
   await mkdir(repository, { recursive: true });
   await mkdir(workspaceRoot, { recursive: true });
   await git(runtime, repository, ["init", "--initial-branch=fixture-admin"]);
@@ -167,7 +157,7 @@ async function createFixture(kind: "fast-forward" | "merge" | "conflict" = "fast
     await git(runtime, repository, ["add", "--", "feature.txt"]);
     await git(runtime, repository, ["commit", "-m", "source"], T1);
     const sourceCommit = await git(runtime, repository, ["rev-parse", "HEAD"]);
-    return fixtureResult(root, repository, workspaceRoot, runtime, baseCommit, sourceCommit);
+    return fixtureResult(owner, root, repository, workspaceRoot, runtime, baseCommit, sourceCommit);
   }
 
   await git(runtime, repository, ["switch", "-c", "target-builder", baseCommit]);
@@ -184,13 +174,14 @@ async function createFixture(kind: "fast-forward" | "merge" | "conflict" = "fast
   await git(runtime, repository, ["add", "--", kind === "merge" ? "source.txt" : "base.txt"]);
   await git(runtime, repository, ["commit", "-m", "source"], T1);
   const sourceCommit = await git(runtime, repository, ["rev-parse", "HEAD"]);
-  return fixtureResult(root, repository, workspaceRoot, runtime, targetCommit, sourceCommit);
+  return fixtureResult(owner, root, repository, workspaceRoot, runtime, targetCommit, sourceCommit);
 }
 
-async function fixtureResult(root: string, repository: string, workspaceRoot: string, runtime: GitRuntime, targetCommit: string, sourceCommit: string): Promise<Fixture> {
+async function fixtureResult(owner: RealGitFixtureCase, root: string, repository: string, workspaceRoot: string, runtime: GitRuntime, targetCommit: string, sourceCommit: string): Promise<Fixture> {
   const targetTree = await git(runtime, repository, ["rev-parse", `${targetCommit}^{tree}`]);
   const sourceTree = await git(runtime, repository, ["rev-parse", `${sourceCommit}^{tree}`]);
   return Object.freeze({
+    owner,
     root,
     repository,
     workspaceRoot,
@@ -199,11 +190,6 @@ async function fixtureResult(root: string, repository: string, workspaceRoot: st
     targetTree,
     sourceCommit,
     sourceTree,
-    async dispose() {
-      await runtime.dispose();
-      await rm(root, { recursive: true, force: true });
-      roots.delete(root);
-    },
   });
 }
 
@@ -315,7 +301,7 @@ async function executeFixture(
   authority: IntegrationAuthorityConfiguration = authorityFor(request),
   validationOverride?: IntegrationValidationPort,
 ) {
-  const persistence = createMemoryPersistenceAdapter({ clock: { now: () => new Date(T0) } });
+  const persistence = fixture.owner.ownPersistence(createMemoryPersistenceAdapter({ clock: { now: () => new Date(T0) } }));
   const validation = validationOverride ?? fakePorts(request).validation;
   const port = createRealGitIntegrationPort({ runtime: fixture.runtime, repositoryRoot: fixture.repository, fixtureRoot: fixture.root, workspaceRoot: fixture.workspaceRoot, protectedRefs: FIXTURE_PROTECTED_REFS, now: times(), ...(failAt === undefined ? {} : { failAt }), ...(onBoundary === undefined ? {} : { onBoundary }) });
   const service = createIntegrationServiceForTesting({ persistence, clock: TEST_CLOCK, git: port, validation, authorityConfiguration: authority });
@@ -326,8 +312,8 @@ async function executeFixture(
 }
 
 describe("real disposable Git integration boundary", () => {
-  it("maps direct testing-port filesystem failures to finite path-free errors", async () => {
-    const fixture = await createFixture();
+  it("maps direct testing-port filesystem failures to finite path-free errors", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const canary = "SECRET_FILESYSTEM_PATH_CANARY";
     const constructorError = (() => {
       try {
@@ -353,11 +339,10 @@ describe("real disposable Git integration boundary", () => {
     const operationError = await port.preflight(request, new AbortController().signal).catch((error: unknown) => error);
     expect(operationError).toBeInstanceOf(IntegrationError);
     expect(JSON.stringify((operationError as IntegrationError).toJSON())).not.toContain(fixture.root);
-    await fixture.dispose();
-  });
+  }));
 
-  it("refuses configured protected refs even while a different branch is checked out", async () => {
-    const fixture = await createFixture();
+  it("refuses configured protected refs even while a different branch is checked out", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const protectedRefs = Object.freeze(["refs/heads/integration-target"]);
     const port = createRealGitIntegrationPort({ runtime: fixture.runtime, repositoryRoot: fixture.repository, fixtureRoot: fixture.root, workspaceRoot: fixture.workspaceRoot, protectedRefs, now: times() });
     const request = reviseRequest(await requestFor(fixture), { gitRouteFingerprint: port.routeFingerprint });
@@ -365,11 +350,10 @@ describe("real disposable Git integration boundary", () => {
     const caseVariant = reviseRequest(request, { repository: { ...request.repository, targetRef: "refs/heads/INTEGRATION-TARGET" } });
     await expect(port.preflight(caseVariant, new AbortController().signal)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(request.repository.expectedTargetCommit);
-    await fixture.dispose();
-  });
+  }));
 
-  it("refuses symbolic target aliases and branches checked out in any linked worktree", async () => {
-    const fixture = await createFixture();
+  it("refuses symbolic target aliases and branches checked out in any linked worktree", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const port = createRealGitIntegrationPort({ runtime: fixture.runtime, repositoryRoot: fixture.repository, fixtureRoot: fixture.root, workspaceRoot: fixture.workspaceRoot, protectedRefs: FIXTURE_PROTECTED_REFS, now: times() });
     const request = await requestFor(fixture);
     await git(fixture.runtime, fixture.repository, ["symbolic-ref", "refs/heads/integration-alias", request.repository.targetRef]);
@@ -381,11 +365,10 @@ describe("real disposable Git integration boundary", () => {
     await expect(port.preflight(request, new AbortController().signal)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(request.repository.expectedTargetCommit);
     await git(fixture.runtime, fixture.repository, ["worktree", "remove", "--force", linked]);
-    await fixture.dispose();
-  }, 30_000);
+  }), 30_000);
 
-  it("drains an abort at the final pre-ref boundary and never performs a late update", async () => {
-    const fixture = await createFixture();
+  it("drains an abort at the final pre-ref boundary and never performs a late update", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const request = await requestFor(fixture);
     const controller = new AbortController();
     const prepared = await executeFixture(fixture, request);
@@ -404,17 +387,16 @@ describe("real disposable Git integration boundary", () => {
     expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(request.repository.expectedTargetCommit);
     await abortingPort.cleanup(stableIntegrationId("integration-worktree", prepared.prepared.intent!.intentId), new AbortController().signal);
     await prepared.persistence.close();
-    await fixture.dispose();
-  }, 60_000);
+  }), 60_000);
 
-  it("revokes the Git-side effect guard before terminal no-effect recovery so an orphaned updater cannot publish late", async () => {
-    const fixture = await createFixture();
+  it("revokes the Git-side effect guard before terminal no-effect recovery so an orphaned updater cannot publish late", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const request = await requestFor(fixture);
     let releaseBoundary!: () => void;
     let announceBoundary!: () => void;
     const released = new Promise<void>((resolveRelease) => { releaseBoundary = resolveRelease; });
     const announced = new Promise<void>((resolveAnnounce) => { announceBoundary = resolveAnnounce; });
-    const persistence = createMemoryPersistenceAdapter({ clock: { now: () => new Date(T0) } });
+    const persistence = owner.ownPersistence(createMemoryPersistenceAdapter({ clock: { now: () => new Date(T0) } }));
     const firstPort = createRealGitIntegrationPort({
       runtime: fixture.runtime,
       repositoryRoot: fixture.repository,
@@ -437,25 +419,29 @@ describe("real disposable Git integration boundary", () => {
     await firstService.prepare(command(request.runId, "prepare:guard-race", 2, "fenced", T2));
     const executing = firstService.execute(command(request.runId, "execute:guard-race", 3, "fenced", T3));
     void executing.catch(() => undefined);
-    await announced;
+    try {
+      await Promise.race([announced, executing]);
 
-    const recoveringService = recoveryService(fixture, persistence, request);
-    const failed = await recoveringService.reconcile(command(request.runId, "reconcile:guard-race", 4, "fenced", RECOVERY_AT));
-    expect(failed).toMatchObject({ status: "failed", lastFailureCode: "recovery-no-effect" });
-    releaseBoundary();
-    await expect(executing).rejects.toMatchObject({ code: "EFFECT_UNCERTAIN" });
-    expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(request.repository.expectedTargetCommit);
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
-    expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(request.repository.expectedTargetCommit);
-    expect((await recoveringService.get(request.runId))?.status).toBe("failed");
+      const recoveringService = recoveryService(fixture, persistence, request);
+      const failed = await recoveringService.reconcile(command(request.runId, "reconcile:guard-race", 4, "fenced", RECOVERY_AT));
+      expect(failed).toMatchObject({ status: "failed", lastFailureCode: "recovery-no-effect" });
+      releaseBoundary();
+      await expect(executing).rejects.toMatchObject({ code: "EFFECT_UNCERTAIN" });
+      expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(request.repository.expectedTargetCommit);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+      expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(request.repository.expectedTargetCommit);
+      expect((await recoveringService.get(request.runId))?.status).toBe("failed");
+    } finally {
+      releaseBoundary();
+      await Promise.allSettled([executing]);
+    }
     await persistence.close();
-    await fixture.dispose();
-  }, 30_000);
+  }), 30_000);
 
-  it("performs exact clean fast-forward and non-fast-forward integration without changing the real repository under test", async () => {
+  it("performs exact clean fast-forward and non-fast-forward integration without changing the real repository under test", fixtureCase(async (owner) => {
     const realRepository = resolve(import.meta.dirname, "../../..");
     for (const strategy of ["fast-forward", "merge"] as const) {
-      const fixture = await createFixture(strategy);
+      const fixture = await createFixture(owner, strategy);
       const before = await repositoryFingerprint(fixture.runtime, realRepository);
       const request = await requestFor(fixture, strategy);
       if (strategy === "merge") {
@@ -482,12 +468,12 @@ describe("real disposable Git integration boundary", () => {
       expect(await service.execute(command(request.runId, `execute:${strategy}`, 3, "fenced", T3))).toEqual(completed);
       expect(await repositoryFingerprint(fixture.runtime, realRepository)).toEqual(before);
       await persistence.close();
-      await fixture.dispose();
-    }
-  }, 60_000);
 
-  it("classifies a durable published receipt followed by a target reset as divergence", async () => {
-    const fixture = await createFixture();
+    }
+  }), 60_000);
+
+  it("classifies a durable published receipt followed by a target reset as divergence", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const request = await requestFor(fixture);
     const { persistence, service } = await executeFixture(fixture, request);
     const completed = await service.execute(command(request.runId, "execute:published-then-reset", 3, "fenced", T3));
@@ -497,11 +483,10 @@ describe("real disposable Git integration boundary", () => {
     const recovery = await port.reconcile(completed.intent!, request, completed.receipt!, new AbortController().signal);
     expect(recovery).toMatchObject({ state: "diverged", receipt: null, observedTargetCommit: request.repository.expectedTargetCommit });
     await persistence.close();
-    await fixture.dispose();
-  }, 30_000);
+  }), 30_000);
 
-  it("never reports no-effect when an absent effect guard could mean publish followed by reset", async () => {
-    const fixture = await createFixture();
+  it("never reports no-effect when an absent effect guard could mean publish followed by reset", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const request = await requestFor(fixture);
     const run = await executeFixture(fixture, request, "before-receipt");
     await expect(run.service.execute(command(request.runId, "execute:publish-reset-no-receipt", 3, "fenced", T3)))
@@ -512,11 +497,10 @@ describe("real disposable Git integration boundary", () => {
     expect(recovered).toMatchObject({ status: "failed", lastFailureCode: "recovery-diverged", receipt: null });
     expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(request.repository.expectedTargetCommit);
     await run.persistence.close();
-    await fixture.dispose();
-  }, 30_000);
+  }), 30_000);
 
-  it("refuses a source history that touched and reverted an unauthorized path", async () => {
-    const fixture = await createFixture();
+  it("refuses a source history that touched and reverted an unauthorized path", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const baseRequest = await requestFor(fixture);
     await writeFile(join(fixture.repository, "reverted-secret.txt"), "unreviewed history\n", "utf8");
     await git(fixture.runtime, fixture.repository, ["add", "--", "reverted-secret.txt"]);
@@ -538,11 +522,10 @@ describe("real disposable Git integration boundary", () => {
     const port = createRealGitIntegrationPort({ runtime: fixture.runtime, repositoryRoot: fixture.repository, fixtureRoot: fixture.root, workspaceRoot: fixture.workspaceRoot, protectedRefs: FIXTURE_PROTECTED_REFS, now: times() });
     await expect(port.preflight(request, new AbortController().signal)).rejects.toMatchObject({ code: "CONFLICT" });
     expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(request.repository.expectedTargetCommit);
-    await fixture.dispose();
-  });
+  }));
 
-  it("fails textual conflicts, dirty state, target drift, wrong tree, and unexpected paths before ref mutation", async () => {
-    const conflictFixture = await createFixture("conflict");
+  it("fails textual conflicts, dirty state, target drift, wrong tree, and unexpected paths before ref mutation", fixtureCase(async (owner) => {
+    const conflictFixture = await createFixture(owner, "conflict");
     const conflictRequest = await requestFor(conflictFixture, "merge");
     const objectsBefore = await fileInventory(join(conflictFixture.repository, ".git", "objects"));
     const conflictRun = await executeFixture(conflictFixture, conflictRequest);
@@ -550,10 +533,9 @@ describe("real disposable Git integration boundary", () => {
     expect(await fileInventory(join(conflictFixture.repository, ".git", "objects"))).toEqual(objectsBefore);
     expect(await readdir(conflictFixture.workspaceRoot)).toEqual([]);
     await conflictRun.persistence.close();
-    await conflictFixture.dispose();
 
     for (const mode of ["dirty", "ignored", "target", "tree", "path"] as const) {
-      const fixture = await createFixture();
+      const fixture = await createFixture(owner);
       let request = await requestFor(fixture);
       if (mode === "dirty") await writeFile(join(fixture.repository, "untracked.txt"), "dirty\n", "utf8");
       if (mode === "ignored") {
@@ -566,12 +548,12 @@ describe("real disposable Git integration boundary", () => {
       if (mode === "path") request = reviseRequest(request, { allowedPaths: ["unexpected.txt"] });
       const port = createRealGitIntegrationPort({ runtime: fixture.runtime, repositoryRoot: fixture.repository, fixtureRoot: fixture.root, workspaceRoot: fixture.workspaceRoot, protectedRefs: FIXTURE_PROTECTED_REFS, now: times() });
       await expect(port.preflight(request, new AbortController().signal)).rejects.toBeInstanceOf(IntegrationError);
-      await fixture.dispose();
-    }
-  });
 
-  it("applies only an exact authorized textual resolution and preserves semantic/specification failures", async () => {
-    const conflictFixture = await createFixture("conflict");
+    }
+  }));
+
+  it("applies only an exact authorized textual resolution and preserves semantic/specification failures", fixtureCase(async (owner) => {
+    const conflictFixture = await createFixture(owner, "conflict");
     const conflicted = await requestFor(conflictFixture, "merge");
     await writeFile(join(conflictFixture.repository, "base.txt"), "reviewed resolution\n", "utf8");
     await git(conflictFixture.runtime, conflictFixture.repository, ["add", "--", "base.txt"]);
@@ -614,12 +596,11 @@ describe("real disposable Git integration boundary", () => {
     expect((await resolved.service.execute(command(request.runId, "execute:reviewed-resolution", 3, "fenced", T3))).status).toBe("completed");
     expect(await git(conflictFixture.runtime, conflictFixture.repository, ["show", `${request.repository.targetRef}:base.txt`])).toBe("reviewed resolution");
     await resolved.persistence.close();
-    await conflictFixture.dispose();
 
     for (const kind of ["semantic", "specification"] as const) {
-      const fixture = await createFixture();
+      const fixture = await createFixture(owner);
       const candidate = reviseRequest(await requestFor(fixture), { runId: `integration:${kind}`, idempotencyKey: `request:${kind}` });
-      const persistence = createMemoryPersistenceAdapter({ clock: { now: () => new Date(T0) } });
+      const persistence = owner.ownPersistence(createMemoryPersistenceAdapter({ clock: { now: () => new Date(T0) } }));
       const baseValidation = fakePorts(candidate).validation;
       const validation: IntegrationValidationPort = Object.freeze({
         ...baseValidation,
@@ -643,12 +624,12 @@ describe("real disposable Git integration boundary", () => {
       expect(failed).toMatchObject({ status: "failed", lastFailureCode: "pre-validation-failed", preValidation: { conflicts: [{ kind }] } });
       expect(await git(fixture.runtime, fixture.repository, ["rev-parse", candidate.repository.targetRef])).toBe(candidate.repository.expectedTargetCommit);
       await persistence.close();
-      await fixture.dispose();
-    }
-  }, 60_000);
 
-  it("refuses the complete named B3 adversarial repository matrix through deterministic tree evidence", async () => {
-    const fixture = await createFixture();
+    }
+  }), 60_000);
+
+  it("refuses the complete named B3 adversarial repository matrix through deterministic tree evidence", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const scenarios = [
       { slug: "missing-feature", kind: "specification", path: "requirements/required-feature.txt", files: {} },
       { slug: "policy-violation", kind: "scope", path: ".ai-dev-os/policy-violation", files: { ".ai-dev-os/policy-violation": "forbidden\n" } },
@@ -722,14 +703,13 @@ describe("real disposable Git integration boundary", () => {
       expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(request.repository.expectedTargetCommit);
       await run.persistence.close();
     }
-    await fixture.dispose();
-  }, 180_000);
+  }), 180_000);
 
-  it("serializes concurrent real-repository integrators before either can create a Git effect", async () => {
-    const fixture = await createFixture();
+  it("serializes concurrent real-repository integrators before either can create a Git effect", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const firstRequest = reviseRequest(await requestFor(fixture), { runId: "integration:concurrent-a", idempotencyKey: "request:concurrent-a" });
     const secondRequest = reviseRequest(await requestFor(fixture), { runId: "integration:concurrent-b", idempotencyKey: "request:concurrent-b" });
-    const persistence = createMemoryPersistenceAdapter({ clock: { now: () => new Date(T0) } });
+    const persistence = owner.ownPersistence(createMemoryPersistenceAdapter({ clock: { now: () => new Date(T0) } }));
     const ports = fakePorts(firstRequest);
     const gitPort = createRealGitIntegrationPort({ runtime: fixture.runtime, repositoryRoot: fixture.repository, fixtureRoot: fixture.root, workspaceRoot: fixture.workspaceRoot, protectedRefs: FIXTURE_PROTECTED_REFS, now: times() });
     const service = createIntegrationServiceForTesting({ persistence, clock: TEST_CLOCK, git: gitPort, validation: ports.validation, authorityConfiguration: authorityFor(firstRequest, secondRequest) });
@@ -750,11 +730,10 @@ describe("real disposable Git integration boundary", () => {
     expect((await service.get(loserRequest.runId))?.status).toBe("pending");
     expect(await git(fixture.runtime, fixture.repository, ["rev-parse", winnerRequest.repository.targetRef])).toBe(winnerRequest.repository.expectedIntegratedCommit);
     await persistence.close();
-    await fixture.dispose();
-  }, 60_000);
+  }), 60_000);
 
-  it("covers task-owned roots, runner failures, structural conflicts, bounds, and post-validation drift", async () => {
-    const fixture = await createFixture();
+  it("covers task-owned roots, runner failures, structural conflicts, bounds, and post-validation drift", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const request = await requestFor(fixture);
     expect(() => createRealGitIntegrationPort({ runtime: fixture.runtime, repositoryRoot: "relative-repository", fixtureRoot: fixture.root, workspaceRoot: fixture.workspaceRoot, protectedRefs: FIXTURE_PROTECTED_REFS, now: times() })).toThrowError(expect.objectContaining({ code: "INVALID_INPUT" }));
 
@@ -791,9 +770,8 @@ describe("real disposable Git integration boundary", () => {
     const bounded = reviseRequest(request, { bounds: { ...request.bounds, maximumFiles: 1 } });
     const port = createRealGitIntegrationPort({ runtime: fixture.runtime, repositoryRoot: fixture.repository, fixtureRoot: fixture.root, workspaceRoot: fixture.workspaceRoot, protectedRefs: FIXTURE_PROTECTED_REFS, now: times() });
     await expect(port.preflight(bounded, new AbortController().signal)).rejects.toMatchObject({ code: "LIMIT_EXCEEDED" });
-    await fixture.dispose();
 
-    const structuralFixture = await createFixture("merge");
+    const structuralFixture = await createFixture(owner, "merge");
     const nonFastForward = await requestFor(structuralFixture, "fast-forward");
     const structuralPort = createRealGitIntegrationPort({ runtime: structuralFixture.runtime, repositoryRoot: structuralFixture.repository, fixtureRoot: structuralFixture.root, workspaceRoot: structuralFixture.workspaceRoot, protectedRefs: FIXTURE_PROTECTED_REFS, now: times() });
     expect(await structuralPort.preflight(nonFastForward, new AbortController().signal)).toMatchObject({
@@ -809,9 +787,8 @@ describe("real disposable Git integration boundary", () => {
     expect(refused.prepared).toMatchObject({ status: "failed", lastFailureCode: "limit-exceeded" });
     expect(zeroConflictPorts.counts.validate).toBe(0);
     await refused.persistence.close();
-    await structuralFixture.dispose();
 
-    const driftFixture = await createFixture();
+    const driftFixture = await createFixture(owner);
     const driftRequest = await requestFor(driftFixture);
     const driftCommit = await git(driftFixture.runtime, driftFixture.repository, ["commit-tree", driftRequest.repository.expectedTargetTree, "-p", driftRequest.repository.expectedTargetCommit, "-m", "pre-update drift"], T2);
     const driftRun = await executeFixture(driftFixture, driftRequest, undefined, async (name) => {
@@ -820,12 +797,11 @@ describe("real disposable Git integration boundary", () => {
     await expect(driftRun.service.execute(command(driftRequest.runId, "execute:post-validation-drift", 3, "fenced", T3))).rejects.toMatchObject({ code: "EFFECT_UNCERTAIN" });
     expect((await recoveryService(driftFixture, driftRun.persistence, driftRequest).reconcile(command(driftRequest.runId, "reconcile:post-validation-drift", 4, "fenced", RECOVERY_AT))).status).toBe("failed");
     await driftRun.persistence.close();
-    await driftFixture.dispose();
-  }, 60_000);
+  }), 60_000);
 
-  it("rejects symlink and gitlink trees and pins neutralization for repository-selected program drivers", async () => {
+  it("rejects symlink and gitlink trees and pins neutralization for repository-selected program drivers", fixtureCase(async (owner) => {
     for (const mode of ["symlink", "gitlink"] as const) {
-      const fixture = await createFixture();
+      const fixture = await createFixture(owner);
       const blob = await git(fixture.runtime, fixture.repository, ["hash-object", "-w", "--stdin"], T2).catch(() => "");
       const object = mode === "gitlink" ? fixture.targetCommit : (blob || await git(fixture.runtime, fixture.repository, ["rev-parse", "HEAD:base.txt"]));
       await git(fixture.runtime, fixture.repository, ["update-index", "--add", "--cacheinfo", mode === "gitlink" ? "160000" : "120000", object, mode]);
@@ -839,10 +815,10 @@ describe("real disposable Git integration boundary", () => {
       });
       const port = createRealGitIntegrationPort({ runtime: fixture.runtime, repositoryRoot: fixture.repository, fixtureRoot: fixture.root, workspaceRoot: fixture.workspaceRoot, protectedRefs: FIXTURE_PROTECTED_REFS, now: times() });
       await expect(port.preflight(request, new AbortController().signal)).rejects.toBeInstanceOf(IntegrationError);
-      await fixture.dispose();
+
     }
 
-    const fixture = await createFixture();
+    const fixture = await createFixture(owner);
     const canary = join(fixture.root, "program-canary.txt");
     const hooks = join(fixture.repository, ".git", "hooks");
     const request = await requestFor(fixture);
@@ -873,13 +849,12 @@ describe("real disposable Git integration boundary", () => {
     expect((await service.execute(command(request.runId, "execute:hostile-config", 3, "fenced", T3))).status).toBe("completed");
     await expect(access(canary)).rejects.toBeDefined();
     await persistence.close();
-    await fixture.dispose();
-  });
+  }));
 
-  it("reconciles every ambiguous real effect boundary without repeating a ref update", async () => {
-    const boundaries = REAL_GIT_FAILURE_BOUNDARIES.filter((item) => item !== "before-preflight" && item !== "after-commit-create" && item !== "cleanup");
-    for (const failAt of boundaries) {
-      const fixture = await createFixture();
+  const ambiguityBoundaries = REAL_GIT_FAILURE_BOUNDARIES.filter((item) => item !== "before-preflight" && item !== "after-commit-create" && item !== "cleanup");
+  for (const failAt of ambiguityBoundaries) {
+    it(`reconciles ambiguous real effect boundary ${failAt} without repeating a ref update`, fixtureCase(async (owner) => {
+      const fixture = await createFixture(owner);
       const request = await requestFor(fixture);
       const { persistence, service } = await executeFixture(fixture, request, failAt);
       const executeCommand = command(request.runId, `execute:${failAt}`, 3, "fenced", T3);
@@ -895,23 +870,21 @@ describe("real disposable Git integration boundary", () => {
         const worktreeId = stableIntegrationId("integration-worktree", uncertain.intent!.intentId);
         const worktreePath = join(fixture.workspaceRoot, worktreeId.replace(":", "-"));
         await expect(access(worktreePath)).rejects.toBeDefined();
-        expect(await git(fixture.runtime, fixture.repository, ["worktree", "list", "--porcelain"])).not.toContain(worktreePath);
+        expect((await git(fixture.runtime, fixture.repository, ["worktree", "list", "--porcelain"])).replaceAll("\\", "/")).not.toContain(worktreePath.replaceAll("\\", "/"));
       }
       await persistence.close();
-      await fixture.dispose();
-    }
-  }, 120_000);
+    }), 120_000);
+  }
 
-  it("records preflight and merge-commit boundary failures without publishing a local ref", async () => {
-    const preflightFixture = await createFixture();
+  it("records preflight and merge-commit boundary failures without publishing a local ref", fixtureCase(async (owner) => {
+    const preflightFixture = await createFixture(owner);
     const preflightRequest = await requestFor(preflightFixture);
     const preflightRun = await executeFixture(preflightFixture, preflightRequest, "before-preflight");
     expect(preflightRun.prepared).toMatchObject({ status: "failed", lastFailureCode: "git-boundary-failure" });
     expect(await git(preflightFixture.runtime, preflightFixture.repository, ["rev-parse", preflightRequest.repository.targetRef])).toBe(preflightRequest.repository.expectedTargetCommit);
     await preflightRun.persistence.close();
-    await preflightFixture.dispose();
 
-    const mergeFixture = await createFixture("merge");
+    const mergeFixture = await createFixture(owner, "merge");
     const mergeRequest = await requestFor(mergeFixture, "merge");
     const mergeRun = await executeFixture(mergeFixture, mergeRequest, "after-commit-create");
     expect((await gitTolerated(mergeFixture.runtime, mergeFixture.repository, ["cat-file", "-e", `${mergeRequest.repository.expectedIntegratedCommit}^{commit}`], [0, 1, 128])).exitCode).not.toBe(0);
@@ -921,11 +894,10 @@ describe("real disposable Git integration boundary", () => {
     const reconciled = await recoveryService(mergeFixture, mergeRun.persistence, mergeRequest).reconcile(command(mergeRequest.runId, "reconcile:after-commit", 4, "fenced", RECOVERY_AT));
     expect(reconciled).toMatchObject({ status: "failed", lastFailureCode: "recovery-commit-created" });
     await mergeRun.persistence.close();
-    await mergeFixture.dispose();
-  }, 60_000);
+  }), 60_000);
 
-  it("fails closed on a ref-update race and preserves evidence when cleanup fails", async () => {
-    const raceFixture = await createFixture();
+  it("fails closed on a competing real ref-update race", fixtureCase(async (owner) => {
+    const raceFixture = await createFixture(owner);
     const raceRequest = await requestFor(raceFixture);
     const raceCommit = await git(raceFixture.runtime, raceFixture.repository, ["commit-tree", raceRequest.repository.expectedTargetTree, "-p", raceRequest.repository.expectedTargetCommit, "-m", "racing target"], T2);
     const { persistence: racePersistence, service: raceService } = await executeFixture(raceFixture, raceRequest, undefined, async (name) => {
@@ -934,20 +906,20 @@ describe("real disposable Git integration boundary", () => {
     await expect(raceService.execute(command(raceRequest.runId, "execute:race", 3, "fenced", T3))).rejects.toMatchObject({ code: "EFFECT_UNCERTAIN" });
     expect((await recoveryService(raceFixture, racePersistence, raceRequest).reconcile(command(raceRequest.runId, "reconcile:race", 4, "fenced", RECOVERY_AT))).status).toBe("failed");
     await racePersistence.close();
-    await raceFixture.dispose();
+  }), 30_000);
 
-    const cleanupFixture = await createFixture();
+  it("preserves evidence in a completed receipt when real cleanup fails", fixtureCase(async (owner) => {
+    const cleanupFixture = await createFixture(owner);
     const cleanupRequest = await requestFor(cleanupFixture);
     const { persistence, service } = await executeFixture(cleanupFixture, cleanupRequest, "cleanup");
     const completed = await service.execute(command(cleanupRequest.runId, "execute:cleanup", 3, "fenced", T3));
     expect(completed.status).toBe("completed");
     expect(completed.terminal?.cleanup).toMatchObject({ cleaned: false, preservedEvidence: true, failureCode: "cleanup-failed" });
     await persistence.close();
-    await cleanupFixture.dispose();
-  }, 30_000);
+  }), 30_000);
 
-  it("removes the exact ownership claim when worktree removal succeeds before runner rejection", async () => {
-    const fixture = await createFixture();
+  it("removes the exact ownership claim when worktree removal succeeds before runner rejection", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const request = await requestFor(fixture);
     const prepared = await executeFixture(fixture, request);
     const effectPort = createRealGitIntegrationPort({ runtime: fixture.runtime, repositoryRoot: fixture.repository, fixtureRoot: fixture.root, workspaceRoot: fixture.workspaceRoot, protectedRefs: FIXTURE_PROTECTED_REFS, now: times(), failAt: "before-ref-update" });
@@ -969,14 +941,13 @@ describe("real disposable Git integration boundary", () => {
     const claimPath = join(fixture.workspaceRoot, `.ai-dev-os-integration-claim-${worktreeId.slice("integration-worktree:".length)}`);
     await expect(access(claimPath)).rejects.toBeDefined();
     await prepared.persistence.close();
-    await fixture.dispose();
-  }, 30_000);
+  }), 30_000);
 
-  it("physically reopens an after-ref-update ambiguity and reconciles without a second Git effect", async () => {
-    const fixture = await createFixture();
+  it("physically reopens an after-ref-update ambiguity and reconciles without a second Git effect", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const request = await requestFor(fixture);
     const databasePath = join(fixture.root, "integration-reopen.sqlite");
-    const first = createSqlitePersistenceAdapter({ file: databasePath, clock: { now: () => new Date(T0) } });
+    const first = owner.ownPersistence(createSqlitePersistenceAdapter({ file: databasePath, clock: { now: () => new Date(T0) } }));
     const firstPort = createRealGitIntegrationPort({ runtime: fixture.runtime, repositoryRoot: fixture.repository, fixtureRoot: fixture.root, workspaceRoot: fixture.workspaceRoot, protectedRefs: FIXTURE_PROTECTED_REFS, now: times(), failAt: "after-ref-update" });
     let service = createIntegrationServiceForTesting({ persistence: first, clock: TEST_CLOCK, git: firstPort, validation: fakePorts(request).validation, authorityConfiguration: authorityFor(request) });
     await service.accept(request);
@@ -993,7 +964,7 @@ describe("real disposable Git integration boundary", () => {
     await writeFile(join(residue, ".ai-dev-os-preflight-owner"), request.requestDigest, "utf8");
     await writeFile(join(residue, "objects", "crash-residue"), "bounded private object residue\n", "utf8");
 
-    const second = createSqlitePersistenceAdapter({ file: databasePath, clock: { now: () => new Date(T0) } });
+    const second = owner.ownPersistence(createSqlitePersistenceAdapter({ file: databasePath, clock: { now: () => new Date(T0) } }));
     let reopenedBoundaries = 0;
     service = recoveryService(fixture, second, request, () => { reopenedBoundaries += 1; });
     expect(await service.get(request.runId)).toMatchObject({ status: "effect-uncertain" });
@@ -1005,13 +976,12 @@ describe("real disposable Git integration boundary", () => {
     expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(published);
     expect(await service.history(request.runId)).toHaveLength(6);
     await second.close();
-    await fixture.dispose();
-  }, 60_000);
+  }), 60_000);
 
-  it("keeps a real published ref but fails the run on deterministic post-integration regression", async () => {
-    const fixture = await createFixture();
+  it("keeps a real published ref but fails the run on deterministic post-integration regression", fixtureCase(async (owner) => {
+    const fixture = await createFixture(owner);
     const request = reviseRequest(await requestFor(fixture), { runId: "integration:post-regression-real", idempotencyKey: "request:post-regression-real" });
-    const persistence = createMemoryPersistenceAdapter({ clock: { now: () => new Date(T0) } });
+    const persistence = owner.ownPersistence(createMemoryPersistenceAdapter({ clock: { now: () => new Date(T0) } }));
     const baseValidation = fakePorts(request).validation;
     const validation: IntegrationValidationPort = Object.freeze({
       ...baseValidation,
@@ -1037,6 +1007,5 @@ describe("real disposable Git integration boundary", () => {
     expect(failed).toMatchObject({ status: "failed", lastFailureCode: "post-validation-failed", postValidation: { conflicts: [{ kind: "intent" }] } });
     expect(await git(fixture.runtime, fixture.repository, ["rev-parse", request.repository.targetRef])).toBe(request.repository.expectedIntegratedCommit);
     await persistence.close();
-    await fixture.dispose();
-  }, 60_000);
+  }), 60_000);
 });

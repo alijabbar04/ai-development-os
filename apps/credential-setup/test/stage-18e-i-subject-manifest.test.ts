@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,7 @@ import {
   STAGE_18E_I_PUBLISHED_TREE,
   verifyStage18eIPublishedAnchor,
 } from "../../../scripts/stage-18e-i-subject-manifest-lib.mjs";
+import { committedBlobFixture } from "./committed-blob-fixture.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 
@@ -44,24 +45,9 @@ describe("Stage 18E-I sanitized-receipt canonical committed-blob manifest", () =
     }
   });
 
-  it("reads only committed bytes, binds object identity, and preserves a dirty worktree", async () => {
-    const root = await mkdtemp(join(tmpdir(), "ai-dev-os-stage-18e-i-manifest-test-"));
-    const git = (...args: readonly string[]): string => execFileSync("git", args, { cwd: root, encoding: "utf8", windowsHide: true }).trim();
-    try {
-      git("init", "--quiet");
-      git("config", "user.email", "manifest-test@example.invalid");
-      git("config", "user.name", "Manifest Test");
-      const target = join(root, "source.txt");
-      await writeFile(target, "base\n", "utf8");
-      git("add", "source.txt");
-      git("commit", "--quiet", "-m", "base");
-      const base = git("rev-parse", "HEAD");
-      await writeFile(target, "source\n", "utf8");
-      git("add", "source.txt");
-      git("commit", "--quiet", "-m", "source");
-      const source = git("rev-parse", "HEAD");
-      await writeFile(target, "dirty\n", "utf8");
-      const before = git("status", "--porcelain=v1", "--untracked-files=all");
+  describe("real committed-blob fixture", () => {
+    const check = committedBlobFixture("source.txt", "dirty\n");
+    it("reads only committed bytes, binds object identity, and preserves a dirty worktree", () => check(async ({ root, target, baseCommit: base, sourceCommit: source, beforeStatus: before, git }) => {
       const manifest = collectSubjectManifest(root, base, source);
       expect(manifest).toMatchObject({
         schemaVersion: 1,
@@ -73,6 +59,7 @@ describe("Stage 18E-I sanitized-receipt canonical committed-blob manifest", () =
       });
       expect(manifest.files[0]).toMatchObject({
         path: "source.txt",
+        blobOid: git("rev-parse", source + ":source.txt"),
         byteCount: Buffer.byteLength("source\n"),
         sha256: createHash("sha256").update("source\n", "utf8").digest("hex"),
       });
@@ -85,9 +72,7 @@ describe("Stage 18E-I sanitized-receipt canonical committed-blob manifest", () =
       const wrongBaseManifest = { ...manifest, baseCommit: source };
       expect(() => assertStage18eIManifestBase(wrongBaseManifest)).toThrow("SUBJECT_MANIFEST_BASE_REFUSED");
       expect(assertStage18eIBaseCommit(STAGE_18E_I_BASE_COMMIT)).toBe(STAGE_18E_I_BASE_COMMIT);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
+    }));
   });
 
   it("keeps the exact reviewed publication immutable and allows only ancestry-preserving descendants", () => {
