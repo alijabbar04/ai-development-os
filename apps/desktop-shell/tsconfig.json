@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node", "electron"],
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.cts"]
+}

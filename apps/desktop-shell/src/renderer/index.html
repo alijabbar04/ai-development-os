@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Powerhouse — AI Development OS</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#workspace-main">Skip to workspace</a>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand" aria-label="AI Development OS">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span><strong>AI Development OS</strong><small>AI Powerhouse workspace</small></span>
+        </div>
+        <div class="topbar-state">
+          <span id="service-pill" class="status-pill" data-status="loading">Starting service</span>
+          <span id="mode-pill" class="mode-pill">Normal</span>
+        </div>
+      </header>
+      <div class="body-grid">
+        <nav class="sidebar" aria-label="Workspace">
+          <button type="button" data-route="home" aria-current="page"><span aria-hidden="true">⌂</span> Home</button>
+          <button type="button" data-route="projects"><span aria-hidden="true">▣</span> Projects</button>
+          <button type="button" data-route="approvals"><span aria-hidden="true">✓</span> Approvals</button>
+          <button type="button" data-route="usage"><span aria-hidden="true">◷</span> Usage</button>
+          <button type="button" data-route="settings"><span aria-hidden="true">⚙</span> Settings</button>
+        </nav>
+        <main id="workspace-main" tabindex="-1"></main>
+      </div>
+    </div>
+    <div id="status-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    <dialog id="detail-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-head">
+        <h2 id="dialog-title"></h2>
+        <button type="button" id="dialog-close" aria-label="Close details">×</button>
+      </div>
+      <div id="dialog-content"></div>
+    </dialog>
+    <script type="module" src="./entry.js"></script>
+  </body>
+</html>
