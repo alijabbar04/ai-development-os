@@ -24,7 +24,9 @@ afterEach(async () => {
 let ordinal = 0;
 const commandId = (): string => `recovery-test:${++ordinal}`;
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), "saved-recovery-test-")); await mkdir(join(root, "repository"));
+  // Windows TEMP may use an equivalent short/case spelling. Compare owned
+  // mutation paths in the same canonical spelling returned by the real store.
+  const root = await realpath(await mkdtemp(join(tmpdir(), "saved-recovery-test-"))); await mkdir(join(root, "repository"));
   const time = { value: Date.parse("2026-09-08T00:00:00.000Z") }, clock = { now: () => new Date(time.value) };
   const reviews: PlanningNativeReview[] = [];
   const control = { confirm: async (_review: PlanningNativeReview): Promise<boolean> => true };
