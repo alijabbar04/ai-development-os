@@ -65,7 +65,10 @@ async function draft(app: SavedPlanningApplication, p: PlanningProjectView, scop
   return await committed(app, { kind: "save-plan", commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan?.version ?? 0, title: "Garden journal foundation", scope,
     tasks: [{ title: "Record observations", objective: scope === "within-brief" ? p.brief!.outcomes[0]! : "Add a seasonal comparison view", acceptanceCriteria: ["An operator can record an observation", "A saved observation is visible after reopening"] }] });
 }
-describe("application-owned saved planning workflow", () => {
+// Each case performs a sequence of real DELETE/FULL SQLite commands and reads.
+// Bound the whole workflow independently of the application's operation deadlines;
+// a default five-second test budget is insufficient on loaded Windows CI hosts.
+describe("application-owned saved planning workflow", { timeout: 30_000 }, () => {
   it("saves newly selected bounded repository facts and refuses repository changes during exact scope review", async () => {
     const f = await fixture(); let p = await accepted(f.app);
     const git = join(f.root, "repository", ".git"); await mkdir(join(git, "refs", "heads"), { recursive: true });

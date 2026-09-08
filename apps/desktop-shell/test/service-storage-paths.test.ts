@@ -22,9 +22,13 @@ async function controller(storageParent: string, dataRoot: string): Promise<Owne
   controllers.push(value); return value;
 }
 function shortPath(root: string): string {
-  return execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "$taskFso = New-Object -ComObject Scripting.FileSystemObject; $taskFso.GetFolder($env:AI_DEV_OS_OWNED_ALIAS_FIXTURE).ShortPath"], {
-    env: { ...process.env, AI_DEV_OS_OWNED_ALIAS_FIXTURE: root }, encoding: "utf8", windowsHide: true, timeout: 5_000, maxBuffer: 16_384,
+  // Native FOR expansion avoids starting PowerShell and COM for an owned fixture.
+  // Keep input/output quoted and delayed expansion off for literal path characters.
+  const output = execFileSync("cmd.exe", ["/d", "/v:off", "/s", "/c", 'for %I in ("%AI_DEV_OS_OWNED_ALIAS_FIXTURE%") do @echo "%~sI"'], {
+    env: { ...process.env, AI_DEV_OS_OWNED_ALIAS_FIXTURE: root }, encoding: "utf8", windowsHide: true, windowsVerbatimArguments: true, timeout: 5_000, maxBuffer: 16_384,
   }).trim();
+  if (!/^"[^"\r\n]+"$/.test(output)) throw new Error("INVALID_OWNED_SHORT_PATH");
+  return output.slice(1, -1);
 }
 
 it("resolves a missing descendant without creating it", async () => {
