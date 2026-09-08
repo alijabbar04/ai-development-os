@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { resolve } from "node:path";
 import { DESKTOP_RENDERER_FILES } from "../src/main/constants.js";
 import { resolveDesktopProtocolRequest } from "../src/main/protocol.js";
 
 describe("desktop protocol", () => {
-  const root = "C:\\example\\desktop-shell";
+  const root = resolve("desktop-shell-protocol-fixture");
 
   it("resolves every exact allowlisted renderer asset", () => {
     for (const name of DESKTOP_RENDERER_FILES) {
       const result = resolveDesktopProtocolRequest(`app-ai-powerhouse://workspace/${name}`, root);
       expect(result.status, name).toBe(200);
-      expect(result.target, name).toContain(name.replaceAll("/", "\\"));
+      expect(result.target, name).toBe(resolve(root, "dist", name));
       expect(result.contentType, name).toMatch(/^(?:text\/html|text\/css|text\/javascript)/u);
     }
   });

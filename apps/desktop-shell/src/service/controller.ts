@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { fork, type ChildProcess } from "node:child_process";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   adoptExistingControlService,
@@ -10,6 +10,7 @@ import {
 import { SERVICE_READY_DEADLINE_MS, SERVICE_SHUTDOWN_DEADLINE_MS } from "../main/constants.js";
 import type { PresentationMode, ServiceObservation } from "../shared/contracts.js";
 import { exactPlanningRecord, parseNativePlanningRequest, parsePlanningQuery, type NativePlanningReply, type NativePlanningRequest, type PlanningQuery, type PlanningReply } from "../shared/planning-ipc.js";
+import { canonicalServicePath } from "./storage-paths.js";
 
 export type OwnedServicePhase = "loading" | "ready" | "service-lost" | "failed-start" | "read-only" | "stopped";
 
@@ -125,9 +126,10 @@ async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<bool
 
 export function createOwnedServiceController(options: OwnedServiceControllerOptions): OwnedServiceController {
   const childPath = resolve(options.childPath);
-  const storageParent = resolve(options.storageParent);
-  const dataRoot = resolve(options.dataRoot);
-  const contains = (root: string, target: string): boolean => { const part = relative(root.toLowerCase(), target.toLowerCase()); return part === "" || part !== ".." && !part.startsWith("..\\") && !part.startsWith("../") && !isAbsolute(part); };
+  let storageParent = resolve(options.storageParent);
+  let dataRoot = resolve(options.dataRoot);
+  const samePath = (left: string, right: string): boolean => process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+  const contains = (root: string, target: string): boolean => { const part = relative(process.platform === "win32" ? root.toLowerCase() : root, process.platform === "win32" ? target.toLowerCase() : target); return part === "" || part !== ".." && !part.startsWith("..\\") && !part.startsWith("../") && !isAbsolute(part); };
   if (contains(storageParent, dataRoot) || contains(dataRoot, storageParent)) throw new Error("SERVICE_DURABLE_ROOT_OVERLAP");
   const storagePrefix = "owned-service-";
   const clock = options.clock ?? (() => new Date());
@@ -146,6 +148,8 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
   let recoveryTimer: NodeJS.Timeout | null = null;
   let operation: Promise<void> = Promise.resolve();
   const pendingRootCleanup = new Set<Promise<void>>();
+  const ownedRoots = new Map<string, Readonly<{ dev: number; ino: number }>>();
+  const removedRoots = new Set<string>();
   let rootCleanupFailed = false;
   const planningPending = new Map<string, { launch: ActiveLaunch; query: PlanningQuery; finish: (value: PlanningReply | null) => void }>();
   const nativePending = new Set<string>();
@@ -191,10 +195,19 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
 
   const removeRoot = async (root: string): Promise<void> => {
     const resolvedRoot = resolve(root);
-    if (dirname(resolvedRoot) !== storageParent || !basename(resolvedRoot).startsWith(storagePrefix)) {
+    if (removedRoots.has(resolvedRoot)) return;
+    const expected = ownedRoots.get(resolvedRoot);
+    if (expected === undefined || !samePath(dirname(resolvedRoot), storageParent) || !basename(resolvedRoot).startsWith(storagePrefix)) {
       throw new Error("SERVICE_ROOT_OWNERSHIP_REFUSED");
     }
+    if (!samePath(await canonicalServicePath(resolvedRoot), resolvedRoot)) throw new Error("SERVICE_ROOT_OWNERSHIP_REFUSED");
+    let current;
+    try { current = await lstat(resolvedRoot); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") { ownedRoots.delete(resolvedRoot); removedRoots.add(resolvedRoot); return; } throw error; }
+    if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== expected.dev || current.ino !== expected.ino) throw new Error("SERVICE_ROOT_OWNERSHIP_REFUSED");
     await rm(resolvedRoot, { recursive: true, force: true });
+    ownedRoots.delete(resolvedRoot);
+    removedRoots.add(resolvedRoot);
   };
 
   const trackRootCleanup = (root: string): void => {
@@ -241,6 +254,7 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
     clearRecoveryTimer();
     if (active !== null) await closeLaunch(active);
     await finishPendingRootCleanup();
+    removedRoots.clear();
     mode = requestedMode;
     phase = "loading";
     failureCode = null;
@@ -255,9 +269,21 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
     }, Math.max(0, deadlineAt - clock().valueOf()));
     let root: string | null = null;
     try {
+      // The runner and native Windows paths can contain 8.3 aliases. Normalize
+      // only after refusing links, then recheck the durable/transport separation.
+      const nextStorageParent = await canonicalServicePath(storageParent);
+      const nextDataRoot = await canonicalServicePath(dataRoot);
+      if (contains(nextStorageParent, nextDataRoot) || contains(nextDataRoot, nextStorageParent)) throw new Error("SERVICE_DURABLE_ROOT_OVERLAP");
+      storageParent = nextStorageParent;
+      dataRoot = nextDataRoot;
+      if (deadlineElapsed || clock().valueOf() >= deadlineAt) throw new Error("SERVICE_READY_TIMEOUT");
       await mkdir(storageParent, { recursive: true });
+      if (!samePath(await canonicalServicePath(storageParent), storageParent)) throw new Error("SERVICE_STORAGE_UNSAFE");
       if (deadlineElapsed || clock().valueOf() >= deadlineAt) throw new Error("SERVICE_READY_TIMEOUT");
       root = await mkdtemp(join(storageParent, storagePrefix));
+      const created = await lstat(root);
+      if (!created.isDirectory() || created.isSymbolicLink()) throw new Error("SERVICE_ROOT_OWNERSHIP_REFUSED");
+      ownedRoots.set(root, { dev: created.dev, ino: created.ino });
       if (deadlineElapsed || clock().valueOf() >= deadlineAt) throw new Error("SERVICE_READY_TIMEOUT");
     } catch (error) {
       clearTimeout(deadlineNotificationTimer);
@@ -303,7 +329,7 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
         if (parsed !== null) resolveReady(parsed);
       });
       child.once("exit", () => rejectReady(new Error("SERVICE_CHILD_EXITED")));
-      child.send(Object.freeze({ kind: "start", launchNonce: nonce, storageRoot: root, dataRoot: resolve(options.dataRoot), presentationMode: requestedMode }));
+      child.send(Object.freeze({ kind: "start", launchNonce: nonce, storageRoot: root, dataRoot, presentationMode: requestedMode }));
     });
     let timer: NodeJS.Timeout | null = null;
     try {
