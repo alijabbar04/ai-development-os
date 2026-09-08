@@ -1,4 +1,5 @@
 import { lstat, open, opendir, link, unlink } from "node:fs/promises";
+import type { BigIntStats } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import type { TransactionContext } from "@ai-dev-os/persistence";
@@ -90,44 +91,61 @@ export function attachPlanningManualResult(record: PlanningHandoverRecord, sourc
 }
 export function planningHandoverFileName(record: PlanningHandoverRecord): string { return `planning-handover-${digestPlanning(record.handoverId).slice(0, 24)}.json`; }
 async function verifyArtifact(root: string, target: string, bytes: string): Promise<void> {
-  const before = await lstat(target);
-  if (!before.isFile() || before.isSymbolicLink() || before.size !== Buffer.byteLength(bytes)) return refusePlanning("handover.file-conflict", "conflict");
+  const expected = Buffer.from(bytes, "utf8"), before = await lstat(target, { bigint: true });
+  if (!before.isFile() || before.isSymbolicLink() || before.size !== BigInt(expected.length)) return refusePlanning("handover.file-conflict", "conflict");
   const file = await open(target, "r");
   try {
-    const opened = await file.stat();
-    if (opened.ino !== before.ino || opened.dev !== before.dev || await file.readFile("utf8") !== bytes) return refusePlanning("handover.file-conflict", "conflict");
+    const opened = await file.stat({ bigint: true });
+    if (!opened.isFile() || opened.ino !== before.ino || opened.dev !== before.dev || opened.size !== before.size || opened.mtimeNs !== before.mtimeNs) return refusePlanning("handover.file-conflict", "conflict");
+    // The acknowledged document bounds allocation and I/O even if the file
+    // grows after stat. Compare exact bytes, without unbounded readFile/decode.
+    const buffer = Buffer.alloc(expected.length + 1); let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const part = await file.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead);
+      if (part.bytesRead === 0) break; bytesRead += part.bytesRead;
+    }
+    if (bytesRead !== expected.length || !buffer.subarray(0, bytesRead).equals(expected)) return refusePlanning("handover.file-conflict", "conflict");
     // A crash after atomic publication can leave our staging link. Reconcile
     // only an exact staging name, inode and complete document in this app root.
     // Unknown links and files are preserved, never overwritten or swept.
-    if (opened.nlink > 1) {
+    if (opened.nlink > 1n) {
       const directory = await opendir(root); let visited = 0;
       for await (const entry of directory) {
         if (++visited > 1024) return refusePlanning("handover.artifact-bound");
         if (!entry.name.startsWith(`${basename(target)}.`) || !/\.[a-f0-9-]{36}\.pending$/u.test(entry.name)) continue;
-        const staging = join(root, entry.name), stat = await lstat(staging);
+        const staging = join(root, entry.name), stat = await lstat(staging, { bigint: true });
         if (stat.isFile() && !stat.isSymbolicLink() && stat.ino === opened.ino && stat.dev === opened.dev && await canonicalPlanningDirectory(root) === root) await unlink(staging);
       }
     }
-    const after = await file.stat(), named = await lstat(target);
-    if (after.nlink !== 1 || after.size !== before.size || after.mtimeMs !== before.mtimeMs || named.ino !== after.ino || named.dev !== after.dev || named.isSymbolicLink() || await canonicalPlanningDirectory(root) !== root) return refusePlanning("handover.file-conflict", "conflict");
+    const after = await file.stat({ bigint: true }), named = await lstat(target, { bigint: true });
+    if (after.ino !== before.ino || after.dev !== before.dev || after.nlink !== 1n || after.size !== before.size || after.mtimeNs !== before.mtimeNs || !named.isFile() || named.isSymbolicLink()
+      || named.ino !== after.ino || named.dev !== after.dev || named.size !== after.size || named.mtimeNs !== after.mtimeNs || named.nlink !== 1n || await canonicalPlanningDirectory(root) !== root) return refusePlanning("handover.file-conflict", "conflict");
   } finally { await file.close(); }
 }
 async function publishArtifact(root: string, target: string, bytes: string): Promise<void> {
   try { await lstat(target); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    const staging = `${target}.${randomUUID()}.pending`, file = await open(staging, "wx", 0o600), identity = await file.stat();
+    const staging = `${target}.${randomUUID()}.pending`, file = await open(staging, "wx", 0o600);
+    let identity: BigIntStats | null = null;
     try {
-      await file.writeFile(bytes, "utf8"); await file.sync(); await file.close();
+      identity = await file.stat({ bigint: true });
+      await file.writeFile(bytes, "utf8"); await file.sync();
+      const written = await file.stat({ bigint: true }); await file.close();
       if (await canonicalPlanningDirectory(root) !== root) return refusePlanning("handover.file-conflict", "conflict");
+      const staged = await lstat(staging, { bigint: true });
+      if (!staged.isFile() || staged.isSymbolicLink() || staged.ino !== identity.ino || staged.dev !== identity.dev || staged.nlink !== 1n
+        || staged.size !== BigInt(Buffer.byteLength(bytes)) || staged.mtimeNs !== written.mtimeNs) return refusePlanning("handover.file-conflict", "conflict");
       // link is atomic and refuses an existing target on both supported Node
       // platforms. A partially written document can never become the target.
       try { await link(staging, target); }
       catch (failure) { if ((failure as NodeJS.ErrnoException).code !== "EEXIST") throw failure; }
     } finally {
       await file.close();
-      const named = await lstat(staging);
-      if (named.ino === identity.ino && named.dev === identity.dev && !named.isSymbolicLink() && await canonicalPlanningDirectory(root) === root) await unlink(staging);
+      if (identity !== null) {
+        const named = await lstat(staging, { bigint: true });
+        if (named.isFile() && !named.isSymbolicLink() && named.ino === identity.ino && named.dev === identity.dev && await canonicalPlanningDirectory(root) === root) await unlink(staging);
+      }
     }
   }
   await verifyArtifact(root, target, bytes);

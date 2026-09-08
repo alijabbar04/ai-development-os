@@ -18,17 +18,18 @@ async function selectedResult(path: string): Promise<Readonly<{ name: string; te
     }
   };
   await ancestors();
-  const before = await lstat(path), canonical = await realpath(path);
+  const before = await lstat(path, { bigint: true }), canonical = await realpath(path);
   check();
-  if (!before.isFile() || before.nlink !== 1 || before.size > 65536 || !path.toLowerCase().endsWith(".json")) throw new Error("RESULT_FILE_REFUSED");
+  if (!before.isFile() || before.nlink !== 1n || before.size > 65536n || !path.toLowerCase().endsWith(".json")) throw new Error("RESULT_FILE_REFUSED");
   const handle = await open(canonical, "r");
   try {
-    const bound = await handle.stat();
-    if (bound.dev !== before.dev || bound.ino !== before.ino || bound.size !== before.size || bound.mtimeMs !== before.mtimeMs || bound.nlink !== 1) throw new Error("RESULT_FILE_CHANGED");
+    const bound = await handle.stat({ bigint: true });
+    if (!bound.isFile() || bound.dev !== before.dev || bound.ino !== before.ino || bound.size !== before.size || bound.mtimeNs !== before.mtimeNs || bound.nlink !== 1n) throw new Error("RESULT_FILE_CHANGED");
     const bytes = Buffer.alloc(65537); let bytesRead = 0;
     while (bytesRead < bytes.length) { check(); const part = await handle.read(bytes, bytesRead, bytes.length - bytesRead, bytesRead); if (part.bytesRead === 0) break; bytesRead += part.bytesRead; }
-    const after = await handle.stat(), named = await lstat(path); await ancestors(); check();
-    if (bytesRead !== before.size || bytesRead > 65536 || after.nlink !== 1 || after.size !== before.size || after.mtimeMs !== before.mtimeMs || named.isSymbolicLink() || named.ino !== after.ino || named.dev !== after.dev || await realpath(path) !== canonical) throw new Error("RESULT_FILE_CHANGED");
+    const after = await handle.stat({ bigint: true }), named = await lstat(path, { bigint: true }); await ancestors(); check();
+    if (BigInt(bytesRead) !== before.size || bytesRead > 65536 || after.dev !== before.dev || after.ino !== before.ino || after.nlink !== 1n || after.size !== before.size || after.mtimeNs !== before.mtimeNs
+      || !named.isFile() || named.isSymbolicLink() || named.ino !== after.ino || named.dev !== after.dev || named.size !== after.size || named.mtimeNs !== after.mtimeNs || named.nlink !== 1n || await realpath(path) !== canonical) throw new Error("RESULT_FILE_CHANGED");
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, bytesRead));
     return Object.freeze({ name: basename(canonical), text });
   } finally { await handle.close(); }

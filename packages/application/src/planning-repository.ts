@@ -1,5 +1,5 @@
 import { lstat, open, realpath } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { collectRepositoryInspection, INTAKE_GIT_QUERIES, type IntakeFilesystemPort, type IntakeGitPort, type RepositoryInspectionReport } from "@ai-dev-os/intake";
 import { refusePlanning } from "./planning-validation.js";
 
@@ -21,14 +21,18 @@ export function planningPathWithin(root: string, value: string): boolean {
 export async function canonicalPlanningDirectory(value: string, deadline = performance.now() + 10_000): Promise<string> {
   if (!isAbsolute(value) || value.includes("\0")) return refusePlanning("repository.root-invalid");
   if (process.platform === "win32" && (!/^[A-Za-z]:[\\/]/u.test(value) || value.slice(2).includes(":"))) return refusePlanning("repository.local-drive-required");
-  let cursor = resolve(value), depth = 0;
-  for (;;) {
+  const absolute = resolve(value), root = parse(absolute).root;
+  let cursor = root, depth = 0;
+  for (const part of ["", ...absolute.slice(root.length).split(sep).filter(Boolean)]) {
     if (++depth > 128 || performance.now() >= deadline) return refusePlanning("repository.inspection-bound");
-    const entry = await lstat(cursor);
+    if (part !== "") cursor = join(cursor, part);
+    const entry = await lstat(cursor, { bigint: true });
     if (entry.isSymbolicLink() || !entry.isDirectory()) return refusePlanning("repository.link-refused");
-    const parent = dirname(cursor); if (parent === cursor) break; cursor = parent;
+    const canonical = await realpath(cursor), resolved = await lstat(canonical, { bigint: true });
+    if (!resolved.isDirectory() || resolved.isSymbolicLink() || resolved.dev !== entry.dev || resolved.ino !== entry.ino) return refusePlanning("repository.root-changed");
+    cursor = canonical;
   }
-  return await realpath(value);
+  return cursor;
 }
 export async function inspectPlanningRepository(selectedRoot: string, now: string): Promise<PlanningRepositoryObservation> {
   const deadline = performance.now() + 10_000, root = await canonicalPlanningDirectory(selectedRoot, deadline);
@@ -56,14 +60,16 @@ export async function inspectPlanningRepository(selectedRoot: string, now: strin
     if (!planningPathWithin(join(root, ".git"), path)) return refusePlanning("repository.reference-escape");
     const parent = await canonicalPlanningDirectory(dirname(path), deadline);
     if (!planningPathWithin(root, parent)) return refusePlanning("repository.reference-escape");
-    const before = await lstat(path), canonical = await realpath(path);
-    if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size > maximum || !planningPathWithin(root, canonical)) return refusePlanning("repository.reference-refused");
+    // Windows file IDs exceed Number's exact range. Keep identity and timestamps
+    // as integers across the path-to-handle check, before reading any bytes.
+    const before = await lstat(path, { bigint: true }), canonical = await realpath(path);
+    if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n || before.size > BigInt(maximum) || !planningPathWithin(root, canonical)) return refusePlanning("repository.reference-refused");
     const handle = await open(canonical, "r");
     try {
-      const opened = await handle.stat();
-      if (opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size || opened.mtimeMs !== before.mtimeMs || opened.nlink !== 1) return refusePlanning("repository.reference-changed");
-      const bytes = Buffer.alloc(maximum + 1), { bytesRead } = await handle.read(bytes, 0, bytes.length, 0), after = await handle.stat();
-      if (bytesRead > maximum || after.size !== before.size || after.mtimeMs !== before.mtimeMs || await realpath(path) !== canonical || await canonicalPlanningDirectory(dirname(path), deadline) !== parent) return refusePlanning("repository.reference-changed");
+      const opened = await handle.stat({ bigint: true });
+      if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size || opened.mtimeNs !== before.mtimeNs || opened.nlink !== 1n) return refusePlanning("repository.reference-changed");
+      const bytes = Buffer.alloc(maximum + 1), { bytesRead } = await handle.read(bytes, 0, bytes.length, 0), after = await handle.stat({ bigint: true });
+      if (bytesRead > maximum || after.dev !== before.dev || after.ino !== before.ino || after.nlink !== 1n || after.size !== before.size || after.mtimeNs !== before.mtimeNs || await realpath(path) !== canonical || await canonicalPlanningDirectory(dirname(path), deadline) !== parent) return refusePlanning("repository.reference-changed");
       return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, bytesRead)).trim();
     } finally { await handle.close(); }
   }
