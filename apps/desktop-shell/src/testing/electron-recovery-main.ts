@@ -5,6 +5,7 @@ import { app, BrowserWindow, protocol } from "electron";
 import type { PlanningProjectView, PlanningWorkspaceView } from "@ai-dev-os/application/planning-contracts";
 import { launchDesktopApplication, type DesktopApplicationHandle } from "../main/application.js";
 import { nativePlanningDialog } from "../main/planning-dialog.js";
+import { nativeConfirmationResult } from "./native-confirmation-result.js";
 import { registerDesktopProtocolScheme } from "../main/protocol.js";
 import type { NativePlanningRequest } from "../shared/planning-ipc.js";
 
@@ -60,14 +61,14 @@ async function native(request: NativePlanningRequest) {
   const pending = nativePlanningDialog(handle!.window, request);
   let dialog: BrowserWindow | undefined;
   try {
-    await wait(async () => { dialog = BrowserWindow.getAllWindows().find(w => w.getParentWindow() === handle!.window && w.isModal()); return dialog !== undefined && !dialog.webContents.isLoading(); }, "native-dialog");
+    await wait(async () => { dialog = BrowserWindow.getAllWindows().find(w => w.getParentWindow() === handle!.window && w.isModal()); return dialog !== undefined && dialog.isVisible() && !dialog.webContents.isLoadingMainFrame(); }, "native-dialog");
     await wait(async () => await dialog!.webContents.executeJavaScript("document.querySelector('#native-confirm') instanceof HTMLButtonElement", true) as boolean, "native-document");
-    const inspected = await dialog!.webContents.executeJavaScript("({detail:document.querySelector('#native-review-content')?.textContent, focused:document.activeElement?.id, isolated:typeof process==='undefined' && typeof require==='undefined'})", true) as { detail: string; focused: string; isolated: boolean };
+    const inspected = await bounded(dialog!.webContents.executeJavaScript("({detail:document.querySelector('#native-review-content')?.textContent, focused:document.activeElement?.id, isolated:typeof process==='undefined' && typeof require==='undefined'})", true), "native-inspection") as { detail: string; focused: string; isolated: boolean };
     check(`native-exact:${reviews.length}`, inspected.detail === request.review.detail && inspected.focused === "native-cancel" && inspected.isolated);
     const confirm = request.review.action !== "request-scope-again" || ++renewalDecisions !== 1;
     reviews.push({ action: request.review.action, detail: request.review.detail, confirmed: confirm });
-    await dialog!.webContents.executeJavaScript(`document.querySelector('${confirm ? "#native-confirm" : "#native-cancel"}').click(); true`, true);
-    const actual = await bounded(pending, "native-result"); check(`native-decision:${reviews.length}`, actual === confirm); return actual;
+    const clicked = dialog!.webContents.executeJavaScript(`document.querySelector('${confirm ? "#native-confirm" : "#native-cancel"}').click(); true`, true) as Promise<boolean>;
+    const actual = await bounded(nativeConfirmationResult(pending, clicked), "native-result"); check(`native-decision:${reviews.length}`, actual === confirm); return actual;
   } catch (error) { if (dialog !== undefined && !dialog.isDestroyed()) dialog.destroy(); await pending.catch(() => false); throw error; }
 }
 async function createProject(name: string): Promise<void> {

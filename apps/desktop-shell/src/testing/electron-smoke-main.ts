@@ -6,6 +6,7 @@ import { app, BrowserWindow, protocol } from "electron";
 import type { PlanningProjectView, PlanningWorkspaceView } from "@ai-dev-os/application/planning-contracts";
 import { launchDesktopApplication, type DesktopApplicationHandle } from "../main/application.js";
 import { nativePlanningDialog } from "../main/planning-dialog.js";
+import { nativeConfirmationResult } from "./native-confirmation-result.js";
 import { registerDesktopProtocolScheme } from "../main/protocol.js";
 import type { NativePlanningReply, NativePlanningRequest } from "../shared/planning-ipc.js";
 import { runRendererHandoverViewerCheck, runRendererHistoricalJourney, runRendererSavedJourney, type RendererSavedJourneyDriver } from "./renderer-saved-journey.js";
@@ -138,9 +139,11 @@ async function boundedOperation<T>(operation: Promise<T>, timeoutMs: number, cod
 async function waitForConfirmationDocument(window: BrowserWindow): Promise<void> {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
-    try {
-      if (await window.webContents.executeJavaScript("document.querySelector('#native-confirm') instanceof HTMLButtonElement && document.querySelector('#native-review-content') instanceof HTMLElement && document.activeElement?.id === 'native-cancel'", true) as boolean) return;
-    } catch { /* The isolated document is still loading. */ }
+    // A newly created modal can still be hidden/loading. Never drive its initial
+    // document, or let an unresolved script outlive this existing readiness bound.
+    if (window.isDestroyed()) throw new Error("SMOKE_CONFIRMATION_CLOSED");
+    if (window.isVisible() && !window.webContents.isLoadingMainFrame()
+      && await boundedOperation(window.webContents.executeJavaScript("document.querySelector('#native-confirm') instanceof HTMLButtonElement && document.querySelector('#native-review-content') instanceof HTMLElement && document.activeElement?.id === 'native-cancel'", true), deadline - Date.now(), "SMOKE_CONFIRMATION_DOCUMENT_SCRIPT_TIMEOUT") as boolean) return;
     await new Promise<void>((resolveWait) => setTimeout(resolveWait, 40));
   }
   throw new Error("SMOKE_CONFIRMATION_DOCUMENT_TIMEOUT");
@@ -275,30 +278,48 @@ async function automateNativeConfirmation(request: Extract<NativePlanningRequest
   const current = handle;
   if (current === null) throw new Error("SMOKE_HANDLE_UNAVAILABLE");
   let openedWindow: BrowserWindow | null = null;
+  let stage = "opening";
+  const advance = (value: string): void => { stage = value; progress(`native-${request.review.action}-${value}`); };
+  advance("opening");
   const pending = nativePlanningDialog(current.window, request);
+  void pending.then((accepted) => progress(`native-${request.review.action}-decision:${accepted === true}`));
   try {
     const dialog = await waitForConfirmationWindow(current.window);
     openedWindow = dialog;
+    advance("window-created");
     accumulateAssertion("native-confirmation-parent-bound", dialog.getParentWindow() === current.window && dialog.isModal());
     await waitForConfirmationDocument(dialog);
-    const inspected = await dialog.webContents.executeJavaScript(`(() => ({
+    advance("document-ready");
+    const inspected = await boundedOperation(dialog.webContents.executeJavaScript(`(() => ({
       detail: document.querySelector("#native-review-content")?.textContent ?? null,
       heading: document.querySelector("#review-title")?.textContent ?? null,
       documentTitle: document.title,
       cancelFocused: document.activeElement?.id === "native-cancel",
       isolated: typeof process === "undefined" && typeof require === "undefined" && typeof window.aiPowerhouse === "undefined",
-    }))()`, true) as { detail: string | null; heading: string | null; documentTitle: string; cancelFocused: boolean; isolated: boolean };
+    }))()`, true), 3_000, "SMOKE_CONFIRMATION_INSPECTION_TIMEOUT") as { detail: string | null; heading: string | null; documentTitle: string; cancelFocused: boolean; isolated: boolean };
     accumulateAssertion("native-confirmation-exact-content", inspected.detail === request.review.detail);
     accumulateAssertion("native-confirmation-title", inspected.heading === request.review.title && inspected.documentTitle === request.review.title && dialog.getTitle() === request.review.title);
     accumulateAssertion("native-confirmation-cancel-focused", inspected.cancelFocused);
     accumulateAssertion("native-confirmation-isolated", inspected.isolated);
     if (request.review.action === "approve-scope") await captureNativeConfirmation(dialog);
-    const clicked = await dialog.webContents.executeJavaScript("(() => { const control = document.querySelector('#native-confirm'); if (!(control instanceof HTMLButtonElement)) return false; control.click(); return true; })()", true) as boolean;
-    if (!clicked) throw new Error("SMOKE_CONFIRMATION_CONTROL_UNAVAILABLE");
-    const accepted = await boundedOperation(pending, 10_000, "SMOKE_CONFIRMATION_RESULT_TIMEOUT");
+    advance("confirming");
+    // The brief fixture deliberately delays the script reply beyond modal
+    // destruction; only the separate real native IPC decision is authority.
+    const clickScript = request.review.action === "accept-brief"
+      ? "new Promise(resolve => { const control = document.querySelector('#native-confirm'); if (!(control instanceof HTMLButtonElement)) { resolve(false); return; } control.click(); setTimeout(() => resolve(true), 250); })"
+      : "(() => { const control = document.querySelector('#native-confirm'); if (!(control instanceof HTMLButtonElement)) return false; control.click(); return true; })()";
+    let scriptAcknowledged = false;
+    const clicked = dialog.webContents.executeJavaScript(clickScript, true) as Promise<boolean>;
+    void clicked.then(value => { scriptAcknowledged = value; }, () => { /* Native decision remains authoritative. */ });
+    const accepted = await boundedOperation(nativeConfirmationResult(pending, clicked), 10_000, "SMOKE_CONFIRMATION_RESULT_TIMEOUT");
     accumulateAssertion("native-confirmation-accepted-through-real-ipc", accepted === true);
+    if (request.review.action === "accept-brief") accumulateAssertion("native-decision-survives-lost-script-reply", accepted === true && dialog.isDestroyed() && !scriptAcknowledged);
+    advance("resolved");
     return accepted === true;
   } catch (error) {
+    const window = openedWindow;
+    progress(`native-failure:${boundedFixtureDiagnostic({ action: request.review.action, stage, error: safeFailure(error), destroyed: window?.isDestroyed() ?? null,
+      visible: window !== null && !window.isDestroyed() ? window.isVisible() : null, loading: window !== null && !window.isDestroyed() ? window.webContents.isLoadingMainFrame() : null })}`);
     if (openedWindow !== null && !openedWindow.isDestroyed()) openedWindow.destroy();
     await pending.catch(() => false);
     throw error;

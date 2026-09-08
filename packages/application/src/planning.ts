@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { createBudgetAccount, parseAggregateBudget } from "@ai-dev-os/domain";
-import { assembleCandidate, applyClarificationsToCandidate, createClarificationSession, openClarificationRound, resolveClarificationRound, prepareCandidateAcceptance, createC7IntakeStore, type CandidateBrief, type CandidateDraftInput, type ClarificationSession } from "@ai-dev-os/intake";
+import { assembleCandidate, applyClarificationsToCandidate, createClarificationSession, openClarificationRound, resolveClarificationRound, prepareCandidateAcceptance, createC7IntakeStore, IntakeError, type CandidateBrief, type CandidateDraftInput, type ClarificationSession } from "@ai-dev-os/intake";
 import type { PersistenceAdapter, TransactionContext } from "@ai-dev-os/persistence";
 import { parseProject, parseProjectStop, isProjectStopActive, type ProjectPlan } from "@ai-dev-os/project";
 import { assertSealConditions, blockingOpenQuestionIds, consumePlanScopeApproval, operationKindsOf, promoteDraft, sealProposedPlan, type IssuedPlanCommitFacts, type PlanCommitAuthorization, type PlanCommitRequest, type PlanHeadEventPayload } from "@ai-dev-os/plan";
@@ -372,6 +372,14 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
         return receipt;
       });
       if (existing !== null) return existing.result;
+      // Intake has stricter prose rules than the command DTO. Complete this
+      // fallible view preparation before any confirmed project write, so it
+      // cannot turn an already committed project into an unknown/refused reply.
+      let creationCandidate: EphemeralCandidate | null = null;
+      if (command.kind === "create-project") {
+        try { creationCandidate = candidateDraft(`prj:${digestPlanning(id).slice(0, 32)}`, command); }
+        catch (error) { if (error instanceof IntakeError) return refusePlanning(error.code); throw error; }
+      }
       const before = await persistence.transact((tx) => basis(tx, command));
       let selected: unknown = null;
       if (command.kind === "select-repository" || command.kind === "create-project") {
@@ -403,7 +411,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
         return outcome;
       });
       if (committed.kind === "committed") {
-        if (command.kind === "create-project") candidates.set(committed.projectId!, candidateDraft(committed.projectId!, command));
+        if (creationCandidate !== null) candidates.set(committed.projectId!, creationCandidate);
         if (command.kind === "accept-brief") candidates.delete(command.projectId);
       }
       return committed;

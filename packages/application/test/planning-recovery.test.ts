@@ -96,6 +96,13 @@ async function authority(f: Awaited<ReturnType<typeof fixture>>, p: PlanningProj
 // These cases perform complete real DELETE/FULL SQLite workflows. Keep their
 // finite whole-case budget separate from the unchanged application deadlines.
 describe("saved workflow recovery", { timeout: 30_000 }, () => {
+  it("validates the temporary brief before creating a project so rejection cannot contradict its receipt", async () => {
+    const f = await fixture(), command = { kind: "create-project" as const, commandId: commandId(), name: "Honest project outcome", objective: "Keep field notes in C:/owned-fixture/notes", outcomes: ["Reopen saved field notes"], budgetMinorUnits: 2000, currency: "GBP" };
+    const outcome = await f.app.command(command), observed = await f.app.observe(command.commandId), projects = (await f.app.snapshot(null)).projects;
+    expect({ reported: outcome.kind, observed: observed.kind, savedProjects: projects.length }).toEqual({ reported: "refused", observed: "refused", savedProjects: 0 });
+    expect(f.reviews).toHaveLength(0);
+  });
+
   it("offers explicit scope-request recovery at exact expiry after close and reopen", async () => {
     const f = await fixture(); let p = await draft(f.app);
     p = await saved(f.app, { kind: "prepare-plan", commandId: commandId(), projectId: p.projectId, expectedPlanVersion: p.plan!.version });
