@@ -148,7 +148,7 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
   let recoveryTimer: NodeJS.Timeout | null = null;
   let operation: Promise<void> = Promise.resolve();
   const pendingRootCleanup = new Set<Promise<void>>();
-  const ownedRoots = new Map<string, Readonly<{ dev: number; ino: number }>>();
+  const ownedRoots = new Map<string, Readonly<{ dev: bigint; ino: bigint }>>();
   const removedRoots = new Set<string>();
   let rootCleanupFailed = false;
   const planningPending = new Map<string, { launch: ActiveLaunch; query: PlanningQuery; finish: (value: PlanningReply | null) => void }>();
@@ -202,7 +202,7 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
     }
     if (!samePath(await canonicalServicePath(resolvedRoot), resolvedRoot)) throw new Error("SERVICE_ROOT_OWNERSHIP_REFUSED");
     let current;
-    try { current = await lstat(resolvedRoot); }
+    try { current = await lstat(resolvedRoot, { bigint: true }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") { ownedRoots.delete(resolvedRoot); removedRoots.add(resolvedRoot); return; } throw error; }
     if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== expected.dev || current.ino !== expected.ino) throw new Error("SERVICE_ROOT_OWNERSHIP_REFUSED");
     await rm(resolvedRoot, { recursive: true, force: true });
@@ -281,7 +281,7 @@ export function createOwnedServiceController(options: OwnedServiceControllerOpti
       if (!samePath(await canonicalServicePath(storageParent), storageParent)) throw new Error("SERVICE_STORAGE_UNSAFE");
       if (deadlineElapsed || clock().valueOf() >= deadlineAt) throw new Error("SERVICE_READY_TIMEOUT");
       root = await mkdtemp(join(storageParent, storagePrefix));
-      const created = await lstat(root);
+      const created = await lstat(root, { bigint: true });
       if (!created.isDirectory() || created.isSymbolicLink()) throw new Error("SERVICE_ROOT_OWNERSHIP_REFUSED");
       ownedRoots.set(root, { dev: created.dev, ino: created.ino });
       if (deadlineElapsed || clock().valueOf() >= deadlineAt) throw new Error("SERVICE_READY_TIMEOUT");

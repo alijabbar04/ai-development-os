@@ -15,13 +15,14 @@ export async function canonicalServicePath(input: string): Promise<string> {
   for (let index = 0; index < components.length; index++) {
     const next = join(cursor, components[index]!);
     let observed;
-    try { observed = await lstat(next); }
+    // Windows file IDs are 64-bit; Number can make distinct identities equal.
+    try { observed = await lstat(next, { bigint: true }); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       return join(cursor, ...components.slice(index));
     }
     if (!observed.isDirectory() || observed.isSymbolicLink()) throw new Error("SERVICE_STORAGE_UNSAFE");
-    const canonical = await realpath(next), resolved = await lstat(canonical);
+    const canonical = await realpath(next), resolved = await lstat(canonical, { bigint: true });
     if (!resolved.isDirectory() || resolved.isSymbolicLink() || observed.dev !== resolved.dev || observed.ino !== resolved.ino) {
       throw new Error("SERVICE_STORAGE_UNSAFE");
     }
