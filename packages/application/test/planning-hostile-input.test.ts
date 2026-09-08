@@ -1,6 +1,13 @@
 import { expect, it } from "vitest";
 import { parsePlanningCommand, planningArray, planningObject } from "../src/planning-validation.js";
 const command = { kind: "create-project", commandId: "input:create", name: "Valid local project", objective: "Describe an arbitrary local project", outcomes: [], budgetMinorUnits: 0, currency: "GBP" };
+it.each(["approve-scope", "request-scope-again"])("requires exact saved coordinates and refuses renderer clock or authority fields for %s", (kind) => {
+  const input = { kind, commandId: "input:scope", projectId: "prj:owned", expectedPlanVersion: 3, scopeRequest: { approvalId: "apr:owned", approvalVersion: 1, metadataId: "project-metadata:prj:owned", metadataVersion: 3, metadataDigest: "a".repeat(64) } };
+  expect(parsePlanningCommand(input)).toEqual(input);
+  const { scopeRequest, ...legacy } = input; expect(() => parsePlanningCommand(legacy)).toThrow();
+  for (const forged of [{ ...input, expiresAt: "2099-01-01T00:00:00.000Z" }, { ...input, clock: "synthetic" }, { ...input, operatorConfirmed: true },
+    { ...input, scopeRequest: { ...scopeRequest, metadataDigest: "invalid" } }, { ...input, scopeRequest: { ...scopeRequest, approvalVersion: -1 } }, { ...input, scopeRequest: { ...scopeRequest, approved: true } }]) expect(() => parsePlanningCommand(forged)).toThrow();
+});
 it.each([
   null, [], new Date(), Object.assign(Object.create({ actor: "owner" }), command),
   { ...command, actor: "owner" }, { ...command, head: "a".repeat(40) }, { ...command, operatorConfirmed: true }, { ...command, kind: "run-task" },

@@ -1,7 +1,7 @@
 import { basename, join, resolve } from "node:path";
 import { beforeEach, expect, it, vi } from "vitest";
 import { createMemoryPersistenceAdapter } from "@ai-dev-os/persistence-memory";
-import { materializePlanningHandovers, parsePlanningHandover, planningHandoverFileName } from "../src/planning-handover.js";
+import { materializePlanningHandovers, parsePlanningHandover, planningHandoverFileName, readPlanningHandovers } from "../src/planning-handover.js";
 
 const control = vi.hoisted(() => ({ mode: "stable-existing", target: "", staging: "", bytes: Buffer.alloc(0), present: true, written: false, removed: false, published: false, unlinks: [] as string[], links: [] as string[], unboundedReads: 0, readRequests: [] as number[], closes: 0 }));
 const root = resolve("handover-identity-control"), idA = 9_007_199_254_740_992n, idB = 9_007_199_254_740_993n;
@@ -53,30 +53,31 @@ async function materialize() {
   // Materialization uses the canonicalized persisted document, including its
   // property order, rather than the caller's original object insertion order.
   control.bytes = Buffer.from(JSON.stringify((stored!.payload as { document: unknown }).document, null, 2) + "\n");
-  await persistence.transact((tx) => materializePlanningHandovers(tx, root));
+  const records = await persistence.transact(readPlanningHandovers);
+  return (await materializePlanningHandovers(records, root)).get(record.handoverId);
 }
 it("reconciles an exact owned staging link and preserves the complete document", async () => {
-  control.mode = "owned-staging"; await materialize(); expect(control.unlinks).toEqual([control.staging]);
+  control.mode = "owned-staging"; expect(await materialize()).toBe("published"); expect(control.unlinks).toEqual([control.staging]);
 });
 it("preserves an unknown staging file whose distinct ID rounds equal to the target", async () => {
   control.mode = "unknown-staging"; expect(Number(idA)).toBe(Number(idB));
-  let failure: unknown; try { await materialize(); } catch (error) { failure = error; }
-  expect(control.unlinks).toEqual([]); expect(failure).toMatchObject({ reason: "handover.file-conflict" });
+  expect(await materialize()).toBe("differs-on-disk");
+  expect(control.unlinks).toEqual([]);
 });
 it("bounds artifact reads even when the file grows after its initial metadata check", async () => {
-  control.mode = "growing-file"; await expect(materialize()).rejects.toMatchObject({ reason: "handover.file-conflict" });
+  control.mode = "growing-file"; expect(await materialize()).toBe("differs-on-disk");
   expect(control.unboundedReads).toBe(0); expect(control.readRequests.length).toBeGreaterThan(0); expect(Math.max(...control.readRequests)).toBeLessThanOrEqual(control.bytes.length + 1);
 });
 it("publishes and cleans only the exact newly written staging file", async () => {
-  control.present = false; await materialize(); expect(control.links).toEqual([control.staging]); expect(control.unlinks).toEqual([control.staging]);
+  control.present = false; expect(await materialize()).toBe("published"); expect(control.links).toEqual([control.staging]); expect(control.unlinks).toEqual([control.staging]);
 });
 it("preserves a replaced staging file before publication or cleanup", async () => {
   control.mode = "replaced-publication"; control.present = false;
-  let failure: unknown; try { await materialize(); } catch (error) { failure = error; }
-  expect(control.links).toEqual([]); expect(control.unlinks).toEqual([]); expect(failure).toMatchObject({ reason: "handover.file-conflict" });
+  expect(await materialize()).toBe("differs-on-disk");
+  expect(control.links).toEqual([]); expect(control.unlinks).toEqual([]);
 });
 it("closes a newly opened staging handle if its initial identity cannot be observed", async () => {
   control.mode = "identity-failure"; control.present = false;
-  await expect(materialize()).rejects.toThrow("OWNED_STAT_FAILURE");
+  expect(await materialize()).toBe("unavailable");
   expect(control.closes).toBe(1); expect(control.links).toEqual([]); expect(control.unlinks).toEqual([]);
 });

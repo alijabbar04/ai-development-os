@@ -6,15 +6,15 @@ import type { PersistenceAdapter, TransactionContext } from "@ai-dev-os/persiste
 import { parseProject, parseProjectStop, isProjectStopActive, type ProjectPlan } from "@ai-dev-os/project";
 import { assertSealConditions, blockingOpenQuestionIds, consumePlanScopeApproval, operationKindsOf, promoteDraft, sealProposedPlan, type IssuedPlanCommitFacts, type PlanCommitAuthorization, type PlanCommitRequest, type PlanHeadEventPayload } from "@ai-dev-os/plan";
 import { createPlanPersistenceBoundary } from "@ai-dev-os/plan/persistence-boundary";
-import { evaluateApprovalOperation, evaluateHistoricalMoneyCompletion, parseApprovalOperation, type ApprovalOperation } from "@ai-dev-os/approval";
+import { evaluateApprovalOperation, evaluateHistoricalMoneyCompletion, parseApprovalOperation, type ApprovalOperation, type PreparedApproval } from "@ai-dev-os/approval";
 import type { PlanningCommand, PlanningCommandResult, PlanningHandoverView, PlanningProjectSummary, PlanningProjectView, PlanningWorkspaceView } from "./planning-contracts.js";
 import { canonicalPlanning, digestPlanning, parsePlanningCommand, planningHash, planningId, planningObject, PlanningRefusal, refusePlanning } from "./planning-validation.js";
 import { capturePlanningEffects, listPlanningAggregates, listPlanningEvents, observePlanningReceipt, planningTransactionAdapter, recordPlanningIntent, recordPlanningReceipt, verifyPlanningEnvelope, writePlanningAggregate, type PlanningConfirmation, type PlanningReceipt, type PlanningReceiptResult } from "./planning-ledger.js";
 import { assertPlanningAdmission, bindPlanningSteps, draftPlanningRequest, operatorPlanningEvidence, planningCeiling, planningDecision, readPlanningFoundations, type PlanningFoundations, type PlanningUnboundStep } from "./planning-plan.js";
-import { createPlanningApprovalOwner, preparePlanningScopeApproval, prospectiveScopeConsumption, readJointScopeConsumption, readPlanningApprovalControls, readPlanningApprovalPair, verifyPlanningApprovalHistory, verifyPlanningMoneyHistory, writeJointScopeConsumption } from "./planning-approval.js";
+import { createPlanningApprovalOwner, planningScopeValidity, preparePlanningScopeApproval, prospectiveScopeConsumption, readJointScopeConsumption, readPlanningApprovalControls, readPlanningApprovalPair, verifyPlanningApprovalHistory, verifyPlanningMoneyHistory, writeJointScopeConsumption } from "./planning-approval.js";
 import { inspectPlanningRepository, type PlanningRepositoryObservation } from "./planning-repository.js";
 import { readPlanningMetadata, writePlanningMetadata, type PlanningMetadata } from "./planning-metadata.js";
-import { attachPlanningManualResult, createPlanningHandover, materializePlanningHandovers, parsePlanningHandover, planningHandoverFileName, planningHandoverStale } from "./planning-handover.js";
+import { attachPlanningManualResult, createPlanningHandover, materializePlanningHandovers, parsePlanningHandover, planningHandoverFileName, planningHandoverStale, readPlanningHandovers, type PlanningHandoverRecord } from "./planning-handover.js";
 
 export type { PlanningCommand, PlanningCommandResult, PlanningWorkspaceView } from "./planning-contracts.js";
 export { parsePlanningCommand } from "./planning-validation.js";
@@ -39,6 +39,7 @@ interface CommandBasis { readonly f: PlanningFoundations | null; readonly metada
 const titles: Record<PlanningCommand["kind"], string> = {
   "create-project": "Create this local project", "draft-brief": "Review this temporary brief", "answer-clarification": "Use these clarification answers", "accept-brief": "Save this exact accepted brief",
   "select-repository": "Save this repository read grant", "save-plan": "Save this manually authored plan", "prepare-plan": "Prepare this exact plan for review", "approve-scope": "Approve this scope and seal the plan",
+  "request-scope-again": "Request scope approval again",
   "seal-plan": "Seal this exact plan", "stop-project": "Stop local project operations", "resume-project": "Resume local project operations", "export-handover": "Export this planning context",
   "attach-result": "Attach this untrusted manual report", "historical-money": "Record a historical spending fact",
 };
@@ -53,8 +54,8 @@ function candidateDraft(projectId: string, input: { objective: string; outcomes:
   const clarification = openQuestions.length === 0 ? createClarificationSession() : openClarificationRound({ session: createClarificationSession(), questions: openQuestions, knownFacts: [], materialChangeReason: null }, planningHash);
   return { candidateId: `candidate:${randomUUID()}`, value, clarification, expectedBriefVersion: 0 };
 }
-function result(kind: PlanningCommandResult["kind"], commandId: string | null, projectId: string | null, reason: string | null = null, workspace: PlanningWorkspaceView | null = null): PlanningCommandResult {
-  return Object.freeze({ kind, commandId, reason, projectId, workspace });
+function result(kind: PlanningCommandResult["kind"], commandId: string | null, projectId: string | null, reason: string | null = null, workspace: PlanningWorkspaceView | null = null, projectionWarning: PlanningCommandResult["projectionWarning"] = null): PlanningCommandResult {
+  return Object.freeze({ kind, commandId, reason, projectId, workspace, projectionWarning });
 }
 function safeFailure(error: unknown, id: string | null, projectId: string | null): PlanningCommandResult {
   if (error instanceof PlanningRefusal) return result(error.kind, id, projectId, error.reason);
@@ -73,6 +74,17 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
   const { persistence, operator } = options, clock = options.clock ?? { now: () => new Date() };
   const candidates = new Map<string, EphemeralCandidate>(), active = new Map<string, Promise<PlanningCommandResult>>();
   const ephemeral = new Set<Promise<unknown>>();
+  // File projections used to be serialized by the database transaction. Keep
+  // their ordering without holding that transaction open during filesystem I/O.
+  let projectionTail: Promise<unknown> = Promise.resolve();
+  function projectHandovers(records: readonly PlanningHandoverRecord[]) {
+    const pending = projectionTail.then(() => materializePlanningHandovers(records, options.artifactRoot));
+    projectionTail = pending.catch(() => undefined);
+    return pending;
+  }
+  async function tracked<T>(pending: Promise<T>): Promise<T> {
+    ephemeral.add(pending); try { return await pending; } finally { ephemeral.delete(pending); }
+  }
   let initialized = false, closing = false;
   const now = (): string => clock.now().toISOString();
   async function basis(tx: TransactionContext, command: PlanningCommand): Promise<CommandBasis> {
@@ -103,12 +115,23 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
       if (record.projectId !== command.projectId) return refusePlanning("handover.project-mismatch");
       extra = handover;
     }
-    if (command.kind === "historical-money" || command.kind === "approve-scope") {
+    if (command.kind === "historical-money" || command.kind === "approve-scope" || command.kind === "request-scope-again") {
       const approvalId = command.kind === "historical-money" ? command.approvalId : metadata.value.plan?.scopeApprovalId;
       if (approvalId === null || approvalId === undefined) return refusePlanning("approval.unavailable");
       const pair = await readPlanningApprovalPair(tx, approvalId);
       if (pair === null || pair.approval.scope.projectId !== command.projectId) return refusePlanning("approval.unavailable");
       if (command.kind === "historical-money" && (command.expectedApprovalVersion !== pair.approvalEnvelope.aggregateVersion || command.expectedSpendingVersion !== pair.spendingEnvelope?.aggregateVersion)) return refusePlanning("approval.version-conflict", "conflict");
+      if (command.kind !== "historical-money") {
+        await verifyPlanningApprovalHistory(tx, pair);
+        const subject = command.scopeRequest;
+        if (subject.approvalId !== approvalId || subject.approvalVersion !== pair.approvalEnvelope.aggregateVersion
+          || subject.metadataId !== metadata.envelope.aggregateId || subject.metadataVersion !== metadata.envelope.aggregateVersion || subject.metadataDigest !== metadata.envelope.checksum.hex) return refusePlanning("scope.subject-conflict", "conflict");
+        if (f.head?.plan.state !== "awaiting_scope_approval" || !metadata.value.plan?.requiresScope || pair.request.proposal.class !== "scope-expansion" || pair.spending !== null || pair.approval.state !== "requested") return refusePlanning("scope.approval-unavailable");
+        await assertManualOrigin(tx, f, metadata.value);
+        const controls = await readPlanningApprovalControls(tx, pair.request.proposal.binding, now());
+        evaluateApprovalOperation(op(command.kind === "request-scope-again" ? "expire" : "approve", "scope:confirmation", pair, controls.observedAt), { approval: pair.approval, spending: null }, controls,
+          { kind: "operator", identityRef: "operator:local-desktop", approverClass: "project-owner" }, planningHash);
+      }
       extra = pair;
     }
     const detail = { project: f.project, brief: f.accepted?.brief ?? null, plan: f.head?.plan ?? null, planVersion: f.head?.aggregateVersion ?? 0,
@@ -143,7 +166,17 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
       lines.push("\nBrief to accept", candidate.objective.value); list("Outcomes to accept", candidate.outcomes.map((field) => field.value)); list("Non-goals to accept", candidate.nonGoals.map((field) => field.value)); list("Audience to accept (including any proposed default)", candidate.audiences.map((field) => field.value));
     } else if (command.kind === "save-plan") {
       tasks("Proposed manual plan", command.title, command.tasks); lines.push(`\nRequested scope: ${command.scope.replaceAll("-", " ")}. Additional objectives require an exact scope approval before sealing.`);
+    } else if (command.kind === "prepare-plan" && b.metadata?.value.plan?.requiresScope) {
+      const validity = selected as ReturnType<typeof planningScopeValidity>;
+      lines.push(`\nA separate scope request will be valid from ${validity.createdAt} until ${validity.expiresAt} (24 hours). Preparing grants no approval. Approve and seal separately before expiry, or explicitly request approval again afterward.`);
+    } else if (command.kind === "request-scope-again") {
+      const pair = planningObject(b.detail)["exactActionEvidence"] as NonNullable<Awaited<ReturnType<typeof readPlanningApprovalPair>>>, request = selected as PreparedApproval;
+      lines.push(`\nExpired request: ${pair.approval.approvalRequestId}`, `Expired at: ${pair.approval.expiresAt}`, `New request: ${request.approval.approvalRequestId}`,
+        `Valid from ${request.approval.createdAt} until ${request.approval.expiresAt} (24 hours).`,
+        "The old request and history are preserved. The plan state, version and content stay unchanged. The new request starts requested and unconsumed. Requesting again grants no approval, spending or execution. Approve and seal in a separate action before the new expiry.");
     } else if (command.kind === "approve-scope") {
+      const pair = planningObject(b.detail)["exactActionEvidence"] as NonNullable<Awaited<ReturnType<typeof readPlanningApprovalPair>>>;
+      lines.push(`\nCurrent scope request: ${pair.approval.approvalRequestId}`, `Valid until ${pair.approval.expiresAt}. This action must finish before expiry.`);
       lines.push("\nDecision: approve the exact additional scope above and seal this plan in one saved transaction. This consumes this scope approval once. It authorizes no task execution or spending.");
     } else if (command.kind === "historical-money") {
       const pair = planningObject(b.detail)["exactActionEvidence"] as NonNullable<Awaited<ReturnType<typeof readPlanningApprovalPair>>>;
@@ -189,6 +222,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
   }
   async function approvalOperation(tx: TransactionContext, request: ApprovalOperation, confirmation: PlanningConfirmation, historical = false): Promise<void> {
     const owner = createPlanningApprovalOwner(planningTransactionAdapter(tx), clock), outcome = await owner.attemptConfirmed(request, confirmation, historical);
+    if (outcome.kind === "unknown") throw new Error("APPROVAL_TRANSACTION_UNCONFIRMED");
     if (outcome.kind !== "committed") return refusePlanning(outcome.reason ?? "approval.write-unconfirmed", outcome.kind === "conflict" ? "conflict" : outcome.kind === "corrupt" ? "corrupt" : "refused");
   }
   function op(kind: ApprovalOperation["kind"], commandId: string, pair: NonNullable<Awaited<ReturnType<typeof readPlanningApprovalPair>>>, at: string, receiptRef: string | null = null): ApprovalOperation {
@@ -248,6 +282,16 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
       await writePlanningMetadata(tx, { ...m.value, plan: { planId: request.steps[0].plan!.planId, requiresScope, originCommandId: command.commandId, scopeApprovalId: null } }, m.envelope.aggregateVersion, command.commandId, at);
       return { projectId, material: { command, request } };
     }
+    if (command.kind === "request-scope-again") {
+      const pair = (await readPlanningApprovalPair(tx, command.scopeRequest.approvalId))!, prepared = selected as PreparedApproval;
+      if (prepared.approval.approvalRequestId === pair.approval.approvalRequestId) return refusePlanning("scope.successor-identity", "conflict");
+      // These existing approval operations, metadata and their inner/outer
+      // receipts share one transaction. No plan transition or money replace.
+      await approvalOperation(tx, op("expire", `${command.commandId}:expire`, pair, at), confirmation);
+      await approvalOperation(tx, parseApprovalOperation({ schemaVersion: 1, kind: "create", operationId: `${command.commandId}:create`, request: prepared, successor: null, expectedApprovalVersion: 0, expectedSpendingVersion: 0, at, receiptRef: null }, planningHash), confirmation);
+      await writePlanningMetadata(tx, { ...m.value, plan: { ...m.value.plan!, scopeApprovalId: prepared.approval.approvalRequestId } }, m.envelope.aggregateVersion, command.commandId, at);
+      return { projectId, material: { command, oldRequest: pair.request, newRequest: prepared } };
+    }
     if (command.kind === "prepare-plan" || command.kind === "seal-plan" || command.kind === "approve-scope") {
       await assertManualOrigin(tx, f, m.value);
       const head = f.head!.plan, steps: PlanningUnboundStep[] = [];
@@ -275,7 +319,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
       if (scopePair !== null && consumed !== null) await writeJointScopeConsumption(tx, scopePair, consumed, await readPlanningApprovalControls(tx, scopePair.request.proposal.binding, at), request, confirmation);
       await commitPlan(tx, request);
       if (command.kind === "prepare-plan" && m.value.plan!.requiresScope) {
-        const fresh = await readPlanningFoundations(tx, projectId), prepared = await preparePlanningScopeApproval(tx, fresh, at);
+        const fresh = await readPlanningFoundations(tx, projectId), prepared = await preparePlanningScopeApproval(tx, fresh, (selected as ReturnType<typeof planningScopeValidity>).createdAt);
         await approvalOperation(tx, parseApprovalOperation({ schemaVersion: 1, kind: "create", operationId: `${command.commandId}:create`, request: prepared, successor: null, expectedApprovalVersion: 0, expectedSpendingVersion: 0, at, receiptRef: null }, planningHash), confirmation);
         await writePlanningMetadata(tx, { ...m.value, plan: { ...m.value.plan!, scopeApprovalId: prepared.approval.approvalRequestId } }, m.envelope.aggregateVersion, command.commandId, at);
       }
@@ -318,7 +362,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
     await approvalOperation(tx, op(command.action, `${command.commandId}:history`, pair, at, command.receiptRef), confirmation, true);
     return { projectId, material: command };
   }
-  async function execute(command: DurableCommand): Promise<PlanningCommandResult> {
+  async function decide(command: DurableCommand): Promise<PlanningReceiptResult | PlanningCommandResult> {
     const id = command.commandId, projectId = "projectId" in command ? command.projectId : null, inputDigest = digestPlanning(command);
     let confirmation: PlanningConfirmation | null = null;
     try {
@@ -327,7 +371,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
         if (receipt === null) await recordPlanningIntent(tx, { commandId: id, commandKind: command.kind, inputDigest, projectId, at: now() });
         return receipt;
       });
-      if (existing !== null) return await withWorkspace(existing.result);
+      if (existing !== null) return existing.result;
       const before = await persistence.transact((tx) => basis(tx, command));
       let selected: unknown = null;
       if (command.kind === "select-repository" || command.kind === "create-project") {
@@ -339,13 +383,14 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
           const envelope = planningObject(before.detail)["exactActionEvidence"] as { payload: unknown };
           attachPlanningManualResult(parsePlanningHandover(envelope.payload), selected as { name: string; text: string }, now());
         }
-      }
+      } else if (command.kind === "request-scope-again") selected = await persistence.transact((tx) => preparePlanningScopeApproval(tx, before.f!, now()));
+      else if (command.kind === "prepare-plan" && before.metadata?.value.plan?.requiresScope) selected = planningScopeValidity(now());
       const cancelledPicker = (command.kind === "select-repository" || command.kind === "create-project" || command.kind === "attach-result") && selected === null;
       if (!cancelledPicker) confirmation = await confirm(command, before, selected);
       if (confirmation === null) {
         const cancelled = { kind: "cancelled" as const, commandId: id, reason: "operator.cancelled", projectId };
         await persistence.transact((tx) => recordPlanningReceipt(tx, { schemaVersion: 1, commandId: id, commandKind: command.kind, inputDigest, at: now(), confirmation: null, material: null, effects: [], result: cancelled }));
-        return await withWorkspace(cancelled);
+        return cancelled;
       }
       const confirmed = confirmation;
       const committed = await persistence.transact(async (base) => {
@@ -361,7 +406,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
         if (command.kind === "create-project") candidates.set(committed.projectId!, candidateDraft(committed.projectId!, command));
         if (command.kind === "accept-brief") candidates.delete(command.projectId);
       }
-      return await withWorkspace(committed);
+      return committed;
     } catch (error) {
       const failed = safeFailure(error, id, projectId);
       // A semantic rejection proves the transaction rolled back. Unknown commit
@@ -375,6 +420,12 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
       }
       return failed;
     }
+  }
+  async function execute(command: DurableCommand): Promise<PlanningCommandResult> {
+    const outcome = await decide(command);
+    // Enrichment happens only after decision error handling has ended. It can
+    // neither rewrite a known outcome nor write a semantic-rejection receipt.
+    return "workspace" in outcome ? outcome : withWorkspace(outcome);
   }
   async function ephemeralCommand(command: Exclude<PlanningCommand, DurableCommand>): Promise<PlanningCommandResult> {
     try {
@@ -399,7 +450,12 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
   async function snapshot(projectId: string | null): Promise<PlanningWorkspaceView> {
     if (!initialized || closing) return refusePlanning("workspace.unavailable");
     if (projectId !== null) planningId(projectId);
-    return await persistence.transact(async (tx) => {
+    if (active.size + ephemeral.size >= 8) return refusePlanning("command.capacity");
+    return tracked(readWorkspace(projectId));
+  }
+  async function readWorkspace(projectId: string | null): Promise<PlanningWorkspaceView> {
+    const saved = await persistence.transact(async (tx) => {
+      const records = await readPlanningHandovers(tx);
       const rows = await listPlanningAggregates(tx, "project", 128), projects: PlanningProjectSummary[] = [];
       let selected: PlanningProjectView | null = null;
       for (const row of rows) {
@@ -409,20 +465,27 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
         if (row.aggregateId !== projectId) continue;
         const candidate = candidates.get(projectId), head = f.head, repo = m.value.repository;
         const approvals: PlanningProjectView["approvals"][number][] = [];
-        let scopeAvailable = false;
+        let scopeAvailable = false, renewalAvailable = false;
+        let scopeApproval: NonNullable<PlanningProjectView["plan"]>["scopeApproval"] = null;
         for (const envelope of await listPlanningAggregates(tx, "approval-request")) {
           const pair = await readPlanningApprovalPair(tx, envelope.aggregateId);
           if (pair === null || pair.approval.scope.projectId !== projectId) continue;
           const actions: ("report-executed" | "record-receipt" | "withdraw")[] = [];
           let context = pair.spending === null ? "Exact local scope; no spending or task execution." : "Historical operator report; external verification is unavailable.";
           if (pair.spending === null) {
+            const expired = pair.approval.expiresAt <= now();
+            if (pair.approval.approvalRequestId === m.value.plan?.scopeApprovalId) scopeApproval = { subject: { approvalId: pair.approval.approvalRequestId, approvalVersion: pair.approvalEnvelope.aggregateVersion,
+              metadataId: m.envelope.aggregateId, metadataVersion: m.envelope.aggregateVersion, metadataDigest: m.envelope.checksum.hex }, state: pair.approval.state, expiresAt: pair.approval.expiresAt, expired };
+            if (pair.approval.state === "requested" && expired) context += " This request has expired. Request scope approval again for the unchanged plan, then approve and seal separately.";
             try {
               await verifyPlanningApprovalHistory(tx, pair);
-              if (pair.approval.approvalRequestId === m.value.plan?.scopeApprovalId && pair.approval.state === "requested") {
+              if (pair.approval.approvalRequestId === m.value.plan?.scopeApprovalId && pair.approval.state === "requested" && head?.plan.state === "awaiting_scope_approval") {
+                await assertManualOrigin(tx, f, m.value);
                 const controls = await readPlanningApprovalControls(tx, pair.request.proposal.binding, now());
-                try { evaluateApprovalOperation(op("approve", "scope:availability", pair, controls.observedAt), { approval: pair.approval, spending: null }, controls,
-                  { kind: "operator", identityRef: "operator:local-desktop", approverClass: "project-owner" }, planningHash); scopeAvailable = true; }
-                catch { context += " Approval is unavailable for the current saved bindings, time or stop state."; }
+                try { evaluateApprovalOperation(op(expired ? "expire" : "approve", "scope:availability", pair, controls.observedAt), { approval: pair.approval, spending: null }, controls,
+                  { kind: "operator", identityRef: "operator:local-desktop", approverClass: "project-owner" }, planningHash);
+                  if (expired) renewalAvailable = true; else scopeAvailable = true;
+                } catch { context += " This action is unavailable for the current saved bindings or stop state."; }
               }
             } catch (error) { if (error instanceof PlanningRefusal && error.kind === "corrupt") throw error; context += " Required trusted history is unavailable."; }
           }
@@ -439,41 +502,51 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
             } catch (error) { if (error instanceof PlanningRefusal && error.kind === "corrupt") throw error; context += " Required trusted history is unavailable."; }
           }
           approvals.push({ approvalId: pair.approval.approvalRequestId, version: pair.approvalEnvelope.aggregateVersion, spendingVersion: pair.spendingEnvelope?.aggregateVersion ?? 0,
-            title: pair.spending === null ? "Manual plan scope approval" : "Historical money record", state: pair.spending?.state ?? pair.approval.state, context, actions });
+            title: pair.spending === null ? "Manual plan scope approval" : "Historical money record", state: pair.spending?.state ?? pair.approval.state, expiresAt: pair.approval.expiresAt, context, actions });
         }
         const handovers: PlanningProjectView["handovers"][number][] = [];
-        for (const envelope of await listPlanningAggregates(tx, "planning-handover", 256)) {
-          const record = parsePlanningHandover(envelope.payload);
+        for (const record of records) {
           if (record.projectId !== projectId) continue;
           const stale = planningHandoverStale(record, f);
-          handovers.push({ handoverId: record.handoverId, fileName: join(options.artifactRoot, planningHandoverFileName(record)), planRevision: record.planRevision, planDigest: record.planDigest, stale,
+          handovers.push({ handoverId: record.handoverId, fileName: join(options.artifactRoot, planningHandoverFileName(record)), artifactState: "unavailable", planRevision: record.planRevision, planDigest: record.planDigest, stale,
             result: record.result === null ? null : { attribution: record.result.attribution, text: record.result.text, stale } });
         }
         const stopHistory = (await Promise.all(f.stops.map((stop) => listPlanningEvents(tx, "project-stop", stop.projectStopId)))).flat();
         const history = [...await listPlanningEvents(tx, "project", projectId), ...stopHistory, ...(f.accepted === null ? [] : await listPlanningEvents(tx, "project-brief", f.accepted.aggregateId)),
           ...(head === null ? [] : await listPlanningEvents(tx, "project-plan", head.aggregateId))].sort((a, b) => a.globalSequence - b.globalSequence).slice(-100).map((event) => ({ eventId: event.eventId, kind: event.eventType, at: event.occurredAt }));
-        const actions: ("prepare-plan" | "approve-scope" | "seal-plan")[] = f.stopped || head === null ? [] : head.plan.state === "drafting" ? ["prepare-plan"] : head.plan.state === "awaiting_scope_approval" && scopeAvailable ? ["approve-scope"] : head.plan.state === "proposed" && !m.value.plan?.requiresScope ? ["seal-plan"] : [];
+        const actions: NonNullable<PlanningProjectView["plan"]>["actions"] = f.stopped || head === null ? [] : head.plan.state === "drafting" ? ["prepare-plan"] : head.plan.state === "awaiting_scope_approval" ? scopeAvailable ? ["approve-scope"] : renewalAvailable ? ["request-scope-again"] : [] : head.plan.state === "proposed" && !m.value.plan?.requiresScope ? ["seal-plan"] : [];
         selected = { ...summary, budget: { minorUnits: (f.budget.budget.money?.limit.amountMicros ?? 0) / 10000, currency: f.budget.budget.money?.limit.currency ?? "GBP" },
           repository: repo === null ? null : { rootLeaf: repo.report.rootLeaf, state: repo.report.state, head: repo.report.facts.find((fact) => fact.kind === "git-head")?.value ?? null,
             branch: repo.report.facts.find((fact) => fact.kind === "git-branch")?.value ?? null, observedAt: repo.observedAt, facts: repo.report.facts.map((fact) => `${fact.kind}: ${fact.value}`) },
           brief: f.accepted === null ? null : { briefId: f.accepted.brief.briefId, version: f.accepted.aggregateVersion, digest: f.accepted.briefContentDigest, objective: f.accepted.brief.objective, outcomes: f.accepted.brief.outcomes, nonGoals: f.accepted.brief.nonGoals, audiences: f.accepted.brief.audiences },
           candidate: candidate === undefined ? null : { candidateId: candidate.candidateId, digest: candidate.value.candidateDigest, ready: candidate.value.ready, objective: candidate.value.objective.value, outcomes: candidate.value.outcomes.map((field) => field.value), questions: candidate.value.openQuestions.map((item) => item.question) },
           plan: head === null ? null : { planId: head.plan.planId, version: head.aggregateVersion, revision: head.plan.revision, digest: head.plan.planDigest, state: head.plan.state, title: head.plan.stages[0]?.title ?? "Manual plan",
-            tasks: head.plan.tasks.map((task) => ({ title: task.title, objective: task.objective, acceptanceCriteria: task.acceptance.map((item) => item.criterion) })), scope: m.value.plan?.requiresScope ? "scope-expansion" : "within-brief", sealedByApprovalId: head.plan.sealedByApprovalId, actions }, approvals, handovers, history };
+            tasks: head.plan.tasks.map((task) => ({ title: task.title, objective: task.objective, acceptanceCriteria: task.acceptance.map((item) => item.criterion) })), scope: m.value.plan?.requiresScope ? "scope-expansion" : "within-brief", sealedByApprovalId: head.plan.sealedByApprovalId, scopeApproval, actions }, approvals, handovers, history };
       }
       if (projectId !== null && selected === null) return refusePlanning("project.absent");
-      return Object.freeze({ schemaVersion: 1, authority: "none", source: "saved-local-planning", projects, selected });
+      return { records, workspace: { schemaVersion: 1 as const, authority: "none" as const, source: "saved-local-planning" as const, projects, selected } };
     });
+    const observations = await projectHandovers(saved.records), selected = saved.workspace.selected;
+    return Object.freeze({ ...saved.workspace, selected: selected === null ? null : { ...selected,
+      handovers: selected.handovers.map((handover) => ({ ...handover, artifactState: observations.get(handover.handoverId)! })) } });
   }
   async function withWorkspace(outcome: PlanningReceiptResult): Promise<PlanningCommandResult> {
-    try { await persistence.transact((tx) => materializePlanningHandovers(tx, options.artifactRoot)); }
-    catch { return result("unknown", outcome.commandId, outcome.projectId, "handover.materialization-unconfirmed"); }
-    return result(outcome.kind, outcome.commandId, outcome.projectId, outcome.reason, await snapshot(outcome.projectId));
+    try {
+      const workspace = await readWorkspace(outcome.projectId);
+      return result(outcome.kind, outcome.commandId, outcome.projectId, outcome.reason, workspace, workspace.selected?.handovers.some((item) => item.artifactState !== "published") ? "handover-files" : null);
+    } catch (error) {
+      // This does not validate an ambiguous commit: the caller already has a
+      // returned transaction result or a validated receipt. Corruption remains
+      // explicit and the unusable workspace is withheld, while the result stays.
+      return result(outcome.kind, outcome.commandId, outcome.projectId, outcome.reason, null,
+        error instanceof PlanningRefusal && error.kind === "corrupt" ? "workspace-corrupt" : "workspace-unavailable");
+    }
   }
   const app: SavedPlanningApplication = {
     async initialize() {
       if (initialized || closing) return;
-      await persistence.transact(async (tx) => {
+      await tracked((async () => {
+      const records = await persistence.transact(async (tx) => {
         const policy = await tx.aggregates.get("planning-workspace", "local-planning-policy");
         if (policy === null) await writePlanningAggregate(tx, "planning-workspace", "local-planning-policy", { schemaVersion: 1, kind: "local-planning-policy", version: 1, mode: "manual-planning-only" }, 0, "workspace:initialize", "planning-workspace.initialized", now());
         else verifyPlanningEnvelope(policy, "planning-workspace", "local-planning-policy");
@@ -483,15 +556,18 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
           const value = planningObject(row.payload), id = planningId(value["commandId"]);
           await observePlanningReceipt(tx, id);
         }
-        await materializePlanningHandovers(tx, options.artifactRoot);
+        return readPlanningHandovers(tx);
       });
+      await projectHandovers(records);
       initialized = true;
+      })());
     }, snapshot,
     async handover(projectId, handoverId) {
       planningId(projectId); planningId(handoverId);
       if (!initialized || closing) return refusePlanning("workspace.unavailable");
       if (active.size + ephemeral.size >= 8) return refusePlanning("command.capacity");
-      const pending = persistence.transact(async (tx) => {
+      const pending = (async () => {
+      const saved = await persistence.transact(async (tx) => {
         const f = await readPlanningFoundations(tx, projectId), envelope = await tx.aggregates.get("planning-handover", handoverId);
         if (envelope === null) return refusePlanning("handover.absent");
         verifyPlanningEnvelope(envelope, "planning-handover", handoverId);
@@ -500,9 +576,12 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
         if (record.projectId !== projectId) return refusePlanning("handover.project-mismatch");
         const text = `${JSON.stringify(record.document, null, 2)}\n`;
         if (text.length > 262_144) return refusePlanning("handover.view-bound");
-        return Object.freeze({ schemaVersion: 1 as const, authority: "none" as const, projectId, handoverId, fileName: join(options.artifactRoot, planningHandoverFileName(record)), stale: planningHandoverStale(record, f), text });
+        return { record, view: { schemaVersion: 1 as const, authority: "none" as const, projectId, handoverId, fileName: join(options.artifactRoot, planningHandoverFileName(record)), stale: planningHandoverStale(record, f), text } };
       });
-      ephemeral.add(pending); try { return await pending; } finally { ephemeral.delete(pending); }
+      const observations = await projectHandovers([saved.record]);
+      return Object.freeze({ ...saved.view, artifactState: observations.get(handoverId)! });
+      })();
+      return tracked(pending);
     },
     async command(value) {
       let command: PlanningCommand;
@@ -518,13 +597,18 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
       try { return await pending; } finally { active.delete(command.commandId); }
     },
     async observe(commandId) {
+      const pending = (async () => {
+      let receipt: PlanningReceipt | null;
       try {
         planningId(commandId);
         if (!initialized || closing) return result("unknown", commandId, null, "workspace.unavailable");
         if (active.has(commandId)) return result("unknown", commandId, null, "command.in-flight");
-        const receipt = await persistence.transact((tx) => observePlanningReceipt(tx, commandId));
-        return receipt === null ? result("not-recorded", commandId, null) : await withWorkspace(receipt.result);
+        if (active.size + ephemeral.size >= 8) return result("unknown", commandId, null, "command.capacity");
+        receipt = await persistence.transact((tx) => observePlanningReceipt(tx, commandId));
       } catch (error) { return safeFailure(error, commandId, null); }
+      return receipt === null ? result("not-recorded", commandId, null) : withWorkspace(receipt.result);
+      })();
+      return tracked(pending);
     },
     async drain() { closing = true; await Promise.allSettled([...active.values(), ...ephemeral]); candidates.clear(); },
   };

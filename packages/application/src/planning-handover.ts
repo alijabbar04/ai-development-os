@@ -1,12 +1,13 @@
-import { lstat, open, opendir, link, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, opendir, link, unlink } from "node:fs/promises";
 import type { BigIntStats } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { TransactionContext } from "@ai-dev-os/persistence";
 import { canonicalPlanningDirectory, type PlanningRepositoryObservation } from "./planning-repository.js";
 import { listPlanningAggregates, verifyPlanningEnvelope } from "./planning-ledger.js";
 import type { PlanningFoundations } from "./planning-plan.js";
-import { canonicalPlanning, digestPlanning, planningArray, planningHash, planningId, planningObject, planningText, refusePlanning } from "./planning-validation.js";
+import { canonicalPlanning, digestPlanning, planningArray, planningHash, planningId, planningObject, planningText, PlanningRefusal, refusePlanning } from "./planning-validation.js";
+import type { PlanningArtifactState } from "./planning-contracts.js";
 
 export interface PlanningHandoverRecord {
   readonly schemaVersion: 1;
@@ -38,7 +39,7 @@ export function createPlanningHandover(f: PlanningFoundations, repository: Plann
     tasks: plan.tasks.map((t) => ({ taskId: t.taskId, title: t.title, objective: t.objective, acceptanceCriteria: t.acceptance.map((a) => a.criterion) })),
     repositoryObservation: repository === null ? null : { rootLeaf: repository.report.rootLeaf, canonicalRoot: repository.canonicalRoot, observedAt: repository.observedAt, state: repository.report.state, facts: repository.report.facts, digest: digestPlanning(repository) },
     instructions: "Manually inspect this planning context in your chosen tool. It grants no execution, spending, repository write, or approval authority. Returned text is an untrusted operator-supplied report.",
-    returnTemplate: { schemaVersion: 1, kind: "planning-manual-result", authority: "none", handoverId, projectId: binding.projectId, briefDigest: binding.briefDigest, planDigest: binding.planDigest, text: "Replace this text with your manually returned report." },
+    returnTemplate: { schemaVersion: 1, kind: "planning-manual-result", authority: "none", handoverId, projectId: binding.projectId, briefDigest: binding.briefDigest, planDigest: binding.planDigest, text: "Copy this return template into a separate JSON file, then replace this text with your manually returned report. Preserve the exported handover." },
   };
   return Object.freeze({ schemaVersion: 1, kind: "planning-handover", authority: "none", handoverId, ...binding, createdAt: at, document: Object.freeze(document), result: null });
 }
@@ -150,16 +151,44 @@ async function publishArtifact(root: string, target: string, bytes: string): Pro
   }
   await verifyArtifact(root, target, bytes);
 }
-/** Materialize acknowledged documents idempotently after commit or after restart.
- * An existing different file is preserved and refused, never overwritten. */
-export async function materializePlanningHandovers(tx: TransactionContext, artifactRoot: string): Promise<void> {
-  const records = await listPlanningAggregates(tx, "planning-handover", 256);
-  const root = await canonicalPlanningDirectory(artifactRoot);
-  for (const envelope of records) {
+/** Validate authoritative records in the transaction. Corruption must escape;
+ * it must never be interpreted as a harmless export-file problem. */
+export async function readPlanningHandovers(tx: TransactionContext): Promise<readonly PlanningHandoverRecord[]> {
+  const records: PlanningHandoverRecord[] = [];
+  for (const envelope of await listPlanningAggregates(tx, "planning-handover", 256)) {
     verifyPlanningEnvelope(envelope, "planning-handover");
     const record = parsePlanningHandover(envelope.payload);
     if (record.handoverId !== envelope.aggregateId) return refusePlanning("handover.identity-corrupt", "corrupt");
-    const target = join(root, planningHandoverFileName(record)), bytes = `${JSON.stringify(record.document, null, 2)}\n`;
-    await publishArtifact(root, target, bytes);
+    records.push(record);
   }
+  return records;
+}
+/** Outside the database transaction, project already validated saved documents.
+ * Observations are refreshed on reads. A failure is isolated to its artifact;
+ * differing files, unsafe links and unidentifiable staging files are preserved. */
+export async function materializePlanningHandovers(records: readonly PlanningHandoverRecord[], artifactRoot: string): Promise<ReadonlyMap<string, PlanningArtifactState>> {
+  const observations = new Map<string, PlanningArtifactState>();
+  if (records.length === 0) return observations;
+  let root: string;
+  try {
+    try { await lstat(artifactRoot); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // No recursive creation through an unchecked parent or existing link.
+      const parent = dirname(resolve(artifactRoot));
+      if (await canonicalPlanningDirectory(parent) !== parent) throw new Error("HANDOVER_ROOT_UNAVAILABLE");
+      try { await mkdir(artifactRoot); }
+      catch (failure) { if ((failure as NodeJS.ErrnoException).code !== "EEXIST") throw failure; }
+    }
+    root = await canonicalPlanningDirectory(artifactRoot);
+  } catch {
+    for (const record of records) observations.set(record.handoverId, "unavailable");
+    return observations;
+  }
+  for (const record of records) {
+    const target = join(root, planningHandoverFileName(record)), bytes = `${JSON.stringify(record.document, null, 2)}\n`;
+    try { await publishArtifact(root, target, bytes); observations.set(record.handoverId, "published"); }
+    catch (error) { observations.set(record.handoverId, error instanceof PlanningRefusal && error.reason === "handover.file-conflict" ? "differs-on-disk" : "unavailable"); }
+  }
+  return observations;
 }

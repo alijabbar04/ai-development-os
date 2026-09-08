@@ -98,7 +98,7 @@ export async function runRendererHandoverViewerCheck(driver: RendererSavedJourne
     const visibleText = pre.textContent ?? "";
     return {
       title: /^Planning handover, revision [1-9][0-9]*$/.test(title),
-      secondaryPath: path.textContent?.startsWith("Saved file: ") === true && path.textContent.length > "Saved file: ".length && !Array.from(dialog.querySelectorAll("h3")).some((heading) => heading.textContent === path.textContent),
+      secondaryPath: path.textContent?.startsWith("Export location: ") === true && path.textContent.length > "Export location: ".length && !Array.from(dialog.querySelectorAll("h3")).some((heading) => heading.textContent === path.textContent),
       authority: authority.startsWith("Authority: none"),
       stale: authority.includes(${JSON.stringify(expectedStale ? "Stale binding" : "Current binding")}),
       exactText: visibleText === JSON.stringify(artifact, null, 2) + "\\n" && artifact?.schemaVersion === 1 && artifact?.kind === "planning-handover" && artifact?.authority === "none",

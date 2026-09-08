@@ -24,7 +24,7 @@ it("saves through the actual pinned child, observes lost acknowledgments, restar
   p = (await command({ kind: "accept-brief", commandId: "child:accept", projectId: p.projectId, candidateId: p.candidate!.candidateId, candidateDigest: p.candidate!.digest, expectedBriefVersion: 0 })).workspace!.selected!;
   p = (await command({ kind: "save-plan", commandId: "child:draft", projectId: p.projectId, expectedPlanVersion: 0, title: "Journal foundation", tasks: [{ title: "Local journal", objective: "Add a seasonal overview", acceptanceCriteria: ["A saved view reopens"] }], scope: "scope-expansion" })).workspace!.selected!;
   p = (await command({ kind: "prepare-plan", commandId: "child:prepare", projectId: p.projectId, expectedPlanVersion: p.plan!.version })).workspace!.selected!;
-  const seal = { kind: "approve-scope" as const, commandId: "child:seal", projectId: p.projectId, expectedPlanVersion: p.plan!.version };
+  const seal = { kind: "approve-scope" as const, commandId: "child:seal", projectId: p.projectId, expectedPlanVersion: p.plan!.version, scopeRequest: p.plan!.scopeApproval!.subject };
   controller.loseNextPlanningReplyForTest(); await expect(command(seal)).rejects.toThrow("SERVICE_PLANNING_UNCONFIRMED");
   const observed = await controller.planning({ kind: "observe", commandId: seal.commandId }) as PlanningCommandResult;
   expect(observed).toMatchObject({ kind: "committed" }); p = observed.workspace!.selected!;

@@ -156,7 +156,15 @@ function parseReceipt(value: unknown): PlanningReceipt {
         planningObject(material, ["project", "localBudget"]);
         if (planningObject(material["project"])["projectId"] !== result["projectId"]) throw new Error();
       } else {
-        const command = parsePlanningCommand(material["command"] ?? material);
+        const raw = planningObject(material["command"] ?? material);
+        // Previously sealed plans retain their original command bytes/digest.
+        // This legacy shape is accepted only while verifying saved receipts;
+        // the live command parser always requires the current scope subject.
+        const legacyScope = raw["kind"] === "approve-scope" && !("scopeRequest" in raw);
+        if (legacyScope) planningObject(raw, ["kind", "commandId", "projectId", "expectedPlanVersion"]);
+        const command = legacyScope ? { kind: "approve-scope", commandId: planningId(raw["commandId"]), projectId: planningId(raw["projectId"]), expectedPlanVersion: planningInteger(raw["expectedPlanVersion"]) }
+          : parsePlanningCommand(raw);
+        if (legacyScope && !planningId(raw["projectId"]).startsWith("prj:")) throw new Error();
         if (!("commandId" in command) || !("projectId" in command) || command.kind !== r["commandKind"] || command.commandId !== r["commandId"] || command.projectId !== result["projectId"] || digestPlanning(command) !== r["inputDigest"]) throw new Error();
       }
     } else if (r["material"] !== null || (r["effects"] as unknown[]).length !== 0) throw new Error();

@@ -9,6 +9,7 @@ import {
   formatMinorUnits,
   formatObservedAt,
   formatPlanningState,
+  planningArtifactMessage,
   shortDigest,
 } from "../presentation/adapter.js";
 import type { DesktopSnapshot } from "../shared/contracts.js";
@@ -320,10 +321,29 @@ export function createPlanPage(snapshot: DesktopSnapshot, workspace: PlanningWor
   editor.append(form); page.append(editor);
   if (plan !== null) {
     const actionsCard = card("Plan actions", true);
+    const refreshScope = button("Refresh scope status", actions.reloadPlanning);
+    refreshScope.disabled = snapshot.state !== "ready" || state.busy;
+    actionsCard.append(actionRow(refreshScope));
+    if (plan.state === "drafting" && plan.scope === "scope-expansion") actionsCard.append(node("p", "help", "Preparing creates a scope request valid for 24 hours. The trusted confirmation shows its exact expiry. Approval and sealing are a separate action."));
+    if (plan.scopeApproval !== null && plan.state === "awaiting_scope_approval") {
+      const request = plan.scopeApproval;
+      const validity = node("p", request.expired ? "notice warning" : "help", request.expired
+        ? `Scope request expired ${formatObservedAt(request.expiresAt)}. Request scope approval again to create a new request for this unchanged plan. Then review and approve separately before sealing.`
+        : `Scope request valid until ${formatObservedAt(request.expiresAt)}. Review and approve before expiry to seal this exact plan. If it expires, choose Refresh scope status to request approval again.`);
+      validity.setAttribute("role", "status"); actionsCard.append(validity);
+    }
     if (plan.actions.length === 0) actionsCard.append(node("p", "muted", plan.state === "sealed" ? "This plan is sealed." : "No plan action is available for the current saved state."));
     else {
-      actionsCard.append(node("p", "help", "Only actions available for this exact saved revision are shown. Scope approval opens a trusted system confirmation.")); const row = node("div", "actions"); const labels = { "prepare-plan": "Prepare plan", "approve-scope": "Review and approve scope", "seal-plan": "Seal plan" } as const;
-      for (const kind of plan.actions) { const action = button(labels[kind], () => actions.runPlanningCommand(Object.freeze({ kind, commandId: commandId(), projectId: project.projectId, expectedPlanVersion: plan.version }), labels[kind]), kind === "approve-scope" ? "primary" : undefined); gateAction(action, canChange(snapshot, state, project), mutationReason(snapshot, state, project)); row.append(action); }
+      actionsCard.append(node("p", "help", "Only actions available for this exact saved revision and scope request are shown. Each decision opens a trusted system confirmation.")); const row = node("div", "actions"); const labels = { "prepare-plan": "Prepare plan", "approve-scope": "Review and approve scope", "request-scope-again": "Request scope approval again", "seal-plan": "Seal plan" } as const;
+      for (const kind of plan.actions) {
+        const action = button(labels[kind], () => {
+          const coordinates = { commandId: commandId(), projectId: project.projectId, expectedPlanVersion: plan.version };
+          if (kind === "approve-scope" || kind === "request-scope-again") {
+            if (plan.scopeApproval !== null) actions.runPlanningCommand(Object.freeze({ kind, ...coordinates, scopeRequest: plan.scopeApproval.subject }), labels[kind]);
+          } else actions.runPlanningCommand(Object.freeze({ kind, ...coordinates }), labels[kind]);
+        }, kind === "approve-scope" || kind === "request-scope-again" ? "primary" : undefined);
+        gateAction(action, canChange(snapshot, state, project), mutationReason(snapshot, state, project)); row.append(action);
+      }
       actionsCard.append(row);
     }
     page.append(actionsCard);
@@ -344,7 +364,7 @@ export function createApprovalsPage(snapshot: DesktopSnapshot, workspace: Planni
   if (project.approvals.length === 0) approvals.append(node("p", "muted", "No approval records yet."));
   for (const approval of project.approvals) {
     const item = node("article", "record"); const head = node("div", "record-head"); head.append(node("h3", undefined, approval.title), node("span", "status-badge", formatPlanningState(approval.state)));
-    item.append(head, node("p", undefined, approval.context), node("p", "digest", `Approval ${shortDigest(approval.approvalId)} · version ${approval.version}`));
+    item.append(head, node("p", undefined, approval.context), node("p", "help", `Request validity ends ${formatObservedAt(approval.expiresAt)}.`), node("p", "digest", `Approval ${shortDigest(approval.approvalId)} · version ${approval.version}`));
     if (approval.actions.length > 0) {
       const receiptId = `receipt-${approval.approvalId}`; const receipt = textInput(receiptId, "", 128); receipt.placeholder = "Manual receipt reference 1"; receipt.pattern = "[A-Za-z0-9][A-Za-z0-9 ._\\-]{0,127}";
       if (approval.actions.includes("record-receipt")) item.append(labelFor(receiptId, "Receipt reference"), receipt); const row = node("div", "actions"); const labels = { "report-executed": "Report past execution", "record-receipt": "Record receipt", "withdraw": "Withdraw historical request" } as const;
@@ -373,22 +393,25 @@ export function createApprovalsPage(snapshot: DesktopSnapshot, workspace: Planni
 
 export function createHandoversPage(snapshot: DesktopSnapshot, workspace: PlanningWorkspaceView, state: WorkflowUiState, actions: RendererActions): HTMLElement {
   const project = workspace.selected; if (project === null) return noProject(actions); const page = node("div", "page");
-  page.append(heading("Planning handovers", "Export the saved brief and plan binding, then reopen a returned handover to attach an operator-supplied result."), projectHeader(project));
+  page.append(heading("Planning handovers", "Export the saved brief and plan binding. Copy its return template into a separate JSON file to attach an operator-supplied result."), projectHeader(project));
   const exportCard = card("Export current planning handover", true); exportCard.append(node("p", undefined, project.plan === null ? "Save a plan before exporting a handover." : `The export will bind plan revision ${project.plan.revision} and digest ${shortDigest(project.plan.digest)}.`), node("p", "help", "A planning handover carries no execution authority and contains no invented run, task or completion receipt."));
   const exportButton = button("Export handover", () => { if (project.plan !== null) actions.runPlanningCommand(Object.freeze({ kind: "export-handover", commandId: commandId(), projectId: project.projectId, expectedPlanVersion: project.plan.version }), "Handover export"); }, "primary");
   gateAction(exportButton, project.plan !== null && canChange(snapshot, state, project), project.plan === null ? "Save a plan first." : mutationReason(snapshot, state, project)); exportCard.append(actionRow(exportButton)); page.append(exportCard);
-  const saved = card("Saved handovers", true); if (project.handovers.length === 0) saved.append(node("p", "muted", "No planning handovers have been exported yet."));
+  const saved = card("Saved handovers", true);
+  const refreshFiles = button("Refresh file status", actions.reloadPlanning); refreshFiles.disabled = snapshot.state !== "ready" || state.busy; saved.append(actionRow(refreshFiles));
+  if (project.handovers.length === 0) saved.append(node("p", "muted", "No planning handovers have been exported yet."));
   for (const handover of project.handovers) {
     const item = node("article", `record${handover.stale ? " stale-record" : ""}`); const head = node("div", "record-head"); head.append(node("h3", undefined, `Planning handover, revision ${handover.planRevision}`), node("span", `status-badge${handover.stale ? " warning" : ""}`, handover.stale ? "Stale binding" : "Current binding"));
     const open = button("Open saved handover", () => actions.viewHandover(project.projectId, handover.handoverId, handover.planRevision));
     const canView = snapshot.state === "ready" && !state.busy;
     open.disabled = !canView;
     if (!canView) open.title = state.busy ? "Wait for the current action to finish." : "The saved handover can be opened after the local workspace is ready.";
-    item.append(head, node("p", "help handover-path", `Saved file: ${handover.fileName}`), node("p", "digest", `Plan revision ${handover.planRevision} · ${shortDigest(handover.planDigest)}`), actionRow(open));
+    const fileState = node("p", handover.artifactState === "published" ? "help" : "notice warning", planningArtifactMessage(handover.artifactState)); fileState.setAttribute("role", "status");
+    item.append(head, node("p", "help handover-path", `Export location: ${handover.fileName}`), fileState, node("p", "digest", `Plan revision ${handover.planRevision} · ${shortDigest(handover.planDigest)}`), actionRow(open));
     if (handover.result === null) {
       item.append(node("p", "muted", "No returned result attached."));
       const attach = button("Open returned handover and attach result", () => actions.runPlanningCommand(Object.freeze({ kind: "attach-result", commandId: commandId(), projectId: project.projectId, handoverId: handover.handoverId }), "Returned handover attachment")); gateAction(attach, canChange(snapshot, state, project), mutationReason(snapshot, state, project));
-      item.append(node("p", "help", "Windows will ask you to choose the returned file. Its prose remains untrusted and cannot approve or start work."), actionRow(attach));
+      item.append(node("p", "help", "Preserve the exported handover. Copy its returnTemplate object into a separate JSON file, edit that copy, then choose it here. Its prose remains untrusted and cannot approve or start work."), actionRow(attach));
     } else item.append(node("p", "help", `Operator-supplied, untrusted information${handover.result.stale ? " · stale" : ""}`), node("blockquote", "manual-result", handover.result.text), node("p", "help", "This saved result is append-only. Export another handover if you need to attach a different return."));
     saved.append(item);
   }

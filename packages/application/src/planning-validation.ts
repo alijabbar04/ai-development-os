@@ -79,7 +79,15 @@ export function parsePlanningCommand(value: unknown): PlanningCommand {
       const tasks = planningArray(input["tasks"], task); if (tasks.length === 0) return refusePlanning("plan.tasks-required");
       result = { kind, commandId: command(), projectId: project(), expectedPlanVersion: version("expectedPlanVersion"), title: planningText(input["title"], 300), tasks, scope }; break;
     }
-    case "prepare-plan": case "approve-scope": case "seal-plan": case "export-handover":
+    case "approve-scope": case "request-scope-again": {
+      planningObject(input, ["kind", "commandId", "projectId", "expectedPlanVersion", "scopeRequest"]);
+      const scope = planningObject(input["scopeRequest"], ["approvalId", "approvalVersion", "metadataId", "metadataVersion", "metadataDigest"]);
+      const metadataDigest = scope["metadataDigest"];
+      if (typeof metadataDigest !== "string" || !/^[a-f0-9]{64}$/u.test(metadataDigest)) return refusePlanning("input.digest");
+      result = { kind, commandId: command(), projectId: project(), expectedPlanVersion: version("expectedPlanVersion"), scopeRequest: Object.freeze({
+        approvalId: planningId(scope["approvalId"]), approvalVersion: planningInteger(scope["approvalVersion"]), metadataId: planningId(scope["metadataId"]), metadataVersion: planningInteger(scope["metadataVersion"]), metadataDigest }) }; break;
+    }
+    case "prepare-plan": case "seal-plan": case "export-handover":
       planningObject(input, ["kind", "commandId", "projectId", "expectedPlanVersion"]);
       result = { kind, commandId: command(), projectId: project(), expectedPlanVersion: version("expectedPlanVersion") }; break;
     case "attach-result":

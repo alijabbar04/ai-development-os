@@ -1,4 +1,6 @@
 import process from "node:process";
+import { existsSync, realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import { startControlService, type ControlServiceHandle } from "@ai-dev-os/control-service";
@@ -7,6 +9,9 @@ import { openPlanningStorage, type PlanningStorage } from "@ai-dev-os/applicatio
 import { createSavedPlanningApplication, type SavedPlanningApplication } from "@ai-dev-os/application/planning";
 import { exactPlanningRecord, parsePlanningQuery, type NativePlanningReply, type NativePlanningRequest } from "../shared/planning-ipc.js";
 
+/** The normal executable below supplies no clock. Only the separate owned
+ * fixture entry imports this host and supplies its synthetic clock factory. */
+export function runOwnedServiceChild(planningClockForTest?: (dataRoot: string) => Promise<{ now(): Date }>): void {
 type StartMessage = Readonly<{
   kind: "start";
   launchNonce: string;
@@ -106,8 +111,9 @@ process.on("message", (message: unknown) => {
     launchNonce = message.launchNonce;
     const now = new Date().toISOString();
     startPromise = (async () => {
+      const planningClock = await planningClockForTest?.(message.dataRoot);
       storage = await openPlanningStorage(message.dataRoot);
-      planning = createSavedPlanningApplication({ persistence: storage.persistence, artifactRoot: storage.artifactRoot, operator: {
+      planning = createSavedPlanningApplication({ persistence: storage.persistence, artifactRoot: storage.artifactRoot, ...(planningClock === undefined ? {} : { clock: planningClock }), operator: {
         async confirm(review) { return await askNative({ kind: "confirm", review }) === true; },
         async selectRepository() { const value = await askNative({ kind: "repository" }); return typeof value === "string" ? value : null; },
         async selectResult() {
@@ -143,3 +149,8 @@ process.on("message", (message: unknown) => {
   if (control === "terminate-for-test") { void close(70); return; }
   void close(73);
 });
+}
+
+// Canonical comparison preserves direct execution through Windows path aliases.
+// Importing from the test entry does not also start the production host.
+if (process.argv[1] !== undefined && existsSync(process.argv[1]) && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) runOwnedServiceChild();

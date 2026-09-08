@@ -37,11 +37,11 @@ it.each(["before-commit", "after-commit"] as const)("recovers a real killed SQLi
       if (mode === "before-commit") {
         expect(restored.plan).toEqual(baseline.plan); expect(restored.approvals).toEqual(baseline.approvals);
         expect(observed.kind).toBe("not-recorded");
-        const sealed = await app.command({ kind: "approve-scope", commandId: "crash:explicit-new-seal", projectId: baseline.projectId, expectedPlanVersion: baseline.plan!.version });
+        const sealed = await app.command({ kind: "approve-scope", commandId: "crash:explicit-new-seal", projectId: baseline.projectId, expectedPlanVersion: baseline.plan!.version, scopeRequest: baseline.plan!.scopeApproval!.subject });
         expect(sealed.kind).toBe("committed"); restored = sealed.workspace!.selected!;
       } else { expect(observed.kind).toBe("committed"); }
       expect(restored.plan?.state).toBe("sealed"); expect(restored.approvals[0]?.state).toBe("consumed");
-      const repeated = await app.command({ kind: "approve-scope", commandId: "crash:seal", projectId: baseline.projectId, expectedPlanVersion: baseline.plan!.version });
+      const repeated = await app.command({ kind: "approve-scope", commandId: "crash:seal", projectId: baseline.projectId, expectedPlanVersion: baseline.plan!.version, scopeRequest: baseline.plan!.scopeApproval!.subject });
       expect(repeated.kind).toBe(mode === "before-commit" ? "not-recorded" : "committed");
       expect((await app.snapshot(baseline.projectId)).selected?.history).toEqual(restored.history);
       const pair = await storage.persistence.transact((tx) => tx.aggregates.get("approval-request", restored.approvals[0]!.approvalId));

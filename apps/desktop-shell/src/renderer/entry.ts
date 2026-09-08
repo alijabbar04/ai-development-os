@@ -4,7 +4,7 @@ import type {
   PlanningHandoverView,
   PlanningWorkspaceView,
 } from "@ai-dev-os/application/planning-contracts";
-import { planningRecoveryDirective, planningResultMessage } from "../presentation/adapter.js";
+import { planningArtifactMessage, planningRecoveryDirective, planningResultMessage } from "../presentation/adapter.js";
 import type { DesktopPreferences, DesktopResult, DesktopSnapshot } from "../shared/contracts.js";
 import {
   createApprovalsPage,
@@ -97,13 +97,15 @@ async function viewHandover(projectId: string, handoverId: string, revision: num
   viewingHandover = true;
   try {
     const handover = await window.aiPowerhouse.planningHandover(projectId, handoverId);
-    if (handover.schemaVersion !== 1 || handover.authority !== "none" || handover.projectId !== projectId || handover.handoverId !== handoverId || typeof handover.fileName !== "string" || handover.fileName.length === 0 || typeof handover.stale !== "boolean" || typeof handover.text !== "string" || handover.text.length > 262_144) throw new Error("INVALID_HANDOVER_VIEW");
+    if (handover.schemaVersion !== 1 || handover.authority !== "none" || handover.projectId !== projectId || handover.handoverId !== handoverId || typeof handover.fileName !== "string" || handover.fileName.length === 0 || !["published", "differs-on-disk", "unavailable"].includes(handover.artifactState) || typeof handover.stale !== "boolean" || typeof handover.text !== "string" || handover.text.length > 262_144) throw new Error("INVALID_HANDOVER_VIEW");
     if (!detailDialog.open) return;
     const authority = detailNode("p", `status-badge${handover.stale ? " warning" : ""}`, handover.stale ? "Authority: none · Stale binding" : "Authority: none · Current binding");
-    const fileName = detailNode("p", "help handover-path", `Saved file: ${handover.fileName}`);
+    const fileName = detailNode("p", "help handover-path", `Export location: ${handover.fileName}`);
+    const fileState = detailNode("p", handover.artifactState === "published" ? "help" : "notice warning", planningArtifactMessage(handover.artifactState));
+    fileState.setAttribute("role", "status");
     const documentText = detailNode("pre", "handover-document");
     documentText.textContent = handover.text;
-    detailContent.replaceChildren(authority, fileName, documentText);
+    detailContent.replaceChildren(authority, fileName, fileState, detailNode("p", "help", "Copy the returnTemplate object into a separate JSON file and edit that copy to attach your manual report. Preserve this exported handover."), documentText);
     announce(`Planning handover revision ${revision} opened.`);
   } catch {
     detailContent.replaceChildren(detailNode("p", "notice danger", "The saved handover is temporarily unavailable."));
@@ -132,19 +134,20 @@ async function loadPlanning(projectId: string | null, announceResult: boolean): 
 }
 async function refreshAfterResult(result: PlanningCommandResult): Promise<void> {
   if (result.workspace !== null) { setWorkspace(result.workspace); return; }
+  if (result.projectionWarning === "workspace-corrupt" || result.projectionWarning === "workspace-unavailable") return;
   const projectId = result.projectId ?? selectedProjectId;
   try { setWorkspace(await window.aiPowerhouse.planningSnapshot(projectId)); } catch { /* The result remains visible; a later reload is safe. */ }
 }
 async function applyPlanningResult(result: PlanningCommandResult, label: string, observed: boolean, exactCommandId: string | null): Promise<void> {
-  setNotice(planningResultMessage(result, label, snapshot?.preferences.presentationMode === "developer"), result.kind === "corrupt" || result.kind === "refused" ? "danger" : result.kind === "unknown" || result.kind === "conflict" ? "warning" : "info");
+  setNotice(planningResultMessage(result, label, snapshot?.preferences.presentationMode === "developer"), result.kind === "corrupt" || result.kind === "refused" || result.projectionWarning === "workspace-corrupt" ? "danger" : result.kind === "unknown" || result.kind === "conflict" || result.projectionWarning !== null ? "warning" : "info");
   const recovery = planningRecoveryDirective(result, exactCommandId ?? pending?.commandId ?? null);
-  if (result.kind === "unknown") {
+  if (result.kind === "unknown" || result.kind === "corrupt") {
     if (recovery.pendingCommandId === null) reloadRequired = recovery.reloadRequired; else pending = Object.freeze({ commandId: recovery.pendingCommandId, label });
     return;
   }
   if (observed || result.kind !== "not-recorded") pending = null;
   if (recovery.reloadRequired) reloadRequired = true;
-  if (result.kind === "committed" || result.kind === "ready" || result.kind === "idempotent-replay") reloadRequired = false;
+  if (result.kind === "committed" || result.kind === "ready" || result.kind === "idempotent-replay") reloadRequired = recovery.reloadRequired;
   if (result.kind === "committed" || result.kind === "ready" || result.kind === "idempotent-replay") await refreshAfterResult(result);
 }
 

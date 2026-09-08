@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { desktopElectronEnvironment } from "./electron-environment.mjs";
+import { runSavedRecoverySmoke } from "./recovery-electron-smoke.mjs";
 
 const require = createRequire(import.meta.url);
 const electron = require("electron");
@@ -37,6 +38,7 @@ let cleanShutdownProven = false;
 let failure = null;
 let historicalSeed = null;
 let historicalVerification = null;
+let recovery = null;
 function ownedFixtureEnvironment() {
   const environment = Object.create(null);
   for (const name of ["SYSTEMROOT", "WINDIR", "TEMP", "TMP"]) if (process.env[name] !== undefined) environment[name] = process.env[name];
@@ -116,6 +118,10 @@ try {
   if (evidence.length !== 7 || evidence.reduce((total, size) => total + size, 0) > 10_000_000) throw new Error(`Electron journey evidence bounds failed: ${evidence.length} PNG files, ${evidence.reduce((total, size) => total + size, 0)} bytes.`);
   cleanShutdownProven = reports.length === preSeedPhaseSpecs.length + 1 && reports.every((item) => item.shutdown.explicitReceipt === true);
   if (!cleanShutdownProven) throw new Error("Electron journey did not produce explicit clean shutdown receipts.");
+  recovery = await runSavedRecoverySmoke({ electron, applicationRoot: root, smokeRoot, evidenceRoot });
+  cleanShutdownProven = cleanShutdownProven && recovery.ok === true && recovery.phases.every(item => item.shutdown.explicitReceipt === true);
+  const allCaptures = await Promise.all((await readdir(evidenceRoot, { withFileTypes: true })).filter(entry => entry.isFile() && entry.name.endsWith(".png")).map(async entry => (await lstat(join(evidenceRoot, entry.name))).size));
+  if (allCaptures.length !== 9 || allCaptures.reduce((sum, size) => sum + size, 0) > 10_000_000) throw new Error("Combined Electron recovery evidence exceeds its bounds.");
 } catch (error) {
   failure = error instanceof Error ? error.message : "Unclassified Electron journey failure.";
 }
@@ -143,6 +149,7 @@ const reportValue = () => ({
   baseline: reports[0]?.baseline ?? null,
   historicalSeed,
   historicalVerification,
+  recovery,
   historyReconciled: reports.find((item) => item.phase === "history")?.historyReconciled ?? null,
   failure,
 });

@@ -27,8 +27,8 @@ export async function openPlanningStorage(dataRoot: string): Promise<PlanningSto
   await mkdir(resolve(dataRoot), { recursive: true });
   const root = await canonicalPlanningDirectory(dataRoot);
   const artifactRoot = join(root, "artifacts");
-  await mkdir(artifactRoot, { recursive: true });
-  await canonicalPlanningDirectory(artifactRoot);
+  // Export files are a projection, not a prerequisite for opening saved work.
+  // Their root is independently checked/created by the projection boundary.
   for (const name of ["planning.sqlite", "planning.sqlite-journal", "planning.sqlite-wal", "planning.sqlite-shm"]) {
     try { const value = await lstat(join(root, name)); if (!value.isFile() || value.isSymbolicLink() || value.nlink !== 1) throw new Error("PLANNING_DATABASE_LINK_REFUSED"); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }

@@ -93,7 +93,7 @@ try {
   project = await command({ kind: "accept-brief", commandId: "packed:accept", projectId: project.projectId, candidateId: project.candidate.candidateId, candidateDigest: project.candidate.digest, expectedBriefVersion: 0 });
   project = await command({ kind: "save-plan", commandId: "packed:draft", projectId: project.projectId, expectedPlanVersion: 0, title: "Packed manual plan", tasks: [{ title: "Record a plan", objective: "Review an additional local report", acceptanceCriteria: ["The plan remains after reopening"] }], scope: "scope-expansion" });
   project = await command({ kind: "prepare-plan", commandId: "packed:prepare", projectId: project.projectId, expectedPlanVersion: project.plan.version });
-  project = await command({ kind: "approve-scope", commandId: "packed:seal", projectId: project.projectId, expectedPlanVersion: project.plan.version });
+  project = await command({ kind: "approve-scope", commandId: "packed:seal", projectId: project.projectId, expectedPlanVersion: project.plan.version, scopeRequest: project.plan.scopeApproval.subject });
   assert.equal(project.plan.state, "sealed"); assert.equal(project.approvals[0].state, "consumed");
   const priorPid = controller.ownedProcessIdForTest();
   await controller.terminateOwnedChildForTest(); await controller.retry();

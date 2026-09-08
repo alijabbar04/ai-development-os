@@ -57,6 +57,9 @@ export async function readPlanningApprovalControls(tx: TransactionContext, expec
     policy: { version: `local-planning-policy:${policy["version"]}`, fingerprint: policyEnvelope.checksum.hex }, plan });
   return parseApprovalControls({ binding, projectActive: f.project.status === "active", stops: f.stops, stopScanComplete: true, observedAt: at });
 }
+export function planningScopeValidity(at: string): Readonly<{ createdAt: string; expiresAt: string }> {
+  return Object.freeze({ createdAt: at, expiresAt: new Date(Date.parse(at) + 24 * 60 * 60 * 1000).toISOString() });
+}
 export async function preparePlanningScopeApproval(tx: TransactionContext, f: PlanningFoundations, at: string): Promise<PreparedApproval> {
   if (f.head === null) return refusePlanning("plan.absent");
   const scope = { projectId: f.project.projectId, taskId: null, providerInstanceId: null, workspaceId: null, operationId: `scope:${digestPlanning(f.head.plan.planId).slice(0, 32)}`, traceId: null };
@@ -64,7 +67,7 @@ export async function preparePlanningScopeApproval(tx: TransactionContext, f: Pl
     accountRef: null, providerModelId: null, policy: { version: "lookup", fingerprint: f.project.effectiveConfigDigest }, plan: null }, at);
   const prepared = prepareApprovalRequest({ schemaVersion: 1, class: "scope-expansion", risk: "medium", binding: controls.binding, spending: null,
     explanation: { reason: "scope-review", alternatives: ["defer"], consequence: "waits-for-decision", expectedMinorUnits: null, renewal: "not-recurring", taxAndFees: "unknown", foreignExchange: "none", entitlement: "unknown",
-      note: { origin: "operator", text: "Review and seal this exact manually authored project scope. No task or provider is started." } }, createdAt: at, expiresAt: new Date(Date.parse(at) + 24 * 60 * 60 * 1000).toISOString() }, at, planningHash);
+      note: { origin: "operator", text: "Review and seal this exact manually authored project scope. No task or provider is started." } }, ...planningScopeValidity(at) }, at, planningHash);
   if (prepared.kind !== "ready") return refusePlanning("approval.not-ready");
   return prepared.request;
 }

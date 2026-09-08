@@ -67,12 +67,23 @@ describe("workspace presentation adapter", () => {
       reason: null,
       projectId: "project-1",
       workspace: null,
+      projectionWarning: null,
     });
     expect(planningResultMessage(result("unknown"), "Scope approval")).toContain("Observe this exact command");
     expect(planningResultMessage(result("conflict"), "Plan draft")).toContain("Reload the saved project");
     expect(planningRecoveryDirective({ ...result("unknown"), commandId: "different-command" }, "submitted-command")).toEqual({ pendingCommandId: "submitted-command", reloadRequired: false });
     expect(planningRecoveryDirective({ ...result("unknown"), commandId: null }, null)).toEqual({ pendingCommandId: null, reloadRequired: true });
     expect(planningRecoveryDirective(result("conflict"), null)).toEqual({ pendingCommandId: null, reloadRequired: true });
+    for (const projectionWarning of ["workspace-corrupt", "workspace-unavailable"] as const) {
+      const known = { ...result("committed"), projectionWarning };
+      expect(planningResultMessage(known, "Stop project")).toContain("Stop project saved.");
+      expect(planningResultMessage(known, "Stop project")).toContain("outcome is confirmed");
+      expect(planningRecoveryDirective(known, "submitted-command")).toEqual({ pendingCommandId: null, reloadRequired: true });
+    }
+    const fileWarning = { ...result("committed"), projectionWarning: "handover-files" as const };
+    expect(planningResultMessage(fileWarning, "Stop project")).toContain("Saved work remains accessible");
+    expect(planningRecoveryDirective(fileWarning, "submitted-command")).toEqual({ pendingCommandId: null, reloadRequired: false });
+    expect(planningRecoveryDirective(result("corrupt"), "submitted-command")).toEqual({ pendingCommandId: "submitted-command", reloadRequired: true });
     expect(shortDigest("0123456789abcdefghijklmnop")).toBe("0123456789…klmnop");
     expect(formatMinorUnits(1_905, "GBP")).toBe("£19.05");
   });

@@ -136,7 +136,7 @@ describe("application-owned saved planning workflow", { timeout: 30_000 }, () =>
     const pair = await f.store.persistence.transact((tx) => readPlanningApprovalPair(tx, p.approvals[0]!.approvalId));
     await f.store.persistence.transact((tx) => tx.aggregates.update({ aggregateType: "approval-request", aggregateId: pair!.approval.approvalRequestId, schemaVersion: 1, expectedVersion: pair!.approvalEnvelope.aggregateVersion, payload: pair!.approvalEnvelope.payload }));
     await expect(f.app.snapshot(p.projectId)).rejects.toMatchObject({ kind: "corrupt", reason: "approval.history-corrupt" });
-    const failed = await f.app.command({ kind: "approve-scope", commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version });
+    const failed = await f.app.command({ kind: "approve-scope", commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version, scopeRequest: p.plan!.scopeApproval!.subject });
     expect(failed.kind).toBe("corrupt");
     expect((await f.store.persistence.transact((tx) => readPlanningFoundations(tx, p.projectId))).head?.plan.state).toBe("awaiting_scope_approval");
     const command = { kind: "stop-project" as const, commandId: id(), projectId: p.projectId, expectedProjectVersion: p.version };
@@ -167,13 +167,13 @@ describe("application-owned saved planning workflow", { timeout: 30_000 }, () =>
     expect(() => parsePlanningHandover({ ...(saved!.payload as object), authority: "execute" })).toThrow();
     expect(() => parsePlanningHandover({ ...(saved!.payload as object), document: { ...JSON.parse(original), returnTemplate: { ...document.returnTemplate, planDigest: "a".repeat(64) } } })).toThrow();
     await writeFile(target, "unknown-existing-content");
-    expect((await f.app.observe(exportCommand.commandId)).kind).toBe("unknown"); expect(await readFile(target, "utf8")).toBe("unknown-existing-content");
+    expect(await f.app.observe(exportCommand.commandId)).toMatchObject({ kind: "committed", projectionWarning: "handover-files" }); expect(await readFile(target, "utf8")).toBe("unknown-existing-content");
   });
   it("accepts a real brief, atomically consumes exact scope and seals; reopens and observes without duplicates", async () => {
     const f = await fixture(); let p = await draft(f.app, await accepted(f.app));
     p = await committed(f.app, { kind: "prepare-plan", commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version });
     expect(p.plan?.state).toBe("awaiting_scope_approval"); expect(p.approvals).toHaveLength(1);
-    const command = { kind: "approve-scope" as const, commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version };
+    const command = { kind: "approve-scope" as const, commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version, scopeRequest: p.plan!.scopeApproval!.subject };
     p = await committed(f.app, command);
     expect(p.plan).toMatchObject({ state: "sealed", version: 5, sealedByApprovalId: p.approvals[0]!.approvalId });
     expect(p.approvals[0]?.state).toBe("consumed");
@@ -234,14 +234,14 @@ describe("application-owned saved planning workflow", { timeout: 30_000 }, () =>
     const f = await fixture(); let p = await draft(f.app, await accepted(f.app));
     p = await committed(f.app, { kind: "prepare-plan", commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version });
     f.fault.event = "plan.sealed";
-    const failed = await f.app.command({ kind: "approve-scope", commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version });
+    const failed = await f.app.command({ kind: "approve-scope", commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version, scopeRequest: p.plan!.scopeApproval!.subject });
     expect(failed.kind).toBe("refused");
     const after = (await f.app.snapshot(p.projectId)).selected!;
     expect(after.plan).toEqual(p.plan); expect(after.approvals).toEqual(p.approvals); expect(after.history).toEqual(p.history);
     expect(after.approvals[0]?.state).toBe("requested");
     p = await committed(f.app, { kind: "stop-project", commandId: id(), projectId: p.projectId, expectedProjectVersion: p.version });
     p = await committed(f.app, { kind: "resume-project", commandId: id(), projectId: p.projectId, expectedProjectVersion: p.version });
-    p = await committed(f.app, { kind: "approve-scope", commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version });
+    p = await committed(f.app, { kind: "approve-scope", commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version, scopeRequest: p.plan!.scopeApproval!.subject });
     expect(p.plan?.state).toBe("sealed"); expect(p.approvals[0]?.state).toBe("consumed");
   });
   it("observes a lost commit reply and a drained interrupted intent without repeating writes", async () => {

@@ -36,6 +36,8 @@ export interface DesktopApplicationOptions {
   readonly onStartupPhase?: (phase: string) => void;
   /** Owned integration harness only; never exposed by preload or IPC. */
   readonly nativePlanningForTest?: (request: NativePlanningRequest) => Promise<NativePlanningReply>;
+  /** Finite owned-fixture entry; no renderer, environment or production CLI clock switch. */
+  readonly savedRecoveryFixtureForTest?: true;
 }
 
 export interface DesktopApplicationHandle {
@@ -87,7 +89,7 @@ export async function launchDesktopApplication(options: DesktopApplicationOption
   const stateWaiters = new Set<() => void>();
 
   const service = createOwnedServiceController({
-    childPath: join(applicationRoot, "dist", "service", "child.js"),
+    childPath: options.savedRecoveryFixtureForTest === true ? join(applicationRoot, "dist", "testing", "saved-recovery-child.js") : join(applicationRoot, "dist", "service", "child.js"),
     execPath: ownedNodeRuntime,
     dataRoot: join(userDataRoot, "saved-workspace"),
     storageParent: runtimeRoot,

@@ -31,5 +31,5 @@ p = await command({ kind: "save-plan", commandId: "crash:draft", projectId: p.pr
 p = await command({ kind: "prepare-plan", commandId: "crash:prepare", projectId: p.projectId, expectedPlanVersion: p.plan!.version });
 await writeFile(join(root, "baseline.json"), JSON.stringify(p), { flag: "wx" });
 armed = true;
-await command({ kind: "approve-scope", commandId: "crash:seal", projectId: p.projectId, expectedPlanVersion: p.plan!.version });
+await command({ kind: "approve-scope", commandId: "crash:seal", projectId: p.projectId, expectedPlanVersion: p.plan!.version, scopeRequest: p.plan!.scopeApproval!.subject });
 throw new Error("CRASH_FAULT_NOT_REACHED");

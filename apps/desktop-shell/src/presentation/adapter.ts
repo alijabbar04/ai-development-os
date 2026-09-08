@@ -7,6 +7,7 @@ import type {
 import type { PlanProjectionAction } from "@ai-dev-os/plan";
 import type {
   PlanningCommandResult,
+  PlanningArtifactState,
   PlanningProjectView,
   PlanningWorkspaceView,
 } from "@ai-dev-os/application/planning-contracts";
@@ -142,17 +143,29 @@ export function formatObservedAt(value: string): string {
 
 export function planningResultMessage(result: PlanningCommandResult, action: string, includeReason = false): string {
   const reason = !includeReason || result.reason === null ? "" : ` Details: ${result.reason}`;
+  const message = (): string => {
   switch (result.kind) {
     case "committed": return `${action} saved.`;
     case "ready": return `${action} is ready.`;
     case "idempotent-replay": return `${action} was already saved. The original result is shown.`;
     case "unknown": return `${action} may have been saved. Observe this exact command before doing anything else.`;
     case "conflict": return `${action} was not saved because this project changed. Reload the saved project before continuing.${reason}`;
-    case "corrupt": return `${action} could not continue because saved data failed validation.${reason}`;
+    case "corrupt": return `${action} could not be verified because saved data failed validation. Keep the exact command for observation; do not repeat it.${reason}`;
     case "not-recorded": return `No saved outcome was found for ${action.toLowerCase()}.${reason}`;
     case "cancelled": return `${action} was cancelled.`;
     case "refused": return `${action} was unavailable.${reason}`;
   }
+  };
+  const warning = result.projectionWarning === "handover-files" ? " An exported handover differs or is unavailable. Saved work remains accessible; see the handover file warning."
+    : result.projectionWarning === "workspace-corrupt" ? " This outcome is confirmed, but saved workspace data failed validation. Reload is required before further changes."
+    : result.projectionWarning === "workspace-unavailable" ? " This outcome is confirmed, but the workspace could not be refreshed. Reload before further changes." : "";
+  return message() + warning;
+}
+
+export function planningArtifactMessage(state: PlanningArtifactState): string {
+  return state === "published" ? "Export file matches the saved document at the latest check."
+    : state === "differs-on-disk" ? "Export file differs from the saved document or could not be safely verified. The file has been preserved. Open the saved handover to read the authoritative document; saved work can continue."
+    : "Export file is unavailable. The saved document remains accessible here. Check the export folder and reload to refresh its file status.";
 }
 
 export interface PlanningRecoveryDirective {
@@ -161,11 +174,11 @@ export interface PlanningRecoveryDirective {
 }
 
 export function planningRecoveryDirective(result: PlanningCommandResult, submittedCommandId: string | null): PlanningRecoveryDirective {
-  if (result.kind === "unknown") return Object.freeze({
+  if (result.kind === "unknown" || result.kind === "corrupt") return Object.freeze({
     pendingCommandId: submittedCommandId ?? result.commandId,
-    reloadRequired: submittedCommandId === null && result.commandId === null,
+    reloadRequired: result.kind === "corrupt" || submittedCommandId === null && result.commandId === null,
   });
-  return Object.freeze({ pendingCommandId: null, reloadRequired: result.kind === "conflict" });
+  return Object.freeze({ pendingCommandId: null, reloadRequired: result.kind === "conflict" || result.projectionWarning === "workspace-corrupt" || result.projectionWarning === "workspace-unavailable" });
 }
 
 function adaptProject(project: PlanningProjectView): PlanningProjectPresentation {
