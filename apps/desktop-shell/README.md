@@ -1,6 +1,6 @@
 # AI Development OS saved Windows workspace
 
-This development app saves local projects, accepted briefs, manually edited plans, exact scope approvals, project stops and planning handovers. It uses one application-owned SQLite store. It does not launch AI tasks or spend money.
+This development app saves local projects, accepted briefs, manual plans, attributed AI proposals, exact scope approvals, project stops and planning handovers. It uses one application-owned SQLite store. Adopting a proposed draft does not start a coding task, approve scope or authorise spending.
 
 From the repository root, with Windows x64 Node **24.17.0** and the lockfile dependencies installed:
 
@@ -11,6 +11,12 @@ npm run start:desktop
 The command builds the app, prepares its private hash-pinned Node child runtime, and restores the exact checksummed Electron **43.4.1** runtime if needed. The visible launcher strips inherited Electron, Node and credential controls. It never runs Electron as Node or rebuilds the repository SQLite addon for the Electron ABI. This is a source development launch, not an installer release.
 
 ## Saved workflow
+
+The **AI planning** page adds a separate describe → clarify → propose → adopt journey to an existing saved project. The shipped subscription connection currently reports **LIVE_ROUTE_BLOCKED**: the installed vendor CLI's isolation flags do not prove that managed policy helpers cannot execute. No authentication or inference is attempted, and no API billing fallback is offered. A login alone does not resolve that policy boundary. You can still save project information and planning session drafts locally.
+
+When a host-owned route is qualified, its exact model and data categories are shown before every native request confirmation. Only explicitly selected, already saved repository summary data may accompany the typed description, answers and accepted brief. Remaining vendor allowance is unknown; the local cap is three explicitly initiated requests per session and two clarification rounds. Save edits before requesting or accepting a brief, and explicitly adopt a validated proposal through its separate confirmation. Editing titles, objectives and existing acceptance criteria preserves model attribution and the unchanged task/dependency identities.
+
+**Save planning edits** persists the description, answers, understanding and proposed content. Status refresh and presentation changes preserve later typing; unsaved fields are labelled. Saved sessions, requests, proposals and provenance remain accessible after reopening. Request dispatch and terminal outcomes are durable phases outside any long-running database transaction. Ambiguous external outcomes and usage stay unknown without an automatic retry. Stopping or cancelling blocks late-result adoption and does not imply zero provider usage.
 
 1. Create a project, enter its description and local planning budget, and choose one repository through the native folder picker. Inspection reads only bounded manifest metadata and Git HEAD/reference files. It runs no repository command, hook or instruction, and does not verify the referenced Git object or dirty state.
 2. Edit the brief candidate, answer any clarification, and accept the exact brief in the separate main-owned confirmation window. Unaccepted candidates stay in memory and are lost on close or service restart.
@@ -27,11 +33,11 @@ Projects, SQLite journals and handover artifacts live beneath `%APPDATA%/AI Deve
 
 Normal and Developer presentation have the same actions and authority. The private bridge has finite typed operations; the six HTTP routes remain read-only. The renderer has no Node, filesystem, process, network, descriptor, bearer or generic invoke access. Both workspace and confirmation windows retain sandboxing, context isolation, restrictive CSP and exact sender/frame/session checks. The workspace keeps its 1024x720 minimum, 30-second visible-window deadline and 20-second service readiness deadline.
 
-The real Electron smoke uses an explicitly owned synthetic repository and data root. It exercises the DOM, real main-owned confirmations, the pinned child and SQLite; native folder/result selections and past-money fixture seeding are explicitly synthetic. It covers save/reopen, lost acknowledgment, service loss, stale view, stop/resume, handover/manual return, historical binding drift, scaling, reduced motion and forced colours. Recovery phases use a separate test entry and a fixed synthetic clock, fully closing and reopening the app at expiry; there is no production clock switch. They demonstrate cancelled and confirmed renewal, separate approval, an actual edited export, warnings in both modes, continued saves, exact observation and another full reopen. The packed-runtime gate installs fresh tarballs and proves the installed pinned child can save, seal and reopen actual SQLite.
+The real Electron smoke uses an explicitly owned synthetic repository and data root. It exercises the DOM, real main-owned confirmations, the pinned child and SQLite; native folder/result selections and past-money fixture seeding are explicitly synthetic. It covers save/reopen, lost acknowledgment, service loss, stale view, stop/resume, handover/manual return, historical binding drift, scaling, reduced motion and forced colours. Recovery phases use a separate test entry and a fixed synthetic clock, fully closing and reopening the app at expiry; there is no production clock switch. They demonstrate cancelled and confirmed renewal, separate approval, an actual edited export, warnings in both modes, continued saves, exact observation and another full reopen. Additional AI phases use a separate owned synthetic inference child to demonstrate describe/clarify/propose/adopt/reopen through the real inference validation, native confirmation and durable application. Their reports explicitly identify synthetic outputs and zero live invocations. This fixture cannot qualify a subscription connection. The packed-runtime gate installs fresh tarballs and proves the installed pinned child can save, seal and reopen actual SQLite.
 
 ```powershell
 npm run smoke:real --workspace @ai-dev-os/desktop-shell
 npm run verify:packed-runtime --workspace @ai-dev-os/desktop-shell
 ```
 
-Planning is manual. Provider access, live usage, quote retrieval, purchases, payments, AI task execution, production admission, installer release and PLN-02 remain unavailable. Synthetic examples and compatibility fixtures stay outside the saved workflow production entry points.
+The shipped live planning route remains blocked pending supported isolation qualification. Quote retrieval, purchases, payments, coding execution, broader production admission, installer release and PLN-02 remain unavailable. Synthetic examples and compatibility fixtures stay outside the production launch entry points.

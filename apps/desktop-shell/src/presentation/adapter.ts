@@ -10,6 +10,8 @@ import type {
   PlanningArtifactState,
   PlanningProjectView,
   PlanningWorkspaceView,
+  AiPlanningSessionView,
+  AiPlanningRequestView,
 } from "@ai-dev-os/application/planning-contracts";
 
 export interface DesktopPresentationSource {
@@ -141,19 +143,90 @@ export function formatObservedAt(value: string): string {
   }).format(instant);
 }
 
+/** Human guidance for the finite reasons emitted by the planning owner. Raw
+ * codes remain diagnostic detail, never a source of renderer authority. */
+export function aiPlanningReasonMessage(reason: string | null): string | null {
+  switch (reason) {
+    case "ai.LIVE_ROUTE_BLOCKED": return "The subscription connection is blocked until its isolation checks are qualified. Save your draft locally and review the AI planning connection. Signing in alone cannot resolve this; no API fallback is available.";
+    case "ai.previous-clarification-unanswered":
+    case "ai.clarification-answer-required": return "Answer each clarification question, or explicitly state that you decline, then save your planning edits. Proposed defaults are never accepted for you.";
+    case "ai.local-request-cap": return "This session allows at most three AI requests and two clarification rounds. Review the saved results or continue planning manually. Further AI work needs a separate planning session and new consent.";
+    case "ai.clarification-material-change-required": return "Another clarification needs a material change after the previous round. Save your answers or a revised description first; an unchanged request cannot be repeated.";
+    case "ai.context-conflict":
+    case "ai.session-stale":
+    case "ai.proposal-stale":
+    case "ai.request-context-stale":
+    case "ai.context-changed-after-dispatch":
+    case "ai.confirmation-subject-changed": return "The saved planning context changed. Reload and review the current draft; a result for the earlier context cannot replace or approve it.";
+    case "ai.route-or-context-changed":
+    case "ai.route-changed": return "The selected connection or planning context changed. Reload and check both before giving fresh consent to a new request.";
+    case "ai.request-in-flight": return "A planning request is still active. Refresh its status or explicitly cancel it before starting another action.";
+    case "ai.accepted-brief-required": return "Save your answers and understanding, then explicitly accept the exact brief before requesting a plan proposal.";
+    case "ai.adopted-draft-locked": return "This adopted proposal is a saved record. Open the saved plan for a manual revision, or request a new proposal within the remaining session limit.";
+    case "ai.adoption-unavailable":
+    case "ai.proposal-unavailable":
+    case "ai.contribution-inadoptable": return "There is no current validated proposal available for this action. Review the accepted brief and request history before explicitly requesting a new proposal.";
+    case "ai.provider.MALFORMED_RESPONSE": return "The response failed validation of its structure, model or usage, or contained unsupported tool data. It cannot become an adopted plan. Review the saved request before deciding on a separately confirmed request; there is no automatic retry.";
+    case "ai.provider.QUOTA_EXCEEDED": return "The provider reported a usage limit. Remaining subscription allowance is unknown. Keep your draft and check the existing subscription before any later request; the app will not switch accounts or use API billing.";
+    case "ai.provider.RATE_LIMITED": return "The provider reported a request-rate limit. Keep your draft and check the existing subscription before explicitly trying later. The app will not retry automatically or switch routes.";
+    case "ai.provider.AUTHENTICATION_FAILED": return "The provider did not accept the existing subscription sign-in. Check that subscription connection before a new request; separate API credentials cannot replace it here.";
+    case "ai.provider.CONTENT_REJECTED": return "The provider declined this request. Review the project description and saved request history before deciding whether to submit a changed request with new consent.";
+    case "ai.provider.POLICY_DENIED": return "The connection or project information did not pass the planning disclosure checks. Review the connection and remove sensitive credentials from the draft before any new request.";
+    case "ai.provider.MODEL_UNAVAILABLE": return "The exact selected model is unavailable. Review the AI planning connection; the app will not silently choose another model.";
+    case "ai.provider.INVALID_REQUEST":
+    case "ai.context-bound":
+    case "ai.input-bound":
+    case "ai.draft-bound": return "The planning input does not fit the supported request. Review and shorten the description and answers, save them, and review the exact disclosure before another request.";
+    case "ai.provider.DEADLINE_EXCEEDED": return "The request exceeded its time limit. Check its saved outcome and usage state before deciding what to do next; a timeout does not prove that the provider was never called.";
+    case "ai.provider.PROTOCOL_VIOLATION":
+    case "ai.provider-outcome-unconfirmed":
+    case "ai.command-outcome-unconfirmed": return "The request outcome could not be confirmed. Review the exact saved attempt and its usage state; do not assume failure means that no provider call occurred.";
+    case "ai.interrupted-before-dispatch": return "The app closed before dispatch was recorded. This attempt will not be retried on reopening; review it before initiating any new request.";
+    case "ai.interrupted-after-dispatch": return "The app closed after dispatch. The external outcome and usage remain unknown; reopening and refresh do not retry the request.";
+    case "operator.cancelled":
+    case "ai.request-revoked":
+    case "ai.admission-revoked":
+    case "ai.provider.CANCELLED": return "The request was cancelled or its consent ended. It will not retry or replace the current draft. Check the recorded usage state before any new request.";
+    case "ai.history-capacity": return "This project's saved AI history has reached its capacity. Existing work is preserved. Continue with the saved plan manually; another session in this project cannot increase the storage limit.";
+    case "ai.session-start-unavailable": return "A new session cannot start while a request is active or after this project's session limit is reached. Review current requests and keep working with the saved project.";
+    case "The model could not propose a viable plan. Its retained contribution explains the limitations.":
+    case "The model needs clarification before a proposal can be adopted. Review its retained questions.":
+    case "The model output is incomplete for an editable brief or task plan. Its original contribution remains saved.": return `${reason} Review those notes and revise the saved requirements before another explicitly confirmed request.`;
+    default: return reason?.startsWith("ai.") === true ? "AI planning could not continue. Review the saved request history and current draft before taking another action." : null;
+  }
+}
+
+export function aiPlanningRequestMessage(request: Pick<AiPlanningRequestView, "state" | "reason" | "usageState">, includeReason = false): string | null {
+  const guidance = aiPlanningReasonMessage(request.reason);
+  const outcome = request.state === "outcome-unknown" ? "The external outcome is unknown. Refresh or reopen to review this saved attempt; neither retries it. Do not repeat it based on an assumed failure."
+    : request.state === "stale" ? "This result belongs to an earlier saved context. It remains in history and cannot overwrite or be adopted into the current draft."
+      : request.state === "cancelled" ? "This request is cancelled. It will not retry or replace the current draft." : guidance;
+  if (outcome === null && request.reason === null) return null;
+  const usage = request.usageState === "not-called" ? "No provider call is recorded." : request.usageState === "unknown" ? "Provider usage is unknown." : "Reported provider usage remains in the saved history.";
+  return `${outcome ?? "Review this saved request before taking another action."} ${usage}${includeReason && request.reason !== null ? ` Details: ${request.reason}` : ""}`;
+}
+
+export function aiSavedAnswerReadiness(session: Pick<AiPlanningSessionView, "questions" | "draft" | "clarificationHistory">): Readonly<{ ready: boolean; reason: string | null }> {
+  const answered = (questions: AiPlanningSessionView["questions"], answers: AiPlanningSessionView["draft"]["answers"]): boolean => questions.every(question => answers.some(answer => answer.questionId === question.questionId && answer.value.trim().length > 0));
+  if (!answered(session.questions, session.draft.answers)) return { ready: false, reason: "Answer each current clarification question, or explicitly state that you decline, then save your planning edits before continuing. Defaults are never selected for you." };
+  if (session.clarificationHistory.some(round => !answered(round.questions, round.answers))) return { ready: false, reason: "An earlier clarification round has no saved answer. Its history is preserved. If that round is no longer editable, start a separate planning session before requesting or accepting a new brief." };
+  return { ready: true, reason: null };
+}
+
 export function planningResultMessage(result: PlanningCommandResult, action: string, includeReason = false): string {
   const reason = !includeReason || result.reason === null ? "" : ` Details: ${result.reason}`;
+  const guidance = aiPlanningReasonMessage(result.reason), explanation = guidance === null ? "" : ` ${guidance}`;
   const message = (): string => {
   switch (result.kind) {
     case "committed": return `${action} saved.`;
     case "ready": return `${action} is ready.`;
     case "idempotent-replay": return `${action} was already saved. The original result is shown.`;
     case "unknown": return `${action} may have been saved. Observe this exact command before doing anything else.`;
-    case "conflict": return `${action} was not saved because this project changed. Reload the saved project before continuing.${reason}`;
+    case "conflict": return `${action} was not saved because this project changed. Reload the saved project before continuing.${explanation}${reason}`;
     case "corrupt": return `${action} could not be verified because saved data failed validation. Keep the exact command for observation; do not repeat it.${reason}`;
     case "not-recorded": return `No saved outcome was found for ${action.toLowerCase()}.${reason}`;
     case "cancelled": return `${action} was cancelled.`;
-    case "refused": return `${action} was unavailable.${reason}`;
+    case "refused": return `${action} was unavailable.${explanation}${reason}`;
   }
   };
   const warning = result.projectionWarning === "handover-files" ? " An exported handover differs or is unavailable. Saved work remains accessible; see the handover file warning."

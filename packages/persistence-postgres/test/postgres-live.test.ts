@@ -58,8 +58,16 @@ const EXPECTED_C7_AGGREGATE_TYPES = Object.freeze([
   "project-stop",
 ] as const);
 
-const EXPECTED_CURRENT_AGGREGATE_TYPES = Object.freeze([
+const EXPECTED_SAVED_PLANNING_AGGREGATE_TYPES = Object.freeze([
   ...EXPECTED_C7_AGGREGATE_TYPES, "planning-command", "planning-workspace", "planning-handover",
+] as const);
+
+const AI_PLANNING_AGGREGATE_TYPES = Object.freeze([
+  "planning-ai-session", "planning-ai-contribution",
+] as const);
+
+const EXPECTED_CURRENT_AGGREGATE_TYPES = Object.freeze([
+  ...EXPECTED_SAVED_PLANNING_AGGREGATE_TYPES, ...AI_PLANNING_AGGREGATE_TYPES,
 ] as const);
 
 function physicalConstraintVocabulary(definition: unknown): readonly string[] {
@@ -307,7 +315,7 @@ if (live === null) {
           throw new Error("Expected both migration startups to complete.");
         }
         expect(await first.migrationStatus()).toMatchObject({ pending: [], databaseSchemaAhead: false });
-        expect((await second.migrationStatus()).applied).toHaveLength(5);
+        expect((await second.migrationStatus()).applied).toHaveLength(6);
         await Promise.all([first.close(), second.close()]);
       } finally {
         await Promise.allSettled([first?.close(), second?.close()]);
@@ -347,7 +355,7 @@ if (live === null) {
     });
 
     it("upgrades every released schema prefix and preserves old aggregate and event bytes", async () => {
-      for (const prefixLength of [1, 2, 3, 4] as const) {
+      for (const prefixLength of [0, 1, 2, 3, 4, 5] as const) {
         const schema = uniqueLiveSchema(`c7_upgrade_prefix_${prefixLength}`);
         let prefix: Awaited<ReturnType<typeof createPostgresPersistenceAdapterForTesting>> | undefined;
         let upgraded: Awaited<ReturnType<typeof createPostgresPersistenceAdapter>> | undefined;
@@ -355,7 +363,8 @@ if (live === null) {
           prefix = await createPostgresPersistenceAdapterForTesting(adapterOptions(live, schema), {
             migrations: Object.freeze(POSTGRES_MIGRATIONS.slice(0, prefixLength)),
           });
-          await prefix.transact(async (tx) => {
+          const prefixHistory = await prefix.migrationStatus();
+          if (prefixLength > 0) await prefix.transact(async (tx) => {
             await tx.aggregates.create({
               aggregateType: "project",
               aggregateId: `project:c7-prefix-${prefixLength}`,
@@ -405,20 +414,60 @@ if (live === null) {
             });
           });
 
-          const before = await readPersistedRows();
+          const before = prefixLength === 0 ? null : await readPersistedRows();
           const expectRowsUnchanged = (actual: typeof before): void => {
             expect(actual).toEqual(before);
           };
-          const plantedTraceRewrite = Object.freeze({
-            ...before,
-            event: Object.freeze({ ...before.event, trace_id: "trace:rewritten" }),
-          });
-          expect(() => expectRowsUnchanged(plantedTraceRewrite)).toThrow();
+          if (before !== null) {
+            const plantedTraceRewrite = Object.freeze({
+              ...before,
+              event: Object.freeze({ ...before.event, trace_id: "trace:rewritten" }),
+            });
+            expect(() => expectRowsUnchanged(plantedTraceRewrite)).toThrow();
+          }
 
           upgraded = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
-          expect((await upgraded.migrationStatus()).applied.map((migration) => migration.id))
+          const upgradedHistory = await upgraded.migrationStatus();
+          expect(upgradedHistory.applied.map((migration) => migration.id))
             .toEqual(POSTGRES_MIGRATIONS.map((migration) => migration.id));
-          expectRowsUnchanged(await readPersistedRows());
+          expect(upgradedHistory.applied.slice(0, prefixLength)).toEqual(prefixHistory.applied);
+          if (before !== null) expectRowsUnchanged(await readPersistedRows());
+          else {
+            expect((await upgraded.transact((tx) => tx.aggregates.list({ aggregateType: "project" }))).items).toEqual([]);
+            expect((await upgraded.transact((tx) => tx.events.list())).items).toEqual([]);
+          }
+
+          const savedAiHistory = await upgraded.transact(async (tx) => {
+            const rows = [];
+            for (const aggregateType of AI_PLANNING_AGGREGATE_TYPES) {
+              const payload = { authority: "none", state: "proposed", prefixLength };
+              const aggregateId = `ai:${aggregateType}:prefix-${prefixLength}`;
+              const aggregate = await tx.aggregates.create({
+                aggregateType, aggregateId, schemaVersion: 1, payload,
+                traceId: `trace:ai:${prefixLength}`,
+              });
+              const event = await tx.events.append({
+                eventId: `event:${aggregateId}`, aggregateType, aggregateId,
+                aggregateVersion: 1, eventType: `${aggregateType}.saved`,
+                eventSchemaVersion: 1, payload, occurredAt: "2026-09-09T12:00:00.000Z",
+                traceId: `trace:ai:${prefixLength}`, causationId: `request:ai:${prefixLength}`,
+              });
+              rows.push({ aggregate, event });
+            }
+            return rows;
+          });
+          await upgraded.close();
+          upgraded = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
+          for (const row of savedAiHistory) {
+            const durable = await upgraded.transact(async (tx) => ({
+              aggregate: await tx.aggregates.get(row.aggregate.aggregateType, row.aggregate.aggregateId),
+              events: await tx.events.list({ aggregateType: row.aggregate.aggregateType, aggregateId: row.aggregate.aggregateId }),
+            }));
+            expect(durable.aggregate).toEqual(row.aggregate);
+            expect(durable.events.items).toEqual([row.event]);
+          }
+          if (before !== null) expectRowsUnchanged(await readPersistedRows());
+          expect(await upgraded.migrationStatus()).toEqual(upgradedHistory);
         } finally {
           await Promise.allSettled([prefix?.close(), upgraded?.close()]);
           await dropLiveSchema(live, schema);
@@ -426,7 +475,7 @@ if (live === null) {
       }
     });
 
-    it.each([3, 4])("rolls back a failing extension after prefix %s and resumes with the corrected bytes", async (prefixLength) => {
+    it.each([3, 4, 5])("rolls back a failing extension after prefix %s and resumes with the corrected bytes", async (prefixLength) => {
       const schema = uniqueLiveSchema(`extension_migration_resume_${prefixLength}`);
       const releasedPrefix = Object.freeze(POSTGRES_MIGRATIONS.slice(0, prefixLength));
       const failingC7 = Object.freeze({
@@ -438,6 +487,20 @@ if (live === null) {
       try {
         prefix = await createPostgresPersistenceAdapterForTesting(adapterOptions(live, schema), {
           migrations: releasedPrefix,
+        });
+        const preservedHistory = await prefix.migrationStatus();
+        const preservedRows = await prefix.transact(async (tx) => {
+          const aggregate = await tx.aggregates.create({
+            aggregateType: "project", aggregateId: "project:extension-survivor", schemaVersion: 1,
+            payload: { inherited: true, prefixLength }, traceId: "trace:extension-survivor",
+          });
+          const event = await tx.events.append({
+            eventId: "event:extension-survivor", aggregateType: "project", aggregateId: aggregate.aggregateId,
+            aggregateVersion: 1, eventType: "project.saved", eventSchemaVersion: 1,
+            payload: { inherited: true, prefixLength }, occurredAt: "2026-09-07T12:00:00.000Z",
+            traceId: "trace:extension-event", causationId: "command:extension-survivor",
+          });
+          return { aggregate, event };
         });
         await prefix.close();
         prefix = undefined;
@@ -465,15 +528,29 @@ if (live === null) {
           );
           expect(constraints.rows).toHaveLength(2);
           for (const row of constraints.rows) {
-            expect(physicalConstraintVocabulary(row["definition"]), String(row["conname"])).toEqual(prefixLength === 4 ? EXPECTED_C7_AGGREGATE_TYPES : [
+            expect(physicalConstraintVocabulary(row["definition"]), String(row["conname"])).toEqual(prefixLength === 5 ? EXPECTED_SAVED_PLANNING_AGGREGATE_TYPES : prefixLength === 4 ? EXPECTED_C7_AGGREGATE_TYPES : [
               "artifact-manifest", "budget-account", "evaluation-run", "integration-run",
               "project", "product-plan", "task-graph", "task-run", "telemetry-ledger", "worker-run",
             ]);
           }
         });
 
+        prefix = await createPostgresPersistenceAdapterForTesting(adapterOptions(live, schema), {
+          migrations: releasedPrefix,
+        });
+        expect(await prefix.migrationStatus()).toEqual(preservedHistory);
+        expect(await prefix.transact((tx) => tx.aggregates.get("project", preservedRows.aggregate.aggregateId)))
+          .toEqual(preservedRows.aggregate);
+        expect((await prefix.transact((tx) => tx.events.list())).items).toEqual([preservedRows.event]);
+        await prefix.close();
+        prefix = undefined;
         resumed = await createPostgresPersistenceAdapter(adapterOptions(live, schema));
-        expect((await resumed.migrationStatus()).applied).toHaveLength(5);
+        const resumedHistory = await resumed.migrationStatus();
+        expect(resumedHistory.applied).toHaveLength(6);
+        expect(resumedHistory.applied.slice(0, prefixLength)).toEqual(preservedHistory.applied);
+        expect(await resumed.transact((tx) => tx.aggregates.get("project", preservedRows.aggregate.aggregateId)))
+          .toEqual(preservedRows.aggregate);
+        expect((await resumed.transact((tx) => tx.events.list())).items).toEqual([preservedRows.event]);
       } finally {
         await Promise.allSettled([prefix?.close(), resumed?.close()]);
         await dropLiveSchema(live, schema);
@@ -551,11 +628,12 @@ if (live === null) {
                 "0003-integration-run-aggregate",
                 "0004-project-persistence-aggregates",
                 "0005-saved-planning-aggregates",
+                "0006-development-planning-history",
               ]);
               await pool.query(
                 `INSERT INTO "${schema}".schema_migrations
                    (id, checksum_algorithm, checksum_hex, applied_at, ordinal)
-                 VALUES ('9999-future-schema','sha-256',$1,'2026-08-10T22:00:00.000Z',6)`,
+                 VALUES ('9999-future-schema','sha-256',$1,'2026-08-10T22:00:00.000Z',7)`,
                 ["a".repeat(64)],
               );
             }

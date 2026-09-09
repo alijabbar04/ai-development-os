@@ -410,7 +410,7 @@ describe("PostgreSQL migrations and row validation", () => {
     await reopened.adapter.close();
   });
 
-  it.each([3, 4])("keeps released prefix %s after an extension failure and applies it once on resume", async (prefixLength) => {
+  it.each([3, 4, 5])("keeps released prefix %s after an extension failure and applies it once on resume", async (prefixLength) => {
     const database = new FakePostgresDatabase();
     const releasedPrefix = Object.freeze(POSTGRES_MIGRATIONS.slice(0, prefixLength));
     const seeded = await createPostgresPersistenceAdapterForTesting(options(), {

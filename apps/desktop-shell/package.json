@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@ai-dev-os/plan": "^0.1.0",
+    "@ai-dev-os/providers": "0.1.0",
     "@ai-dev-os/project": "^0.1.0",
     "electron": "43.4.1"
   },

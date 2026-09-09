@@ -77,6 +77,12 @@ main { min-width: 0; padding: 2rem clamp(1.4rem, 4vw, 4rem) 4rem; overflow: auto
 .danger-button { border-color: #7d3c43; color: #ffc4c0; }
 label { display: block; margin: 0.75rem 0 0.45rem; font-weight: 650; }
 input, textarea { width: 100%; padding: 0.8rem; color: var(--text); background: #0d131d; line-height: 1.5; }
+input[type="checkbox"] { width: 1.3rem; height: 1.3rem; padding: 0; accent-color: var(--accent-strong); }
+.card summary { cursor: pointer; padding: 0.65rem 0; font-weight: 650; }
+.card summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.ai-task-editor { min-width: 0; }
+.planning-fixture-banner { position: fixed; z-index: 15; right: 1rem; bottom: 0.75rem; max-width: calc(100vw - 2rem); margin: 0; padding: 0.6rem 0.8rem; border: 1px solid var(--warn); border-radius: 8px; color: var(--warn); background: var(--bg); font-size: 0.85rem; pointer-events: none; }
+.planning-fixture-banner[hidden] { display: none; }
 textarea { min-height: 8rem; resize: vertical; }
 select { width: 100%; min-height: 42px; padding: 0.55rem; color: var(--text); background: #0d131d; }
 ul, ol { padding-left: 1.3rem; }

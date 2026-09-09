@@ -1,5 +1,8 @@
+import type { AiPlanningCommand, AiPlanningConnectionView, AiPlanningProjectView } from "./planning-ai-contracts.js";
+export type * from "./planning-ai-contracts.js";
 /** Renderer proposals and lookup coordinates only. No actor, path grant or approval capability crosses this boundary. */
 export type PlanningCommand =
+  | AiPlanningCommand
   | Readonly<{ kind: "create-project"; commandId: string; name: string; objective: string; outcomes: readonly string[]; budgetMinorUnits: number; currency: string }>
   | Readonly<{ kind: "draft-brief"; projectId: string; objective: string; outcomes: readonly string[]; nonGoals: readonly string[]; audiences: readonly string[]; expectedBriefVersion: number }>
   | Readonly<{ kind: "answer-clarification"; projectId: string; candidateId: string; answers: readonly Readonly<{ questionId: string; value: string }>[] }>
@@ -36,6 +39,7 @@ export interface PlanningProjectSummary {
   readonly planState: string | null;
 }
 export interface PlanningWorkspaceView {
+  readonly aiPlanningConnection: AiPlanningConnectionView;
   readonly schemaVersion: 1;
   readonly authority: "none";
   readonly source: "saved-local-planning";
@@ -43,6 +47,7 @@ export interface PlanningWorkspaceView {
   readonly selected: PlanningProjectView | null;
 }
 export interface PlanningProjectView extends PlanningProjectSummary {
+  readonly aiPlanning: AiPlanningProjectView;
   readonly budget: Readonly<{ minorUnits: number; currency: string }>;
   readonly repository: Readonly<{ rootLeaf: string; state: string; head: string | null; branch: string | null; observedAt: string; facts: readonly string[] }> | null;
   readonly brief: Readonly<{ briefId: string; version: number; digest: string; objective: string; outcomes: readonly string[]; nonGoals: readonly string[]; audiences: readonly string[] }> | null;

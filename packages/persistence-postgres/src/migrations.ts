@@ -135,6 +135,18 @@ ALTER TABLE events ADD CONSTRAINT events_aggregate_type_check
   CHECK (aggregate_type IN ('artifact-manifest','budget-account','evaluation-run','integration-run','project','product-plan','task-graph','task-run','telemetry-ledger','worker-run','project-brief','project-plan','agent-session','handover','approval-request','spending-request','notification','communication-thread','external-integration','project-stop','planning-command','planning-workspace','planning-handover'));
 `,
   }),
+  Object.freeze({
+    id: "0006-development-planning-history",
+    content: `
+ALTER TABLE aggregates DROP CONSTRAINT aggregates_aggregate_type_check;
+ALTER TABLE aggregates ADD CONSTRAINT aggregates_aggregate_type_check
+  CHECK (aggregate_type IN ('artifact-manifest','budget-account','evaluation-run','integration-run','project','product-plan','task-graph','task-run','telemetry-ledger','worker-run','project-brief','project-plan','agent-session','handover','approval-request','spending-request','notification','communication-thread','external-integration','project-stop','planning-command','planning-workspace','planning-handover','planning-ai-session','planning-ai-contribution'));
+
+ALTER TABLE events DROP CONSTRAINT events_aggregate_type_check;
+ALTER TABLE events ADD CONSTRAINT events_aggregate_type_check
+  CHECK (aggregate_type IN ('artifact-manifest','budget-account','evaluation-run','integration-run','project','product-plan','task-graph','task-run','telemetry-ledger','worker-run','project-brief','project-plan','agent-session','handover','approval-request','spending-request','notification','communication-thread','external-integration','project-stop','planning-command','planning-workspace','planning-handover','planning-ai-session','planning-ai-contribution'));
+`,
+  }),
 ]);
 
 const MIGRATION_LOCK_NAMESPACE = 1_092_874_307;

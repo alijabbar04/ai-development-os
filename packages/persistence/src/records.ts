@@ -36,6 +36,8 @@ export const AGGREGATE_TYPES = Object.freeze([
   "planning-command",
   "planning-workspace",
   "planning-handover",
+  "planning-ai-session",
+  "planning-ai-contribution",
 ] as const);
 
 export type AggregateType = (typeof AGGREGATE_TYPES)[number];

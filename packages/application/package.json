@@ -31,7 +31,7 @@
     "README.md"
   ],
   "scripts": {
-    "prebuild": "npm --prefix ../scheduler run build && npm --prefix ../persistence-sqlite run build && npm --prefix ../persistence-postgres run build && npm --prefix ../plan run build && npm --prefix ../approval run build",
+    "prebuild": "npm --prefix ../scheduler run build && npm --prefix ../persistence-sqlite run build && npm --prefix ../persistence-postgres run build && npm --prefix ../plan run build && npm --prefix ../approval run build && npm --prefix ../provider-claude-code run build && npm --prefix ../thinker run build",
     "build": "tsc -p tsconfig.json",
     "pretest": "npm run build && npm --prefix ../persistence-memory run build",
     "test": "vitest run",
@@ -41,6 +41,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ai-dev-os/config": "^0.1.0",
+    "@ai-dev-os/context": "^0.1.0",
+    "@ai-dev-os/policy": "^0.1.0",
+    "@ai-dev-os/providers": "^0.1.0",
+    "@ai-dev-os/provider-claude-code": "^0.1.0",
+    "@ai-dev-os/prompt-compiler": "^0.1.0",
+    "@ai-dev-os/thinker": "^0.1.0",
     "@ai-dev-os/domain": "^0.1.0",
     "@ai-dev-os/persistence": "^0.1.0",
     "@ai-dev-os/persistence-postgres": "^0.1.0",

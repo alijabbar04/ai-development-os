@@ -56,6 +56,11 @@ export {
 } from "./validation.js";
 
 export {
+  computeModelPlanProposalDigest,
+  prepareModelPlanAdoption,
+} from "./model-adoption.js";
+
+export {
   assertAuthenticatedOperatorEvidence,
   assertSealConditions,
   blockingOpenQuestionIds,
@@ -164,6 +169,9 @@ export type {
   PlanJournalWindow,
   PlanLineageHead,
   PlanMutationControlEvidence,
+  PlanModelAdoption,
+  PlanModelEditRecord,
+  PlanModelFieldEdit,
   PlanObservationOutcome,
   PlanOperationKind,
   PlanPredecessorEvidence,
@@ -188,6 +196,7 @@ export type {
   ProposedStage,
   ProposedTask,
   ProposedTaskRequirements,
+  PreparedModelPlanAdoption,
   ResolvedProjectCeilingEvidence,
   ScopeSealDecision,
   SealEvaluationInput,

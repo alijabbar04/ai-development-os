@@ -47,7 +47,7 @@ export interface PlanProjectionEnvelope<K extends string, V> {
 
 export interface QuotedPlanContent {
   readonly text: string;
-  readonly provenance: "operator-confirmed" | "accepted-brief" | "specification" | "model-proposed";
+  readonly provenance: "operator-confirmed" | "operator-edited" | "accepted-brief" | "specification" | "model-proposed";
 }
 
 export const PLAN_PROJECTION_ACTIONS = Object.freeze([
@@ -272,6 +272,7 @@ function parseProjectionContext(value: unknown, digest: PlanDigestPort): PlanPro
 
 function displayOrigin(origin: string, authenticated: boolean): QuotedPlanContent["provenance"] {
   if (origin === "operator" && authenticated) return "operator-confirmed";
+  if (origin === "operator-edit" && authenticated) return "operator-edited";
   if (origin === "brief") return "accepted-brief";
   if (origin === "specification") return "specification";
   return "model-proposed";
@@ -521,6 +522,7 @@ function projectedPlanValue(plan: ProjectPlan, review: PlanReviewEvidence, conte
       routeFingerprint: source.routeFingerprint,
       contributionDigest: source.contributionDigest,
       narrativeRef: source.narrativeRef,
+      ...(source.adoption === undefined ? {} : { adoption: source.adoption }),
     }) : null,
     constraints: review.constraintDispositions,
     specification: review.specification,

@@ -37,7 +37,7 @@ export interface PlanDigestPort {
 }
 
 export interface ClaimProvenance {
-  readonly origin: "operator" | "brief" | "specification" | "repository" | "model";
+  readonly origin: "operator" | "operator-edit" | "brief" | "specification" | "repository" | "model";
   readonly derivedFrom: DerivedFromRef | null;
   readonly verbatim: boolean;
 }
@@ -91,6 +91,8 @@ export type PlanProposalSource =
       routeFingerprint: string;
       contributionDigest: string;
       narrativeRef: string | null;
+      /** A host-prepared edit history; it grants no authentication or authority. */
+      adoption?: PlanModelAdoption;
     }>
   | Readonly<{ kind: "deterministic"; authority: "none"; generatorId: string }>;
 
@@ -118,6 +120,26 @@ export interface AuthenticatedOperatorClaimEvidence {
   readonly nodeId: string;
   readonly fieldPath: string;
   readonly value: string;
+}
+
+/** Existing prose fields only. Graph, source, coverage and authority are not editable here. */
+export interface PlanModelFieldEdit extends AuthenticatedOperatorClaimEvidence {}
+
+export interface PlanModelEditRecord extends PlanModelFieldEdit {
+  readonly previousValue: string;
+  readonly previousProvenance: ClaimProvenance;
+}
+
+export interface PlanModelAdoption {
+  readonly schemaVersion: 1;
+  readonly originalProposalDigest: string;
+  readonly edits: readonly PlanModelEditRecord[];
+}
+
+export interface PreparedModelPlanAdoption {
+  readonly proposal: PlanProposal;
+  /** The trusted host must authenticate these exact rows using its private commit capability. */
+  readonly authenticatedOperatorEvidence: readonly AuthenticatedOperatorClaimEvidence[];
 }
 
 export interface TaskBudgetAllocation {

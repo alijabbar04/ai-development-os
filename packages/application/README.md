@@ -11,9 +11,13 @@ saved-project facade. It composes real C7/C8 intake, the neutral PlanStore bound
 and application-owned approval operations in one injected transaction adapter.
 `./planning-contracts` contains the finite UI contract; `./planning-storage` opens
 one explicit local SQLite root with DELETE/FULL durability and an exclusive OS
-lifetime owner. These entries do not connect the worker runtime, reservations,
-provider dispatch, account discovery or task execution. See the desktop shell's
-README for the saved/reopened manual workflow and its recovery boundaries.
+lifetime owner. The separate host-owned development-planning capability can
+compose one qualified subscription inference port with the genuine Thinker.
+Normal startup currently supplies a refusal-only connection: managed-policy
+isolation and subscription eligibility are unqualified. No live authentication
+or inference occurs. Worker execution and general production admission remain
+disabled. See the desktop shell's README and
+[Windows AI planning](../../docs/development/windows-ai-planning.md).
 
 The historical Account Manager fixture adapter remains available for
 deterministic compatibility tests. A second supported, production-disabled

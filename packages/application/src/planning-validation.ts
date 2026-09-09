@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { serializeCanonicalProjectJson } from "@ai-dev-os/project";
 import type { PlanningCommand, PlanningTaskInput } from "./planning-contracts.js";
+import { AI_PLANNING_COMMANDS, parseAiPlanningCommand } from "./planning-ai-validation.js";
 
 export class PlanningRefusal extends Error {
   constructor(readonly kind: "refused" | "conflict" | "corrupt", readonly reason: string) { super(reason); }
@@ -47,6 +48,7 @@ function task(value: unknown): PlanningTaskInput {
 export function parsePlanningCommand(value: unknown): PlanningCommand {
   const input = planningObject(value);
   const kind = input["kind"];
+  if (typeof kind === "string" && AI_PLANNING_COMMANDS.includes(kind)) return parseAiPlanningCommand(value);
   let result: PlanningCommand;
   const command = (): string => planningId(input["commandId"]);
   const project = (): string => { const id = planningId(input["projectId"]); if (!id.startsWith("prj:")) return refusePlanning("input.project"); return id; };

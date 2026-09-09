@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ValidationError } from "@ai-dev-os/domain";
 import {
@@ -17,8 +17,15 @@ import { SQLITE_MIGRATIONS, applyMigrations, readAppliedMigrations } from "../sr
 const cleanups: Array<() => void> = [];
 
 function tempDatabaseFile(): string {
-  const directory = mkdtempSync(join(tmpdir(), "aidevos-sqlite-spec-"));
-  cleanups.push(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5 }));
+  const fixtureParent = realpathSync(tmpdir());
+  const directory = realpathSync(mkdtempSync(join(fixtureParent, "aidevos-sqlite-spec-")));
+  cleanups.push(() => {
+    const target = realpathSync(directory);
+    if (target !== directory || dirname(target) !== fixtureParent || !basename(target).startsWith("aidevos-sqlite-spec-")) {
+      throw new Error("REFUSE_UNOWNED_SQLITE_FIXTURE_CLEANUP");
+    }
+    rmSync(target, { recursive: true, force: true, maxRetries: 5 });
+  });
   return join(directory, "test.db");
 }
 
@@ -124,6 +131,82 @@ describe("migrations", () => {
     const secondStatus = await reopened.migrationStatus();
     expect(secondStatus.applied).toHaveLength(SQLITE_MIGRATIONS.length);
     await reopened.close();
+  });
+
+  it("adds AI history to inherited saved data without changing the released schema or old record bytes", async () => {
+    const file = tempDatabaseFile(), clock = createManualClock();
+    const legacyTypes = ["project", "project-brief", "project-plan", "planning-command", "planning-workspace", "planning-handover"] as const;
+    const aiTypes = ["planning-ai-session", "planning-ai-contribution"] as const;
+    let adapter = createSqlitePersistenceAdapter({ file, clock });
+    const snapshot = () => {
+      const raw = openSqliteDatabase(file);
+      try {
+        return {
+          migrations: raw.prepare("SELECT * FROM schema_migrations ORDER BY ordinal").all(),
+          aggregates: raw.prepare("SELECT * FROM aggregates WHERE aggregate_id LIKE 'legacy:%' ORDER BY aggregate_type, aggregate_id").all(),
+          events: raw.prepare("SELECT * FROM events WHERE event_id LIKE 'event:legacy:%' ORDER BY global_sequence").all(),
+        };
+      } finally { raw.close(); }
+    };
+    try {
+      await adapter.transact(async (tx) => {
+        for (const aggregateType of legacyTypes) {
+          const aggregateId = `legacy:${aggregateType}`, payload = { inherited: true, aggregateType };
+          await tx.aggregates.create({ aggregateType, aggregateId, schemaVersion: 1, payload, traceId: "trace:inherited" });
+          await tx.events.append({
+            eventId: `event:${aggregateId}`, aggregateType, aggregateId, aggregateVersion: 1,
+            eventType: `${aggregateType}.saved`, eventSchemaVersion: 1, payload,
+            occurredAt: "2026-09-07T12:00:00.000Z", traceId: "trace:inherited-event", causationId: "command:inherited",
+          });
+        }
+      });
+      const releasedHistory = await adapter.migrationStatus();
+      await adapter.close();
+      const before = snapshot();
+      expect(before.aggregates).toHaveLength(legacyTypes.length);
+      expect(before.events).toHaveLength(legacyTypes.length);
+
+      clock.advance(60_000);
+      adapter = createSqlitePersistenceAdapter({ file, clock });
+      expect(await adapter.migrationStatus()).toEqual(releasedHistory);
+      const savedAiRows = await adapter.transact(async (tx) => {
+        const rows = [];
+        for (const aggregateType of aiTypes) {
+          const aggregateId = `ai:${aggregateType}`, payload = { authority: "none", state: "proposed", original: "Retain this model content exactly." };
+          const aggregate = await tx.aggregates.create({ aggregateType, aggregateId, schemaVersion: 1, payload, traceId: "trace:ai" });
+          const event = await tx.events.append({
+            eventId: `event:${aggregateId}`, aggregateType, aggregateId, aggregateVersion: 1,
+            eventType: `${aggregateType}.saved`, eventSchemaVersion: 1, payload,
+            occurredAt: "2026-09-09T12:00:00.000Z", traceId: "trace:ai-event", causationId: "request:ai",
+          });
+          rows.push({ aggregate, event });
+        }
+        return rows;
+      });
+      await expect(adapter.transact(async (tx) => {
+        await tx.aggregates.update({ aggregateType: "planning-ai-session", aggregateId: "ai:planning-ai-session", expectedVersion: 1, schemaVersion: 1, payload: { uncertain: true } });
+        await tx.events.append({
+          eventId: "event:ai:rollback", aggregateType: "planning-ai-session", aggregateId: "ai:planning-ai-session", aggregateVersion: 2,
+          eventType: "planning-ai-session.failed", eventSchemaVersion: 1, payload: { uncertain: true }, occurredAt: "2026-09-09T12:01:00.000Z",
+        });
+        throw new Error("PLANTED_LATE_FAILURE");
+      })).rejects.toThrow("PLANTED_LATE_FAILURE");
+      await adapter.close();
+      expect(snapshot()).toEqual(before);
+
+      adapter = createSqlitePersistenceAdapter({ file, clock });
+      for (const row of savedAiRows) {
+        const durable = await adapter.transact(async (tx) => ({
+          aggregate: await tx.aggregates.get(row.aggregate.aggregateType, row.aggregate.aggregateId),
+          events: await tx.events.list({ aggregateType: row.aggregate.aggregateType, aggregateId: row.aggregate.aggregateId }),
+        }));
+        expect(durable.aggregate).toEqual(row.aggregate);
+        expect(durable.events.items).toEqual([row.event]);
+      }
+      expect((await adapter.transact((tx) => tx.events.list({ limit: 20 }))).items).toHaveLength(legacyTypes.length + aiTypes.length);
+      expect(await adapter.migrationStatus()).toEqual(releasedHistory);
+      expect(snapshot()).toEqual(before);
+    } finally { await adapter.close(); }
   });
 
   it("rejects a tampered migration checksum on reopen", async () => {

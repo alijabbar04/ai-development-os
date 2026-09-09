@@ -43,5 +43,14 @@ it("saves through the actual pinned child, observes lost acknowledgments, restar
   expect(restored.selected?.plan).toEqual(p.plan); expect(restored.selected?.approvals).toEqual(p.approvals); expect(restored.selected?.history).toEqual(p.history);
   expect(await controller.planning(handoverQuery)).toEqual(document);
   await expect(access(runtime)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(restored.aiPlanningConnection).toMatchObject({ state: "LIVE_ROUTE_BLOCKED", source: "unqualified", modelId: null });
+  const started = await command({ kind: "start-ai-planning", commandId: "child:ai-session", projectId: p.projectId, expectedSessionVersion: restored.selected!.aiPlanning.version, description: "Plan a garden journal without calling an unqualified route", includeRepositorySummary: false });
+  expect(started.kind).toBe("committed"); const ai = started.workspace!.selected!.aiPlanning, confirmations = reviews.length;
+  const unqualifiedRequest = { kind: "request-ai-understanding" as const, commandId: "child:ai-unqualified", projectId: p.projectId, sessionId: ai.currentSession!.sessionId, expectedSessionVersion: ai.version, contextDigest: ai.contextDigest };
+  expect(await command(unqualifiedRequest)).toMatchObject({ kind: "refused", reason: "ai.LIVE_ROUTE_BLOCKED" });
+  expect(reviews).toHaveLength(confirmations);
+  expect((await controller.planning({ kind: "snapshot", projectId: p.projectId }) as PlanningWorkspaceView).selected!.aiPlanning.currentSession).toMatchObject({ requestCount: 0, requests: [], activeRequestId: null });
+  expect(await controller.planning({ kind: "command", command: { ...unqualifiedRequest, commandId: "child:ai-forged-route", executable: "outside.exe", source: "owned-subscription" } })).toMatchObject({ kind: "refused" });
+  expect(reviews).toHaveLength(confirmations);
   await controller.stop(); expect((await readFile(join(root, "saved", "planning.sqlite"))).length).toBeGreaterThan(0);
 }, 30000);

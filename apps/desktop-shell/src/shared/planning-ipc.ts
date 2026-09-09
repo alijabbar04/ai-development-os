@@ -28,7 +28,7 @@ export function parseNativePlanningRequest(value: unknown): NativePlanningReques
   if (kind === "repository" || kind === "result") exactPlanningRecord(value, ["kind"]);
   else if (kind === "confirm") {
     const r = exactPlanningRecord(value, ["kind", "review"]), review = exactPlanningRecord(r["review"], ["reviewId", "action", "title", "detail", "subjectDigest"]);
-    if (!id(review["reviewId"]) || typeof review["action"] !== "string" || !["create-project", "draft-brief", "answer-clarification", "accept-brief", "select-repository", "save-plan", "prepare-plan", "approve-scope", "request-scope-again", "seal-plan", "stop-project", "resume-project", "export-handover", "attach-result", "historical-money"].includes(review["action"])
+    if (!id(review["reviewId"]) || typeof review["action"] !== "string" || !["create-project", "draft-brief", "answer-clarification", "accept-brief", "select-repository", "save-plan", "prepare-plan", "approve-scope", "request-scope-again", "seal-plan", "stop-project", "resume-project", "export-handover", "attach-result", "historical-money", "start-ai-planning", "save-ai-planning-draft", "request-ai-understanding", "request-ai-proposal", "accept-ai-brief", "adopt-ai-proposal", "cancel-ai-request"].includes(review["action"])
       || typeof review["title"] !== "string" || review["title"].length > 200 || typeof review["detail"] !== "string" || review["detail"].length > 196608 || typeof review["subjectDigest"] !== "string" || !/^[a-f0-9]{64}$/u.test(review["subjectDigest"])) throw new Error("INVALID_REQUEST");
   } else throw new Error("INVALID_REQUEST");
   return value as NativePlanningRequest;

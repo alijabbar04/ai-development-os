@@ -6,7 +6,7 @@ inside a Stage 8 managed workspace through the Stage 8 process broker, parses
 its machine-readable stream, reconciles the workspace against what actually
 changed, and reports usage, cost, and capacity without inventing anything.
 
-Two rules shape the whole package:
+Two rules shape the coding-agent adapter:
 
 - **The workspace is authoritative.** Nothing Claude says about files, commits,
   or tests is believed. Every reported change comes from Git plumbing run
@@ -40,9 +40,25 @@ scheduler, desktop, API server, or any concrete persistence or secret backend.
 
 Everything else arrives as a narrow composition port: policy, artifact
 persistence, workspace resolution, clock, scheduler, UUID generation, and
-process execution. There is exactly one execution seam — `ClaudeExecutionPort`,
+process execution. The coding-agent execution seam is `ClaudeExecutionPort`,
 backed by `createBrokerExecutionPort` — and **no `child_process` call anywhere
 in this package**, including the version probe.
+
+## Development-planning inference boundary
+
+`planning-inference.ts` adds a distinct, bounded `InferenceProvider` for the
+Windows planning helper. It does not relabel coding execution. A trusted host
+must provide an exact qualified `PlanningProcessPort`; native consent, compiled
+context/schema identity, model and qualification fingerprints, single-use
+admission, deadline, tool-free output and cancellation are rechecked.
+
+The shipped `createBlockedPlanningProcessPort` refuses before authentication or
+inference. Inspection of the signed Claude Code 2.1.263 print interface did not
+establish sufficient managed-policy isolation, so there is no shipped live
+subprocess implementation or API billing fallback. Synthetic injected ports
+exercise the genuine provider/Thinker path. They do not establish a live connection.
+The existing coding-provider production gate remains closed. See the
+[Windows planning checkpoint](../../docs/development/windows-ai-planning.md).
 
 ## Configuration
 

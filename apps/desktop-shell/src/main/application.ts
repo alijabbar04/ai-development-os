@@ -38,6 +38,8 @@ export interface DesktopApplicationOptions {
   readonly nativePlanningForTest?: (request: NativePlanningRequest) => Promise<NativePlanningReply>;
   /** Finite owned-fixture entry; no renderer, environment or production CLI clock switch. */
   readonly savedRecoveryFixtureForTest?: true;
+  /** Separate synthetic inference entry, selected only by an owned test host. */
+  readonly aiPlanningFixtureForTest?: true;
 }
 
 export interface DesktopApplicationHandle {
@@ -50,6 +52,7 @@ export interface DesktopApplicationHandle {
 }
 
 export async function launchDesktopApplication(options: DesktopApplicationOptions = {}): Promise<DesktopApplicationHandle> {
+  if (options.aiPlanningFixtureForTest === true && options.savedRecoveryFixtureForTest === true) throw new Error("DESKTOP_FIXTURE_SELECTION_INVALID");
   const visibleStartedAt = Date.now();
   const phase = (value: string): void => { options.onStartupPhase?.(value); };
   phase("version-check");
@@ -89,7 +92,7 @@ export async function launchDesktopApplication(options: DesktopApplicationOption
   const stateWaiters = new Set<() => void>();
 
   const service = createOwnedServiceController({
-    childPath: options.savedRecoveryFixtureForTest === true ? join(applicationRoot, "dist", "testing", "saved-recovery-child.js") : join(applicationRoot, "dist", "service", "child.js"),
+    childPath: options.aiPlanningFixtureForTest === true ? join(applicationRoot, "dist", "testing", "ai-planning-child.js") : options.savedRecoveryFixtureForTest === true ? join(applicationRoot, "dist", "testing", "saved-recovery-child.js") : join(applicationRoot, "dist", "service", "child.js"),
     execPath: ownedNodeRuntime,
     dataRoot: join(userDataRoot, "saved-workspace"),
     storageParent: runtimeRoot,

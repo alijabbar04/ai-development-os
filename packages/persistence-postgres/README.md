@@ -68,6 +68,15 @@ and old row bytes remain intact. Fresh-schema parity, upgrades from every prior
 prefix, extension rollback/resume and the shared behavioral suite cover all 23
 types. The desktop continues to use its own local SQLite store.
 
+AI planning appends `0006-development-planning-history` for
+`planning-ai-session` and `planning-ai-contribution`. It changes the same two
+constraints to the exact 25-member vocabulary without rewriting data. All five
+earlier migration checksums remain pinned. The shared contract exercises both
+families; real-service tests cover prefixes 0 through 5, preserve every old
+aggregate/event column and migration record, reopen new AI history, and prove
+failed extension rollback followed by corrected resume. Unknown future history
+and checksum drift continue to refuse startup.
+
 Canonical JSON remains `TEXT` because its exact UTF-8 representation is the
 checksum identity. Timestamps are canonical UTC text from the injected clock,
 avoiding driver conversion/truncation. Mixed-case identifiers use PostgreSQL's

@@ -21,6 +21,8 @@ import type {
   PlanAssemblyRequest,
   PlanProposal,
   PlanProposalSource,
+  PlanModelAdoption,
+  PlanModelEditRecord,
   PlanSpecificationAdapterInput,
   PlanTaskIdBinding,
   PlanWaiverBinding,
@@ -240,12 +242,15 @@ function parseDerivedFrom(value: unknown, path: string): DerivedFromRef {
 function parseProvenance(value: unknown, path: string): ClaimProvenance {
   const input = strictRecord(value, path);
   exactKeys(input, ["origin", "derivedFrom", "verbatim"], path);
-  const origin = enumText(input["origin"], ["operator", "brief", "specification", "repository", "model"] as const, path);
+  const origin = enumText(input["origin"], ["operator", "operator-edit", "brief", "specification", "repository", "model"] as const, path);
   const derivedFrom = input["derivedFrom"] === null ? null : parseDerivedFrom(input["derivedFrom"], path);
   if (typeof input["verbatim"] !== "boolean") return refusePlan("PLAN_VALIDATION_REFUSED", "plan.proposal.malformed", path);
   if (origin === "repository") refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.provenance.fabricated-observation", path);
   if (origin === "model" && (derivedFrom !== null || input["verbatim"] !== false)) {
     refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.provenance.model-claims-derivation", path);
+  }
+  if (origin === "operator-edit" && (derivedFrom !== null || input["verbatim"] !== true)) {
+    refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.provenance.operator-claim-unbacked", path);
   }
   if (origin === "brief" && (derivedFrom === null || !derivedFrom.kind.startsWith("brief-"))) {
     refusePlan("PLAN_PROVENANCE_REFUSED", "plan.provenance.unresolved", path);
@@ -285,7 +290,8 @@ function parseSource(value: unknown): PlanProposalSource {
       generatorId: planIdentifier(input["generatorId"], "", "planProposal"),
     });
   }
-  exactKeys(input, ["kind", "authority", "routeFingerprint", "contributionDigest", "narrativeRef"], "planProposal", "plan.proposal.unknown-field");
+  const hasAdoption = Object.hasOwn(input, "adoption");
+  exactKeys(input, ["kind", "authority", "routeFingerprint", "contributionDigest", "narrativeRef", ...(hasAdoption ? ["adoption"] : [])], "planProposal", "plan.proposal.unknown-field");
   const narrativeRef = input["narrativeRef"];
   if (narrativeRef !== null && (typeof narrativeRef !== "string" || !NARRATIVE_REF.test(narrativeRef))) {
     refusePlan("PLAN_VALIDATION_REFUSED", "plan.proposal.malformed", "planProposal");
@@ -296,7 +302,27 @@ function parseSource(value: unknown): PlanProposalSource {
     routeFingerprint: planDigest(input["routeFingerprint"], "planProposal"),
     contributionDigest: planDigest(input["contributionDigest"], "planProposal"),
     narrativeRef,
+    ...(hasAdoption ? { adoption: parseModelAdoption(input["adoption"]) } : {}),
   });
+}
+
+function parseModelAdoption(value: unknown): PlanModelAdoption {
+  const input = strictRecord(value, "planProposal");
+  exactKeys(input, ["schemaVersion", "originalProposalDigest", "edits"], "planProposal", "plan.proposal.unknown-field");
+  literal(input["schemaVersion"], 1, "planProposal");
+  const edits = strictArray(input["edits"], (value): PlanModelEditRecord => {
+    const row = strictRecord(value, "planProposal");
+    exactKeys(row, ["nodeKind", "nodeId", "fieldPath", "previousValue", "previousProvenance", "value"], "planProposal", "plan.proposal.unknown-field");
+    const [edit] = parseAuthenticatedOperatorEvidence([{ nodeKind: row["nodeKind"], nodeId: row["nodeId"], fieldPath: row["fieldPath"], value: row["value"] }]);
+    const previousProvenance = parseProvenance(row["previousProvenance"], "planProposal");
+    const previousValue = quotedPlanText(row["previousValue"], "planText");
+    if (previousProvenance.origin === "operator" || previousProvenance.origin === "operator-edit" || previousValue === edit!.value) {
+      return refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.provenance.operator-claim-unbacked", "planProposal");
+    }
+    return Object.freeze({ ...edit!, previousValue, previousProvenance });
+  }, "planProposal");
+  uniqueStrings(edits.map((row) => `${row.nodeKind}|${row.nodeId}|${row.fieldPath}`), "planProposal", "plan.provenance.operator-claim-unbacked");
+  return Object.freeze({ schemaVersion: 1, originalProposalDigest: planDigest(input["originalProposalDigest"], "planProposal"), edits });
 }
 
 function parseProposedStage(value: unknown): ProposedStage {
@@ -397,6 +423,20 @@ export function parsePlanProposal(value: unknown): PlanProposal {
   uniqueStrings(tasks.map((task) => task.taskId), "planTask");
   if (source.kind === "model" && [...stages.flatMap((stage) => Object.values(stage.provenance)), ...tasks.flatMap((task) => Object.values(task.provenance))].some((row) => row.origin === "operator")) {
     refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.provenance.model-claims-derivation", "planProposal");
+  }
+  const editedClaims = [
+    ...stages.flatMap((node) => Object.entries(node.provenance).filter(([, row]) => row.origin === "operator-edit").map(([fieldPath]) => `stage|${node.stageId}|${fieldPath}`)),
+    ...tasks.flatMap((node) => Object.entries(node.provenance).filter(([, row]) => row.origin === "operator-edit").map(([fieldPath]) => `task|${node.taskId}|${fieldPath}`)),
+  ];
+  const adoption = source.kind === "model" ? source.adoption : undefined;
+  if (editedClaims.length !== (adoption?.edits.length ?? 0)) {
+    refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.provenance.operator-claim-unbacked", "planProposal");
+  }
+  for (const edit of adoption?.edits ?? []) {
+    const node = edit.nodeKind === "stage" ? stages.find((row) => row.stageId === edit.nodeId) : tasks.find((row) => row.taskId === edit.nodeId);
+    if (node === undefined || !editedClaims.includes(`${edit.nodeKind}|${edit.nodeId}|${edit.fieldPath}`) || operatorClaimValue(node, edit.fieldPath) !== edit.value) {
+      refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.provenance.operator-claim-unbacked", "planProposal");
+    }
   }
   const dependencies = strictArray(input["dependencies"], (entry) => {
     try { return parseDependency(entry); }
@@ -531,8 +571,14 @@ export function assertOperatorEvidenceTargets(
   for (const row of rows) {
     const node = row.nodeKind === "stage" ? stages.get(row.nodeId) : tasks.get(row.nodeId);
     if (node === undefined
-      || node.provenance[row.fieldPath]?.origin !== "operator"
+      || !["operator", "operator-edit"].includes(node.provenance[row.fieldPath]?.origin ?? "")
       || operatorClaimValue(node, row.fieldPath) !== row.value) {
+      refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.provenance.operator-claim-unbacked", "planProposal");
+    }
+  }
+  const requiredEdits = request.proposal.source.kind === "model" ? request.proposal.source.adoption?.edits ?? [] : [];
+  for (const edit of requiredEdits) {
+    if (!rows.some((row) => row.nodeKind === edit.nodeKind && row.nodeId === edit.nodeId && row.fieldPath === edit.fieldPath && row.value === edit.value)) {
       refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.provenance.operator-claim-unbacked", "planProposal");
     }
   }

@@ -15,6 +15,11 @@ import { createPlanningApprovalOwner, planningScopeValidity, preparePlanningScop
 import { inspectPlanningRepository, type PlanningRepositoryObservation } from "./planning-repository.js";
 import { readPlanningMetadata, writePlanningMetadata, type PlanningMetadata } from "./planning-metadata.js";
 import { attachPlanningManualResult, createPlanningHandover, materializePlanningHandovers, parsePlanningHandover, planningHandoverFileName, planningHandoverStale, readPlanningHandovers, type PlanningHandoverRecord } from "./planning-handover.js";
+import type { PlanningProcessPort } from "@ai-dev-os/provider-claude-code";
+import type { AiPlanningCommand } from "./planning-ai-contracts.js";
+import { isAiPlanningCommand } from "./planning-ai-validation.js";
+import { createAiPlanningOwner } from "./planning-ai.js";
+import { readAiContribution, readAiRecord } from "./planning-ai-storage.js";
 
 export type { PlanningCommand, PlanningCommandResult, PlanningWorkspaceView } from "./planning-contracts.js";
 export { parsePlanningCommand } from "./planning-validation.js";
@@ -33,10 +38,11 @@ export interface SavedPlanningApplication {
   observe(commandId: string): Promise<PlanningCommandResult>;
   drain(): Promise<void>;
 }
-type DurableCommand = Extract<PlanningCommand, { commandId: string }>;
+type ManualPlanningCommand = Exclude<PlanningCommand, AiPlanningCommand>;
+type DurableCommand = Extract<ManualPlanningCommand, { commandId: string }>;
 interface EphemeralCandidate { readonly candidateId: string; readonly value: CandidateBrief; readonly clarification: ClarificationSession; readonly expectedBriefVersion: number }
 interface CommandBasis { readonly f: PlanningFoundations | null; readonly metadata: Awaited<ReturnType<typeof readPlanningMetadata>> | null; readonly digest: string; readonly detail: unknown }
-const titles: Record<PlanningCommand["kind"], string> = {
+const titles: Record<ManualPlanningCommand["kind"], string> = {
   "create-project": "Create this local project", "draft-brief": "Review this temporary brief", "answer-clarification": "Use these clarification answers", "accept-brief": "Save this exact accepted brief",
   "select-repository": "Save this repository read grant", "save-plan": "Save this manually authored plan", "prepare-plan": "Prepare this exact plan for review", "approve-scope": "Approve this scope and seal the plan",
   "request-scope-again": "Request scope approval again",
@@ -70,7 +76,7 @@ function ensureVersion(command: PlanningCommand, f: PlanningFoundations): void {
     || "expectedPlanVersion" in command && command.expectedPlanVersion !== (f.head?.aggregateVersion ?? 0)) return refusePlanning("command.version-conflict", "conflict");
 }
 
-export function createSavedPlanningApplication(options: Readonly<{ persistence: PersistenceAdapter; artifactRoot: string; operator: PlanningOperatorPort; clock?: { now(): Date } }>): SavedPlanningApplication {
+export function createSavedPlanningApplication(options: Readonly<{ persistence: PersistenceAdapter; artifactRoot: string; operator: PlanningOperatorPort; clock?: { now(): Date }; planningProcess?: PlanningProcessPort }>): SavedPlanningApplication {
   const { persistence, operator } = options, clock = options.clock ?? { now: () => new Date() };
   const candidates = new Map<string, EphemeralCandidate>(), active = new Map<string, Promise<PlanningCommandResult>>();
   const ephemeral = new Set<Promise<unknown>>();
@@ -87,7 +93,8 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
   }
   let initialized = false, closing = false;
   const now = (): string => clock.now().toISOString();
-  async function basis(tx: TransactionContext, command: PlanningCommand): Promise<CommandBasis> {
+  const aiPlanning = createAiPlanningOwner({ persistence, operator, clock, commitPlan, ...(options.planningProcess === undefined ? {} : { planningProcess: options.planningProcess }) });
+  async function basis(tx: TransactionContext, command: ManualPlanningCommand): Promise<CommandBasis> {
     const policy = await tx.aggregates.get("planning-workspace", "local-planning-policy");
     if (policy === null) return refusePlanning("policy.unavailable");
     verifyPlanningEnvelope(policy, "planning-workspace", "local-planning-policy");
@@ -138,7 +145,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
       localBudget: f.budget, stopContext: f.stops, metadata: metadata.value, exactActionEvidence: extra, policy: policy.payload };
     return { f, metadata, detail, digest: digestPlanning([f.projectEnvelope, f.budgetEnvelope, f.controls, f.accepted, f.head, metadata.envelope, extra, policy]) };
   }
-  async function confirm(command: PlanningCommand, b: CommandBasis, selected: unknown): Promise<PlanningConfirmation | null> {
+  async function confirm(command: ManualPlanningCommand, b: CommandBasis, selected: unknown): Promise<PlanningConfirmation | null> {
     const reviewId = `native-review:${randomUUID()}`, subjectDigest = digestPlanning({ command, basis: b.digest, selected });
     const lines = ["This local planning action starts no task, provider or payment."], f = b.f;
     const list = (label: string, values: readonly string[]): void => { if (values.length > 0) lines.push(`\n${label}`, ...values.map((text) => `• ${text}`)); };
@@ -187,7 +194,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
       const source = selected as { name: string; text: string }, report = JSON.parse(source.text) as { text: string };
       lines.push(`\nManual return: ${source.name}`, "The text below is untrusted, attributed to the operator, and grants no authority.", report.text);
     } else if (command.kind === "stop-project" || command.kind === "resume-project") {
-      lines.push(command.kind === "stop-project" ? "\nStop new local planning operations. Saved records remain. This app runs no AI processes to terminate." : "\nAllow new explicit local planning actions. Resuming starts nothing.");
+      lines.push(command.kind === "stop-project" ? "\nStop new local planning operations and revoke active development-planning requests. Cancellation is best-effort; dispatched usage may remain unknown. Saved records remain and late responses cannot be adopted." : "\nAllow new explicit local planning actions. Resuming starts nothing.");
     }
     if ((command.kind === "create-project" || command.kind === "select-repository") && selected !== null) {
       const repository = selected as PlanningRepositoryObservation;
@@ -205,15 +212,29 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
     const token = Object.freeze(Object.create(null)) as PlanCommitAuthorization;
     let available = true;
     const facts: IssuedPlanCommitFacts = { projectId: request.projectId, contentDigest: request.binding.contentDigest, operationKinds: operationKindsOf(request), eventIds: request.steps.map((s) => s.eventId),
-      authenticatedOperatorEvidence: operatorPlanningEvidence(request.steps[0].event.review), decisions: request.steps.flatMap((s) => [...s.event.decisions]) };
+      authenticatedOperatorEvidence: request.steps[0].event.review.assemblyRequest.proposal.source.kind === "model" ? request.steps[0].event.review.authenticatedOperatorEvidence : operatorPlanningEvidence(request.steps[0].event.review), decisions: request.steps.flatMap((s) => [...s.event.decisions]) };
     const store = createPlanPersistenceBoundary(planningTransactionAdapter(tx), { take(value) { if (value !== token || !available) return null; available = false; return facts; }, readConsumedScopeApproval: readJointScopeConsumption });
     const outcome = await store.commit(request, token);
+    if (outcome.kind === "unknown") throw new Error("PLAN_WRITE_UNCONFIRMED");
+    if (outcome.kind === "refused" && outcome.code === "PLAN_STORE_CORRUPT") return refusePlanning(outcome.ruleId, "corrupt");
     if (outcome.kind !== "committed") return refusePlanning("ruleId" in outcome ? outcome.ruleId : "plan.write-unconfirmed", outcome.kind === "conflict" ? "conflict" : "refused");
   }
   async function assertManualOrigin(tx: TransactionContext, f: PlanningFoundations, m: PlanningMetadata): Promise<void> {
     if (f.head === null || m.plan === null || f.head.plan.planId !== m.plan.planId) return refusePlanning("plan.origin-unavailable");
     const receipt = await observePlanningReceipt(tx, m.plan.originCommandId);
-    if (receipt === null || receipt.commandKind !== "save-plan" || receipt.result.kind !== "committed" || receipt.confirmation === null) return refusePlanning("plan.operator-proof-unavailable");
+    if (receipt === null || !["save-plan", "adopt-ai-proposal"].includes(receipt.commandKind) || receipt.result.kind !== "committed" || receipt.confirmation === null) return refusePlanning("plan.operator-proof-unavailable");
+    if (receipt.commandKind === "adopt-ai-proposal") {
+      const material = planningObject(receipt.material, ["command", "contributionDigest", "request"]), command = parsePlanningCommand(material["command"]);
+      if (command.kind !== "adopt-ai-proposal" || digestPlanning(command) !== receipt.inputDigest || command.projectId !== f.project.projectId) return refusePlanning("plan.model-adoption-proof-corrupt", "corrupt");
+      const saved = await readAiRecord(tx, command.projectId), session = saved.record.sessions.find((s) => s.sessionId === command.sessionId);
+      if (session === undefined) return refusePlanning("plan.model-adoption-proof-corrupt", "corrupt");
+      const contribution = await readAiContribution(tx, String(material["contributionDigest"]), command.projectId, command.sessionId), origin = material["request"] as PlanCommitRequest;
+      const source = origin?.steps?.[0]?.event?.review?.assemblyRequest?.proposal?.source;
+      if (source?.kind !== "model" || source.contributionDigest !== material["contributionDigest"] || source.routeFingerprint !== contribution.routeFingerprint || contribution.purpose !== "proposal"
+        || !session.requests.some((r) => r.requestId === contribution.requestId && r.state === "succeeded" && !r.revoked && r.contributionDigest === material["contributionDigest"])
+        || origin.steps[0].plan?.planId !== f.head.plan.planId || canonicalPlanning(origin.steps[0].event.review) !== canonicalPlanning(f.head.headEvent.payload.review)) return refusePlanning("plan.model-adoption-proof-corrupt", "corrupt");
+      return;
+    }
     const material = planningObject(receipt.material, ["command", "request"]), command = parsePlanningCommand(material["command"]);
     if (command.kind !== "save-plan" || digestPlanning(command) !== receipt.inputDigest || command.projectId !== f.project.projectId) return refusePlanning("plan.operator-proof-corrupt", "corrupt");
     const origin = material["request"] as PlanCommitRequest;
@@ -262,6 +283,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
         expectedAggregateVersion: command.expectedBriefVersion, clarification: candidate.clarification, operatorConfirmed: true }, { digest: planningHash, clock: { now: () => new Date(at) } });
       const store = createC7IntakeStore(planningTransactionAdapter(tx), planningHash);
       const outcome = await store.attempt(prepared);
+      if (outcome.kind === "unknown") throw new IntakeError("intake.persistence.unknown", "store");
       if (outcome.kind !== "committed") return refusePlanning("brief.write-unconfirmed", outcome.kind === "conflict" ? "conflict" : "refused");
       return { projectId, material: { command, prepared } };
     }
@@ -331,9 +353,10 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
       if (command.kind === "stop-project") {
         const stop = parseProjectStop({ schemaVersion: 1, projectStopId: `pst:${digestPlanning(command.commandId).slice(0, 32)}`, revision: 1, projectId, engagedAt: at,
           effects: { cancelledTaskIds: [], stoppingSessionIds: [], unconfirmedSessionIds: [], voidedApprovalIds: [], voidedHandoverIds: [], releasedReservationIds: [], retainedReservationIds: [] }, resumedAt: null });
-        // This application launches no sessions and reserves no usage. Existing
-        // approvals remain historical facts; admission is stopped by this record.
+        // Existing approvals remain historical facts. Revoke the separate
+        // development-planning capability in this same ordered transaction.
         await writePlanningAggregate(tx, "project-stop", stop.projectStopId, stop, 0, command.commandId, "project.local-operations-stopped", at);
+        await aiPlanning.revoke(tx, projectId, command.commandId, "ai.project-stopped");
       } else {
         for (const stop of activeStops) {
           const envelope = (await tx.aggregates.get("project-stop", stop.projectStopId))!;
@@ -411,11 +434,17 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
         return outcome;
       });
       if (committed.kind === "committed") {
+        if (command.kind === "stop-project") aiPlanning.abortProject(command.projectId);
         if (creationCandidate !== null) candidates.set(committed.projectId!, creationCandidate);
         if (command.kind === "accept-brief") candidates.delete(command.projectId);
       }
       return committed;
     } catch (error) {
+      if (confirmation !== null && command.kind === "stop-project") {
+        // Retain the authorized cancellation attempt even if commit acknowledgement is lost.
+        try { aiPlanning.abortProject(command.projectId); }
+        catch { /* The original saved outcome remains uncertain. */ }
+      }
       const failed = safeFailure(error, id, projectId);
       // A semantic rejection proves the transaction rolled back. Unknown commit
       // results are never overwritten; Observe reads the original durable record.
@@ -435,7 +464,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
     // neither rewrite a known outcome nor write a semantic-rejection receipt.
     return "workspace" in outcome ? outcome : withWorkspace(outcome);
   }
-  async function ephemeralCommand(command: Exclude<PlanningCommand, DurableCommand>): Promise<PlanningCommandResult> {
+  async function ephemeralCommand(command: Exclude<ManualPlanningCommand, DurableCommand>): Promise<PlanningCommandResult> {
     try {
       const before = await persistence.transact((tx) => basis(tx, command));
       const confirmation = await confirm(command, before, null);
@@ -523,7 +552,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
         const history = [...await listPlanningEvents(tx, "project", projectId), ...stopHistory, ...(f.accepted === null ? [] : await listPlanningEvents(tx, "project-brief", f.accepted.aggregateId)),
           ...(head === null ? [] : await listPlanningEvents(tx, "project-plan", head.aggregateId))].sort((a, b) => a.globalSequence - b.globalSequence).slice(-100).map((event) => ({ eventId: event.eventId, kind: event.eventType, at: event.occurredAt }));
         const actions: NonNullable<PlanningProjectView["plan"]>["actions"] = f.stopped || head === null ? [] : head.plan.state === "drafting" ? ["prepare-plan"] : head.plan.state === "awaiting_scope_approval" ? scopeAvailable ? ["approve-scope"] : renewalAvailable ? ["request-scope-again"] : [] : head.plan.state === "proposed" && !m.value.plan?.requiresScope ? ["seal-plan"] : [];
-        selected = { ...summary, budget: { minorUnits: (f.budget.budget.money?.limit.amountMicros ?? 0) / 10000, currency: f.budget.budget.money?.limit.currency ?? "GBP" },
+        selected = { ...summary, aiPlanning: await aiPlanning.view(tx, projectId), budget: { minorUnits: (f.budget.budget.money?.limit.amountMicros ?? 0) / 10000, currency: f.budget.budget.money?.limit.currency ?? "GBP" },
           repository: repo === null ? null : { rootLeaf: repo.report.rootLeaf, state: repo.report.state, head: repo.report.facts.find((fact) => fact.kind === "git-head")?.value ?? null,
             branch: repo.report.facts.find((fact) => fact.kind === "git-branch")?.value ?? null, observedAt: repo.observedAt, facts: repo.report.facts.map((fact) => `${fact.kind}: ${fact.value}`) },
           brief: f.accepted === null ? null : { briefId: f.accepted.brief.briefId, version: f.accepted.aggregateVersion, digest: f.accepted.briefContentDigest, objective: f.accepted.brief.objective, outcomes: f.accepted.brief.outcomes, nonGoals: f.accepted.brief.nonGoals, audiences: f.accepted.brief.audiences },
@@ -532,7 +561,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
             tasks: head.plan.tasks.map((task) => ({ title: task.title, objective: task.objective, acceptanceCriteria: task.acceptance.map((item) => item.criterion) })), scope: m.value.plan?.requiresScope ? "scope-expansion" : "within-brief", sealedByApprovalId: head.plan.sealedByApprovalId, scopeApproval, actions }, approvals, handovers, history };
       }
       if (projectId !== null && selected === null) return refusePlanning("project.absent");
-      return { records, workspace: { schemaVersion: 1 as const, authority: "none" as const, source: "saved-local-planning" as const, projects, selected } };
+      return { records, workspace: { schemaVersion: 1 as const, authority: "none" as const, source: "saved-local-planning" as const, aiPlanningConnection: aiPlanning.connection(), projects, selected } };
     });
     const observations = await projectHandovers(saved.records), selected = saved.workspace.selected;
     return Object.freeze({ ...saved.workspace, selected: selected === null ? null : { ...selected,
@@ -558,6 +587,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
         const policy = await tx.aggregates.get("planning-workspace", "local-planning-policy");
         if (policy === null) await writePlanningAggregate(tx, "planning-workspace", "local-planning-policy", { schemaVersion: 1, kind: "local-planning-policy", version: 1, mode: "manual-planning-only" }, 0, "workspace:initialize", "planning-workspace.initialized", now());
         else verifyPlanningEnvelope(policy, "planning-workspace", "local-planning-policy");
+        await aiPlanning.initialize(tx);
         // Reconcile durable attempts before any UI query or new command. A
         // remaining intent proves an uncommitted transaction after child drain.
         for (const row of await listPlanningAggregates(tx, "planning-command")) {
@@ -601,7 +631,10 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
         try { return await pending; } finally { ephemeral.delete(pending); }
       }
       if (active.has(command.commandId)) return result("unknown", command.commandId, "projectId" in command ? command.projectId : null, "command.in-flight");
-      const pending = execute(command); active.set(command.commandId, pending);
+      const pending = isAiPlanningCommand(command) ? aiPlanning.command(command).then((outcome) => {
+        if (command.kind === "accept-ai-brief" && outcome.kind === "committed") candidates.delete(command.projectId);
+        return withWorkspace(outcome);
+      }) : execute(command); active.set(command.commandId, pending);
       try { return await pending; } finally { active.delete(command.commandId); }
     },
     async observe(commandId) {
@@ -618,7 +651,7 @@ export function createSavedPlanningApplication(options: Readonly<{ persistence: 
       })();
       return tracked(pending);
     },
-    async drain() { closing = true; await Promise.allSettled([...active.values(), ...ephemeral]); candidates.clear(); },
+    async drain() { closing = true; await Promise.all([Promise.allSettled([...active.values(), ...ephemeral]), aiPlanning.drain()]); candidates.clear(); },
   };
   return Object.freeze(app);
 }

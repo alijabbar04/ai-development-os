@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AdoptedControlService } from "@ai-dev-os/control-service";
 import { assertDesktopIpcEvent, parseDesktopRequest, sessionTokenMatches } from "../src/main/ipc-schema.js";
 import { acceptsChildReadyMessage, sanitizeAdoptedService } from "../src/service/controller.js";
+import { parseNativePlanningRequest } from "../src/shared/planning-ipc.js";
 
 const token = "a".repeat(64);
 const envelope = { schemaVersion: 1, requestId: "b".repeat(32), sessionToken: token };
@@ -46,6 +47,16 @@ describe("desktop IPC boundary", () => {
     expect(acceptsChildReadyMessage({ kind: "ready", launchNonce: "e".repeat(32) }, nonce)).toBe(false);
     expect(acceptsChildReadyMessage({ kind: "ready", launchNonce: nonce, descriptor: {} }, nonce)).toBe(false);
     expect(acceptsChildReadyMessage({ kind: "ready", launchNonce: nonce, bearerToken: "x" }, nonce)).toBe(false);
+  });
+
+  it("allows exact AI review subjects while rejecting caller authority and provider controls", () => {
+    const review = { reviewId: "native-review:owned", action: "adopt-ai-proposal", title: "Adopt the saved proposed draft", detail: "Saved contribution and operator edits", subjectDigest: "a".repeat(64) };
+    expect(parseNativePlanningRequest({ kind: "confirm", review })).toEqual({ kind: "confirm", review });
+    for (const extra of [{ operatorConfirmed: true }, { executable: "outside.exe" }, { provider: "other-account" }, { sessionToken: "forged" }]) {
+      expect(() => parseNativePlanningRequest({ kind: "confirm", review: { ...review, ...extra } })).toThrow("INVALID_REQUEST");
+    }
+    expect(() => parseNativePlanningRequest({ kind: "confirm", review: { ...review, action: "execute-ai-plan" } })).toThrow("INVALID_REQUEST");
+    expect(() => parseNativePlanningRequest({ kind: "confirm", review: { ...review, subjectDigest: "not-bound" } })).toThrow("INVALID_REQUEST");
   });
 
   it("projects no bearer, nonce, port or descriptor path", () => {

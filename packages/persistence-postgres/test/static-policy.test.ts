@@ -69,12 +69,13 @@ describe("PostgreSQL package static policy", () => {
   });
 
   it("pins the native locking, sequence, checksum, and migration invariants", () => {
-    expect(POSTGRES_MIGRATIONS).toHaveLength(5);
+    expect(POSTGRES_MIGRATIONS).toHaveLength(6);
     const migration = POSTGRES_MIGRATIONS[0];
     const evaluationMigration = POSTGRES_MIGRATIONS[1];
     const integrationMigration = POSTGRES_MIGRATIONS[2];
     const projectMigration = POSTGRES_MIGRATIONS[3];
     const planningMigration = POSTGRES_MIGRATIONS[4];
+    const aiPlanningMigration = POSTGRES_MIGRATIONS[5];
     expect(migration?.id).toBe("0001-initial-schema");
     expect(migrationChecksum(migration!).hex).toBe(
       "34413d60368bc485b1cbdc088d5000baa4ce31829c71ff0947d813aae1545f11",
@@ -110,6 +111,20 @@ describe("PostgreSQL package static policy", () => {
     expect(aggregateTypeVocabularies(planningMigration!.content)).toEqual([planningVocabulary, planningVocabulary]);
     const incompletePlanning = planningMigration!.content.replace(",'planning-handover'", "");
     expect(() => expect(aggregateTypeVocabularies(incompletePlanning)).toEqual([planningVocabulary, planningVocabulary])).toThrow();
+    expect(aiPlanningMigration?.id).toBe("0006-development-planning-history");
+    expect(migrationChecksum(aiPlanningMigration!).hex).toBe(
+      "2eee09565c8f2c682d7d527662ef4387d53068eb6df88ada817fa578e7ac5fd1",
+    );
+    const aiPlanningVocabulary = [...planningVocabulary, "planning-ai-session", "planning-ai-contribution"];
+    expect(aggregateTypeVocabularies(aiPlanningMigration!.content)).toEqual([
+      aiPlanningVocabulary, aiPlanningVocabulary,
+    ]);
+    for (const missing of ["planning-ai-session", "planning-ai-contribution"]) {
+      const incompleteAiPlanning = aiPlanningMigration!.content.replace(`,'${missing}'`, "");
+      expect(() => expect(aggregateTypeVocabularies(incompleteAiPlanning)).toEqual([
+        aiPlanningVocabulary, aiPlanningVocabulary,
+      ])).toThrow();
+    }
     const adapter = read(resolve(packageRoot, "src", "postgres-adapter.ts"));
     const migrations = read(resolve(packageRoot, "src", "migrations.ts"));
     expect(adapter).toContain("FOR UPDATE SKIP LOCKED");

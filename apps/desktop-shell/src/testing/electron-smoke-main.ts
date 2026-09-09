@@ -354,6 +354,8 @@ async function waitReady(): Promise<void> {
   const ready = await handle.waitForState("ready", 20_000);
   assertions["service-ready"] = ready.state === "ready";
   await waitForRenderer("document.querySelector('#service-pill')?.dataset.status === 'ready'", 5_000);
+  const planning = await handle.service.planning({ kind: "snapshot", projectId: null }) as PlanningWorkspaceView;
+  assertions["production-ai-route-refuses-before-inference"] = planning.aiPlanningConnection.state === "LIVE_ROUTE_BLOCKED" && planning.aiPlanningConnection.source === "unqualified" && planning.aiPlanningConnection.modelId === null;
   if (restartPriorPid !== null) {
     assertions["service-retry-new-child"] = handle.service.ownedProcessIdForTest() !== restartPriorPid;
     restartPriorPid = null;

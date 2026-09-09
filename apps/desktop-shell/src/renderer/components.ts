@@ -13,6 +13,7 @@ import {
   shortDigest,
 } from "../presentation/adapter.js";
 import type { DesktopSnapshot } from "../shared/contracts.js";
+import { createAiConnectionCard } from "./ai-planning.js";
 
 export interface CommandNotice {
   readonly tone: "info" | "warning" | "danger";
@@ -25,7 +26,7 @@ export interface WorkflowUiState {
   readonly reloadRequired: boolean;
   readonly notice: CommandNotice | null;
 }
-export type WorkspaceRoute = "home" | "project" | "plan" | "approvals" | "handovers" | "settings";
+export type WorkspaceRoute = "home" | "project" | "ai-planning" | "plan" | "approvals" | "handovers" | "settings";
 export interface RendererActions {
   readonly retryService: () => void;
   readonly openReadOnly: () => void;
@@ -161,7 +162,7 @@ export function createServiceCard(snapshot: DesktopSnapshot, actions: RendererAc
   const tone = snapshot.state === "ready" ? "" : snapshot.state === "loading" ? " warning" : " danger";
   const status = node("div", `notice${tone}`); status.append(node("strong", undefined, snapshot.statusText));
   const explanation = snapshot.state === "ready"
-    ? "Saved planning is available. This app does not run AI tasks, contact providers or spend money."
+    ? "Saved planning is available. AI planning requires a qualified subscription connection and your exact consent. This app does not start coding tasks or authorise payments."
     : snapshot.state === "read-only" ? "You can inspect the last saved view, but changes are disabled."
       : snapshot.state === "loading" ? "Saved planning will become available after the local workspace finishes starting."
         : "Changes are disabled while the local workspace is unavailable.";
@@ -198,11 +199,11 @@ function createNewProjectCard(snapshot: DesktopSnapshot, state: WorkflowUiState,
   value.append(form); return value;
 }
 export function createHomePage(snapshot: DesktopSnapshot, workspace: PlanningWorkspaceView, state: WorkflowUiState, actions: RendererActions): HTMLElement {
-  const page = node("div", "page"); page.append(heading("Your saved projects", "Create a local planning project or continue one you have already saved. Planning remains manual in this milestone."));
+  const page = node("div", "page"); page.append(heading("Your saved projects", "Create a local planning project or continue one you have already saved. AI planning has a separate connection and consent step."));
   if (snapshot.firstLaunch) {
-    const welcome = card("Welcome", true); const dismiss = button("Got it", actions.dismissWelcome, "primary"); gateAction(dismiss, snapshot.state === "ready", "This preference can be saved after the local workspace is ready."); welcome.append(node("p", undefined, "Use this workspace to shape a brief, save a plan, record scope approval and exchange a planning handover. It does not generate a plan or run the work for you."), dismiss); page.append(welcome);
+    const welcome = card("Welcome", true); const dismiss = button("Got it", actions.dismissWelcome, "primary"); gateAction(dismiss, snapshot.state === "ready", "This preference can be saved after the local workspace is ready."); welcome.append(node("p", undefined, "Shape a brief, review a proposed plan, record scope approval and exchange a planning handover. Saving or adopting a draft never starts the work."), dismiss); page.append(welcome);
   }
-  page.append(createServiceCard(snapshot, actions)); const presentation = adaptPlanningWorkspace(workspace); const projects = card("Projects", true);
+  page.append(createServiceCard(snapshot, actions), createAiConnectionCard(workspace)); const presentation = adaptPlanningWorkspace(workspace); const projects = card("Projects", true);
   if (presentation.projects.length === 0) projects.append(node("p", "muted", "No saved projects yet."));
   else {
     const projectList = node("div", "project-list");
@@ -294,7 +295,7 @@ function collectTasks(container: HTMLElement, validate: boolean): PlanningTaskIn
 }
 export function createPlanPage(snapshot: DesktopSnapshot, workspace: PlanningWorkspaceView, state: WorkflowUiState, actions: RendererActions): HTMLElement {
   const project = workspace.selected; if (project === null) return noProject(actions); const page = node("div", "page");
-  page.append(heading("Plan the work", "Write and save the plan yourself. This workspace does not generate tasks or execute them."), projectHeader(project));
+  page.append(heading("Plan the work", "Review the saved plan or write a manual revision. AI proposals are adopted separately in AI planning. No task executes here."), projectHeader(project));
   if (project.brief === null) {
     const missing = card("Accept a brief first", true); missing.append(node("p", undefined, "A saved plan must be bound to an accepted brief."), button("Go to project brief", () => actions.navigate("project"), "primary")); page.append(missing); return page;
   }
@@ -353,7 +354,7 @@ export function createPlanPage(snapshot: DesktopSnapshot, workspace: PlanningWor
 
 function stopResumeCard(snapshot: DesktopSnapshot, state: WorkflowUiState, project: PlanningProjectView, actions: RendererActions): HTMLElement {
   const value = card("Project state", true); const kind = project.stopped ? "resume-project" : "stop-project"; const label = project.stopped ? "Resume project" : "Stop project";
-  value.append(node("p", undefined, project.stopped ? "This project is stopped. Resume only reopens local planning actions; it starts no work." : "Stopping pauses supported local changes. This app has no AI process to terminate."));
+  value.append(node("p", undefined, project.stopped ? "This project is stopped. Resume only reopens local planning actions; it starts no work." : "Stopping blocks new planning requests and adoption, and cancels an owned request best-effort. Cancellation does not prove that provider usage was zero."));
   const control = button(label, () => actions.runPlanningCommand(Object.freeze({ kind, commandId: commandId(), projectId: project.projectId, expectedProjectVersion: project.version }), label), project.stopped ? "primary" : "danger-button");
   gateAction(control, snapshot.state === "ready" && !state.busy && !state.reloadRequired && state.pending === null, mutationReason(snapshot, state)); value.append(actionRow(control)); return value;
 }
@@ -426,7 +427,7 @@ export function createSettingsPage(snapshot: DesktopSnapshot, onSave: (mode: "no
   for (const [value, label] of [["standard", "Standard"], ["large", "Large"]] as const) { const option = node("option", undefined, label); option.value = value; option.selected = snapshot.preferences.textScale === value; scale.append(option); }
   const save = button("Save presentation settings", () => onSave(mode.value as "normal" | "developer", scale.value as "standard" | "large"), "primary"); gateAction(save, snapshot.state === "ready", "Settings can be saved after the local workspace is ready.");
   presentation.append(labelFor(mode.id, "Detail level"), mode, labelFor(scale.id, "Text size"), scale, save);
-  const capabilities = card("What this milestone does"); capabilities.append(list(["Saves local project planning records", "Supports manual brief and plan editing", "Records exact approval and handover history"]), node("p", "help", "AI generation, provider execution, credentials, live account usage and payments are unavailable.")); grid.append(presentation, capabilities);
+  const capabilities = card("What this milestone does"); capabilities.append(list(["Saves local project planning records", "Supports manual editing and separately consented AI planning", "Keeps model proposals, operator edits and exact approval history"]), node("p", "help", "The AI planning page reports the actual connection state. Remaining vendor allowance may be unknown. Coding execution, production and payments remain disabled.")); grid.append(presentation, capabilities);
   if (snapshot.diagnostics !== null) { const diagnostics = card("Developer diagnostics", true); const definitions = node("dl", "definition-list"); for (const [term, description] of [["Service version", snapshot.diagnostics.serviceVersion ?? "Unavailable"], ["Presentation", snapshot.diagnostics.presentationMode], ["Planning authority", "None"]]) definitions.append(node("dt", undefined, term), node("dd", undefined, description)); diagnostics.append(definitions); grid.append(diagnostics); }
   page.append(grid); return page;
 }

@@ -37,6 +37,7 @@ describe("workspace presentation adapter", () => {
       schemaVersion: 1,
       authority: "none",
       source: "saved-local-planning",
+      aiPlanningConnection: Object.freeze({ state: "LIVE_ROUTE_BLOCKED", source: "unqualified", provider: "claude-code-planning", modelId: null, detail: "Managed policy isolation is unqualified.", remainingAllowance: "unknown", configurationFingerprint: null }),
       projects: Object.freeze([{ projectId: "project-1", name: "Release readiness", version: 4, stopped: false, planState: "awaiting_scope_approval" }]),
       selected: Object.freeze({
         projectId: "project-1",
@@ -52,6 +53,7 @@ describe("workspace presentation adapter", () => {
         approvals: Object.freeze([]),
         handovers: Object.freeze([]),
         history: Object.freeze([]),
+        aiPlanning: Object.freeze({ version: 0, contextDigest: "0".repeat(64), currentSession: null, sessions: Object.freeze([]) }),
       }),
     });
     const presented = adaptPlanningWorkspace(workspace);

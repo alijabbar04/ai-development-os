@@ -56,14 +56,21 @@ describe("Stage 18C application static policy", () => {
     };
     expect(Object.keys(manifest.dependencies).sort()).toEqual([
       "@ai-dev-os/approval",
+      "@ai-dev-os/config",
+      "@ai-dev-os/context",
       "@ai-dev-os/domain",
       "@ai-dev-os/intake",
       "@ai-dev-os/persistence",
       "@ai-dev-os/persistence-postgres",
       "@ai-dev-os/persistence-sqlite",
       "@ai-dev-os/plan",
+      "@ai-dev-os/policy",
       "@ai-dev-os/project",
+      "@ai-dev-os/prompt-compiler",
+      "@ai-dev-os/provider-claude-code",
+      "@ai-dev-os/providers",
       "@ai-dev-os/scheduler",
+      "@ai-dev-os/thinker",
     ]);
     expect(manifest.files).toEqual(["dist", "README.md"]);
     expect(Object.keys(manifest.exports).sort()).toEqual([".", "./planning", "./planning-contracts", "./planning-storage", "./testing"]);
@@ -80,5 +87,20 @@ describe("Stage 18C application static policy", () => {
       .not.toContain("createAccountManagerSupportedUsageAdapterForTesting");
     expect(read(resolve(packageRoot, "src", "testing", "index.ts")))
       .toContain("createAccountManagerSupportedUsageAdapterForTesting");
+  });
+
+  it("keeps development planning host-owned without test-only inference or canonical issuers", () => {
+    const source = productionSources(resolve(packageRoot, "src")).join("\n");
+    for (const forbidden of [
+      'from "@ai-dev-os/thinker/testing"',
+      'from "@ai-dev-os/policy/testing"',
+      'from "@ai-dev-os/config/testing"',
+      'from "@ai-dev-os/plan/testing"',
+      'from "./testing/planning-ai-fixture.js"',
+      "createProductPlanningCoordinatorForTesting",
+    ]) expect(source).not.toContain(forbidden);
+    const owner = read(resolve(packageRoot, "src", "planning-ai.ts"));
+    expect(owner).toContain("options.planningProcess ?? createBlockedPlanningProcessPort()");
+    expect(read(resolve(packageRoot, "src", "planning-ai-thinker.ts"))).toContain("createThinker({");
   });
 });

@@ -35,14 +35,18 @@ import providers, Electron, HTTP frameworks, or UI code.
 ## Persistence model
 
 One generic **versioned aggregate store** persists every admitted aggregate,
-typed by the exact 20-member closed `AGGREGATE_TYPES` union. The released ten
+typed by the exact 25-member closed `AGGREGATE_TYPES` union. The released ten
 members are `artifact-manifest`, `budget-account`, `evaluation-run`,
 `integration-run`, `project`, `product-plan`, `task-graph`, `task-run`,
 `telemetry-ledger`, and `worker-run`. C7 appends `project-brief`, `project-plan`,
 `agent-session`, `handover`, `approval-request`, `spending-request`,
 `notification`, `communication-thread`, `external-integration`, and
-`project-stop`. Each
-envelope carries:
+`project-stop`. Saved workspaces add `planning-command`, `planning-workspace`,
+and `planning-handover`. AI planning adds `planning-ai-session` and
+`planning-ai-contribution` for durable preview history and immutable model
+contributions. These records carry no plan adoption, approval, or execution
+authority; their payload rules remain in the application package. Each envelope
+carries:
 
 | Field | Meaning |
 | --- | --- |

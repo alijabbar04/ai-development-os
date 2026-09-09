@@ -10,7 +10,6 @@ import {
 } from "@ai-dev-os/prompt-compiler";
 import type {
   GatewayInstanceSnapshot,
-  GatewayPreflight,
   ProviderGateway
 } from "@ai-dev-os/provider-gateway";
 import {
@@ -26,13 +25,23 @@ const { ensureNullable, ensureString } = validation;
 const HEX_64 = /^[0-9a-f]{64}$/u;
 const ALIAS_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/u;
 
+/** The inference boundary needs identity, not API-key/catalog authentication. */
+export type ThinkerInstanceSnapshot = Pick<GatewayInstanceSnapshot,
+  "instanceId" | "contractModelId" | "descriptor" | "model" | "userPreference" | "fingerprint"
+>;
+
+export interface ThinkerPreflight {
+  readonly instance: ThinkerInstanceSnapshot;
+  readonly request: InferenceRequest;
+}
+
 export interface ThinkerInferencePort {
   fingerprint(): string;
-  getInstance(instanceId: string): GatewayInstanceSnapshot | undefined;
+  getInstance(instanceId: string): ThinkerInstanceSnapshot | undefined;
   preflight(input: {
     readonly instanceId: string;
     readonly request: InferenceRequest;
-  }): GatewayPreflight;
+  }): ThinkerPreflight;
   invoke(input: {
     readonly instanceId: string;
     readonly request: InferenceRequest;

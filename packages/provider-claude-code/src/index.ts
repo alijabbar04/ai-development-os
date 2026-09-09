@@ -202,3 +202,16 @@ export {
   type ClaudeCodeProvider,
   type CreateClaudeCodeProviderOptions,
 } from "./provider.js";
+
+export {
+  CLAUDE_PLANNING_PROVIDER_ID, CLAUDE_PLANNING_PROTOCOL, PLANNING_LOCAL_REQUEST_CAP,
+  PLANNING_MAX_DEADLINE_MS, PLANNING_ROUTE_BLOCKED_REASON,
+  buildPlanningInvocation, createBlockedPlanningProcessPort,
+  createClaudePlanningInferenceProvider, createPlanningThinkerPort,
+  parsePlanningPrintResult, parsePlanningRequestBinding, planningInferenceFingerprint,
+  type ClaudePlanningInferenceProvider, type PlanningAdmission, type PlanningInferenceObservation,
+  type PlanningInvocation, type PlanningProcessOutcome, type PlanningProcessPort,
+  type PlanningRequestBinding, type PlanningRouteStatus, type PlanningUsageObservation,
+  type PlanningValidatedResponse, type PlanningThinkerInstance, type PlanningThinkerPort,
+} from "./planning-inference.js";
+export { validatePlanningJsonSchema, validatePlanningStructuredOutput } from "./planning-schema.js";

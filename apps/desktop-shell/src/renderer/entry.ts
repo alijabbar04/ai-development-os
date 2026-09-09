@@ -6,6 +6,8 @@ import type {
 } from "@ai-dev-os/application/planning-contracts";
 import { planningArtifactMessage, planningRecoveryDirective, planningResultMessage } from "../presentation/adapter.js";
 import type { DesktopPreferences, DesktopResult, DesktopSnapshot } from "../shared/contracts.js";
+import { capturePlanningFocus, restorePlanningFocus, type PlanningFocus } from "./planning-edit-buffer.js";
+import { aiPlanningStatus, createAiPlanningPage } from "./ai-planning.js";
 import {
   createApprovalsPage,
   createCommandStatus,
@@ -44,6 +46,7 @@ let busy = false;
 let pending: PendingCommand | null = null;
 let reloadRequired = false;
 let notice: CommandNotice | null = null;
+let deferredPlanningFocus: PlanningFocus | null = null;
 
 function requiredElement<T extends Element>(selector: string): T {
   const value = document.querySelector<T>(selector);
@@ -54,6 +57,7 @@ const main = requiredElement<HTMLElement>("#workspace-main");
 const servicePill = requiredElement<HTMLElement>("#service-pill");
 const modePill = requiredElement<HTMLElement>("#mode-pill");
 const announcer = requiredElement<HTMLElement>("#status-announcer");
+const fixtureBanner = requiredElement<HTMLElement>("#planning-fixture-banner");
 const detailDialog = requiredElement<HTMLDialogElement>("#detail-dialog");
 const detailTitle = requiredElement<HTMLElement>("#dialog-title");
 const detailContent = requiredElement<HTMLElement>("#dialog-content");
@@ -127,7 +131,7 @@ async function loadPlanning(projectId: string | null, announceResult: boolean): 
   busy = true; render(false);
   try {
     const next = await window.aiPowerhouse.planningSnapshot(projectId); workspace = next; selectedProjectId = next.selected?.projectId ?? projectId;
-    reloadRequired = false; if (announceResult) setNotice("Latest saved project loaded.");
+    reloadRequired = false; if (announceResult) setNotice(`Latest saved project loaded.${route === "ai-planning" ? ` ${aiPlanningStatus(next.selected)}` : ""}`);
   } catch {
     setNotice("Saved planning is temporarily unavailable. Existing content has been left unchanged.", "danger");
   } finally { busy = false; render(false); }
@@ -153,6 +157,8 @@ async function applyPlanningResult(result: PlanningCommandResult, label: string,
 
 function renderCommandStatus(focus: boolean): void {
   if (snapshot === null || workspace === null) return;
+  const beforeChangeFocus = capturePlanningFocus(main);
+  if (beforeChangeFocus !== null) deferredPlanningFocus = beforeChangeFocus;
   main.querySelector<HTMLElement>(".command-status")?.remove();
   const status = createCommandStatus(snapshot, uiState(), actions);
   if (status !== null) main.prepend(status);
@@ -164,7 +170,7 @@ function renderCommandStatus(focus: boolean): void {
     else control.removeAttribute("title");
   }
   main.setAttribute("aria-busy", busy ? "true" : "false");
-  if (focus) status?.focus();
+  if (focus) { deferredPlanningFocus = null; status?.focus(); }
 }
 
 async function runPlanningCommand(command: PlanningCommand, label: string): Promise<void> {
@@ -211,12 +217,18 @@ function loadingPage(message: string): HTMLElement {
   const page = document.createElement("div"); page.className = "page"; const h1 = document.createElement("h1"); h1.tabIndex = -1; h1.textContent = "Saved planning"; const p = document.createElement("p"); p.className = "muted"; p.textContent = message; page.append(h1, p); return page;
 }
 function render(focusHeading: boolean): void {
+  const currentFocus = capturePlanningFocus(main);
+  const fallbackFocus = document.activeElement === document.body || document.activeElement === main ? deferredPlanningFocus : null;
+  const previousFocus = focusHeading ? null : currentFocus ?? fallbackFocus;
+  deferredPlanningFocus = null;
   if (snapshot === null) { main.replaceChildren(loadingPage("Starting the local workspace…")); return; }
   if (workspace === null) { main.replaceChildren(loadingPage("Loading saved projects…")); return; }
+  fixtureBanner.hidden = workspace.aiPlanningConnection.source !== "synthetic-fixture";
   let page: HTMLElement;
   switch (route) {
     case "home": page = createHomePage(snapshot, workspace, uiState(), actions); break;
     case "project": page = createProjectPage(snapshot, workspace, uiState(), actions); break;
+    case "ai-planning": page = createAiPlanningPage(snapshot, workspace, uiState(), actions); break;
     case "plan": page = createPlanPage(snapshot, workspace, uiState(), actions); break;
     case "approvals": page = createApprovalsPage(snapshot, workspace, uiState(), actions); break;
     case "handovers": page = createHandoversPage(snapshot, workspace, uiState(), actions); break;
@@ -226,6 +238,10 @@ function render(focusHeading: boolean): void {
   main.setAttribute("aria-busy", busy ? "true" : "false");
   for (const control of document.querySelectorAll<HTMLButtonElement>("[data-route]")) control.setAttribute("aria-current", control.dataset["route"] === route ? "page" : "false");
   if (focusHeading) main.querySelector<HTMLElement>("h1")?.focus();
+  else if (!restorePlanningFocus(main, previousFocus)) {
+    if (busy) deferredPlanningFocus = previousFocus;
+    else if (previousFocus !== null) main.querySelector<HTMLElement>(".command-status")?.focus();
+  }
 }
 function navigate(next: WorkspaceRoute): void { route = next; render(true); }
 const navigation = [...document.querySelectorAll<HTMLButtonElement>("[data-route]")];

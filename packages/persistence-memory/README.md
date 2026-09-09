@@ -13,6 +13,12 @@ uses the same transaction, checksum, optimistic-concurrency, isolation, event,
 and close semantics. The shared suite independently exercises all ten C7
 additions; no project parser or runtime behavior is imported.
 
+Saved planning and AI history now extend the same closed vocabulary to 25
+members. `planning-command`, `planning-workspace`, `planning-handover`,
+`planning-ai-session`, and `planning-ai-contribution` use the existing generic
+adapter with shared create/update/version, journal, checksum, and isolation
+controls. Persistence does not interpret AI content or grant adoption authority.
+
 ## Usage
 
 ```ts

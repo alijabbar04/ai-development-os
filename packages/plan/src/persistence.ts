@@ -1,4 +1,5 @@
 import { compareCanonicalIds } from "./order.js";
+import { assertModelPlanAdoptionCoherent } from "./model-adoption.js";
 import {
   PLAN_STATES,
   assertAcyclicSupersession,
@@ -249,6 +250,7 @@ export function parsePlanReviewEvidence(value: unknown, digest: PlanDigestPort):
   const input = strictRecord(value, "planStore");
   exactKeys(input, ["assemblyRequest", "proposalDigest", "specification", "specificationDigest", "coverageDigest", "constraintDispositions", "provenance", "authenticatedOperatorEvidence"], "planStore");
   const assemblyRequest = parsePlanAssemblyRequest(input["assemblyRequest"]);
+  assertModelPlanAdoptionCoherent(assemblyRequest.proposal, digest);
   const proposalDigest = planDigest(input["proposalDigest"], "planStore");
   const specificationDigest = input["specificationDigest"] === null ? null : planDigest(input["specificationDigest"], "planSpecification");
   const coverageDigest = input["coverageDigest"] === null ? null : planDigest(input["coverageDigest"], "planCoverage");

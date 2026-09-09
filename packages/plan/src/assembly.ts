@@ -1,4 +1,5 @@
 import { compareCanonicalIds } from "./order.js";
+import { assertModelPlanAdoptionCoherent } from "./model-adoption.js";
 import {
   assertPlanDigest,
   parsePlanStage,
@@ -140,6 +141,12 @@ function validateProvenanceRow(
   if (row.origin === "model") {
     if (row.derivedFrom !== null || row.verbatim) {
       refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.provenance.model-claims-derivation", "planProposal");
+    }
+    return;
+  }
+  if (row.origin === "operator-edit") {
+    if (request.proposal.source.kind !== "model" || request.proposal.source.adoption === undefined || row.derivedFrom !== null || !row.verbatim) {
+      refusePlan("PLAN_AUTHORITY_VIOLATION", "plan.provenance.operator-claim-unbacked", "planProposal");
     }
     return;
   }
@@ -398,6 +405,7 @@ export function assemblePlan(
   digest: PlanDigestPort,
 ): PlanAssemblyResult {
   const request = parsePlanAssemblyRequest(requestValue);
+  const originalModelProposal = assertModelPlanAdoptionCoherent(request.proposal, digest);
   let project: Project;
   let brief: ProjectBrief;
   try {
@@ -430,6 +438,7 @@ export function assemblePlan(
     );
   }
   const provenance = validateProvenance(request, brief, specification);
+  if (originalModelProposal !== null) validateProvenance({ ...request, proposal: originalModelProposal }, brief, specification);
   const allocations = validateAllocations(request);
   const taskIds = new Set(request.proposal.tasks.map((task) => task.taskId));
   validateConstraints(request, brief, taskIds);

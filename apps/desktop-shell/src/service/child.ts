@@ -11,7 +11,7 @@ import { exactPlanningRecord, parsePlanningQuery, type NativePlanningReply, type
 
 /** The normal executable below supplies no clock. Only the separate owned
  * fixture entry imports this host and supplies its synthetic clock factory. */
-export function runOwnedServiceChild(planningClockForTest?: (dataRoot: string) => Promise<{ now(): Date }>): void {
+export function runOwnedServiceChild(planningClockForTest?: (dataRoot: string) => Promise<{ now(): Date }>, planningProcessForTest?: (dataRoot: string) => Promise<NonNullable<Parameters<typeof createSavedPlanningApplication>[0]["planningProcess"]>>): void {
 type StartMessage = Readonly<{
   kind: "start";
   launchNonce: string;
@@ -112,8 +112,9 @@ process.on("message", (message: unknown) => {
     const now = new Date().toISOString();
     startPromise = (async () => {
       const planningClock = await planningClockForTest?.(message.dataRoot);
+      const planningProcess = await planningProcessForTest?.(message.dataRoot);
       storage = await openPlanningStorage(message.dataRoot);
-      planning = createSavedPlanningApplication({ persistence: storage.persistence, artifactRoot: storage.artifactRoot, ...(planningClock === undefined ? {} : { clock: planningClock }), operator: {
+      planning = createSavedPlanningApplication({ persistence: storage.persistence, artifactRoot: storage.artifactRoot, ...(planningClock === undefined ? {} : { clock: planningClock }), ...(planningProcess === undefined ? {} : { planningProcess }), operator: {
         async confirm(review) { return await askNative({ kind: "confirm", review }) === true; },
         async selectRepository() { const value = await askNative({ kind: "repository" }); return typeof value === "string" ? value : null; },
         async selectResult() {

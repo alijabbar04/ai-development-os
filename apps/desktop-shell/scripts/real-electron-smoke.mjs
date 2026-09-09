@@ -6,6 +6,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { desktopElectronEnvironment } from "./electron-environment.mjs";
 import { runSavedRecoverySmoke } from "./recovery-electron-smoke.mjs";
+import { runAiPlanningSmoke } from "./ai-planning-electron-smoke.mjs";
 
 const require = createRequire(import.meta.url);
 const electron = require("electron");
@@ -39,6 +40,7 @@ let failure = null;
 let historicalSeed = null;
 let historicalVerification = null;
 let recovery = null;
+let aiPlanning = null;
 function ownedFixtureEnvironment() {
   const environment = Object.create(null);
   for (const name of ["SYSTEMROOT", "WINDIR", "TEMP", "TMP"]) if (process.env[name] !== undefined) environment[name] = process.env[name];
@@ -122,6 +124,10 @@ try {
   cleanShutdownProven = cleanShutdownProven && recovery.ok === true && recovery.phases.every(item => item.shutdown.explicitReceipt === true);
   const allCaptures = await Promise.all((await readdir(evidenceRoot, { withFileTypes: true })).filter(entry => entry.isFile() && entry.name.endsWith(".png")).map(async entry => (await lstat(join(evidenceRoot, entry.name))).size));
   if (allCaptures.length !== 9 || allCaptures.reduce((sum, size) => sum + size, 0) > 10_000_000) throw new Error("Combined Electron recovery evidence exceeds its bounds.");
+  aiPlanning = await runAiPlanningSmoke({ electron, applicationRoot: root, smokeRoot, evidenceRoot });
+  cleanShutdownProven = cleanShutdownProven && aiPlanning.ok === true && aiPlanning.phases.every(item => item.shutdown.explicitReceipt === true);
+  const finalCaptures = await Promise.all((await readdir(evidenceRoot, { withFileTypes: true })).filter(entry => entry.isFile() && entry.name.endsWith(".png")).map(async entry => (await lstat(join(evidenceRoot, entry.name))).size));
+  if (finalCaptures.length !== 11 || finalCaptures.reduce((sum, size) => sum + size, 0) > 10_000_000) throw new Error("Combined Electron AI planning evidence exceeds its bounds.");
 } catch (error) {
   failure = error instanceof Error ? error.message : "Unclassified Electron journey failure.";
 }
@@ -150,6 +156,7 @@ const reportValue = () => ({
   historicalSeed,
   historicalVerification,
   recovery,
+  aiPlanning,
   historyReconciled: reports.find((item) => item.phase === "history")?.historyReconciled ?? null,
   failure,
 });

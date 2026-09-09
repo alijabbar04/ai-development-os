@@ -46,6 +46,8 @@ export {
   createProviderGatewayThinkerPort,
   resolveThinkerTarget,
   type ResolvedThinkerTarget,
+  type ThinkerInstanceSnapshot,
+  type ThinkerPreflight,
   type ThinkerInferencePort
 } from "./target.js";
 

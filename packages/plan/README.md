@@ -10,6 +10,24 @@ consumption and plan sealing remain R2 work; C10 adds no plan lifecycle/event.
 Stage 20 Phase B checkpoint C9: pure, deterministic plan proposal parsing,
 assembly, review, sealing predicates, lifecycle state, and persistence ports.
 
+The saved AI preview's distinct adoption path uses `computeModelPlanProposalDigest`
+and `prepareModelPlanAdoption`. The host supplies the exact saved, validated model
+proposal and explicitly confirmed edits to existing stage/task prose fields.
+The source remains `kind: "model"`, `authority: "none"`, with its original route
+and contribution references. Edited fields use `operator-edit`, retaining exact
+previous text and provenance; assembly and durable reopen reconstruct and verify
+the original proposal digest. Graph, coverage, budgets and source metadata cannot
+be edited through this factory. Ordinary model proposals still cannot claim
+operator authorship.
+
+Preparation issues no authority. The host must validate its immutable contribution,
+project/brief/plan bindings and exact native confirmation, then supply every returned
+edit row both in review evidence and in its private commit-authorization facts.
+Missing, substituted or extra rows fail closed. Adoption remains a saved draft;
+model-derived edited scope still requires the existing separate scope review and
+sealing conditions. This helper supplies no planning assembly, completeness audit,
+provider invocation or execution capability.
+
 The three projection functions require an explicit, exact-key parsed
 `PlanProjectionContext` and digest port. They read no clock: callers provide
 `computedAt`, accepted/current brief bindings, the finite assembly-session

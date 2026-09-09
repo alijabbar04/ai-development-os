@@ -140,7 +140,11 @@ export function runPersistenceContractSuite(
       });
 
     describe("C7 project and saved planning aggregate vocabulary", () => {
-      it.each([...C7_PROJECT_AGGREGATE_TYPES, "planning-command", "planning-workspace", "planning-handover"] as const)(
+      it.each([
+        ...C7_PROJECT_AGGREGATE_TYPES,
+        "planning-command", "planning-workspace", "planning-handover",
+        "planning-ai-session", "planning-ai-contribution",
+      ] as const)(
         "supports the complete aggregate and journal contract for %s",
         async (aggregateType) => {
           const primaryId = `c7:${aggregateType}:shared`;

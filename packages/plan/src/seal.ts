@@ -227,7 +227,7 @@ function hasMaterialInference(input: SealEvaluationInput): boolean {
     ];
     for (const node of nodes) {
       for (const [path, row] of Object.entries(node.fields ?? {})) {
-        if (row.origin === "model" || row.origin === "specification" || row.origin === "brief" && !row.verbatim) return true;
+        if (row.origin === "model" || row.origin === "operator-edit" || row.origin === "specification" || row.origin === "brief" && !row.verbatim) return true;
         if (row.origin === "operator") {
           const value = fieldValue(node.kind === "stage" ? proposalStage.get(node.id)! : proposalTask.get(node.id)!, path);
           if (value === null || !evidence.has(`${node.kind}|${node.id}|${path}|${value}`)) return true;

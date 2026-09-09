@@ -14,7 +14,7 @@ thinker -> domain + providers + provider-gateway + prompt-compiler + config
 
 There is no dependency on a concrete adapter, coding-agent provider, telemetry ledger, task graph, scheduler, workspace, application, filesystem, network client, or process broker. `createProviderGatewayThinkerPort` exposes only immutable instance lookup, preflight, and explicit invocation from the Stage 12 gateway. The thinker never calls gateway health, quota, status, catalog ranking, or fallback behavior.
 
-`CodingAgentProvider` is a different contract from `InferenceProvider`. The Claude Code and Codex adapters expose verified workspace/artifact outcomes, not a bounded general inference answer, and are rejected when configured as thinker aliases. The repository does not currently include a direct first-party Anthropic inference adapter. A concrete Claude model is usable only if an operator registers it through a supported `InferenceProvider`; that is distinct from the Claude Code coding-agent surface. Production coding-agent execution remains blocked until Stage 17 supplies enforcing platform isolation.
+`CodingAgentProvider` is a different contract from `InferenceProvider`. The Claude Code coding-agent and Codex surfaces expose verified workspace/artifact outcomes and remain rejected when configured as thinker aliases. The Windows development-planning helper supplies a separate bounded Claude planning `InferenceProvider` through a host-owned port and the normal compiler/Thinker validation. Its shipped live route remains blocked pending managed-policy qualification; synthetic controls establish no live connection. This does not change the coding-agent type boundary or the production execution gate.
 
 ## Selection is a preference, not routing
 

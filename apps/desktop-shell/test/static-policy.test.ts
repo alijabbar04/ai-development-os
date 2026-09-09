@@ -29,7 +29,7 @@ describe("desktop static policy", () => {
     const executableFiles = ["src/main/application.ts", "src/main/ipc.ts", "src/service/controller.ts"];
     for (const file of executableFiles) expect(forbiddenRuntimeImport(await source(file)), file).toBe(false);
     expect(forbiddenRuntimeImport(await source("src/service/child.ts"), "child-planning"), "src/service/child.ts").toBe(false);
-    const rendererFiles = ["src/renderer/entry.ts", "src/renderer/components.ts", "src/presentation/adapter.ts", "src/shared/planning-ipc.ts"];
+    const rendererFiles = ["src/renderer/entry.ts", "src/renderer/components.ts", "src/renderer/ai-planning.ts", "src/renderer/planning-edit-buffer.ts", "src/presentation/adapter.ts", "src/shared/planning-ipc.ts"];
     for (const file of rendererFiles) expect(forbiddenRuntimeImport(await source(file), "renderer-planning-contracts"), file).toBe(false);
 
     expect(forbiddenRuntimeImport('import type { PlanningCommand } from "@ai-dev-os/application/planning-contracts";', "renderer-planning-contracts")).toBe(false);
@@ -47,7 +47,7 @@ describe("desktop static policy", () => {
 
   it("keeps renderer networking and broad bridges structurally absent", async () => {
     const preload = await source("src/preload/desktop.cts");
-    const renderer = `${await source("src/renderer/entry.ts")}\n${await source("src/renderer/components.ts")}\n${await source("src/presentation/adapter.ts")}`;
+    const renderer = `${await source("src/renderer/entry.ts")}\n${await source("src/renderer/components.ts")}\n${await source("src/renderer/ai-planning.ts")}\n${await source("src/renderer/planning-edit-buffer.ts")}\n${await source("src/presentation/adapter.ts")}`;
     const constants = await source("src/main/constants.ts");
     expect(constants).toContain('"connect-src \'none\'"');
     expect(preload).not.toMatch(/\b(?:openExternal|readFile|writeFile|exec|spawn|fetch)\s*\(/u);
@@ -57,6 +57,19 @@ describe("desktop static policy", () => {
     expect(preload).not.toContain("ipcRenderer.invoke(channel");
     expect(`${renderer}\nfetch('https://example.invalid')`).toMatch(/\bfetch\b/u);
     expect(`${renderer}\nconst operatorConfirmed = true;`).toMatch(/\boperatorConfirmed\b/u);
+  });
+
+  it("keeps the synthetic inference fixture outside production launch switches", async () => {
+    const normal = `${await source("src/main/startup.ts")}\n${await source("scripts/launch-desktop.mjs")}`;
+    expect(normal).not.toContain("aiPlanningFixtureForTest");
+    expect(normal).not.toContain("ai-planning-child");
+    const child = await source("src/service/child.ts");
+    expect(child).toContain("runOwnedServiceChild();");
+    expect(child).not.toMatch(/process\.env\[[^\]]*(?:AI|PLANNING|PROVIDER)/u);
+    const fixture = await source("src/testing/ai-planning-child.ts");
+    expect(fixture).toContain('"owned-ai-planning-user-data"');
+    expect(fixture).toContain('"owned-synthetic-ai-planning"');
+    expect(fixture).not.toMatch(/\b(?:spawn|execFile|fetch)\s*\(/u);
   });
 
   it("pins accessibility, scaling and non-animation contracts", async () => {

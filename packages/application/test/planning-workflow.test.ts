@@ -234,8 +234,10 @@ describe("application-owned saved planning workflow", { timeout: 30_000 }, () =>
     const f = await fixture(); let p = await draft(f.app, await accepted(f.app));
     p = await committed(f.app, { kind: "prepare-plan", commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version });
     f.fault.event = "plan.sealed";
-    const failed = await f.app.command({ kind: "approve-scope", commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version, scopeRequest: p.plan!.scopeApproval!.subject });
-    expect(failed.kind).toBe("refused");
+    const command = { kind: "approve-scope" as const, commandId: id(), projectId: p.projectId, expectedPlanVersion: p.plan!.version, scopeRequest: p.plan!.scopeApproval!.subject };
+    const failed = await f.app.command(command);
+    expect(failed.kind).toBe("unknown");
+    expect(await f.app.observe(command.commandId)).toMatchObject({ kind: "not-recorded", reason: "command.interrupted-before-commit" });
     const after = (await f.app.snapshot(p.projectId)).selected!;
     expect(after.plan).toEqual(p.plan); expect(after.approvals).toEqual(p.approvals); expect(after.history).toEqual(p.history);
     expect(after.approvals[0]?.state).toBe("requested");

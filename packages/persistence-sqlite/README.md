@@ -30,6 +30,14 @@ Released `0001-initial-schema` remains byte-identical and checksummed while the
 complete shared suite proves every new discriminator in memory and file modes,
 including physical close/reopen for the file database.
 
+Saved AI planning also needs no SQLite migration. The closed runtime vocabulary
+adds `planning-ai-session` and `planning-ai-contribution`, while the original
+schema checksum stays pinned. A physical inherited-data regression snapshots
+old project, brief, plan, command, workspace, handover, event, and migration rows;
+it appends both AI families, checks late-failure rollback, and reopens the file
+with all old bytes and new history intact. Payload authority and recovery rules
+remain in the application layer.
+
 ## Driver decision
 
 **Chosen: `better-sqlite3` (v12 line).** Mature and actively maintained,
