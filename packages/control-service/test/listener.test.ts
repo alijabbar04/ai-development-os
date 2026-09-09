@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFile, readdir, rm } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -16,6 +16,7 @@ import {
 import { projectionDataset, startControlServiceForTest } from "./testing.js";
 import { httpGet } from "./http-helpers.js";
 import { createCanonicalTemporaryRoot } from "./temporary-root.js";
+import { cleanupListenerFixtures } from "./listener-fixture-cleanup.js";
 
 const NOW = "2026-08-26T10:00:00.000Z";
 const roots: string[] = [];
@@ -46,10 +47,7 @@ function startupSentence(input: ControlServiceBootstrap): string {
 }
 
 afterEach(async () => {
-  for (const handle of handles.splice(0).reverse()) {
-    try { await handle.close(); } catch { /* assertions cover owned cleanup failures */ }
-  }
-  for (const value of roots.splice(0)) await rm(value, { recursive: true, force: true });
+  await cleanupListenerFixtures(handles, roots);
 });
 
 describe("C4 loopback listener lifecycle", () => {
