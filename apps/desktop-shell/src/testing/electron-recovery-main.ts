@@ -6,6 +6,7 @@ import type { PlanningProjectView, PlanningWorkspaceView } from "@ai-dev-os/appl
 import { launchDesktopApplication, type DesktopApplicationHandle } from "../main/application.js";
 import { nativePlanningDialog } from "../main/planning-dialog.js";
 import { nativeConfirmationResult } from "./native-confirmation-result.js";
+import { configureOwnedElectronProfile } from "./owned-electron-profile.js";
 import { registerDesktopProtocolScheme } from "../main/protocol.js";
 import type { NativePlanningRequest } from "../shared/planning-ipc.js";
 
@@ -16,7 +17,7 @@ const argument = (name: string): string => {
 const root = resolve(argument("smoke-root")), phase = argument("recovery-phase"), reportPath = resolve(argument("report")), evidenceRoot = resolve(argument("evidence-root"));
 if (!basename(root).startsWith("ai-dev-os-desktop-saved-smoke-") || !["prepare", "recover", "reopen"].includes(phase)) throw new Error("RECOVERY_FIXTURE_NOT_OWNED");
 const userDataRoot = join(root, "owned-saved-recovery-user-data"), baselinePath = join(userDataRoot, "recovery-baseline.json");
-app.commandLine.appendSwitch("user-data-dir", join(userDataRoot, "chromium"));
+const ownedElectronProfile = configureOwnedElectronProfile(app, root, "recovery");
 app.on("window-all-closed", () => { /* Owned shutdown is recorded before exit. */ });
 registerDesktopProtocolScheme(protocol);
 let handle: DesktopApplicationHandle | null = null, step = "startup", renewalDecisions = 0;
@@ -98,7 +99,8 @@ async function viewer(expectedText: string, label: string): Promise<void> {
 void (async () => {
 try {
   await mkdir(evidenceRoot, { recursive: true });
-  handle = await launchDesktopApplication({ userDataRoot, savedRecoveryFixtureForTest: true, nativePlanningForTest: native, onStartupPhase: value => process.stdout.write(`recovery:startup:${value}\n`) });
+  handle = await launchDesktopApplication({ userDataRoot, savedRecoveryFixtureForTest: true, nativePlanningForTest: native, onStartupPhase: value => { if (value === "app-configured" || value === "single-instance-owned") ownedElectronProfile.assertCurrent(); process.stdout.write(`recovery:startup:${value}\n`); } });
+  ownedElectronProfile.assertCurrent(); check("owned-electron-profile-isolated", true);
   await handle.waitForState("ready", 20_000);
   await wait(() => evaluate<boolean>("document.querySelector('#new-project-name') instanceof HTMLInputElement"), "initial-home");
   check("product-deadlines-and-minimum", handle.visibleElapsedMs < 30_000 && handle.window.getMinimumSize().join("x") === "1024x720");

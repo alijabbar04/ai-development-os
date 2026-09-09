@@ -17,6 +17,8 @@ export const DESKTOP_RENDERER_FILES = Object.freeze([
   "renderer/styles.css",
   "renderer/entry.js",
   "renderer/components.js",
+  "renderer/ai-planning.js",
+  "renderer/planning-edit-buffer.js",
   "presentation/adapter.js",
   "examples/workspace-example.js",
 ] as const);

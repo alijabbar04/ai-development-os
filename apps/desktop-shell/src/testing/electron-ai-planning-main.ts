@@ -8,12 +8,13 @@ import { nativePlanningDialog } from "../main/planning-dialog.js";
 import { registerDesktopProtocolScheme } from "../main/protocol.js";
 import type { NativePlanningRequest } from "../shared/planning-ipc.js";
 import { nativeConfirmationResult } from "./native-confirmation-result.js";
+import { configureOwnedElectronProfile } from "./owned-electron-profile.js";
 
 const argument = (name: string): string => { const value = process.argv.find(item => item.startsWith(`--${name}=`))?.slice(name.length + 3); if (!value) throw new Error("AI_SMOKE_ARGUMENT_MISSING"); return value; };
 const root = resolve(argument("smoke-root")), phase = argument("ai-phase"), reportPath = resolve(argument("report")), evidenceRoot = resolve(argument("evidence-root"));
 if (!basename(root).startsWith("ai-dev-os-desktop-saved-smoke-") || !["journey", "reopen"].includes(phase)) throw new Error("AI_SMOKE_FIXTURE_NOT_OWNED");
 const userDataRoot = join(root, "owned-ai-planning-user-data"), baselinePath = join(userDataRoot, "ai-baseline.json"), dispatchPath = join(userDataRoot, "synthetic-dispatches.jsonl");
-app.commandLine.appendSwitch("user-data-dir", join(userDataRoot, "chromium"));
+const ownedElectronProfile = configureOwnedElectronProfile(app, root, "ai-planning");
 app.on("window-all-closed", () => { /* Record owned shutdown before terminating. */ });
 registerDesktopProtocolScheme(protocol);
 let handle: DesktopApplicationHandle | null = null, step = "startup", project: PlanningProjectView | null = null, failure: string | null = null, diagnostics: string | null = null, shutdown = false;
@@ -40,7 +41,7 @@ async function buttonText(text: string): Promise<void> {
   await wait(() => evaluate<boolean>(`[...document.querySelectorAll('button')].some(button => button.textContent?.trim() === ${JSON.stringify(text)} && !button.disabled)`), text);
   await evaluate(`[...document.querySelectorAll('button')].find(button => button.textContent?.trim() === ${JSON.stringify(text)} && !button.disabled).click(); true`);
 }
-async function visible(text: string): Promise<void> { await wait(() => evaluate<boolean>(`document.querySelector('main')?.textContent?.includes(${JSON.stringify(text)}) === true`), text); }
+async function visible(text: string): Promise<void> { await wait(() => evaluate<boolean>(`document.querySelector('main')?.getAttribute('aria-busy') === 'false' && document.querySelector('main')?.textContent?.includes(${JSON.stringify(text)}) === true`), text); }
 async function route(name: string): Promise<void> { await evaluate(`document.querySelector('[data-route="${name}"]').click(); true`); }
 async function set(id: string, value: string): Promise<void> { await evaluate(`(() => { const control=document.getElementById(${JSON.stringify(id)}); if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement)) throw new Error('AI_CONTROL_MISSING'); control.value=${JSON.stringify(value)}; control.dispatchEvent(new Event('input',{bubbles:true})); return true; })()`); }
 async function workspace(id: string | null = null): Promise<PlanningWorkspaceView> { return await bounded(handle!.service.planning({ kind: "snapshot", projectId: id }), "saved-snapshot") as PlanningWorkspaceView; }
@@ -57,12 +58,22 @@ async function openProject(): Promise<void> {
 async function changeMode(mode: "normal" | "developer"): Promise<void> {
   await route("settings"); await evaluate(`document.querySelector('#presentation-mode').value=${JSON.stringify(mode)}; true`); await buttonText("Save presentation settings");
   await wait(async () => handle!.snapshot().state === "ready" && handle!.snapshot().preferences.presentationMode === mode, "presentation-ready");
-  await wait(() => evaluate<boolean>(`document.querySelector('#mode-pill')?.textContent===${JSON.stringify(mode === "normal" ? "Normal" : "Developer")}`), "presentation-visible"); await route("ai-planning");
+  await wait(() => evaluate<boolean>(`document.querySelector('#service-pill')?.dataset.status === 'ready' && document.querySelector('#mode-pill')?.textContent===${JSON.stringify(mode === "normal" ? "Normal" : "Developer")}`), "presentation-visible"); await route("ai-planning");
 }
 async function capture(name: string): Promise<void> {
-  check(`synthetic-label-visible:${name}`, await evaluate<boolean>("(() => { const banner=document.querySelector('#planning-fixture-banner'); const box=banner.getBoundingClientRect(); return !banner.hidden && banner.textContent.includes('no live provider call') && box.top>=0 && box.bottom<=window.innerHeight; })()"));
+  const context = name === "11-ai-clarification"
+    ? "document.querySelector('[data-route=\"ai-planning\"][aria-current=\"page\"]') !== null && document.querySelector('#ai-clarification-history')?.querySelectorAll('[data-clarification-round]').length === 2"
+    : "document.querySelector('[data-route=\"plan\"][aria-current=\"page\"]') !== null && document.querySelector('main h1')?.textContent === 'Plan the work' && document.querySelector('#plan-title')?.value === 'Garden journal planning proposal'";
   const window = handle!.window; window.setContentProtection(false);
-  try { const bytes = (await window.webContents.capturePage()).toPNG(); check(`capture:${name}`, bytes.length > 1_000 && bytes.length < 2_000_000); await writeFile(join(evidenceRoot, `${name}.png`), bytes, { flag: "wx" }); }
+  try {
+    check(`capture-context-before-paint:${name}`, await evaluate<boolean>(context));
+    // DOM/scroll completion can precede the displayed frame. Let the actual
+    // renderer paint before taking evidence; retain the existing finite bound.
+    await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))");
+    check(`capture-context-after-paint:${name}`, await evaluate<boolean>(context));
+    check(`synthetic-label-visible:${name}`, await evaluate<boolean>("(() => { const banner=document.querySelector('#planning-fixture-banner'); const box=banner.getBoundingClientRect(); return !banner.hidden && banner.textContent.includes('no live provider call') && box.top>=0 && box.bottom<=window.innerHeight; })()"));
+    const bytes = (await bounded(window.webContents.capturePage(), `capture:${name}`)).toPNG(); check(`capture:${name}`, bytes.length > 1_000 && bytes.length < 2_000_000); await writeFile(join(evidenceRoot, `${name}.png`), bytes, { flag: "wx" });
+  }
   finally { window.setContentProtection(true); }
 }
 async function terminal(purpose: "understanding" | "proposal", expectedCount: number): Promise<void> {
@@ -70,6 +81,7 @@ async function terminal(purpose: "understanding" | "proposal", expectedCount: nu
   project = await selected(); const request = project.aiPlanning.currentSession!.requests.findLast(item => item.purpose === purpose)!;
   check(`${purpose}-${expectedCount}-succeeded-through-real-validation`, request.state === "succeeded" && request.contributionDigest !== null && request.usageState === "reported" && request.modelId === "synthetic-planning-model");
   await click("ai-refresh-status"); await visible("Latest saved project loaded.");
+  await visible(request.requestId);
 }
 async function native(request: NativePlanningRequest) {
   if (request.kind === "repository") return join(root, "repository-fixture");
@@ -94,7 +106,8 @@ async function native(request: NativePlanningRequest) {
 void (async () => {
   try {
     await mkdir(evidenceRoot, { recursive: true });
-    handle = await launchDesktopApplication({ userDataRoot, aiPlanningFixtureForTest: true, nativePlanningForTest: native });
+    handle = await launchDesktopApplication({ userDataRoot, aiPlanningFixtureForTest: true, nativePlanningForTest: native, onStartupPhase: value => { if (value === "app-configured" || value === "single-instance-owned") ownedElectronProfile.assertCurrent(); } });
+    ownedElectronProfile.assertCurrent(); check("owned-electron-profile-isolated", true);
     await handle.waitForState("ready", 20_000); await wait(() => evaluate<boolean>("document.querySelector('#new-project-name') instanceof HTMLInputElement"), "initial-home");
     check("product-deadlines-and-minimum", handle.visibleElapsedMs < 30_000 && handle.window.getMinimumSize().join("x") === "1024x720");
     check("workspace-authority-none", handle.snapshot().authority === "none" && handle.snapshot().commands.length === 0);
@@ -103,7 +116,10 @@ void (async () => {
       progress("describe-existing-saved-project");
       for (const [id, value] of Object.entries({ "new-project-name": "Garden journal AI planning", "new-project-objective": "Create a garden journal for dated notes and weekly reminders", "new-project-outcomes": "Capture each garden note and retain it after reopening", "new-project-budget": "0" })) await set(id, value);
       await buttonText("Create project"); await wait(async () => (await workspace()).projects.length === 1, "project-created");
-      project = (await workspace()).selected!; await openProject(); await visible("Owned test fixture only.");
+      const listed = await workspace(), created = listed.projects[0]!;
+      project = (await workspace(created.projectId)).selected;
+      check("created-project-observed-by-explicit-identity", listed.selected === null && project !== null && project.projectId === created.projectId && project.name === "Garden journal AI planning");
+      await openProject(); await visible("Owned test fixture only.");
       await set("ai-new-description", "I would like a garden journal for dated notes and reminders. Keep notes after reopening.");
       await click("ai-start-session"); await visible("Planning session saved."); project = await selected();
       check("session-saves-before-any-provider-request", project.aiPlanning.currentSession !== null && project.aiPlanning.currentSession.requestCount === 0 && (await dispatches()).length === 0);
@@ -151,7 +167,10 @@ void (async () => {
       await click("ai-adopt-proposal"); await visible("Adopt this proposed draft was cancelled.");
       check("cancelled-adoption-keeps-plan-unwritten", (await selected()).plan === null && (await selected()).aiPlanning.currentSession!.adoptedPlanDigest === null);
       await click("ai-adopt-proposal"); await visible("Proposed plan explicitly adopted as a saved draft."); project = await selected();
-      check("explicit-model-draft-adoption", project.plan?.state === "drafting" && project.plan.tasks[0]?.title === "Capture garden notes with dates" && project.aiPlanning.currentSession!.adoptedPlanDigest === project.plan.digest);
+      const editedTasks = project.plan?.tasks.filter(task => task.title === "Capture garden notes with dates") ?? [];
+      check("explicit-model-draft-adoption", project.plan?.state === "drafting" && project.plan.tasks.length === 2 && editedTasks.length === 1
+        && editedTasks[0]!.objective === "Record dated garden observations" && JSON.stringify(editedTasks[0]!.acceptanceCriteria) === JSON.stringify(["Saved notes retain their date after reopening"])
+        && project.aiPlanning.currentSession!.adoptedPlanDigest === project.plan.digest);
       check("no-scope-or-execution-approval-invented", project.approvals.length === 0 && project.plan?.sealedByApprovalId === null);
       const records = await dispatches(); check("exactly-three-synthetic-requests", records.length === 3 && records.map(record => record["purpose"]).join(",") === "understanding,understanding,proposal" && records.every(record => record["source"] === "synthetic-owned-fixture" && record["liveInvocation"] === false));
       check("request-attribution-and-usage-retained", project.aiPlanning.currentSession!.requests.every(request => request.modelId === "synthetic-planning-model" && request.usageState === "reported" && request.state === "succeeded" && request.contributionDigest !== null));

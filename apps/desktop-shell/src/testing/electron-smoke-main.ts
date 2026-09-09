@@ -7,6 +7,7 @@ import type { PlanningProjectView, PlanningWorkspaceView } from "@ai-dev-os/appl
 import { launchDesktopApplication, type DesktopApplicationHandle } from "../main/application.js";
 import { nativePlanningDialog } from "../main/planning-dialog.js";
 import { nativeConfirmationResult } from "./native-confirmation-result.js";
+import { configureOwnedElectronProfile } from "./owned-electron-profile.js";
 import { registerDesktopProtocolScheme } from "../main/protocol.js";
 import type { NativePlanningReply, NativePlanningRequest } from "../shared/planning-ipc.js";
 import { runRendererHandoverViewerCheck, runRendererHistoricalJourney, runRendererSavedJourney, type RendererSavedJourneyDriver } from "./renderer-saved-journey.js";
@@ -79,7 +80,7 @@ const mode = modeOf(argument("smoke-mode"));
 const phase = phaseOf(argument("smoke-phase"));
 const provenance = "native folder/result selections are synthetic; actual main-owned confirmation window/preload/IPC/application/child/SQLite real, confirmation buttons automated";
 
-app.commandLine.appendSwitch("user-data-dir", resolve(smokeRoot, "chromium-user-data"));
+const ownedElectronProfile = configureOwnedElectronProfile(app, smokeRoot, "saved");
 if (mode === "reduced") app.commandLine.appendSwitch("force-prefers-reduced-motion", "reduce");
 if (mode === "forced") app.commandLine.appendSwitch("force-high-contrast");
 app.on("window-all-closed", () => { /* The report is written after explicit owned shutdown. */ });
@@ -548,7 +549,8 @@ async function closeOwnedApplication(): Promise<void> {
 async function runSmoke(): Promise<void> {
   try {
     progress("launching");
-    handle = await launchDesktopApplication({ userDataRoot: resolve(smokeRoot, "user-data"), serviceReadyDeadlineMs: 20_000, shutdownDeadlineMs: 3_000, nativePlanningForTest, onStartupPhase: (value) => progress(`startup-${value}`) });
+    handle = await launchDesktopApplication({ userDataRoot: resolve(smokeRoot, "user-data"), serviceReadyDeadlineMs: 20_000, shutdownDeadlineMs: 3_000, nativePlanningForTest, onStartupPhase: (value) => { if (value === "app-configured" || value === "single-instance-owned") ownedElectronProfile.assertCurrent(); progress(`startup-${value}`); } });
+    ownedElectronProfile.assertCurrent(); assertions["ownedElectronProfileIsolated"] = true;
     progress("visible");
     await waitReady();
     progress("service-ready");

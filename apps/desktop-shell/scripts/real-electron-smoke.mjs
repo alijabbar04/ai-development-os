@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { desktopElectronEnvironment } from "./electron-environment.mjs";
 import { runSavedRecoverySmoke } from "./recovery-electron-smoke.mjs";
 import { runAiPlanningSmoke } from "./ai-planning-electron-smoke.mjs";
+import { runProfileLockControl } from "./profile-lock-control.mjs";
 
 const require = createRequire(import.meta.url);
 const electron = require("electron");
@@ -41,6 +42,7 @@ let historicalSeed = null;
 let historicalVerification = null;
 let recovery = null;
 let aiPlanning = null;
+let profileIsolation = null;
 function ownedFixtureEnvironment() {
   const environment = Object.create(null);
   for (const name of ["SYSTEMROOT", "WINDIR", "TEMP", "TMP"]) if (process.env[name] !== undefined) environment[name] = process.env[name];
@@ -104,6 +106,7 @@ async function runHistoricalEntry(extraArguments, expectedKind, label) {
 }
 
 try {
+  profileIsolation = await runProfileLockControl({ electron, applicationRoot: root, smokeRoot, evidenceRoot });
   for (const [index, spec] of preSeedPhaseSpecs.entries()) {
     const report = await runElectron(spec, index);
     reports.push({ phase: spec.phase, mode: spec.mode, assertions: report.assertions, baseline: report.baseline, historyReconciled: report.historyReconciled ?? null, diagnostics: report.diagnostics ?? null, shutdown: report.shutdown });
@@ -118,7 +121,7 @@ try {
   }
   const evidence = await Promise.all((await readdir(evidenceRoot, { withFileTypes: true })).filter((entry) => entry.isFile() && entry.name.endsWith(".png")).map(async (entry) => (await lstat(join(evidenceRoot, entry.name))).size));
   if (evidence.length !== 7 || evidence.reduce((total, size) => total + size, 0) > 10_000_000) throw new Error(`Electron journey evidence bounds failed: ${evidence.length} PNG files, ${evidence.reduce((total, size) => total + size, 0)} bytes.`);
-  cleanShutdownProven = reports.length === preSeedPhaseSpecs.length + 1 && reports.every((item) => item.shutdown.explicitReceipt === true);
+  cleanShutdownProven = profileIsolation?.ok === true && reports.length === preSeedPhaseSpecs.length + 1 && reports.every((item) => item.shutdown.explicitReceipt === true);
   if (!cleanShutdownProven) throw new Error("Electron journey did not produce explicit clean shutdown receipts.");
   recovery = await runSavedRecoverySmoke({ electron, applicationRoot: root, smokeRoot, evidenceRoot });
   cleanShutdownProven = cleanShutdownProven && recovery.ok === true && recovery.phases.every(item => item.shutdown.explicitReceipt === true);
@@ -157,6 +160,7 @@ const reportValue = () => ({
   historicalVerification,
   recovery,
   aiPlanning,
+  profileIsolation,
   historyReconciled: reports.find((item) => item.phase === "history")?.historyReconciled ?? null,
   failure,
 });

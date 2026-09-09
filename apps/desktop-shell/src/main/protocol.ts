@@ -12,6 +12,8 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = Object.freeze({
   "renderer/styles.css": "text/css; charset=utf-8",
   "renderer/entry.js": "text/javascript; charset=utf-8",
   "renderer/components.js": "text/javascript; charset=utf-8",
+  "renderer/ai-planning.js": "text/javascript; charset=utf-8",
+  "renderer/planning-edit-buffer.js": "text/javascript; charset=utf-8",
   "presentation/adapter.js": "text/javascript; charset=utf-8",
   "examples/workspace-example.js": "text/javascript; charset=utf-8",
 });
