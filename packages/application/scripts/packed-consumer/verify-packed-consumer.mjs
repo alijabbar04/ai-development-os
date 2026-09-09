@@ -62,6 +62,8 @@ import {
   npmPackArgs,
   renderEvidence,
   sha256Hex,
+  validateConsumerRuntimeClosure,
+  validateTarballExportTargets,
   validateTarballFileList,
 } from "./lib.mjs";
 
@@ -118,6 +120,23 @@ evidence.push(["environment.node", process.version]);
 evidence.push(["environment.platform", `${process.platform}-${process.arch}`]);
 evidence.push(["environment.npm", npm(["--version"], repositoryRoot).stdout.trim()]);
 
+// Resolve the complete declared graph before packing or installing anything.
+// An unpublished first-party edge must never fall through to the npm registry.
+let repositoryManifests;
+try {
+  repositoryManifests = Object.fromEntries(REPOSITORY_PACKAGES.map(definition => [
+    definition.name,
+    JSON.parse(readFileSync(join(repositoryRoot, definition.directory, "package.json"), "utf8")),
+  ]));
+  const lockfile = JSON.parse(readFileSync(join(repositoryRoot, "package-lock.json"), "utf8"));
+  const closure = validateConsumerRuntimeClosure(repositoryManifests, lockfile);
+  evidence.push(["consumer.closure.firstPartyPackages", String(closure.packageCount)]);
+  evidence.push(["consumer.closure.firstPartyEdges", String(closure.firstPartyEdges)]);
+  evidence.push(["consumer.closure.registryPins", String(closure.registryPackageCount)]);
+} catch (error) {
+  fail(`consumer runtime closure is incomplete: ${String(error.message).slice(0, 300)}`);
+}
+
 const workRoot = mkdtempSync(
   join(process.env["RUNNER_TEMP"] ?? tmpdir(), "ai-dev-os-packed-consumer-"),
 );
@@ -161,6 +180,10 @@ for (const definition of REPOSITORY_PACKAGES) {
       `${definition.name} tarball contains undeclared payload: ` +
         policy.offending.slice(0, 10).join(", "),
     );
+  }
+  const exportPolicy = validateTarballExportTargets(repositoryManifests[definition.name].exports, filePaths);
+  if (!exportPolicy.ok) {
+    fail(`${definition.name} tarball is missing declared compiled exports: ${exportPolicy.missing.slice(0, 10).join(", ")}`);
   }
   const tarballPath = join(packDirectory, record.filename);
   if (!existsSync(tarballPath)) fail(`packed tarball missing on disk: ${record.filename}`);

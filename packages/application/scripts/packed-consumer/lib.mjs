@@ -17,7 +17,11 @@
 
 import { createHash } from "node:crypto";
 
-/** The full first-party runtime closure of the application package. */
+/**
+ * Explicit first-party consumer inventory, including the application runtime
+ * closure and the existing task-graph consumer package. The manifest guard
+ * below refuses a newly required tarball before npm can consult a registry.
+ */
 export const REPOSITORY_PACKAGES = Object.freeze([
   Object.freeze({ name: "@ai-dev-os/domain", directory: "packages/domain" }),
   Object.freeze({ name: "@ai-dev-os/artifacts", directory: "packages/artifacts" }),
@@ -37,6 +41,20 @@ export const REPOSITORY_PACKAGES = Object.freeze([
   Object.freeze({ name: "@ai-dev-os/intake", directory: "packages/intake" }),
   Object.freeze({ name: "@ai-dev-os/plan", directory: "packages/plan" }),
   Object.freeze({ name: "@ai-dev-os/approval", directory: "packages/approval" }),
+  Object.freeze({ name: "@ai-dev-os/artifact-store", directory: "packages/artifact-store" }),
+  Object.freeze({ name: "@ai-dev-os/config", directory: "packages/config" }),
+  Object.freeze({ name: "@ai-dev-os/context", directory: "packages/context" }),
+  Object.freeze({ name: "@ai-dev-os/memory", directory: "packages/memory" }),
+  Object.freeze({ name: "@ai-dev-os/policy", directory: "packages/policy" }),
+  Object.freeze({ name: "@ai-dev-os/process-broker", directory: "packages/process-broker" }),
+  Object.freeze({ name: "@ai-dev-os/prompt-compiler", directory: "packages/prompt-compiler" }),
+  Object.freeze({ name: "@ai-dev-os/provider-catalog", directory: "packages/provider-catalog" }),
+  Object.freeze({ name: "@ai-dev-os/provider-claude-code", directory: "packages/provider-claude-code" }),
+  Object.freeze({ name: "@ai-dev-os/provider-gateway", directory: "packages/provider-gateway" }),
+  Object.freeze({ name: "@ai-dev-os/repository-index", directory: "packages/repository-index" }),
+  Object.freeze({ name: "@ai-dev-os/secrets", directory: "packages/secrets" }),
+  Object.freeze({ name: "@ai-dev-os/thinker", directory: "packages/thinker" }),
+  Object.freeze({ name: "@ai-dev-os/workspace", directory: "packages/workspace" }),
   Object.freeze({ name: "@ai-dev-os/application", directory: "packages/application" }),
 ]);
 
@@ -49,6 +67,47 @@ export const REGISTRY_PINS = Object.freeze({
   "pg": "8.23.0",
   "pg-pool": "3.14.0",
 });
+
+/** Required peers participate in an install; isolated optional test peers do not. */
+function runtimeDependencies(manifest) {
+  const peers = Object.fromEntries(Object.entries(manifest.peerDependencies ?? {})
+    .filter(([name]) => manifest.peerDependenciesMeta?.[name]?.optional !== true));
+  return { ...peers, ...manifest.dependencies, ...manifest.optionalDependencies };
+}
+
+/**
+ * Pure preflight over the exact manifests and lockfile read by the orchestrator.
+ * Every first-party edge must have a local tarball, and each registry edge must
+ * resolve to its existing exact consumer pin. Dev dependencies and optional
+ * testing peers never expand this production consumer.
+ */
+export function validateConsumerRuntimeClosure(manifestsByName, lockfile, definitions = REPOSITORY_PACKAGES, registryPins = REGISTRY_PINS) {
+  const supplied = new Set(definitions.map(definition => definition.name));
+  if (supplied.size !== definitions.length) throw new Error("Duplicate first-party consumer package.");
+  const registryNames = new Set();
+  let firstPartyEdges = 0;
+  for (const definition of definitions) {
+    const manifest = manifestsByName[definition.name];
+    if (manifest?.name !== definition.name) throw new Error(`Missing or mismatched manifest for ${definition.name}.`);
+    for (const dependency of Object.keys(runtimeDependencies(manifest))) {
+      if (dependency.startsWith("@ai-dev-os/")) {
+        if (!supplied.has(dependency)) throw new Error(`Missing first-party tarball ${dependency} required by ${definition.name}.`);
+        firstPartyEdges += 1;
+      } else {
+        const locked = lockfile.packages?.[`${definition.directory}/node_modules/${dependency}`]
+          ?? lockfile.packages?.[`node_modules/${dependency}`];
+        if (typeof locked?.version !== "string" || registryPins[dependency] !== locked.version) {
+          throw new Error(`Missing or mismatched registry pin for ${dependency} required by ${definition.name}.`);
+        }
+        registryNames.add(dependency);
+      }
+    }
+  }
+  for (const name of Object.keys(registryPins)) {
+    if (!registryNames.has(name)) throw new Error(`Registry pin ${name} is outside the consumer runtime closure.`);
+  }
+  return Object.freeze({ packageCount: supplied.size, firstPartyEdges, registryPackageCount: registryNames.size });
+}
 
 /** Exact pinned Account Manager identities (must equal the application constants). */
 export const EXPECTED_SUPPORTED_COMMIT =
@@ -119,6 +178,19 @@ export function validateTarballFileList(paths) {
     if (!allowed) offending.push(normalized);
   }
   return Object.freeze({ ok: offending.length === 0, offending: Object.freeze(offending) });
+}
+
+/** Every declared runtime/type/testing entry must exist in the packed output. */
+export function validateTarballExportTargets(packageExports, paths) {
+  const targets = [];
+  function visit(value) {
+    if (typeof value === "string") targets.push(value);
+    else if (value !== null && typeof value === "object") for (const nested of Object.values(value)) visit(nested);
+  }
+  visit(packageExports);
+  const files = new Set(paths.map(path => path.replaceAll("\\", "/")));
+  const missing = [...new Set(targets.filter(target => !target.startsWith("./dist/") || !files.has(target.slice(2))))];
+  return Object.freeze({ ok: targets.length > 0 && missing.length === 0, missing: Object.freeze(missing) });
 }
 
 /**

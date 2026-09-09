@@ -36,20 +36,34 @@ async function wait(test: () => Promise<boolean>, label: string): Promise<void> 
   while (Date.now() < deadline) { if (await bounded(test(), label)) return; await new Promise<void>((done) => setTimeout(done, 100)); }
   throw new Error(`RECOVERY_TIMEOUT:${label}`);
 }
+const rendererReady = "document.querySelector('#service-pill')?.dataset.status === 'ready' && document.querySelector('main')?.getAttribute('aria-busy') === 'false'";
 const available = (label: string): string => `Array.from(document.querySelectorAll('button')).some(b => b.textContent?.trim() === ${JSON.stringify(label)} && !b.disabled)`;
 async function click(label: string): Promise<void> {
-  await wait(() => evaluate<boolean>(available(label)), label);
+  await wait(() => evaluate<boolean>(`(${rendererReady}) && (${available(label)})`), label);
   check(`control:${label}`, await evaluate<boolean>(`(() => { const b = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.trim() === ${JSON.stringify(label)} && !b.disabled); if (!b) return false; b.focus(); b.click(); return true; })()`));
 }
-async function route(name: string): Promise<void> { await evaluate(`document.querySelector('[data-route=${name}]').click(); true`); }
-async function textVisible(text: string): Promise<void> { await wait(() => evaluate<boolean>(`document.querySelector('main')?.textContent?.includes(${JSON.stringify(text)}) === true`), text); }
+async function route(name: string): Promise<void> {
+  await wait(() => evaluate<boolean>(rendererReady), `before-route:${name}`);
+  await evaluate(`document.querySelector('[data-route=${name}]').click(); true`);
+  await wait(() => evaluate<boolean>(`(${rendererReady}) && document.querySelector('[data-route=${name}]')?.getAttribute('aria-current') === 'page'`), `route-ready:${name}`);
+}
+async function textVisible(text: string): Promise<void> { await wait(() => evaluate<boolean>(`(${rendererReady}) && document.querySelector('main')?.textContent?.includes(${JSON.stringify(text)}) === true`), text); }
 async function workspace(id: string | null = null): Promise<PlanningWorkspaceView> { return await bounded(handle!.service.planning({ kind: "snapshot", projectId: id }), "saved-snapshot") as PlanningWorkspaceView; }
 async function selected(): Promise<PlanningProjectView> { const p = (await workspace(project!.projectId)).selected; if (p === null) throw new Error("RECOVERY_PROJECT_ABSENT"); return p; }
-async function openProject(name: string): Promise<void> {
+async function openProject(name: string, expectedId?: string): Promise<Readonly<{ pending: boolean; headingAlreadyMatched: boolean }>> {
   await route("home");
-  await wait(() => evaluate<boolean>(`Array.from(document.querySelectorAll('.project-row h3')).some(h => h.textContent === ${JSON.stringify(name)})`), "project-listed");
-  await evaluate(`Array.from(document.querySelectorAll('.project-row')).find(r => r.querySelector('h3')?.textContent === ${JSON.stringify(name)}).querySelector('button').click(); true`);
-  await wait(() => evaluate<boolean>(`document.querySelector('.project-title h2')?.textContent === ${JSON.stringify(name)}`), "project-open");
+  await wait(() => evaluate<boolean>(`(${rendererReady}) && Array.from(document.querySelectorAll('.project-row h3')).some(h => h.textContent === ${JSON.stringify(name)})`), "project-listed");
+  const matching = (await workspace()).projects.filter(item => item.name === name);
+  check(`unique-listed-project:${name}`, matching.length === 1 && (expectedId === undefined || matching[0]!.projectId === expectedId));
+  const id = matching[0]!.projectId;
+  // The click synchronously starts the real async load. Read its actual busy
+  // state in this same renderer task, before the IPC response can be applied.
+  const loading = await evaluate<{ pending: boolean; headingAlreadyMatched: boolean }>(`(() => { const row = Array.from(document.querySelectorAll('.project-row')).find(r => r.querySelector('h3')?.textContent === ${JSON.stringify(name)}); row.querySelector('button').click(); return { pending: document.querySelector('main').getAttribute('aria-busy') === 'true', headingAlreadyMatched: document.querySelector('.project-title h2')?.textContent === ${JSON.stringify(name)} }; })()`);
+  check(`real-project-load-pending:${name}`, loading.pending);
+  await wait(() => evaluate<boolean>(`(${rendererReady}) && document.querySelector('.project-title h2')?.textContent === ${JSON.stringify(name)}`), "project-open");
+  const opened = (await workspace(id)).selected;
+  check(`ready-selected-project-binding:${name}`, opened?.projectId === id && opened.name === name);
+  return loading;
 }
 async function capture(name: string): Promise<void> {
   const window = handle!.window; window.setContentProtection(false);
@@ -73,14 +87,33 @@ async function native(request: NativePlanningRequest) {
   } catch (error) { if (dialog !== undefined && !dialog.isDestroyed()) dialog.destroy(); await pending.catch(() => false); throw error; }
 }
 async function createProject(name: string): Promise<void> {
-  await route("home"); await wait(() => evaluate<boolean>("document.querySelector('#new-project-name') instanceof HTMLInputElement"), "new-project");
-  await evaluate(`(() => { const values = ${JSON.stringify({ "new-project-name": "PLACEHOLDER", "new-project-objective": "Preserve manual recovery field notes", "new-project-outcomes": "Reopen saved field notes", "new-project-budget": "20", "new-project-currency": "GBP" })}; values['new-project-name'] = ${JSON.stringify(name)}; for (const [id,value] of Object.entries(values)) { const c=document.getElementById(id); c.value=value; c.dispatchEvent(new Event('input',{bubbles:true})); } return true; })()`);
-  await click("Create project"); await openProject(name);
+  await route("home"); await wait(() => evaluate<boolean>(`(${rendererReady}) && document.querySelector('#new-project-name') instanceof HTMLInputElement`), "new-project");
+  const before = (await workspace()).projects, expectedCount = before.length + 1;
+  check(`new-project-name-is-distinct:${name}`, !before.some(item => item.name === name));
+  const values = { "new-project-name": name, "new-project-objective": "Preserve manual recovery field notes", "new-project-outcomes": "Reopen saved field notes", "new-project-budget": "20", "new-project-currency": "GBP" };
+  // Fill, verify and submit in one renderer task after the real readiness
+  // barrier, so no awaited bridge response can replace the form in between.
+  const submitted = await evaluate<{ submitted: boolean; pending: boolean }>(`(() => { if (!(${rendererReady})) return { submitted: false, pending: false }; const values = ${JSON.stringify(values)}; for (const [id,value] of Object.entries(values)) { const control = document.getElementById(id); if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement || control instanceof HTMLSelectElement)) return { submitted: false, pending: false }; control.value=value; control.dispatchEvent(new Event('input',{bubbles:true})); } if (!Object.entries(values).every(([id,value])=>document.getElementById(id).value===value)) return { submitted: false, pending: false }; const form=document.querySelector('#new-project-name').form; const button=Array.from(form.querySelectorAll('button')).find(item=>item.textContent?.trim()==='Create project'); if (!button || button.disabled || !form.reportValidity()) return { submitted: false, pending: false }; button.focus(); button.click(); return { submitted: true, pending: document.querySelector('main').getAttribute('aria-busy')==='true' }; })()`);
+  check("control:Create project", submitted.submitted);
+  check(`real-project-creation-pending:${name}`, submitted.pending);
+  await textVisible("Project creation saved.");
+  let createdId = "";
+  await wait(async () => {
+    const projects = (await workspace()).projects, matches = projects.filter(item => item.name === name);
+    if (projects.length !== expectedCount || matches.length !== 1 || before.some(item => !projects.some(current => current.projectId === item.projectId)) || before.some(item => item.projectId === matches[0]!.projectId)) return false;
+    createdId = matches[0]!.projectId; return true;
+  }, `exact-project-created:${name}`);
+  await wait(() => evaluate<boolean>(`(${rendererReady}) && (() => { const names=Array.from(document.querySelectorAll('.project-row h3')).map(item=>item.textContent); return names.length===${expectedCount} && names.filter(value=>value===${JSON.stringify(name)}).length===1; })()`), `exact-project-rendered:${name}`);
+  check(`exact-project-name-count-and-identity-saved:${name}`, createdId.length > 0);
+  const opening = await openProject(name, createdId);
+  // A just-created project is already selected in the command result. This
+  // proves that a matching old heading can coexist with an unfinished load.
+  check(`old-heading-alone-would-pass-during-load:${name}`, opening.pending && opening.headingAlreadyMatched);
 }
 async function mode(value: "normal" | "developer"): Promise<void> {
   await route("settings"); await evaluate(`document.querySelector('#presentation-mode').value=${JSON.stringify(value)}; true`); await click("Save presentation settings");
   await wait(async () => handle!.snapshot().state === "ready" && handle!.snapshot().preferences.presentationMode === value, "mode-ready");
-  await wait(() => evaluate<boolean>(`document.querySelector('#mode-pill')?.textContent === ${JSON.stringify(value === "normal" ? "Normal" : "Developer")}`), "mode-visible");
+  await wait(() => evaluate<boolean>(`(${rendererReady}) && document.querySelector('#mode-pill')?.textContent === ${JSON.stringify(value === "normal" ? "Normal" : "Developer")}`), "mode-visible");
 }
 async function viewer(expectedText: string, label: string): Promise<void> {
   await route("handovers");
@@ -102,7 +135,7 @@ try {
   handle = await launchDesktopApplication({ userDataRoot, savedRecoveryFixtureForTest: true, nativePlanningForTest: native, onStartupPhase: value => { if (value === "app-configured" || value === "single-instance-owned") ownedElectronProfile.assertCurrent(); process.stdout.write(`recovery:startup:${value}\n`); } });
   ownedElectronProfile.assertCurrent(); check("owned-electron-profile-isolated", true);
   await handle.waitForState("ready", 20_000);
-  await wait(() => evaluate<boolean>("document.querySelector('#new-project-name') instanceof HTMLInputElement"), "initial-home");
+  await wait(() => evaluate<boolean>(`(${rendererReady}) && document.querySelector('#new-project-name') instanceof HTMLInputElement`), "initial-home");
   check("product-deadlines-and-minimum", handle.visibleElapsedMs < 30_000 && handle.window.getMinimumSize().join("x") === "1024x720");
   check("planning-authority-none", handle.snapshot().authority === "none" && handle.snapshot().commands.length === 0);
   if (phase === "prepare") {
